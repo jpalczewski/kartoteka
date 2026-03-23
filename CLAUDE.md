@@ -58,6 +58,16 @@ just deploy       # Deploy wszystkiego
 just lint         # Clippy + fmt check
 ```
 
+## Dokumentacja i aktualne wersje bibliotek
+
+Projekt używa szybko ewoluujących bibliotek (Leptos 0.7, gloo-net 0.6, worker 0.7+,
+sqlx-d1 0.3+, DaisyUI 5). Przed pisaniem kodu sprawdzaj aktualne API przez context7 MCP:
+
+- `mcp__context7__resolve-library-id` — znajdź ID biblioteki (np. "leptos", "gloo-net")
+- `mcp__context7__query-docs` — pobierz aktualną dokumentację
+
+Używaj tego proaktywnie, nie czekaj na błędy kompilacji.
+
 ## Pliki do NIE commitowania
 
 - `.env` — sekrety i konfiguracja

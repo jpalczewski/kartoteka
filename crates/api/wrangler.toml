@@ -6,8 +6,29 @@ account_id = "6b703fac2c4f8b359e430bf11b8dde7f"
 [build]
 command = "cargo install -q worker-build && worker-build --release"
 
+# === PROD (default) ===
 [[d1_databases]]
 binding = "DB"
 database_name = "kartoteka-db"
 database_id = "2eaf10af-8d5f-49e2-9931-be6911a61da8"
+migrations_dir = "./migrations"
+
+# === LOCAL ===
+[env.local]
+name = "kartoteka-api-local"
+
+[[env.local.d1_databases]]
+binding = "DB"
+database_name = "kartoteka-api-local"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "./migrations"
+
+# === DEV ===
+[env.dev]
+name = "kartoteka-api-dev"
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "kartoteka-dev"
+database_id = "94ab37c2-8a21-40ad-a878-fd546d741e92"
 migrations_dir = "./migrations"

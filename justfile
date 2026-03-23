@@ -19,15 +19,18 @@ setup:
     cd mcp && npm install
     cd crates/frontend && npm install
 
-# Utwórz bazę D1 (jednorazowo)
+# Utwórz bazy D1 (jednorazowo)
 db-create:
     cd crates/api && npx wrangler d1 create kartoteka-db
 
+db-create-dev:
+    cd crates/api && npx wrangler d1 create kartoteka-dev
+
 # === DEV ===
 
-# Uruchom API worker lokalnie
+# Uruchom API worker lokalnie (lokalny SQLite)
 dev-api:
-    cd crates/api && HANKO_API_URL="${HANKO_API_URL}" npx wrangler dev
+    cd crates/api && HANKO_API_URL="${HANKO_API_URL}" npx wrangler dev --env local --local
 
 # Uruchom frontend z proxy do API
 dev-frontend: _gen-hanko
@@ -70,30 +73,50 @@ check:
 migrate-create NAME:
     cd crates/api && npx wrangler d1 migrations create kartoteka-db {{NAME}}
 
-# Zastosuj migracje lokalnie
+# Zastosuj migracje lokalnie (kartoteka-api-local, lokalny SQLite)
 migrate-local:
-    cd crates/api && npx wrangler d1 migrations apply kartoteka-db --local
+    cd crates/api && npx wrangler d1 migrations apply kartoteka-api-local --env local --local
 
-# Zastosuj migracje na produkcję
-migrate-remote:
-    cd crates/api && npx wrangler d1 migrations apply kartoteka-db --remote
+# Zastosuj migracje na dev (kartoteka-dev, remote)
+migrate-dev:
+    cd crates/api && npx wrangler d1 migrations apply kartoteka-dev --env dev --remote
+
+# Zastosuj migracje na produkcję (kartoteka-db, remote)
+migrate-prod:
+    cd crates/api && npx wrangler d1 migrations apply kartoteka-db --env="" --remote
+
+# Alias wstecznej kompatybilności
+migrate-remote: migrate-prod
 
 # === DEPLOY ===
 
-# Deploy wszystkiego na produkcję
-deploy: deploy-migrate deploy-api deploy-frontend deploy-mcp
+# Deploy wszystkiego na produkcję (bez MCP — scaffold, nie gotowy)
+deploy: deploy-migrate deploy-api deploy-frontend
 
-# Deploy migracji
+# Deploy wszystkiego na dev
+deploy-dev: migrate-dev deploy-api-dev deploy-frontend-dev
+
+# Deploy migracji (prod)
 deploy-migrate:
-    cd crates/api && npx wrangler d1 migrations apply kartoteka-db --remote
+    cd crates/api && npx wrangler d1 migrations apply kartoteka-db --env="" --remote
 
-# Deploy API worker
+# Deploy API worker (prod)
 deploy-api:
-    cd crates/api && HANKO_API_URL="${HANKO_API_URL}" npx wrangler deploy
+    cd crates/api && HANKO_API_URL="${HANKO_API_URL}" npx wrangler deploy --env=""
 
-# Deploy frontend na CF Pages
+# Deploy API worker (dev)
+deploy-api-dev:
+    cd crates/api && HANKO_API_URL="${HANKO_API_URL}" npx wrangler deploy --env dev
+
+# Deploy frontend na CF Pages (prod)
 deploy-frontend: build-frontend
     npx wrangler pages deploy crates/frontend/dist --project-name=kartoteka --branch=main --commit-dirty=true
+
+# Deploy frontend na CF Pages (dev)
+deploy-frontend-dev:
+    cd crates/frontend && npm install
+    cd crates/frontend && API_BASE_URL="https://kartoteka-api-dev.jpalczewski.workers.dev/api" HANKO_API_URL="${HANKO_API_URL}" trunk build --release
+    npx wrangler pages deploy crates/frontend/dist --project-name=kartoteka --branch=dev --commit-dirty=true
 
 # Deploy MCP server
 deploy-mcp:
