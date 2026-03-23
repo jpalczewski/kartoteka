@@ -31,6 +31,7 @@ dev-api:
 
 # Uruchom frontend z proxy do API
 dev-frontend: _gen-hanko
+    cd crates/frontend && npm install
     cd crates/frontend && API_BASE_URL="/api" HANKO_API_URL="${HANKO_API_URL}" trunk serve --proxy-backend=http://127.0.0.1:8787/api
 
 # Uruchom MCP server lokalnie
