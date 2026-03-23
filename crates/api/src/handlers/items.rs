@@ -2,7 +2,7 @@ use kartoteka_shared::*;
 use wasm_bindgen::JsValue;
 use worker::*;
 
-pub async fn list_all(_req: Request, ctx: RouteContext<()>) -> Result<Response> {
+pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let list_id = ctx.param("list_id").ok_or_else(|| Error::from("Missing list_id"))?;
     let d1 = ctx.env.d1("DB")?;
     let stmt = d1.prepare(
@@ -14,7 +14,7 @@ pub async fn list_all(_req: Request, ctx: RouteContext<()>) -> Result<Response> 
     Response::from_json(&items)
 }
 
-pub async fn create(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
+pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let list_id = ctx.param("list_id").ok_or_else(|| Error::from("Missing list_id"))?.to_string();
     let body: CreateItemRequest = req.json().await?;
     let id = uuid::Uuid::new_v4().to_string();
@@ -64,7 +64,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<()>) -> Result<Response>
     Ok(resp)
 }
 
-pub async fn update(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
+pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?.to_string();
     let body: UpdateItemRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
@@ -104,7 +104,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<()>) -> Result<Response>
     Response::from_json(&item)
 }
 
-pub async fn delete(_req: Request, ctx: RouteContext<()>) -> Result<Response> {
+pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?;
     let d1 = ctx.env.d1("DB")?;
     d1.prepare("DELETE FROM items WHERE id = ?1")

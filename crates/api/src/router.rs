@@ -24,15 +24,17 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         return Ok(Response::ok("ok")?.with_headers(cors));
     }
 
-    // Validate Hanko session
-    if let Err(e) = auth::validate_session(&req).await {
-        let body = serde_json::json!({ "error": e.to_string() });
-        return Ok(Response::from_json(&body)?
-            .with_status(401)
-            .with_headers(cors));
-    }
+    let user_id = match auth::validate_session(&req).await {
+        Ok(uid) => uid,
+        Err(e) => {
+            let body = serde_json::json!({ "error": e.to_string() });
+            return Ok(Response::from_json(&body)?
+                .with_status(401)
+                .with_headers(cors));
+        }
+    };
 
-    let router = Router::new();
+    let router = Router::with_data(user_id);
     let response = router
         // Lists
         .get_async("/api/lists", lists::list_all)

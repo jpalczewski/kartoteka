@@ -1,7 +1,7 @@
 use kartoteka_shared::*;
 use worker::*;
 
-pub async fn list_all(_req: Request, ctx: RouteContext<()>) -> Result<Response> {
+pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let d1 = ctx.env.d1("DB")?;
     let stmt = d1.prepare("SELECT id, name, list_type, created_at, updated_at FROM lists ORDER BY updated_at DESC");
     let result = stmt.all().await?;
@@ -9,7 +9,7 @@ pub async fn list_all(_req: Request, ctx: RouteContext<()>) -> Result<Response> 
     Response::from_json(&lists)
 }
 
-pub async fn create(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
+pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let body: CreateListRequest = req.json().await?;
     let id = uuid::Uuid::new_v4().to_string();
     let list_type_str = serde_json::to_value(&body.list_type)
@@ -36,7 +36,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<()>) -> Result<Response>
     Ok(resp)
 }
 
-pub async fn get_one(_req: Request, ctx: RouteContext<()>) -> Result<Response> {
+pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?;
     let d1 = ctx.env.d1("DB")?;
     let stmt = d1.prepare("SELECT id, name, list_type, created_at, updated_at FROM lists WHERE id = ?1");
@@ -51,7 +51,7 @@ pub async fn get_one(_req: Request, ctx: RouteContext<()>) -> Result<Response> {
     }
 }
 
-pub async fn update(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
+pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?.to_string();
     let body: UpdateListRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
@@ -85,7 +85,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<()>) -> Result<Response>
     Response::from_json(&list)
 }
 
-pub async fn delete(_req: Request, ctx: RouteContext<()>) -> Result<Response> {
+pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?;
     let d1 = ctx.env.d1("DB")?;
     d1.prepare("DELETE FROM lists WHERE id = ?1")
