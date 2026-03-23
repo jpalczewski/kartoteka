@@ -53,8 +53,8 @@ pub fn HomePage() -> impl IntoView {
     };
 
     view! {
-        <div>
-            <h2 style="margin: 1rem 0;">"Twoje listy"</h2>
+        <div class="container mx-auto max-w-2xl p-4">
+            <h2 class="text-2xl font-bold mb-4">"Twoje listy"</h2>
 
             // Tag filter bar
             <Suspense fallback=|| view! {}>
@@ -95,9 +95,10 @@ pub fn HomePage() -> impl IntoView {
             </Suspense>
 
             // Create form
-            <div class="input-row">
+            <div class="flex gap-2 mb-4">
                 <input
                     type="text"
+                    class="input input-bordered flex-1"
                     placeholder="Nazwa nowej listy..."
                     prop:value=new_name
                     on:input=move |ev| set_new_name.set(event_target_value(&ev))
@@ -115,13 +116,13 @@ pub fn HomePage() -> impl IntoView {
                         }
                     }
                 />
-                <select on:change=move |ev| set_new_list_type.set(parse_list_type(&event_target_value(&ev)))>
+                <select class="select select-bordered" on:change=move |ev| set_new_list_type.set(parse_list_type(&event_target_value(&ev)))>
                     <option value="custom">"Lista"</option>
                     <option value="shopping">"Zakupy"</option>
                     <option value="packing">"Pakowanie"</option>
                     <option value="project">"Projekt"</option>
                 </select>
-                <button class="btn" on:click=on_create>"Dodaj"</button>
+                <button class="btn btn-primary" on:click=on_create>"Dodaj"</button>
             </div>
 
             // Lists grid
@@ -135,7 +136,7 @@ pub fn HomePage() -> impl IntoView {
                         match &*lists_result {
                             Err(e) => view! { <p style="color: red;">{format!("Błąd: {e}")}</p> }.into_any(),
                             Ok(all_lists) if all_lists.is_empty() => {
-                                view! { <div class="empty-state">"Brak list. Utwórz pierwszą!"</div> }.into_any()
+                                view! { <div class="text-center text-base-content/50 py-12">"Brak list. Utwórz pierwszą!"</div> }.into_any()
                             }
                             Ok(all_lists) => {
                                 let all_tags: Vec<Tag> = tags_data
@@ -162,7 +163,7 @@ pub fn HomePage() -> impl IntoView {
                                     .collect();
 
                                 view! {
-                                    <div class="list-grid">
+                                    <div class="flex flex-col gap-3">
                                         {filtered_lists.into_iter().map(|list| {
                                             let list_tags: Vec<Tag> = all_tags
                                                 .iter()

@@ -124,53 +124,56 @@ pub fn ListPage() -> impl IntoView {
     });
 
     view! {
-        <h2 style="margin: 1rem 0;">"Lista"</h2>
+        <div class="container mx-auto max-w-2xl p-4">
+            <h2 class="text-2xl font-bold mb-4">"Lista"</h2>
 
-        <div class="input-row">
-            <input
-                type="text"
-                placeholder="Nowy element..."
-                prop:value=new_title
-                on:input=move |ev| set_new_title.set(event_target_value(&ev))
-            />
-            <button class="btn" on:click=on_add>"Dodaj"</button>
+            <div class="flex gap-2 mb-4">
+                <input
+                    type="text"
+                    class="input input-bordered flex-1"
+                    placeholder="Nowy element..."
+                    prop:value=new_title
+                    on:input=move |ev| set_new_title.set(event_target_value(&ev))
+                />
+                <button class="btn btn-primary" on:click=on_add>"Dodaj"</button>
+            </div>
+
+            {move || {
+                if loading.get() {
+                    view! { <p>"Wczytywanie..."</p> }.into_any()
+                } else if let Some(e) = error.get() {
+                    view! { <p style="color: red;">{format!("Błąd: {e}")}</p> }.into_any()
+                } else if items.read().is_empty() {
+                    view! { <div class="text-center text-base-content/50 py-12">"Lista jest pusta"</div> }.into_any()
+                } else {
+                    view! {
+                        <div>
+                            {move || items.read().iter().map(|item| {
+                                let item_id = item.id.clone();
+                                let item_tags: Vec<String> = item_tag_links.read().iter()
+                                    .filter(|l| l.item_id == item.id)
+                                    .map(|l| l.tag_id.clone())
+                                    .collect();
+                                let tags_clone = all_tags.get();
+                                let tog_cb = on_tag_toggle.clone();
+                                let item_tag_toggle = Callback::new(move |tag_id: String| {
+                                    tog_cb.run((item_id.clone(), tag_id));
+                                });
+                                view! {
+                                    <ItemRow
+                                        item=item.clone()
+                                        on_toggle=on_toggle
+                                        on_delete=on_delete
+                                        all_tags=tags_clone
+                                        item_tag_ids=item_tags
+                                        on_tag_toggle=item_tag_toggle
+                                    />
+                                }
+                            }).collect::<Vec<_>>()}
+                        </div>
+                    }.into_any()
+                }
+            }}
         </div>
-
-        {move || {
-            if loading.get() {
-                view! { <p>"Wczytywanie..."</p> }.into_any()
-            } else if let Some(e) = error.get() {
-                view! { <p style="color: red;">{format!("Błąd: {e}")}</p> }.into_any()
-            } else if items.read().is_empty() {
-                view! { <div class="empty-state">"Lista jest pusta"</div> }.into_any()
-            } else {
-                view! {
-                    <div>
-                        {move || items.read().iter().map(|item| {
-                            let item_id = item.id.clone();
-                            let item_tags: Vec<String> = item_tag_links.read().iter()
-                                .filter(|l| l.item_id == item.id)
-                                .map(|l| l.tag_id.clone())
-                                .collect();
-                            let tags_clone = all_tags.get();
-                            let tog_cb = on_tag_toggle.clone();
-                            let item_tag_toggle = Callback::new(move |tag_id: String| {
-                                tog_cb.run((item_id.clone(), tag_id));
-                            });
-                            view! {
-                                <ItemRow
-                                    item=item.clone()
-                                    on_toggle=on_toggle
-                                    on_delete=on_delete
-                                    all_tags=tags_clone
-                                    item_tag_ids=item_tags
-                                    on_tag_toggle=item_tag_toggle
-                                />
-                            }
-                        }).collect::<Vec<_>>()}
-                    </div>
-                }.into_any()
-            }
-        }}
     }
 }

@@ -65,27 +65,29 @@ pub fn TagsPage() -> impl IntoView {
     });
 
     view! {
-        <div class="tag-management">
-            <h2>"Tagi"</h2>
+        <div class="container mx-auto max-w-2xl p-4">
+            <h2 class="text-2xl font-bold mb-6">"Tagi"</h2>
 
-            <div class="tag-form">
+            <div class="flex gap-2 items-center mb-4">
                 <input
                     type="text"
+                    class="input input-bordered flex-1"
                     placeholder="Nazwa tagu..."
                     prop:value=move || new_name.get()
                     on:input=move |ev| set_new_name.set(event_target_value(&ev))
                 />
                 <input
                     type="color"
+                    class="w-8 h-8 rounded cursor-pointer border-0 p-0"
                     prop:value=move || new_color.get()
                     on:input=move |ev| set_new_color.set(event_target_value(&ev))
                 />
-                <select on:change=move |ev| set_new_category.set(event_target_value(&ev))>
+                <select class="select select-bordered" on:change=move |ev| set_new_category.set(event_target_value(&ev))>
                     <option value="custom">"Własne"</option>
                     <option value="context">"Kontekst"</option>
                     <option value="priority">"Priorytet"</option>
                 </select>
-                <button class="btn" on:click=on_create>"Dodaj"</button>
+                <button class="btn btn-primary btn-sm" on:click=on_create>"Dodaj tag"</button>
             </div>
 
             {move || {
@@ -94,7 +96,7 @@ pub fn TagsPage() -> impl IntoView {
                 }
                 let all_tags = tags.get();
                 if all_tags.is_empty() {
-                    return view! { <p class="empty-state">"Brak tagów. Dodaj pierwszy!"</p> }.into_any();
+                    return view! { <p class="text-center text-base-content/50 py-12">"Brak tagów. Dodaj pierwszy!"</p> }.into_any();
                 }
 
                 let categories = [TagCategory::Context, TagCategory::Priority, TagCategory::Custom];
@@ -111,15 +113,15 @@ pub fn TagsPage() -> impl IntoView {
                             let label = category_label(&cat);
                             let del_cb = on_delete.clone();
                             view! {
-                                <div class="tag-group">
-                                    <h4>{label}</h4>
+                                <div class="tag-group mb-4">
+                                    <h4 class="text-xs text-base-content/50 uppercase tracking-wider mb-2">{label}</h4>
                                     {cat_tags.into_iter().map(|tag| {
                                         let tid = tag.id.clone();
                                         let cb = del_cb.clone();
                                         view! {
-                                            <div class="tag-edit-row">
+                                            <div class="flex items-center gap-2 py-1">
                                                 <TagBadge tag=tag.clone() />
-                                                <button class="btn btn-sm" on:click=move |_| cb.run(tid.clone())>"✕"</button>
+                                                <button class="btn btn-error btn-xs btn-square" on:click=move |_| cb.run(tid.clone())>"✕"</button>
                                             </div>
                                         }
                                     }).collect::<Vec<_>>()}

@@ -16,20 +16,29 @@ pub fn ItemRow(
     let id = item.id.clone();
     let id_toggle = id.clone();
     let id_delete = id.clone();
-    let class = if item.completed {
-        "item-row completed"
+    let completed = item.completed;
+
+    let row_class = if completed {
+        "flex items-center gap-3 py-3 border-b border-base-300 opacity-50"
     } else {
-        "item-row"
+        "flex items-center gap-3 py-3 border-b border-base-300"
+    };
+
+    let title_class = if completed {
+        "flex-1 line-through text-base-content/50"
+    } else {
+        "flex-1"
     };
 
     view! {
-        <div class=class>
+        <div class=row_class>
             <input
                 type="checkbox"
+                class="checkbox checkbox-secondary"
                 checked=item.completed
                 on:change=move |_| on_toggle.run(id_toggle.clone())
             />
-            <span class="item-title" style="flex: 1;">{item.title}</span>
+            <span class=title_class>{item.title}</span>
             // Tag badges for this item
             {if !item_tag_ids.is_empty() {
                 let item_tags: Vec<Tag> = all_tags.iter()
@@ -57,11 +66,10 @@ pub fn ItemRow(
                 view! {}.into_any()
             }}
             <button
-                class="btn"
-                style="padding: 0.25rem 0.5rem; font-size: 0.8rem;"
+                class="btn btn-error btn-sm btn-square"
                 on:click=move |_| on_delete.run(id_delete.clone())
             >
-                "X"
+                "✕"
             </button>
         </div>
     }

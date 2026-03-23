@@ -11,7 +11,13 @@ pub fn SettingsPage() -> impl IntoView {
     }
 
     view! {
-        <h2 style="margin: 1rem 0;">"Ustawienia"</h2>
-        <hanko-profile></hanko-profile>
+        <div class="container mx-auto max-w-2xl p-4">
+            <h2 class="text-2xl font-bold mb-4">"Ustawienia"</h2>
+            <div class="card bg-base-200 border border-base-300">
+                <div class="card-body">
+                    <hanko-profile></hanko-profile>
+                </div>
+            </div>
+        </div>
     }
 }

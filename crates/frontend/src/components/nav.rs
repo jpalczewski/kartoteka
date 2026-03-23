@@ -13,41 +13,45 @@ pub fn Nav() -> impl IntoView {
     };
 
     view! {
-        <nav>
-            <a href="/" style="color: inherit; text-decoration: none;">
-                <h1>"Kartoteka"</h1>
-            </a>
+        <nav class="navbar bg-base-200 border-b border-base-300 px-4">
+            <div class="navbar-start">
+                <a href="/" style="text-decoration: none;">
+                    <span class="text-xl font-bold text-primary">"Kartoteka"</span>
+                </a>
+            </div>
 
-            {if logged_in {
-                let email_display = if email.is_empty() {
-                    "Konto".to_string()
-                } else {
-                    email.clone()
-                };
+            <div class="navbar-end">
+                {if logged_in {
+                    let email_display = if email.is_empty() {
+                        "Konto".to_string()
+                    } else {
+                        email.clone()
+                    };
 
-                view! {
-                    <div class="user-menu">
-                        <button
-                            class="user-menu-trigger"
-                            on:click=move |_| set_menu_open.update(|v| *v = !*v)
-                        >
-                            {email_display}
-                        </button>
-                        <div
-                            class="user-menu-dropdown"
-                            style:display=move || if menu_open.get() { "block" } else { "none" }
-                        >
-                            <a href="/tags" class="user-menu-item">"Tagi"</a>
-                            <a href="/settings" class="user-menu-item">"Ustawienia"</a>
-                            <button class="user-menu-item" on:click=on_logout>"Wyloguj"</button>
+                    view! {
+                        <div class="relative">
+                            <button
+                                class="btn btn-ghost btn-sm"
+                                on:click=move |_| set_menu_open.update(|v| *v = !*v)
+                            >
+                                {email_display}
+                            </button>
+                            <ul
+                                class="menu bg-base-200 rounded-box border border-base-300 shadow-lg z-50 min-w-40 absolute right-0 top-full mt-1"
+                                style:display=move || if menu_open.get() { "block" } else { "none" }
+                            >
+                                <li><a href="/tags">"Tagi"</a></li>
+                                <li><a href="/settings">"Ustawienia"</a></li>
+                                <li><button on:click=on_logout>"Wyloguj"</button></li>
+                            </ul>
                         </div>
-                    </div>
-                }.into_any()
-            } else {
-                view! {
-                    <a href="/login" class="btn" style="font-size: 0.8rem; padding: 0.3rem 0.75rem;">"Zaloguj"</a>
-                }.into_any()
-            }}
+                    }.into_any()
+                } else {
+                    view! {
+                        <a href="/login" class="btn btn-primary btn-sm">"Zaloguj"</a>
+                    }.into_any()
+                }}
+            </div>
         </nav>
     }
 }

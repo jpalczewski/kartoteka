@@ -29,18 +29,20 @@ pub fn ListCard(list: List, #[prop(default = vec![])] tags: Vec<Tag>) -> impl In
 
     view! {
         <a href=href style="text-decoration: none; color: inherit;">
-            <div class="card">
-                <h3>{list.name.clone()}</h3>
-                <span class="meta">{icon} " " {label}</span>
-                {if !tags.is_empty() {
-                    view! {
-                        <div class="tag-list">
-                            {tags.into_iter().map(|t| view! { <TagBadge tag=t/> }).collect::<Vec<_>>()}
-                        </div>
-                    }.into_any()
-                } else {
-                    view! {}.into_any()
-                }}
+            <div class="card bg-base-200 border border-base-300 cursor-pointer card-neon">
+                <div class="card-body p-4">
+                    <h3 class="card-title text-base">{list.name.clone()}</h3>
+                    <span class="text-sm text-base-content/60">{icon} " " {label}</span>
+                    {if !tags.is_empty() {
+                        view! {
+                            <div class="tag-list mt-2">
+                                {tags.into_iter().map(|t| view! { <TagBadge tag=t/> }).collect::<Vec<_>>()}
+                            </div>
+                        }.into_any()
+                    } else {
+                        view! {}.into_any()
+                    }}
+                </div>
             </div>
         </a>
     }
