@@ -113,7 +113,7 @@ pub fn TagsPage() -> impl IntoView {
                             let label = category_label(&cat);
                             let del_cb = on_delete.clone();
                             view! {
-                                <div class="tag-group mb-4">
+                                <div class="mb-6">
                                     <h4 class="text-xs text-base-content/50 uppercase tracking-wider mb-2">{label}</h4>
                                     {cat_tags.into_iter().map(|tag| {
                                         let tid = tag.id.clone();
