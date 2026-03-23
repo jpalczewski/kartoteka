@@ -42,7 +42,7 @@ pub fn Nav() -> impl IntoView {
                             >
                                 <li><a href="/tags">"Tagi"</a></li>
                                 <li><a href="/settings">"Ustawienia"</a></li>
-                                <li><button on:click=on_logout>"Wyloguj"</button></li>
+                                <li><button type="button" on:click=on_logout>"Wyloguj"</button></li>
                             </ul>
                         </div>
                     }.into_any()

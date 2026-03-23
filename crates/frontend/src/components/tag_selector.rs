@@ -11,7 +11,7 @@ pub fn TagSelector(
 
     view! {
         <div class="relative">
-            <button class="btn btn-ghost btn-xs btn-square" on:click=move |_| set_open.update(|v| *v = !*v)>
+            <button type="button" class="btn btn-ghost btn-xs btn-square" on:click=move |_| set_open.update(|v| *v = !*v)>
                 "＋"
             </button>
             <div

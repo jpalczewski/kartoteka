@@ -78,6 +78,7 @@ pub fn TagsPage() -> impl IntoView {
                 />
                 <input
                     type="color"
+                    aria-label="Kolor tagu"
                     class="w-8 h-8 rounded cursor-pointer border-0 p-0"
                     prop:value=move || new_color.get()
                     on:input=move |ev| set_new_color.set(event_target_value(&ev))

@@ -66,6 +66,7 @@ pub fn ItemRow(
                 view! {}.into_any()
             }}
             <button
+                type="button"
                 class="btn btn-error btn-sm btn-square"
                 on:click=move |_| on_delete.run(id_delete.clone())
             >
