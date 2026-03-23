@@ -1,7 +1,7 @@
 use worker::*;
 
 use crate::auth;
-use crate::handlers::{items, lists};
+use crate::handlers::{items, lists, tags};
 
 fn cors_headers() -> Headers {
     let headers = Headers::new();
@@ -47,6 +47,19 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         .post_async("/api/lists/:list_id/items", items::create)
         .put_async("/api/lists/:list_id/items/:id", items::update)
         .delete_async("/api/lists/:list_id/items/:id", items::delete)
+        // Tags CRUD
+        .get_async("/api/tags", tags::list_all)
+        .post_async("/api/tags", tags::create)
+        .put_async("/api/tags/:id", tags::update)
+        .delete_async("/api/tags/:id", tags::delete)
+        // Tag assignments
+        .post_async("/api/items/:item_id/tags", tags::assign_to_item)
+        .delete_async("/api/items/:item_id/tags/:tag_id", tags::remove_from_item)
+        .post_async("/api/lists/:list_id/tags", tags::assign_to_list)
+        .delete_async("/api/lists/:list_id/tags/:tag_id", tags::remove_from_list)
+        // Tag link queries
+        .get_async("/api/tag-links/items", tags::all_item_tag_links)
+        .get_async("/api/tag-links/lists", tags::all_list_tag_links)
         .run(req, env)
         .await?;
 
