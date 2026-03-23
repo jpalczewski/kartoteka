@@ -6,6 +6,13 @@ use kartoteka_shared::{CreateListRequest, ListType};
 
 #[component]
 pub fn HomePage() -> impl IntoView {
+    // Redirect to login if no Hanko token
+    if !api::is_logged_in() {
+        if let Some(w) = web_sys::window() {
+            let _ = w.location().set_href("/login");
+        }
+    }
+
     let (new_name, set_new_name) = signal(String::new());
     let (refresh, set_refresh) = signal(0u32);
 

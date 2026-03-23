@@ -4,6 +4,7 @@
 
 # Trunk / Frontend
 crates/frontend/dist/
+crates/frontend/hanko-init.js
 
 # Wrangler / Workers
 .wrangler/

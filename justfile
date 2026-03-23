@@ -1,4 +1,7 @@
 # Kartoteka — task runner
+set dotenv-load
+
+export CLOUDFLARE_ACCOUNT_ID := env("CLOUDFLARE_ACCOUNT_ID", "")
 
 default:
     @just --list
@@ -19,11 +22,12 @@ db-create:
 
 # Uruchom API worker lokalnie
 dev-api:
-    cd crates/api && npx wrangler dev
+    cd crates/api && HANKO_API_URL="${HANKO_API_URL}" npx wrangler dev
 
 # Uruchom frontend z proxy do API
 dev-frontend:
-    cd crates/frontend && trunk serve --proxy-backend=http://127.0.0.1:8787/api
+    printf 'import{register}from"https://cdn.jsdelivr.net/npm/@teamhanko/hanko-elements/dist/elements.js";const{hanko}=await register("%s");window.__hanko=hanko;function syncToken(){const t=hanko.getSessionToken();if(t){localStorage.setItem("hanko_token",t)}else{localStorage.removeItem("hanko_token")}}syncToken();hanko.onSessionCreated(()=>{syncToken()});hanko.onSessionExpired(()=>{localStorage.removeItem("hanko_token");window.location.href="/login"});\n' "${HANKO_API_URL}" > crates/frontend/hanko-init.js
+    cd crates/frontend && API_BASE_URL="/api" HANKO_API_URL="${HANKO_API_URL}" trunk serve --proxy-backend=http://127.0.0.1:8787/api
 
 # Uruchom MCP server lokalnie
 dev-mcp:
@@ -44,7 +48,8 @@ build-api:
 
 # Zbuduj frontend
 build-frontend:
-    cd crates/frontend && trunk build --release
+    printf 'import{register}from"https://cdn.jsdelivr.net/npm/@teamhanko/hanko-elements/dist/elements.js";const{hanko}=await register("%s");window.__hanko=hanko;function syncToken(){const t=hanko.getSessionToken();if(t){localStorage.setItem("hanko_token",t)}else{localStorage.removeItem("hanko_token")}}syncToken();hanko.onSessionCreated(()=>{syncToken()});hanko.onSessionExpired(()=>{localStorage.removeItem("hanko_token");window.location.href="/login"});\n' "${HANKO_API_URL}" > crates/frontend/hanko-init.js
+    cd crates/frontend && API_BASE_URL="${API_BASE_URL}" HANKO_API_URL="${HANKO_API_URL}" trunk build --release
 
 # Zbuduj MCP server
 build-mcp:
@@ -52,7 +57,7 @@ build-mcp:
 
 # Sprawdź kompilację workspace
 check:
-    cargo check --workspace
+    API_BASE_URL="/api" HANKO_API_URL="${HANKO_API_URL}" cargo check --workspace
 
 # === MIGRACJE ===
 
@@ -79,11 +84,11 @@ deploy-migrate:
 
 # Deploy API worker
 deploy-api:
-    cd crates/api && npx wrangler deploy
+    cd crates/api && HANKO_API_URL="${HANKO_API_URL}" npx wrangler deploy
 
 # Deploy frontend na CF Pages
 deploy-frontend: build-frontend
-    npx wrangler pages deploy crates/frontend/dist --project-name=kartoteka
+    npx wrangler pages deploy crates/frontend/dist --project-name=kartoteka --branch=main --commit-dirty=true
 
 # Deploy MCP server
 deploy-mcp:
@@ -93,7 +98,7 @@ deploy-mcp:
 
 # Lint + format check
 lint:
-    cargo clippy --workspace -- -D warnings
+    API_BASE_URL="/api" HANKO_API_URL="${HANKO_API_URL}" cargo clippy --workspace -- -D warnings
     cargo fmt --check --all
 
 # Format kodu
@@ -102,4 +107,4 @@ fmt:
 
 # Uruchom testy
 test:
-    cargo test --workspace
+    API_BASE_URL="/api" HANKO_API_URL="${HANKO_API_URL}" cargo test --workspace

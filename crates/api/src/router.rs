@@ -1,9 +1,11 @@
 use worker::*;
 
+use crate::auth;
 use crate::handlers::{items, lists};
 
 fn cors_headers() -> Headers {
     let headers = Headers::new();
+    // TODO: restrict to actual domain in production
     let _ = headers.set("Access-Control-Allow-Origin", "*");
     let _ = headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     let _ = headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -14,15 +16,24 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
     let cors = cors_headers();
 
     if req.method() == Method::Options {
-        let mut resp = Response::empty()?;
-        resp = resp.with_headers(cors);
-        return Ok(resp);
+        return Ok(Response::empty()?.with_headers(cors));
+    }
+
+    let path = req.path();
+    if path == "/api/health" {
+        return Ok(Response::ok("ok")?.with_headers(cors));
+    }
+
+    // Validate Hanko session
+    if let Err(e) = auth::validate_session(&req).await {
+        let body = serde_json::json!({ "error": e.to_string() });
+        return Ok(Response::from_json(&body)?
+            .with_status(401)
+            .with_headers(cors));
     }
 
     let router = Router::new();
     let response = router
-        // Health
-        .get("/api/health", |_, _| Response::ok("ok"))
         // Lists
         .get_async("/api/lists", lists::list_all)
         .post_async("/api/lists", lists::create)

@@ -3,7 +3,7 @@ use leptos_router::components::{Route, Router, Routes};
 use leptos_router::path;
 
 use crate::components::nav::Nav;
-use crate::pages::{home::HomePage, list::ListPage};
+use crate::pages::{home::HomePage, list::ListPage, login::LoginPage};
 
 #[component]
 pub fn App() -> impl IntoView {
@@ -13,6 +13,7 @@ pub fn App() -> impl IntoView {
             <main class="container">
                 <Routes fallback=|| view! { <p>"Nie znaleziono strony"</p> }>
                     <Route path=path!("/") view=HomePage/>
+                    <Route path=path!("/login") view=LoginPage/>
                     <Route path=path!("/lists/:id") view=ListPage/>
                 </Routes>
             </main>

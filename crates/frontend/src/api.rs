@@ -1,10 +1,70 @@
-use gloo_net::http::Request;
+use gloo_net::http::{Headers, Request};
 use kartoteka_shared::*;
 
-const API_BASE: &str = "/api";
+const API_BASE: &str = env!("API_BASE_URL");
+
+fn get_hanko_token() -> Option<String> {
+    let storage = web_sys::window()?.local_storage().ok()??;
+    storage.get_item("hanko_token").ok()?
+}
+
+fn auth_headers() -> Headers {
+    let headers = Headers::new();
+    headers.set("Content-Type", "application/json");
+    if let Some(token) = get_hanko_token() {
+        headers.set("Authorization", &format!("Bearer {token}"));
+    }
+    headers
+}
+
+fn get(url: &str) -> gloo_net::http::RequestBuilder {
+    Request::get(url).headers(auth_headers())
+}
+
+fn del(url: &str) -> gloo_net::http::RequestBuilder {
+    Request::delete(url).headers(auth_headers())
+}
+
+async fn post_json<T: serde::de::DeserializeOwned>(
+    url: &str,
+    body: &impl serde::Serialize,
+) -> Result<T, String> {
+    let json = serde_json::to_string(body).map_err(|e| e.to_string())?;
+    Request::post(url)
+        .headers(auth_headers())
+        .body(json)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn put_json<T: serde::de::DeserializeOwned>(
+    url: &str,
+    body: &impl serde::Serialize,
+) -> Result<T, String> {
+    let json = serde_json::to_string(body).map_err(|e| e.to_string())?;
+    Request::put(url)
+        .headers(auth_headers())
+        .body(json)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub fn is_logged_in() -> bool {
+    get_hanko_token().is_some()
+}
 
 pub async fn fetch_lists() -> Result<Vec<List>, String> {
-    Request::get(&format!("{API_BASE}/lists"))
+    get(&format!("{API_BASE}/lists"))
         .send()
         .await
         .map_err(|e| e.to_string())?
@@ -14,19 +74,11 @@ pub async fn fetch_lists() -> Result<Vec<List>, String> {
 }
 
 pub async fn create_list(req: &CreateListRequest) -> Result<List, String> {
-    Request::post(&format!("{API_BASE}/lists"))
-        .json(req)
-        .map_err(|e| e.to_string())?
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
-        .map_err(|e| e.to_string())
+    post_json(&format!("{API_BASE}/lists"), req).await
 }
 
 pub async fn delete_list(id: &str) -> Result<(), String> {
-    Request::delete(&format!("{API_BASE}/lists/{id}"))
+    del(&format!("{API_BASE}/lists/{id}"))
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -34,7 +86,7 @@ pub async fn delete_list(id: &str) -> Result<(), String> {
 }
 
 pub async fn fetch_items(list_id: &str) -> Result<Vec<Item>, String> {
-    Request::get(&format!("{API_BASE}/lists/{list_id}/items"))
+    get(&format!("{API_BASE}/lists/{list_id}/items"))
         .send()
         .await
         .map_err(|e| e.to_string())?
@@ -44,31 +96,19 @@ pub async fn fetch_items(list_id: &str) -> Result<Vec<Item>, String> {
 }
 
 pub async fn create_item(list_id: &str, req: &CreateItemRequest) -> Result<Item, String> {
-    Request::post(&format!("{API_BASE}/lists/{list_id}/items"))
-        .json(req)
-        .map_err(|e| e.to_string())?
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
-        .map_err(|e| e.to_string())
+    post_json(&format!("{API_BASE}/lists/{list_id}/items"), req).await
 }
 
-pub async fn update_item(list_id: &str, id: &str, req: &UpdateItemRequest) -> Result<Item, String> {
-    Request::put(&format!("{API_BASE}/lists/{list_id}/items/{id}"))
-        .json(req)
-        .map_err(|e| e.to_string())?
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
-        .map_err(|e| e.to_string())
+pub async fn update_item(
+    list_id: &str,
+    id: &str,
+    req: &UpdateItemRequest,
+) -> Result<Item, String> {
+    put_json(&format!("{API_BASE}/lists/{list_id}/items/{id}"), req).await
 }
 
 pub async fn delete_item(list_id: &str, id: &str) -> Result<(), String> {
-    Request::delete(&format!("{API_BASE}/lists/{list_id}/items/{id}"))
+    del(&format!("{API_BASE}/lists/{list_id}/items/{id}"))
         .send()
         .await
         .map_err(|e| e.to_string())?;

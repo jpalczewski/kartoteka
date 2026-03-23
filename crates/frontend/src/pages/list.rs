@@ -3,7 +3,7 @@ use leptos_router::hooks::use_params_map;
 
 use crate::api;
 use crate::components::item_row::ItemRow;
-use kartoteka_shared::{CreateItemRequest, UpdateItemRequest};
+use kartoteka_shared::{CreateItemRequest, Item, UpdateItemRequest};
 
 #[component]
 pub fn ListPage() -> impl IntoView {
@@ -11,13 +11,18 @@ pub fn ListPage() -> impl IntoView {
     let list_id = move || params.read().get("id").unwrap_or_default();
 
     let (new_title, set_new_title) = signal(String::new());
-    let (refresh, set_refresh) = signal(0u32);
+    let items = RwSignal::new(Vec::<Item>::new());
+    let (loading, set_loading) = signal(true);
+    let (error, set_error) = signal(Option::<String>::None);
 
+    // Initial fetch
     let lid = list_id();
-    let items = LocalResource::new(move || {
-        let lid = lid.clone();
-        let _ = refresh.get();
-        async move { api::fetch_items(&lid).await }
+    leptos::task::spawn_local(async move {
+        match api::fetch_items(&lid).await {
+            Ok(fetched) => items.set(fetched),
+            Err(e) => set_error.set(Some(e)),
+        }
+        set_loading.set(false);
     });
 
     let lid_for_create = list_id();
@@ -33,35 +38,50 @@ pub fn ListPage() -> impl IntoView {
                 title,
                 description: None,
             };
-            let _ = api::create_item(&lid, &req).await;
-            set_refresh.update(|n| *n += 1);
+            match api::create_item(&lid, &req).await {
+                Ok(item) => items.update(|list| list.push(item)),
+                Err(e) => set_error.set(Some(e)),
+            }
         });
     };
 
     let lid_for_toggle = list_id();
     let on_toggle = Callback::new(move |item_id: String| {
+        // Optimistic update
+        items.update(|list| {
+            if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
+                item.completed = !item.completed;
+            }
+        });
+
         let lid = lid_for_toggle.clone();
-        leptos::task::spawn_local(async move {
-            let items = api::fetch_items(&lid).await.unwrap_or_default();
-            if let Some(item) = items.iter().find(|i| i.id == item_id) {
+        let completed = items
+            .read()
+            .iter()
+            .find(|i| i.id == item_id)
+            .map(|i| i.completed);
+
+        if let Some(completed) = completed {
+            leptos::task::spawn_local(async move {
                 let req = UpdateItemRequest {
                     title: None,
                     description: None,
-                    completed: Some(!item.completed),
+                    completed: Some(completed),
                     position: None,
                 };
                 let _ = api::update_item(&lid, &item_id, &req).await;
-                set_refresh.update(|n| *n += 1);
-            }
-        });
+            });
+        }
     });
 
     let lid_for_delete = list_id();
     let on_delete = Callback::new(move |item_id: String| {
+        // Optimistic update
+        items.update(|list| list.retain(|i| i.id != item_id));
+
         let lid = lid_for_delete.clone();
         leptos::task::spawn_local(async move {
             let _ = api::delete_item(&lid, &item_id).await;
-            set_refresh.update(|n| *n += 1);
         });
     });
 
@@ -78,28 +98,22 @@ pub fn ListPage() -> impl IntoView {
             <button class="btn" on:click=on_add>"Dodaj"</button>
         </div>
 
-        <Suspense fallback=|| view! { <p>"Wczytywanie..."</p> }>
-            {move || {
-                items.get().map(|result| {
-                    match &*result {
-                        Ok(items) if items.is_empty() => {
-                            view! { <div class="empty-state">"Lista jest pusta"</div> }.into_any()
-                        }
-                        Ok(items) => {
-                            view! {
-                                <div>
-                                    {items.iter().map(|item| {
-                                        view! { <ItemRow item=item.clone() on_toggle=on_toggle on_delete=on_delete/> }
-                                    }).collect::<Vec<_>>()}
-                                </div>
-                            }.into_any()
-                        }
-                        Err(e) => {
-                            view! { <p style="color: red;">{format!("Błąd: {e}")}</p> }.into_any()
-                        }
-                    }
-                })
-            }}
-        </Suspense>
+        {move || {
+            if loading.get() {
+                view! { <p>"Wczytywanie..."</p> }.into_any()
+            } else if let Some(e) = error.get() {
+                view! { <p style="color: red;">{format!("Błąd: {e}")}</p> }.into_any()
+            } else if items.read().is_empty() {
+                view! { <div class="empty-state">"Lista jest pusta"</div> }.into_any()
+            } else {
+                view! {
+                    <div>
+                        {move || items.read().iter().map(|item| {
+                            view! { <ItemRow item=item.clone() on_toggle=on_toggle on_delete=on_delete/> }
+                        }).collect::<Vec<_>>()}
+                    </div>
+                }.into_any()
+            }
+        }}
     }
 }
