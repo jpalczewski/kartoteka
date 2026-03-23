@@ -3,23 +3,49 @@ use wasm_bindgen::JsValue;
 use worker::*;
 
 pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
-    let list_id = ctx.param("list_id").ok_or_else(|| Error::from("Missing list_id"))?;
+    let user_id = ctx.data.clone();
+    let list_id = ctx.param("list_id").ok_or_else(|| Error::from("Missing list_id"))?.to_string();
     let d1 = ctx.env.d1("DB")?;
-    let stmt = d1.prepare(
-        "SELECT id, list_id, title, description, completed, position, created_at, updated_at \
-         FROM items WHERE list_id = ?1 ORDER BY position ASC, created_at ASC",
-    );
-    let result = stmt.bind(&[list_id.into()])?.all().await?;
+
+    // Verify list belongs to user
+    let list_check = d1
+        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
+        .bind(&[list_id.clone().into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if list_check.is_none() {
+        return Response::error("Not found", 404);
+    }
+
+    let result = d1
+        .prepare(
+            "SELECT id, list_id, title, description, completed, position, created_at, updated_at \
+             FROM items WHERE list_id = ?1 ORDER BY position ASC, created_at ASC",
+        )
+        .bind(&[list_id.into()])?
+        .all()
+        .await?;
     let items = result.results::<Item>()?;
     Response::from_json(&items)
 }
 
 pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
     let list_id = ctx.param("list_id").ok_or_else(|| Error::from("Missing list_id"))?.to_string();
     let body: CreateItemRequest = req.json().await?;
     let id = uuid::Uuid::new_v4().to_string();
 
     let d1 = ctx.env.d1("DB")?;
+
+    // Verify list belongs to user
+    let list_check = d1
+        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
+        .bind(&[list_id.clone().into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if list_check.is_none() {
+        return Response::error("Not found", 404);
+    }
 
     // Get next position
     let max_pos = d1
@@ -65,9 +91,24 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 }
 
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
     let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?.to_string();
     let body: UpdateItemRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
+
+    // Verify item belongs to user (via list ownership)
+    let item_check = d1
+        .prepare(
+            "SELECT items.id FROM items \
+             JOIN lists ON lists.id = items.list_id \
+             WHERE items.id = ?1 AND lists.user_id = ?2",
+        )
+        .bind(&[id.clone().into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if item_check.is_none() {
+        return Response::error("Not found", 404);
+    }
 
     if let Some(title) = &body.title {
         d1.prepare("UPDATE items SET title = ?1, updated_at = datetime('now') WHERE id = ?2")
@@ -105,8 +146,24 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 }
 
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
-    let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?;
+    let user_id = ctx.data.clone();
+    let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?.to_string();
     let d1 = ctx.env.d1("DB")?;
+
+    // Verify item belongs to user (via list ownership)
+    let item_check = d1
+        .prepare(
+            "SELECT items.id FROM items \
+             JOIN lists ON lists.id = items.list_id \
+             WHERE items.id = ?1 AND lists.user_id = ?2",
+        )
+        .bind(&[id.clone().into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if item_check.is_none() {
+        return Response::error("Not found", 404);
+    }
+
     d1.prepare("DELETE FROM items WHERE id = ?1")
         .bind(&[id.into()])?
         .run()

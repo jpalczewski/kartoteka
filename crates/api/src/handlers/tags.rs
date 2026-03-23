@@ -128,12 +128,38 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
 
 /// POST /api/items/:item_id/tags
 pub async fn assign_to_item(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
     let item_id = ctx
         .param("item_id")
         .ok_or_else(|| Error::from("Missing item_id"))?
         .to_string();
     let body: TagAssignment = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
+
+    // Verify item's list belongs to user
+    let item_check = d1
+        .prepare(
+            "SELECT items.id FROM items \
+             JOIN lists ON lists.id = items.list_id \
+             WHERE items.id = ?1 AND lists.user_id = ?2",
+        )
+        .bind(&[item_id.clone().into(), user_id.clone().into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if item_check.is_none() {
+        return Response::error("Not found", 404);
+    }
+
+    // Verify tag belongs to user
+    let tag_check = d1
+        .prepare("SELECT id FROM tags WHERE id = ?1 AND user_id = ?2")
+        .bind(&[body.tag_id.clone().into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if tag_check.is_none() {
+        return Response::error("Not found", 404);
+    }
+
     d1.prepare("INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?1, ?2)")
         .bind(&[item_id.into(), body.tag_id.into()])?
         .run()
@@ -143,6 +169,7 @@ pub async fn assign_to_item(mut req: Request, ctx: RouteContext<String>) -> Resu
 
 /// DELETE /api/items/:item_id/tags/:tag_id
 pub async fn remove_from_item(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
     let item_id = ctx
         .param("item_id")
         .ok_or_else(|| Error::from("Missing item_id"))?
@@ -152,6 +179,21 @@ pub async fn remove_from_item(_req: Request, ctx: RouteContext<String>) -> Resul
         .ok_or_else(|| Error::from("Missing tag_id"))?
         .to_string();
     let d1 = ctx.env.d1("DB")?;
+
+    // Verify item's list belongs to user
+    let item_check = d1
+        .prepare(
+            "SELECT items.id FROM items \
+             JOIN lists ON lists.id = items.list_id \
+             WHERE items.id = ?1 AND lists.user_id = ?2",
+        )
+        .bind(&[item_id.clone().into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if item_check.is_none() {
+        return Response::error("Not found", 404);
+    }
+
     d1.prepare("DELETE FROM item_tags WHERE item_id = ?1 AND tag_id = ?2")
         .bind(&[item_id.into(), tag_id.into()])?
         .run()
@@ -161,12 +203,34 @@ pub async fn remove_from_item(_req: Request, ctx: RouteContext<String>) -> Resul
 
 /// POST /api/lists/:list_id/tags
 pub async fn assign_to_list(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
     let list_id = ctx
         .param("list_id")
         .ok_or_else(|| Error::from("Missing list_id"))?
         .to_string();
     let body: TagAssignment = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
+
+    // Verify list belongs to user
+    let list_check = d1
+        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
+        .bind(&[list_id.clone().into(), user_id.clone().into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if list_check.is_none() {
+        return Response::error("Not found", 404);
+    }
+
+    // Verify tag belongs to user
+    let tag_check = d1
+        .prepare("SELECT id FROM tags WHERE id = ?1 AND user_id = ?2")
+        .bind(&[body.tag_id.clone().into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if tag_check.is_none() {
+        return Response::error("Not found", 404);
+    }
+
     d1.prepare("INSERT OR IGNORE INTO list_tags (list_id, tag_id) VALUES (?1, ?2)")
         .bind(&[list_id.into(), body.tag_id.into()])?
         .run()
@@ -176,6 +240,7 @@ pub async fn assign_to_list(mut req: Request, ctx: RouteContext<String>) -> Resu
 
 /// DELETE /api/lists/:list_id/tags/:tag_id
 pub async fn remove_from_list(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
     let list_id = ctx
         .param("list_id")
         .ok_or_else(|| Error::from("Missing list_id"))?
@@ -185,6 +250,17 @@ pub async fn remove_from_list(_req: Request, ctx: RouteContext<String>) -> Resul
         .ok_or_else(|| Error::from("Missing tag_id"))?
         .to_string();
     let d1 = ctx.env.d1("DB")?;
+
+    // Verify list belongs to user
+    let list_check = d1
+        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
+        .bind(&[list_id.clone().into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if list_check.is_none() {
+        return Response::error("Not found", 404);
+    }
+
     d1.prepare("DELETE FROM list_tags WHERE list_id = ?1 AND tag_id = ?2")
         .bind(&[list_id.into(), tag_id.into()])?
         .run()

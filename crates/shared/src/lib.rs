@@ -23,6 +23,7 @@ pub enum ListType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct List {
     pub id: String,
+    pub user_id: String,
     pub name: String,
     pub list_type: ListType,
     pub created_at: String,

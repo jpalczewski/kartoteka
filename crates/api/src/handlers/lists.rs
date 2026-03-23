@@ -2,14 +2,19 @@ use kartoteka_shared::*;
 use worker::*;
 
 pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
     let d1 = ctx.env.d1("DB")?;
-    let stmt = d1.prepare("SELECT id, name, list_type, created_at, updated_at FROM lists ORDER BY updated_at DESC");
-    let result = stmt.all().await?;
+    let result = d1
+        .prepare("SELECT id, user_id, name, list_type, created_at, updated_at FROM lists WHERE user_id = ?1 ORDER BY updated_at DESC")
+        .bind(&[user_id.into()])?
+        .all()
+        .await?;
     let lists = result.results::<List>()?;
     Response::from_json(&lists)
 }
 
 pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
     let body: CreateListRequest = req.json().await?;
     let id = uuid::Uuid::new_v4().to_string();
     let list_type_str = serde_json::to_value(&body.list_type)
@@ -19,13 +24,13 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         .to_string();
 
     let d1 = ctx.env.d1("DB")?;
-    let stmt = d1.prepare("INSERT INTO lists (id, name, list_type) VALUES (?1, ?2, ?3)");
-    stmt.bind(&[id.clone().into(), body.name.clone().into(), list_type_str.into()])?
+    d1.prepare("INSERT INTO lists (id, user_id, name, list_type) VALUES (?1, ?2, ?3, ?4)")
+        .bind(&[id.clone().into(), user_id.clone().into(), body.name.clone().into(), list_type_str.into()])?
         .run()
         .await?;
 
-    let fetch_stmt = d1.prepare("SELECT id, name, list_type, created_at, updated_at FROM lists WHERE id = ?1");
-    let list = fetch_stmt
+    let list = d1
+        .prepare("SELECT id, user_id, name, list_type, created_at, updated_at FROM lists WHERE id = ?1")
         .bind(&[id.into()])?
         .first::<List>(None)
         .await?
@@ -37,11 +42,12 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 }
 
 pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
-    let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?;
+    let user_id = ctx.data.clone();
+    let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?.to_string();
     let d1 = ctx.env.d1("DB")?;
-    let stmt = d1.prepare("SELECT id, name, list_type, created_at, updated_at FROM lists WHERE id = ?1");
-    let list = stmt
-        .bind(&[id.into()])?
+    let list = d1
+        .prepare("SELECT id, user_id, name, list_type, created_at, updated_at FROM lists WHERE id = ?1 AND user_id = ?2")
+        .bind(&[id.into(), user_id.into()])?
         .first::<List>(None)
         .await?;
 
@@ -52,9 +58,20 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
 }
 
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
     let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?.to_string();
     let body: UpdateListRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
+
+    // Verify ownership first
+    let existing = d1
+        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
+        .bind(&[id.clone().into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if existing.is_none() {
+        return Response::error("Not found", 404);
+    }
 
     if let Some(name) = &body.name {
         d1.prepare("UPDATE lists SET name = ?1, updated_at = datetime('now') WHERE id = ?2")
@@ -76,7 +93,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     }
 
     let list = d1
-        .prepare("SELECT id, name, list_type, created_at, updated_at FROM lists WHERE id = ?1")
+        .prepare("SELECT id, user_id, name, list_type, created_at, updated_at FROM lists WHERE id = ?1")
         .bind(&[id.into()])?
         .first::<List>(None)
         .await?
@@ -86,10 +103,11 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 }
 
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
-    let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?;
+    let user_id = ctx.data.clone();
+    let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?.to_string();
     let d1 = ctx.env.d1("DB")?;
-    d1.prepare("DELETE FROM lists WHERE id = ?1")
-        .bind(&[id.into()])?
+    d1.prepare("DELETE FROM lists WHERE id = ?1 AND user_id = ?2")
+        .bind(&[id.into(), user_id.into()])?
         .run()
         .await?;
     Ok(Response::empty()?.with_status(204))
