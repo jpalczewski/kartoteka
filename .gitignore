@@ -25,6 +25,9 @@ mcp/dist/
 .vscode/
 *.code-workspace
 
+# Worktrees
+.worktrees/
+
 # Env / secrets
 .env
 .env.local
