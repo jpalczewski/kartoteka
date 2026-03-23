@@ -1,0 +1,15 @@
+[package]
+name = "kartoteka-api"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+kartoteka-shared = { path = "../shared" }
+worker = { version = "0.7", features = ["d1"] }
+sqlx-d1 = { version = "0.3", features = ["macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "js"] }

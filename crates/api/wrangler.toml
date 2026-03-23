@@ -1,0 +1,13 @@
+name = "kartoteka-api"
+main = "build/worker/shim.mjs"
+compatibility_date = "2025-01-01"
+account_id = "6b703fac2c4f8b359e430bf11b8dde7f"
+
+[build]
+command = "cargo install -q worker-build && worker-build --release"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kartoteka-db"
+database_id = "2eaf10af-8d5f-49e2-9931-be6911a61da8"
+migrations_dir = "./migrations"

@@ -1,0 +1,29 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Trunk / Frontend
+crates/frontend/dist/
+
+# Wrangler / Workers
+.wrangler/
+build/
+.dev.vars
+
+# MCP (Node)
+mcp/node_modules/
+mcp/dist/
+
+# OS
+.DS_Store
+*.swp
+*.swo
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# Env / secrets
+.env
+.env.local

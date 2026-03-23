@@ -1,0 +1,13 @@
+name = "kartoteka-mcp"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+account_id = "6b703fac2c4f8b359e430bf11b8dde7f"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kartoteka-db"
+database_id = "TODO_REPLACE_WITH_ACTUAL_ID"
+
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "TODO_REPLACE_WITH_KV_ID"

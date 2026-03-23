@@ -1,0 +1,11 @@
+{
+    "name": "Kartoteka",
+    "short_name": "Kartoteka",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#1a1a2e",
+    "theme_color": "#1a1a2e",
+    "description": "Listy zakupów, pakowania, projektów i więcej",
+    "lang": "pl",
+    "icons": []
+}
