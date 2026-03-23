@@ -34,3 +34,7 @@ mcp/dist/
 # Env / secrets
 .env
 .env.local
+
+# MCP / local tools
+.mcp.json
+.serena/
