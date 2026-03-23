@@ -37,6 +37,7 @@ pub fn Nav() -> impl IntoView {
                             class="user-menu-dropdown"
                             style:display=move || if menu_open.get() { "block" } else { "none" }
                         >
+                            <a href="/tags" class="user-menu-item">"Tagi"</a>
                             <a href="/settings" class="user-menu-item">"Ustawienia"</a>
                             <button class="user-menu-item" on:click=on_logout>"Wyloguj"</button>
                         </div>
