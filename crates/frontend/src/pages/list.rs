@@ -3,7 +3,7 @@ use leptos_router::hooks::use_params_map;
 
 use crate::api;
 use crate::components::item_row::ItemRow;
-use kartoteka_shared::{CreateItemRequest, Item, UpdateItemRequest};
+use kartoteka_shared::{CreateItemRequest, Item, ItemTagLink, Tag, UpdateItemRequest};
 
 #[component]
 pub fn ListPage() -> impl IntoView {
@@ -12,6 +12,8 @@ pub fn ListPage() -> impl IntoView {
 
     let (new_title, set_new_title) = signal(String::new());
     let items = RwSignal::new(Vec::<Item>::new());
+    let all_tags = RwSignal::new(Vec::<Tag>::new());
+    let item_tag_links = RwSignal::new(Vec::<ItemTagLink>::new());
     let (loading, set_loading) = signal(true);
     let (error, set_error) = signal(Option::<String>::None);
 
@@ -21,6 +23,12 @@ pub fn ListPage() -> impl IntoView {
         match api::fetch_items(&lid).await {
             Ok(fetched) => items.set(fetched),
             Err(e) => set_error.set(Some(e)),
+        }
+        if let Ok(fetched_tags) = api::fetch_tags().await {
+            all_tags.set(fetched_tags);
+        }
+        if let Ok(links) = api::fetch_item_tag_links().await {
+            item_tag_links.set(links);
         }
         set_loading.set(false);
     });
@@ -85,6 +93,36 @@ pub fn ListPage() -> impl IntoView {
         });
     });
 
+    // Tag toggle callback with optimistic updates
+    let on_tag_toggle = Callback::new(move |(item_id, tag_id): (String, String)| {
+        let has_tag = item_tag_links
+            .read()
+            .iter()
+            .any(|l| l.item_id == item_id && l.tag_id == tag_id);
+        if has_tag {
+            item_tag_links.update(|links| {
+                links.retain(|l| !(l.item_id == item_id && l.tag_id == tag_id))
+            });
+            let iid = item_id.clone();
+            let tid = tag_id.clone();
+            leptos::task::spawn_local(async move {
+                let _ = api::remove_tag_from_item(&iid, &tid).await;
+            });
+        } else {
+            item_tag_links.update(|links| {
+                links.push(ItemTagLink {
+                    item_id: item_id.clone(),
+                    tag_id: tag_id.clone(),
+                })
+            });
+            let iid = item_id.clone();
+            let tid = tag_id.clone();
+            leptos::task::spawn_local(async move {
+                let _ = api::assign_tag_to_item(&iid, &tid).await;
+            });
+        }
+    });
+
     view! {
         <h2 style="margin: 1rem 0;">"Lista"</h2>
 
@@ -109,7 +147,26 @@ pub fn ListPage() -> impl IntoView {
                 view! {
                     <div>
                         {move || items.read().iter().map(|item| {
-                            view! { <ItemRow item=item.clone() on_toggle=on_toggle on_delete=on_delete/> }
+                            let item_id = item.id.clone();
+                            let item_tags: Vec<String> = item_tag_links.read().iter()
+                                .filter(|l| l.item_id == item.id)
+                                .map(|l| l.tag_id.clone())
+                                .collect();
+                            let tags_clone = all_tags.get();
+                            let tog_cb = on_tag_toggle.clone();
+                            let item_tag_toggle = Callback::new(move |tag_id: String| {
+                                tog_cb.run((item_id.clone(), tag_id));
+                            });
+                            view! {
+                                <ItemRow
+                                    item=item.clone()
+                                    on_toggle=on_toggle
+                                    on_delete=on_delete
+                                    all_tags=tags_clone
+                                    item_tag_ids=item_tags
+                                    on_tag_toggle=item_tag_toggle
+                                />
+                            }
                         }).collect::<Vec<_>>()}
                     </div>
                 }.into_any()
