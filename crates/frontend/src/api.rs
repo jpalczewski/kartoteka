@@ -132,3 +132,97 @@ pub async fn delete_item(list_id: &str, id: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+// ── Tag CRUD ──────────────────────────────────────────────────
+
+pub async fn fetch_tags() -> Result<Vec<Tag>, String> {
+    get(&format!("{API_BASE}/tags"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn create_tag(req: &CreateTagRequest) -> Result<Tag, String> {
+    post_json(&format!("{API_BASE}/tags"), req).await
+}
+
+pub async fn update_tag(id: &str, req: &UpdateTagRequest) -> Result<Tag, String> {
+    put_json(&format!("{API_BASE}/tags/{id}"), req).await
+}
+
+pub async fn delete_tag(id: &str) -> Result<(), String> {
+    del(&format!("{API_BASE}/tags/{id}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ── Tag assignments ───────────────────────────────────────────
+
+pub async fn assign_tag_to_item(item_id: &str, tag_id: &str) -> Result<(), String> {
+    let body = serde_json::to_string(&TagAssignment { tag_id: tag_id.to_string() })
+        .map_err(|e| e.to_string())?;
+    Request::post(&format!("{API_BASE}/items/{item_id}/tags"))
+        .headers(auth_headers())
+        .body(body)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub async fn remove_tag_from_item(item_id: &str, tag_id: &str) -> Result<(), String> {
+    del(&format!("{API_BASE}/items/{item_id}/tags/{tag_id}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub async fn assign_tag_to_list(list_id: &str, tag_id: &str) -> Result<(), String> {
+    let body = serde_json::to_string(&TagAssignment { tag_id: tag_id.to_string() })
+        .map_err(|e| e.to_string())?;
+    Request::post(&format!("{API_BASE}/lists/{list_id}/tags"))
+        .headers(auth_headers())
+        .body(body)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub async fn remove_tag_from_list(list_id: &str, tag_id: &str) -> Result<(), String> {
+    del(&format!("{API_BASE}/lists/{list_id}/tags/{tag_id}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ── Tag link bulk queries ─────────────────────────────────────
+
+pub async fn fetch_list_tag_links() -> Result<Vec<ListTagLink>, String> {
+    get(&format!("{API_BASE}/tag-links/lists"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn fetch_item_tag_links() -> Result<Vec<ItemTagLink>, String> {
+    get(&format!("{API_BASE}/tag-links/items"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
