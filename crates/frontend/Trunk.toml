@@ -3,4 +3,9 @@ target = "index.html"
 dist = "dist"
 
 [watch]
-watch = ["src", "style", "index.html"]
+watch = ["src", "style/input.css", "index.html"]
+
+[[hooks]]
+stage = "pre_build"
+command = "npx"
+command_arguments = ["@tailwindcss/cli", "-i", "style/input.css", "-o", "style/main.css"]

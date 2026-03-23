@@ -17,6 +17,7 @@ setup:
     cargo install trunk worker-build
     rustup target add wasm32-unknown-unknown
     cd mcp && npm install
+    cd crates/frontend && npm install
 
 # Utwórz bazę D1 (jednorazowo)
 db-create:
@@ -51,6 +52,7 @@ build-api:
 
 # Zbuduj frontend
 build-frontend: _gen-hanko
+    cd crates/frontend && npm install
     cd crates/frontend && API_BASE_URL="${API_BASE_URL}" HANKO_API_URL="${HANKO_API_URL}" trunk build --release
 
 # Zbuduj MCP server
