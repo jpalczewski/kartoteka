@@ -1,5 +1,7 @@
 use gloo_net::http::{Headers, Request};
 use kartoteka_shared::*;
+use wasm_bindgen::JsCast;
+use web_sys::js_sys;
 
 const API_BASE: &str = env!("API_BASE_URL");
 
@@ -61,6 +63,22 @@ async fn put_json<T: serde::de::DeserializeOwned>(
 
 pub fn is_logged_in() -> bool {
     get_hanko_token().is_some()
+}
+
+pub fn get_user_email() -> Option<String> {
+    let storage = web_sys::window()?.local_storage().ok()??;
+    storage.get_item("hanko_user_email").ok()?
+}
+
+pub fn logout() {
+    if let Some(window) = web_sys::window() {
+        let hanko_logout = js_sys::Reflect::get(&window, &"__hankoLogout".into()).ok();
+        if let Some(func) = hanko_logout {
+            if let Ok(func) = func.dyn_into::<js_sys::Function>() {
+                let _ = func.call0(&wasm_bindgen::JsValue::NULL);
+            }
+        }
+    }
 }
 
 pub async fn fetch_lists() -> Result<Vec<List>, String> {

@@ -3,6 +3,10 @@ set dotenv-load
 
 export CLOUDFLARE_ACCOUNT_ID := env("CLOUDFLARE_ACCOUNT_ID", "")
 
+# Generuje hanko-init.js z template
+_gen-hanko:
+    sed 's|__HANKO_API_URL__|'"${HANKO_API_URL}"'|g' crates/frontend/hanko-init.js.template > crates/frontend/hanko-init.js
+
 default:
     @just --list
 
@@ -25,8 +29,7 @@ dev-api:
     cd crates/api && HANKO_API_URL="${HANKO_API_URL}" npx wrangler dev
 
 # Uruchom frontend z proxy do API
-dev-frontend:
-    printf 'import{register}from"https://cdn.jsdelivr.net/npm/@teamhanko/hanko-elements/dist/elements.js";const{hanko}=await register("%s");window.__hanko=hanko;function syncToken(){const t=hanko.getSessionToken();if(t){localStorage.setItem("hanko_token",t)}else{localStorage.removeItem("hanko_token")}}syncToken();hanko.onSessionCreated(()=>{syncToken()});hanko.onSessionExpired(()=>{localStorage.removeItem("hanko_token");window.location.href="/login"});\n' "${HANKO_API_URL}" > crates/frontend/hanko-init.js
+dev-frontend: _gen-hanko
     cd crates/frontend && API_BASE_URL="/api" HANKO_API_URL="${HANKO_API_URL}" trunk serve --proxy-backend=http://127.0.0.1:8787/api
 
 # Uruchom MCP server lokalnie
@@ -47,8 +50,7 @@ build-api:
     cd crates/api && worker-build --release
 
 # Zbuduj frontend
-build-frontend:
-    printf 'import{register}from"https://cdn.jsdelivr.net/npm/@teamhanko/hanko-elements/dist/elements.js";const{hanko}=await register("%s");window.__hanko=hanko;function syncToken(){const t=hanko.getSessionToken();if(t){localStorage.setItem("hanko_token",t)}else{localStorage.removeItem("hanko_token")}}syncToken();hanko.onSessionCreated(()=>{syncToken()});hanko.onSessionExpired(()=>{localStorage.removeItem("hanko_token");window.location.href="/login"});\n' "${HANKO_API_URL}" > crates/frontend/hanko-init.js
+build-frontend: _gen-hanko
     cd crates/frontend && API_BASE_URL="${API_BASE_URL}" HANKO_API_URL="${HANKO_API_URL}" trunk build --release
 
 # Zbuduj MCP server
