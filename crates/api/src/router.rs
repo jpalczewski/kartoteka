@@ -7,7 +7,7 @@ fn cors_headers() -> Headers {
     let headers = Headers::new();
     // TODO: restrict to actual domain in production
     let _ = headers.set("Access-Control-Allow-Origin", "*");
-    let _ = headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    let _ = headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
     let _ = headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     headers
 }
@@ -46,11 +46,16 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         .get_async("/api/lists/:id", lists::get_one)
         .put_async("/api/lists/:id", lists::update)
         .delete_async("/api/lists/:id", lists::delete)
+        // Sublists
+        .get_async("/api/lists/:id/sublists", lists::list_sublists)
+        .post_async("/api/lists/:id/sublists", lists::create_sublist)
         // Items
         .get_async("/api/lists/:list_id/items", items::list_all)
         .post_async("/api/lists/:list_id/items", items::create)
         .put_async("/api/lists/:list_id/items/:id", items::update)
         .delete_async("/api/lists/:list_id/items/:id", items::delete)
+        // Item move
+        .patch_async("/api/items/:id/move", items::move_item)
         // Tags CRUD
         .get_async("/api/tags", tags::list_all)
         .post_async("/api/tags", tags::create)

@@ -260,3 +260,69 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
         .await?;
     Ok(Response::empty()?.with_status(204))
 }
+
+pub async fn move_item(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let id = ctx
+        .param("id")
+        .ok_or_else(|| Error::from("Missing id"))?
+        .to_string();
+    let body: serde_json::Value = req.json().await?;
+    let target_list_id = body
+        .get("target_list_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| Error::from("Missing target_list_id"))?
+        .to_string();
+    let d1 = ctx.env.d1("DB")?;
+
+    // Verify item belongs to user
+    let item_check = d1
+        .prepare(
+            "SELECT items.id FROM items \
+             JOIN lists ON lists.id = items.list_id \
+             WHERE items.id = ?1 AND lists.user_id = ?2",
+        )
+        .bind(&[id.clone().into(), user_id.clone().into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if item_check.is_none() {
+        return Response::error("Not found", 404);
+    }
+
+    // Verify target list belongs to user
+    let target_check = d1
+        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
+        .bind(&[target_list_id.clone().into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if target_check.is_none() {
+        return Response::error("Target list not found", 404);
+    }
+
+    // Get next position in target list
+    let max_pos = d1
+        .prepare("SELECT COALESCE(MAX(position), -1) as max_pos FROM items WHERE list_id = ?1")
+        .bind(&[target_list_id.clone().into()])?
+        .first::<serde_json::Value>(None)
+        .await?
+        .and_then(|v| v.get("max_pos")?.as_i64())
+        .unwrap_or(-1);
+    let position = (max_pos + 1) as i32;
+
+    d1.prepare("UPDATE items SET list_id = ?1, position = ?2, updated_at = datetime('now') WHERE id = ?3")
+        .bind(&[target_list_id.into(), position.into(), id.clone().into()])?
+        .run()
+        .await?;
+
+    let item = d1
+        .prepare(
+            "SELECT id, list_id, title, description, completed, position, quantity, actual_quantity, unit, due_date, due_time, created_at, updated_at \
+             FROM items WHERE id = ?1",
+        )
+        .bind(&[id.into()])?
+        .first::<Item>(None)
+        .await?
+        .ok_or_else(|| Error::from("Not found"))?;
+
+    Response::from_json(&item)
+}

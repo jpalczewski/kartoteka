@@ -61,6 +61,24 @@ async fn put_json<T: serde::de::DeserializeOwned>(
         .map_err(|e| e.to_string())
 }
 
+async fn patch_json<T: serde::de::DeserializeOwned>(
+    url: &str,
+    body: &impl serde::Serialize,
+) -> Result<T, String> {
+    let json = serde_json::to_string(body).map_err(|e| e.to_string())?;
+    let resp = Request::patch(url)
+        .headers(auth_headers())
+        .body(json)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if resp.status() >= 400 {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    resp.json().await.map_err(|e| e.to_string())
+}
+
 pub fn is_logged_in() -> bool {
     get_hanko_token().is_some()
 }
@@ -145,6 +163,30 @@ pub async fn delete_item(list_id: &str, id: &str) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// ── Sublists ──────────────────────────────────────────────────
+
+pub async fn fetch_sublists(parent_id: &str) -> Result<Vec<List>, String> {
+    get(&format!("{API_BASE}/lists/{parent_id}/sublists"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn create_sublist(parent_id: &str, name: &str) -> Result<List, String> {
+    let body = serde_json::json!({ "name": name });
+    post_json(&format!("{API_BASE}/lists/{parent_id}/sublists"), &body).await
+}
+
+// ── Item move ─────────────────────────────────────────────────
+
+pub async fn move_item(item_id: &str, target_list_id: &str) -> Result<Item, String> {
+    let body = serde_json::json!({ "target_list_id": target_list_id });
+    patch_json(&format!("{API_BASE}/items/{item_id}/move"), &body).await
 }
 
 // ── Tag CRUD ──────────────────────────────────────────────────
