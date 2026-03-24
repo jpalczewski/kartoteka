@@ -1,4 +1,5 @@
 pub mod add_input;
+pub mod confirm_delete_modal;
 pub mod add_item_input;
 pub mod item_row;
 pub mod list_card;
