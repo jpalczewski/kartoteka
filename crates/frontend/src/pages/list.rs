@@ -6,10 +6,11 @@ use crate::app::{ToastContext, ToastKind};
 use crate::components::add_item_input::AddItemInput;
 use crate::components::confirm_delete_modal::ConfirmDeleteModal;
 use crate::components::item_row::ItemRow;
+use crate::components::sublist_section::SublistSection;
 use crate::components::tag_badge::TagBadge;
 use crate::components::tag_selector::TagSelector;
 use kartoteka_shared::{
-    CreateItemRequest, Item, ItemTagLink, ListTagLink, Tag, UpdateItemRequest,
+    CreateItemRequest, Item, ItemTagLink, List, ListTagLink, Tag, UpdateItemRequest,
 };
 
 #[component]
@@ -30,6 +31,9 @@ pub fn ListPage() -> impl IntoView {
     let list_name = RwSignal::new(String::new());
     let list_has_quantity = RwSignal::new(false);
     let list_has_due_date = RwSignal::new(false);
+    let sublists = RwSignal::new(Vec::<List>::new());
+    let adding_group = RwSignal::new(false);
+    let new_group_name = RwSignal::new(String::new());
 
     // Initial fetch
     let lid = list_id();
@@ -48,6 +52,9 @@ pub fn ListPage() -> impl IntoView {
         }
         if let Ok(links) = api::fetch_item_tag_links().await {
             item_tag_links.set(links);
+        }
+        if let Ok(fetched_sublists) = api::fetch_sublists(&lid).await {
+            sublists.set(fetched_sublists);
         }
         if let Ok(links) = api::fetch_list_tag_links().await {
             let filtered: Vec<ListTagLink> =
@@ -343,11 +350,12 @@ pub fn ListPage() -> impl IntoView {
                     view! { <p>"Wczytywanie..."</p> }.into_any()
                 } else if let Some(e) = error.get() {
                     view! { <p style="color: red;">{format!("Błąd: {e}")}</p> }.into_any()
-                } else if items.read().is_empty() {
+                } else if items.read().is_empty() && sublists.read().is_empty() {
                     view! { <div class="text-center text-base-content/50 py-12">"Lista jest pusta"</div> }.into_any()
                 } else {
                     view! {
                         <div>
+                            // Main list items
                             {move || sorted_items().iter().map(|item| {
                                 let item_id = item.id.clone();
                                 let item_tags: Vec<String> = item_tag_links.read().iter()
@@ -373,6 +381,117 @@ pub fn ListPage() -> impl IntoView {
                                     />
                                 }
                             }).collect::<Vec<_>>()}
+
+                            // Sub-lists
+                            {move || {
+                                let subs = sublists.get();
+                                if subs.is_empty() {
+                                    view! {}.into_any()
+                                } else {
+                                    view! {
+                                        <div class="mt-6">
+                                            {subs.into_iter().map(|sl| {
+                                                let tags = all_tags.get();
+                                                let links = item_tag_links.get();
+                                                view! {
+                                                    <SublistSection
+                                                        sublist=sl
+                                                        has_quantity=list_has_quantity.get()
+                                                        has_due_date=list_has_due_date.get()
+                                                        all_tags=tags
+                                                        item_tag_links=links
+                                                        on_tag_toggle=on_tag_toggle
+                                                    />
+                                                }
+                                            }).collect::<Vec<_>>()}
+                                        </div>
+                                    }.into_any()
+                                }
+                            }}
+
+                            // Add group button/input
+                            <div class="mt-4">
+                                {move || {
+                                    if adding_group.get() {
+                                        let lid = list_id();
+                                        let lid_for_btn = lid.clone();
+                                        view! {
+                                            <div class="flex gap-2">
+                                                <input
+                                                    type="text"
+                                                    class="input input-bordered flex-1"
+                                                    placeholder="Nazwa grupy..."
+                                                    prop:value=new_group_name
+                                                    on:input=move |ev| new_group_name.set(event_target_value(&ev))
+                                                    on:keydown=move |ev: web_sys::KeyboardEvent| {
+                                                        if ev.key() == "Enter" {
+                                                            let name = new_group_name.get();
+                                                            if !name.trim().is_empty() {
+                                                                let lid = lid.clone();
+                                                                leptos::task::spawn_local(async move {
+                                                                    match api::create_sublist(&lid, &name).await {
+                                                                        Ok(sl) => {
+                                                                            sublists.update(|list| list.push(sl));
+                                                                            new_group_name.set(String::new());
+                                                                            adding_group.set(false);
+                                                                        }
+                                                                        Err(_) => {}
+                                                                    }
+                                                                });
+                                                            }
+                                                        } else if ev.key() == "Escape" {
+                                                            adding_group.set(false);
+                                                            new_group_name.set(String::new());
+                                                        }
+                                                    }
+                                                />
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-primary"
+                                                    on:click=move |_| {
+                                                        let name = new_group_name.get();
+                                                        if !name.trim().is_empty() {
+                                                            let lid = lid_for_btn.clone();
+                                                            leptos::task::spawn_local(async move {
+                                                                match api::create_sublist(&lid, &name).await {
+                                                                    Ok(sl) => {
+                                                                        sublists.update(|list| list.push(sl));
+                                                                        new_group_name.set(String::new());
+                                                                        adding_group.set(false);
+                                                                    }
+                                                                    Err(_) => {}
+                                                                }
+                                                            });
+                                                        }
+                                                    }
+                                                >
+                                                    "Dodaj"
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-ghost"
+                                                    on:click=move |_| {
+                                                        adding_group.set(false);
+                                                        new_group_name.set(String::new());
+                                                    }
+                                                >
+                                                    "Anuluj"
+                                                </button>
+                                            </div>
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <button
+                                                type="button"
+                                                class="btn btn-ghost btn-sm"
+                                                on:click=move |_| adding_group.set(true)
+                                            >
+                                                "+ Dodaj grup\u{0119}"
+                                            </button>
+                                        }.into_any()
+                                    }
+                                }}
+                            </div>
                         </div>
                     }.into_any()
                 }
