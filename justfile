@@ -5,7 +5,9 @@ export CLOUDFLARE_ACCOUNT_ID := env("CLOUDFLARE_ACCOUNT_ID", "")
 
 # Generuje hanko-init.js z template
 _gen-hanko:
-    sed 's|__HANKO_API_URL__|'"${HANKO_API_URL}"'|g' crates/frontend/hanko-init.js.template > crates/frontend/hanko-init.js
+    sed -e 's|__HANKO_API_URL__|'"${HANKO_API_URL}"'|g' \
+        -e 's|__DEV_AUTH_TOKEN__|'"${DEV_AUTH_TOKEN:-}"'|g' \
+        crates/frontend/hanko-init.js.template > crates/frontend/hanko-init.js
 
 default:
     @just --list

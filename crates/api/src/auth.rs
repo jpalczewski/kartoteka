@@ -3,6 +3,15 @@ use worker::*;
 
 const HANKO_API_URL: &str = env!("HANKO_API_URL");
 
+/// Returns the dev bypass user_id if `DEV_AUTH_USER_ID` Worker var is set.
+/// Used only in local dev (`[env.local]`) — never set in prod/dev deployments.
+pub fn dev_bypass_user_id(env: &Env) -> Option<String> {
+    env.var("DEV_AUTH_USER_ID")
+        .ok()
+        .map(|v| v.to_string())
+        .filter(|s| !s.is_empty())
+}
+
 #[derive(Deserialize)]
 struct SessionValidation {
     is_valid: bool,

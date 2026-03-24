@@ -17,6 +17,9 @@ migrations_dir = "./migrations"
 [env.local]
 name = "kartoteka-api-local"
 
+[env.local.vars]
+DEV_AUTH_USER_ID = "dev-user-00000000-0000-0000-0000-000000000001"
+
 [[env.local.d1_databases]]
 binding = "DB"
 database_name = "kartoteka-api-local"

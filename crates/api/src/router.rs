@@ -24,13 +24,17 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         return Ok(Response::ok("ok")?.with_headers(cors));
     }
 
-    let user_id = match auth::validate_session(&req).await {
-        Ok(uid) => uid,
-        Err(e) => {
-            let body = serde_json::json!({ "error": e.to_string() });
-            return Ok(Response::from_json(&body)?
-                .with_status(401)
-                .with_headers(cors));
+    let user_id = if let Some(uid) = auth::dev_bypass_user_id(&env) {
+        uid
+    } else {
+        match auth::validate_session(&req).await {
+            Ok(uid) => uid,
+            Err(e) => {
+                let body = serde_json::json!({ "error": e.to_string() });
+                return Ok(Response::from_json(&body)?
+                    .with_status(401)
+                    .with_headers(cors));
+            }
         }
     };
 
