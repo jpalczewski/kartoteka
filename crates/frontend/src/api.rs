@@ -246,6 +246,17 @@ pub async fn delete_tag(id: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub async fn fetch_tag_items(tag_id: &str) -> Result<Vec<serde_json::Value>, String> {
+    let url = format!("{API_BASE}/tags/{tag_id}/items");
+    get(&url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ── Tag assignments ───────────────────────────────────────────
 
 pub async fn assign_tag_to_item(item_id: &str, tag_id: &str) -> Result<(), String> {

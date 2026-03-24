@@ -199,6 +199,8 @@ pub fn ListPage() -> impl IntoView {
         });
     });
 
+    let (active_tag_filter, set_active_tag_filter) = signal(Option::<String>::None);
+
     let sorted_items = move || {
         let mut list = items.get();
         list.sort_by(|a, b| {
@@ -207,6 +209,25 @@ pub fn ListPage() -> impl IntoView {
                 .then(a.position.cmp(&b.position))
         });
         list
+    };
+
+    let filtered_items = move || {
+        let items = sorted_items();
+        match active_tag_filter.get() {
+            None => items,
+            Some(tid) => {
+                let tagged_item_ids: Vec<String> = item_tag_links
+                    .read()
+                    .iter()
+                    .filter(|l| l.tag_id == tid)
+                    .map(|l| l.item_id.clone())
+                    .collect();
+                items
+                    .into_iter()
+                    .filter(|i| tagged_item_ids.contains(&i.id))
+                    .collect()
+            }
+        }
     };
 
     view! {
@@ -261,6 +282,39 @@ pub fn ListPage() -> impl IntoView {
 
             {move || view! { <AddItemInput on_submit=on_add has_quantity=list_has_quantity.get() has_due_date=list_has_due_date.get() /> }}
 
+            // Tag filter bar
+            {move || {
+                let tags = all_tags.read();
+                if tags.is_empty() {
+                    view! {}.into_any()
+                } else {
+                    let tags_list: Vec<Tag> = tags.clone();
+                    view! {
+                        <div class="flex flex-wrap gap-1 mb-3">
+                            <button
+                                class=move || if active_tag_filter.get().is_none() { "btn btn-xs btn-primary" } else { "btn btn-xs btn-ghost" }
+                                on:click=move |_| set_active_tag_filter.set(None)
+                            >"Wszystkie"</button>
+                            {tags_list.into_iter().map(|t| {
+                                let tid_class = t.id.clone();
+                                let tid_style = t.id.clone();
+                                let tid_click = t.id.clone();
+                                let tname = t.name.clone();
+                                let tcolor_class = t.color.clone();
+                                let tcolor_style = t.color.clone();
+                                view! {
+                                    <button
+                                        class=move || if active_tag_filter.get().as_deref() == Some(&tid_class) { "btn btn-xs btn-primary" } else { "btn btn-xs btn-outline" }
+                                        style=move || format!("border-color: {}; color: {}", tcolor_style, if active_tag_filter.get().as_deref() == Some(&tid_style) { "#fff" } else { &tcolor_class })
+                                        on:click=move |_| set_active_tag_filter.set(Some(tid_click.clone()))
+                                    >{tname}</button>
+                                }
+                            }).collect::<Vec<_>>()}
+                        </div>
+                    }.into_any()
+                }
+            }}
+
             {move || {
                 if loading.get() {
                     view! { <p>"Wczytywanie..."</p> }.into_any()
@@ -276,7 +330,7 @@ pub fn ListPage() -> impl IntoView {
                                 if list_has_due_date.get() {
                                     // Date view: group into overdue, upcoming, done
                                     let today = get_today();
-                                    let all = sorted_items();
+                                    let all = filtered_items();
 
                                     let mut overdue: Vec<Item> = all.iter()
                                         .filter(|i| is_overdue(i, &today))
@@ -330,7 +384,7 @@ pub fn ListPage() -> impl IntoView {
                                         .collect();
                                     view! {
                                         <div>
-                                            {sorted_items().iter().map(|item| {
+                                            {filtered_items().iter().map(|item| {
                                                 let item_id = item.id.clone();
                                                 let item_tags: Vec<String> = item_tag_links.read().iter()
                                                     .filter(|l| l.item_id == item.id)

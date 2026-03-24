@@ -62,6 +62,7 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         // Tags CRUD
         .get_async("/api/tags", tags::list_all)
         .post_async("/api/tags", tags::create)
+        .get_async("/api/tags/:id/items", tags::tag_items)
         .put_async("/api/tags/:id", tags::update)
         .delete_async("/api/tags/:id", tags::delete)
         // Tag assignments
