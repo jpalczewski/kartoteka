@@ -2,7 +2,9 @@ use kartoteka_shared::{CreateListRequest, List, ListTagLink, ListType, Tag};
 use leptos::prelude::*;
 
 use crate::api;
+use crate::app::{ToastContext, ToastKind};
 use crate::components::add_input::AddInput;
+use crate::components::confirm_delete_modal::ConfirmDeleteModal;
 use crate::components::list_card::ListCard;
 
 fn parse_list_type(s: &str) -> ListType {
@@ -23,13 +25,27 @@ pub fn HomePage() -> impl IntoView {
         }
     }
 
+    let toast = use_context::<ToastContext>().expect("ToastContext missing");
+
     let (new_list_type, set_new_list_type) = signal(ListType::Custom);
     let (refresh, set_refresh) = signal(0u32);
     let (active_tag_filter, set_active_tag_filter) = signal(Option::<String>::None);
 
-    let lists = LocalResource::new(move || {
+    // pending_delete: (list_id, list_name) — drives the modal
+    let pending_delete = RwSignal::new(Option::<(String, String)>::None);
+
+    // Lists: fetched via LocalResource, kept in writable RwSignal for optimistic updates
+    let lists_res = LocalResource::new(move || {
         let _ = refresh.get();
         api::fetch_lists()
+    });
+    let lists_data = RwSignal::new(Vec::<List>::new());
+    Effect::new(move |_| {
+        if let Some(data) = lists_res.get() {
+            if let Ok(lists) = data.as_deref() {
+                lists_data.set(lists.to_vec());
+            }
+        }
     });
 
     let tags_res = LocalResource::new(|| api::fetch_tags());
@@ -38,7 +54,6 @@ pub fn HomePage() -> impl IntoView {
         api::fetch_list_tag_links()
     });
 
-    // RwSignal for optimistic tag updates, synced from LocalResource
     let list_tag_links = RwSignal::new(Vec::<ListTagLink>::new());
     Effect::new(move |_| {
         if let Some(data) = links_res.get() {
@@ -139,67 +154,97 @@ pub fn HomePage() -> impl IntoView {
                 <AddInput placeholder="Nazwa nowej listy..." button_label="Dodaj" on_submit=on_create />
             </div>
 
+            // Delete confirmation modal (conditionally rendered)
+            {move || pending_delete.get().map(|(lid, lname)| {
+                let lid_confirm = lid.clone();
+                view! {
+                    <ConfirmDeleteModal
+                        list_id=lid
+                        list_name=lname
+                        on_confirm=Callback::new(move |_| {
+                            let lid = lid_confirm.clone();
+                            leptos::task::spawn_local(async move {
+                                // Optimistic: remove from local signal
+                                let removed = lists_data.read().iter().find(|l| l.id == lid).cloned();
+                                lists_data.update(|ls| ls.retain(|l| l.id != lid));
+                                pending_delete.set(None);
+
+                                match api::delete_list(&lid).await {
+                                    Ok(()) => toast.push("Lista usunięta".into(), ToastKind::Success),
+                                    Err(e) => {
+                                        // Rollback
+                                        if let Some(list) = removed {
+                                            lists_data.update(|ls| ls.push(list));
+                                        }
+                                        toast.push(e, ToastKind::Error);
+                                    }
+                                }
+                            });
+                        })
+                        on_cancel=Callback::new(move |_| pending_delete.set(None))
+                    />
+                }
+            })}
+
             // Lists grid
-            <Suspense fallback=|| view! { <p>"Wczytywanie..."</p> }>
-                {move || {
-                    let lists_data = lists.get();
-                    let tags_data = tags_res.get();
+            {move || {
+                let tags_data = tags_res.get();
+                let all_tags: Vec<Tag> = tags_data
+                    .as_ref()
+                    .and_then(|r| r.as_deref().ok())
+                    .map(|s| s.to_vec())
+                    .unwrap_or_default();
+                let all_links = list_tag_links.get();
+                let filter = active_tag_filter.get();
 
-                    lists_data.map(|lists_result| {
-                        match &*lists_result {
-                            Err(e) => view! { <p style="color: red;">{format!("Błąd: {e}")}</p> }.into_any(),
-                            Ok(all_lists) if all_lists.is_empty() => {
-                                view! { <div class="text-center text-base-content/50 py-12">"Brak list. Utwórz pierwszą!"</div> }.into_any()
-                            }
-                            Ok(all_lists) => {
-                                let all_tags: Vec<Tag> = tags_data
-                                    .as_ref()
-                                    .and_then(|r| r.as_deref().ok())
-                                    .map(|s| s.to_vec())
-                                    .unwrap_or_default();
-                                let all_links = list_tag_links.get();
+                let all_lists = lists_data.get();
+                if all_lists.is_empty() {
+                    return view! {
+                        <div class="text-center text-base-content/50 py-12">"Brak list. Utwórz pierwszą!"</div>
+                    }.into_any();
+                }
 
-                                let filter = active_tag_filter.get();
-                                let filtered_lists: Vec<List> = all_lists
-                                    .iter()
-                                    .filter(|l| match &filter {
-                                        None => true,
-                                        Some(tag_id) => all_links
-                                            .iter()
-                                            .any(|link| link.list_id == l.id && &link.tag_id == tag_id),
-                                    })
-                                    .cloned()
-                                    .collect();
-
-                                view! {
-                                    <div class="flex flex-col gap-3">
-                                        {filtered_lists.into_iter().map(|list| {
-                                            let list_id = list.id.clone();
-                                            let list_tag_ids: Vec<String> = all_links
-                                                .iter()
-                                                .filter(|l| l.list_id == list.id)
-                                                .map(|l| l.tag_id.clone())
-                                                .collect();
-                                            let tog = on_list_tag_toggle.clone();
-                                            let tag_cb = Callback::new(move |tag_id: String| {
-                                                tog.run((list_id.clone(), tag_id));
-                                            });
-                                            view! {
-                                                <ListCard
-                                                    list
-                                                    all_tags=all_tags.clone()
-                                                    list_tag_ids
-                                                    on_tag_toggle=tag_cb
-                                                />
-                                            }
-                                        }).collect::<Vec<_>>()}
-                                    </div>
-                                }.into_any()
-                            }
-                        }
+                let filtered_lists: Vec<List> = all_lists
+                    .iter()
+                    .filter(|l| match &filter {
+                        None => true,
+                        Some(tag_id) => all_links
+                            .iter()
+                            .any(|link| link.list_id == l.id && &link.tag_id == tag_id),
                     })
-                }}
-            </Suspense>
+                    .cloned()
+                    .collect();
+
+                view! {
+                    <div class="flex flex-col gap-3">
+                        {filtered_lists.into_iter().map(|list| {
+                            let list_id = list.id.clone();
+                            let list_name = list.name.clone();
+                            let list_tag_ids: Vec<String> = all_links
+                                .iter()
+                                .filter(|l| l.list_id == list.id)
+                                .map(|l| l.tag_id.clone())
+                                .collect();
+                            let tog = on_list_tag_toggle.clone();
+                            let tag_cb = Callback::new(move |tag_id: String| {
+                                tog.run((list_id.clone(), tag_id));
+                            });
+                            let lid = list.id.clone();
+                            view! {
+                                <ListCard
+                                    list
+                                    all_tags=all_tags.clone()
+                                    list_tag_ids
+                                    on_tag_toggle=tag_cb
+                                    on_delete=Callback::new(move |_: String| {
+                                        pending_delete.set(Some((lid.clone(), list_name.clone())));
+                                    })
+                                />
+                            }
+                        }).collect::<Vec<_>>()}
+                    </div>
+                }.into_any()
+            }}
         </div>
     }
 }
