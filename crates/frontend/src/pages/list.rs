@@ -28,12 +28,16 @@ pub fn ListPage() -> impl IntoView {
     let navigate = use_navigate();
     let show_delete = RwSignal::new(false);
     let list_name = RwSignal::new(String::new());
+    let list_has_quantity = RwSignal::new(false);
+    let list_has_due_date = RwSignal::new(false);
 
     // Initial fetch
     let lid = list_id();
     leptos::task::spawn_local(async move {
         if let Ok(list) = api::fetch_list(&lid).await {
             list_name.set(list.name);
+            list_has_quantity.set(list.has_quantity);
+            list_has_due_date.set(list.has_due_date);
         }
         match api::fetch_items(&lid).await {
             Ok(fetched) => items.set(fetched),
@@ -54,16 +58,30 @@ pub fn ListPage() -> impl IntoView {
     });
 
     let lid_for_create = list_id();
-    let on_add = Callback::new(move |(title, description): (String, Option<String>)| {
-        let lid = lid_for_create.clone();
-        leptos::task::spawn_local(async move {
-            let req = CreateItemRequest { title, description };
-            match api::create_item(&lid, &req).await {
-                Ok(item) => items.update(|list| list.push(item)),
-                Err(e) => set_error.set(Some(e)),
-            }
-        });
-    });
+    let on_add = Callback::new(
+        move |(title, description, quantity, unit): (
+            String,
+            Option<String>,
+            Option<i32>,
+            Option<String>,
+        )| {
+            let lid = lid_for_create.clone();
+            leptos::task::spawn_local(async move {
+                let req = CreateItemRequest {
+                    title,
+                    description,
+                    quantity,
+                    unit,
+                    due_date: None,
+                    due_time: None,
+                };
+                match api::create_item(&lid, &req).await {
+                    Ok(item) => items.update(|list| list.push(item)),
+                    Err(e) => set_error.set(Some(e)),
+                }
+            });
+        },
+    );
 
     let lid_for_toggle = list_id();
     let on_toggle = Callback::new(move |item_id: String| {
@@ -88,6 +106,11 @@ pub fn ListPage() -> impl IntoView {
                     description: None,
                     completed: Some(completed),
                     position: None,
+                    quantity: None,
+                    actual_quantity: None,
+                    unit: None,
+                    due_date: None,
+                    due_time: None,
                 };
                 let _ = api::update_item(&lid, &item_id, &req).await;
             });
@@ -149,6 +172,11 @@ pub fn ListPage() -> impl IntoView {
                 description: Some(new_desc),
                 completed: None,
                 position: None,
+                quantity: None,
+                actual_quantity: None,
+                unit: None,
+                due_date: None,
+                due_time: None,
             };
             let _ = api::update_item(&lid, &item_id, &req).await;
         });
@@ -179,6 +207,49 @@ pub fn ListPage() -> impl IntoView {
             });
         }
     });
+
+    let lid_for_qty = list_id();
+    let on_quantity_change = Callback::new(move |(item_id, new_actual): (String, i32)| {
+        // Optimistic update
+        items.update(|list| {
+            if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
+                item.actual_quantity = Some(new_actual);
+                // Auto-complete: if actual >= target, set completed
+                if let Some(target) = item.quantity {
+                    if new_actual >= target {
+                        item.completed = true;
+                    }
+                }
+            }
+        });
+
+        let lid = lid_for_qty.clone();
+        let iid = item_id.clone();
+        leptos::task::spawn_local(async move {
+            let req = UpdateItemRequest {
+                title: None,
+                description: None,
+                completed: None,
+                position: None,
+                quantity: None,
+                actual_quantity: Some(new_actual),
+                unit: None,
+                due_date: None,
+                due_time: None,
+            };
+            let _ = api::update_item(&lid, &iid, &req).await;
+        });
+    });
+
+    let sorted_items = move || {
+        let mut list = items.get();
+        list.sort_by(|a, b| {
+            a.completed
+                .cmp(&b.completed)
+                .then(a.position.cmp(&b.position))
+        });
+        list
+    };
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
@@ -265,7 +336,7 @@ pub fn ListPage() -> impl IntoView {
                 }
             }}
 
-            <AddItemInput on_submit=on_add />
+            <AddItemInput on_submit=on_add has_quantity=list_has_quantity.get() />
 
             {move || {
                 if loading.get() {
@@ -277,7 +348,7 @@ pub fn ListPage() -> impl IntoView {
                 } else {
                     view! {
                         <div>
-                            {move || items.read().iter().map(|item| {
+                            {move || sorted_items().iter().map(|item| {
                                 let item_id = item.id.clone();
                                 let item_tags: Vec<String> = item_tag_links.read().iter()
                                     .filter(|l| l.item_id == item.id)
@@ -297,6 +368,8 @@ pub fn ListPage() -> impl IntoView {
                                         item_tag_ids=item_tags
                                         on_tag_toggle=item_tag_toggle
                                         on_description_save=on_description_save
+                                        has_quantity=list_has_quantity.get()
+                                        on_quantity_change=on_quantity_change
                                     />
                                 }
                             }).collect::<Vec<_>>()}

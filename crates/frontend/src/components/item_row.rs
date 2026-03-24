@@ -13,6 +13,8 @@ pub fn ItemRow(
     #[prop(default = vec![])] item_tag_ids: Vec<String>,
     #[prop(optional)] on_tag_toggle: Option<Callback<String>>,
     #[prop(optional)] on_description_save: Option<Callback<(String, String)>>,
+    #[prop(default = false)] has_quantity: bool,
+    #[prop(optional)] on_quantity_change: Option<Callback<(String, i32)>>,
 ) -> impl IntoView {
     let id = item.id.clone();
     let id_toggle = id.clone();
@@ -34,6 +36,13 @@ pub fn ItemRow(
     let expanded = RwSignal::new(false);
     let description_text = RwSignal::new(item.description.clone().unwrap_or_default());
 
+    // Quantity stepper state
+    let show_stepper = has_quantity && item.quantity.is_some();
+    let target_qty = item.quantity.unwrap_or(0);
+    let actual = RwSignal::new(item.actual_quantity.unwrap_or(0));
+    let unit_label = item.unit.clone().unwrap_or_default();
+    let id_for_stepper = id.clone();
+
     view! {
         <div class="border-b border-base-300">
             <div class=row_class>
@@ -52,6 +61,59 @@ pub fn ItemRow(
                     {move || if expanded.get() { "▲" } else { "▼" }}
                 </button>
                 <span class=title_class>{item.title}</span>
+
+                // Quantity stepper
+                {if show_stepper {
+                    let id_dec = id_for_stepper.clone();
+                    let id_inc = id_for_stepper.clone();
+                    let cb_dec = on_quantity_change;
+                    let cb_inc = on_quantity_change;
+                    let unit_str = unit_label.clone();
+                    view! {
+                        <div class="flex flex-col items-center gap-0.5">
+                            <div class="flex items-center gap-1">
+                                <button
+                                    type="button"
+                                    class="btn btn-xs btn-circle btn-ghost"
+                                    on:click=move |_| {
+                                        let new_val = (actual.get() - 1).max(0);
+                                        actual.set(new_val);
+                                        if let Some(cb) = cb_dec {
+                                            cb.run((id_dec.clone(), new_val));
+                                        }
+                                    }
+                                >
+                                    "−"
+                                </button>
+                                <span class="text-sm font-mono">
+                                    {move || actual.get()} " / " {target_qty} " " {unit_str.clone()}
+                                </span>
+                                <button
+                                    type="button"
+                                    class="btn btn-xs btn-circle btn-ghost"
+                                    on:click=move |_| {
+                                        let new_val = actual.get() + 1;
+                                        actual.set(new_val);
+                                        if let Some(cb) = cb_inc {
+                                            cb.run((id_inc.clone(), new_val));
+                                        }
+                                    }
+                                >
+                                    "+"
+                                </button>
+                            </div>
+                            // Thin progress bar
+                            <progress
+                                class="progress progress-primary w-20 h-1"
+                                value=move || actual.get().to_string()
+                                max=target_qty.to_string()
+                            />
+                        </div>
+                    }.into_any()
+                } else {
+                    view! {}.into_any()
+                }}
+
                 // Tag badges for this item
                 {if !item_tag_ids.is_empty() {
                     let item_tags: Vec<Tag> = all_tags.iter()
