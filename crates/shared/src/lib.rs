@@ -11,12 +11,13 @@ fn bool_from_number<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
 
 // === Domain types ===
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ListType {
-    Shopping,
-    Packing,
-    Project,
+    Checklist,
+    Zakupy,
+    Pakowanie,
+    Terminarz,
     Custom,
 }
 
@@ -26,6 +27,14 @@ pub struct List {
     pub user_id: String,
     pub name: String,
     pub list_type: ListType,
+    pub parent_list_id: Option<String>,
+    pub position: i32,
+    #[serde(deserialize_with = "bool_from_number")]
+    pub archived: bool,
+    #[serde(deserialize_with = "bool_from_number")]
+    pub has_quantity: bool,
+    #[serde(deserialize_with = "bool_from_number")]
+    pub has_due_date: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -39,6 +48,11 @@ pub struct Item {
     #[serde(deserialize_with = "bool_from_number")]
     pub completed: bool,
     pub position: i32,
+    pub quantity: Option<i32>,
+    pub actual_quantity: Option<i32>,
+    pub unit: Option<String>,
+    pub due_date: Option<String>,
+    pub due_time: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -49,18 +63,29 @@ pub struct Item {
 pub struct CreateListRequest {
     pub name: String,
     pub list_type: ListType,
+    #[serde(default)]
+    pub has_quantity: bool,
+    #[serde(default)]
+    pub has_due_date: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateListRequest {
     pub name: Option<String>,
     pub list_type: Option<ListType>,
+    pub has_quantity: Option<bool>,
+    pub has_due_date: Option<bool>,
+    pub archived: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateItemRequest {
     pub title: String,
     pub description: Option<String>,
+    pub quantity: Option<i32>,
+    pub unit: Option<String>,
+    pub due_date: Option<String>,
+    pub due_time: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +94,11 @@ pub struct UpdateItemRequest {
     pub description: Option<String>,
     pub completed: Option<bool>,
     pub position: Option<i32>,
+    pub quantity: Option<i32>,
+    pub actual_quantity: Option<i32>,
+    pub unit: Option<String>,
+    pub due_date: Option<String>,
+    pub due_time: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

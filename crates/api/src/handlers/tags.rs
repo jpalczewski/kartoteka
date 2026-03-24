@@ -268,6 +268,45 @@ pub async fn remove_from_list(_req: Request, ctx: RouteContext<String>) -> Resul
     Ok(Response::empty()?.with_status(204))
 }
 
+/// GET /api/tags/:id/items
+pub async fn tag_items(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let tag_id = ctx
+        .param("id")
+        .ok_or_else(|| Error::from("Missing id"))?
+        .to_string();
+    let d1 = ctx.env.d1("DB")?;
+
+    // Verify tag belongs to user
+    let tag_check = d1
+        .prepare("SELECT id FROM tags WHERE id = ?1 AND user_id = ?2")
+        .bind(&[tag_id.clone().into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if tag_check.is_none() {
+        return Response::error("Not found", 404);
+    }
+
+    // Get all items with this tag, including list name
+    let result = d1
+        .prepare(
+            "SELECT i.id, i.list_id, i.title, i.description, i.completed, i.position, \
+             i.quantity, i.actual_quantity, i.unit, i.due_date, i.due_time, \
+             i.created_at, i.updated_at, l.name as list_name \
+             FROM items i \
+             JOIN item_tags it ON it.item_id = i.id \
+             JOIN lists l ON l.id = i.list_id \
+             WHERE it.tag_id = ?1 \
+             ORDER BY l.name, i.position",
+        )
+        .bind(&[tag_id.into()])?
+        .all()
+        .await?;
+
+    let rows = result.results::<serde_json::Value>()?;
+    Response::from_json(&rows)
+}
+
 /// GET /api/tag-links/items
 pub async fn all_item_tag_links(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();

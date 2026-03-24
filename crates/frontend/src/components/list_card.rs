@@ -5,21 +5,23 @@ use leptos_router::hooks::use_navigate;
 use crate::components::tag_badge::TagBadge;
 use crate::components::tag_selector::TagSelector;
 
-fn list_type_label(lt: &ListType) -> &'static str {
+pub fn list_type_label(lt: &ListType) -> &'static str {
     match lt {
-        ListType::Shopping => "Zakupy",
-        ListType::Packing => "Pakowanie",
-        ListType::Project => "Projekt",
-        ListType::Custom => "Lista",
+        ListType::Checklist => "Checklist",
+        ListType::Zakupy => "Zakupy",
+        ListType::Pakowanie => "Pakowanie",
+        ListType::Terminarz => "Terminarz",
+        ListType::Custom => "Custom",
     }
 }
 
-fn list_type_icon(lt: &ListType) -> &'static str {
+pub fn list_type_icon(lt: &ListType) -> &'static str {
     match lt {
-        ListType::Shopping => "\u{1F6D2}",
-        ListType::Packing => "\u{1F9F3}",
-        ListType::Project => "\u{1F4CB}",
-        ListType::Custom => "\u{1F4DD}",
+        ListType::Checklist => "✅",
+        ListType::Zakupy => "🛒",
+        ListType::Pakowanie => "🧳",
+        ListType::Terminarz => "📅",
+        ListType::Custom => "📝",
     }
 }
 

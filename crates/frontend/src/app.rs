@@ -4,7 +4,7 @@ use leptos_router::path;
 
 use crate::components::nav::Nav;
 use crate::components::toast_container::ToastContainer;
-use crate::pages::{home::HomePage, list::ListPage, login::LoginPage, settings::SettingsPage, tags::TagsPage};
+use crate::pages::{home::HomePage, list::ListPage, login::LoginPage, settings::SettingsPage, tag_detail::TagDetailPage, tags::TagsPage};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToastKind {
@@ -71,6 +71,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/login") view=LoginPage/>
                     <Route path=path!("/settings") view=SettingsPage/>
                     <Route path=path!("/tags") view=TagsPage/>
+                    <Route path=path!("/tags/:id") view=TagDetailPage/>
                     <Route path=path!("/lists/:id") view=ListPage/>
                 </Routes>
             </main>

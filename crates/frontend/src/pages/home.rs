@@ -5,16 +5,7 @@ use crate::api;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::add_input::AddInput;
 use crate::components::confirm_delete_modal::ConfirmDeleteModal;
-use crate::components::list_card::ListCard;
-
-fn parse_list_type(s: &str) -> ListType {
-    match s {
-        "shopping" => ListType::Shopping,
-        "packing" => ListType::Packing,
-        "project" => ListType::Project,
-        _ => ListType::Custom,
-    }
-}
+use crate::components::list_card::{list_type_icon, list_type_label, ListCard};
 
 #[component]
 pub fn HomePage() -> impl IntoView {
@@ -28,6 +19,8 @@ pub fn HomePage() -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
 
     let (new_list_type, set_new_list_type) = signal(ListType::Custom);
+    let (has_quantity, set_has_quantity) = signal(false);
+    let (has_due_date, set_has_due_date) = signal(false);
     let (refresh, set_refresh) = signal(0u32);
     let (active_tag_filter, set_active_tag_filter) = signal(Option::<String>::None);
 
@@ -44,6 +37,20 @@ pub fn HomePage() -> impl IntoView {
         if let Some(data) = lists_res.get() {
             if let Ok(lists) = data.as_deref() {
                 lists_data.set(lists.to_vec());
+            }
+        }
+    });
+
+    // Archived lists
+    let archived_res = LocalResource::new(move || {
+        let _ = refresh.get();
+        api::fetch_archived_lists()
+    });
+    let archived_data = RwSignal::new(Vec::<List>::new());
+    Effect::new(move |_| {
+        if let Some(data) = archived_res.get() {
+            if let Ok(lists) = data.as_deref() {
+                archived_data.set(lists.to_vec());
             }
         }
     });
@@ -94,8 +101,15 @@ pub fn HomePage() -> impl IntoView {
 
     let on_create = Callback::new(move |name: String| {
         let list_type = new_list_type.get();
+        let hq = has_quantity.get();
+        let hd = has_due_date.get();
         leptos::task::spawn_local(async move {
-            let req = CreateListRequest { name, list_type };
+            let req = CreateListRequest {
+                name,
+                list_type,
+                has_quantity: hq,
+                has_due_date: hd,
+            };
             let _ = api::create_list(&req).await;
             set_refresh.update(|n| *n += 1);
         });
@@ -143,15 +157,73 @@ pub fn HomePage() -> impl IntoView {
                 })}
             </Suspense>
 
-            // Create form
-            <div class="flex gap-2 mb-4">
-                <select class="select select-bordered" on:change=move |ev| set_new_list_type.set(parse_list_type(&event_target_value(&ev)))>
-                    <option value="custom">"Lista"</option>
-                    <option value="shopping">"Zakupy"</option>
-                    <option value="packing">"Pakowanie"</option>
-                    <option value="project">"Projekt"</option>
-                </select>
-                <AddInput placeholder="Nazwa nowej listy..." button_label="Dodaj" on_submit=on_create />
+            // Create form — preset picker
+            <div class="mb-4">
+                <div class="flex flex-wrap gap-2 mb-2">
+                    {[ListType::Checklist, ListType::Zakupy, ListType::Pakowanie, ListType::Terminarz, ListType::Custom]
+                        .into_iter()
+                        .map(|lt| {
+                            let lt_for_class = lt.clone();
+                            let lt_for_click = lt.clone();
+                            let icon = list_type_icon(&lt);
+                            let label = list_type_label(&lt);
+                            view! {
+                                <button
+                                    type="button"
+                                    class=move || {
+                                        if new_list_type.get() == lt_for_class {
+                                            "btn btn-sm btn-primary"
+                                        } else {
+                                            "btn btn-sm btn-outline"
+                                        }
+                                    }
+                                    on:click=move |_| {
+                                        set_new_list_type.set(lt_for_click.clone());
+                                        match &lt_for_click {
+                                            ListType::Checklist | ListType::Custom => {
+                                                set_has_quantity.set(false);
+                                                set_has_due_date.set(false);
+                                            }
+                                            ListType::Zakupy | ListType::Pakowanie => {
+                                                set_has_quantity.set(true);
+                                                set_has_due_date.set(false);
+                                            }
+                                            ListType::Terminarz => {
+                                                set_has_quantity.set(false);
+                                                set_has_due_date.set(true);
+                                            }
+                                        }
+                                    }
+                                >
+                                    {icon} " " {label}
+                                </button>
+                            }
+                        })
+                        .collect::<Vec<_>>()}
+                </div>
+                <div class="flex items-center gap-4 mb-2">
+                    <label class="label cursor-pointer gap-2">
+                        <input
+                            type="checkbox"
+                            class="checkbox checkbox-sm"
+                            prop:checked=has_quantity
+                            on:change=move |ev| set_has_quantity.set(event_target_checked(&ev))
+                        />
+                        <span class="label-text">"Ilości"</span>
+                    </label>
+                    <label class="label cursor-pointer gap-2">
+                        <input
+                            type="checkbox"
+                            class="checkbox checkbox-sm"
+                            prop:checked=has_due_date
+                            on:change=move |ev| set_has_due_date.set(event_target_checked(&ev))
+                        />
+                        <span class="label-text">"Terminy"</span>
+                    </label>
+                </div>
+                <div class="flex gap-2">
+                    <AddInput placeholder="Nazwa nowej listy..." button_label="Dodaj" on_submit=on_create />
+                </div>
             </div>
 
             // Delete confirmation modal (conditionally rendered)
@@ -255,6 +327,57 @@ pub fn HomePage() -> impl IntoView {
                         }).collect::<Vec<_>>()}
                     </div>
                 }.into_any()
+            }}
+
+            // Archived lists section
+            {move || {
+                let archived = archived_data.get();
+                if archived.is_empty() {
+                    view! {}.into_any()
+                } else {
+                    view! {
+                        <div class="collapse collapse-arrow bg-base-200 mt-6">
+                            <input type="checkbox" />
+                            <div class="collapse-title font-semibold">
+                                {format!("\u{1F4E6} Archiwum ({})", archived.len())}
+                            </div>
+                            <div class="collapse-content">
+                                <div class="flex flex-col gap-2 pt-2">
+                                    {archived.into_iter().map(|list| {
+                                        let lid = list.id.clone();
+                                        let icon = list_type_icon(&list.list_type);
+                                        view! {
+                                            <div class="flex items-center justify-between p-3 bg-base-100 rounded-lg">
+                                                <span class="text-base-content/70">
+                                                    {icon} " " {list.name.clone()}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-ghost btn-sm"
+                                                    on:click=move |_| {
+                                                        let lid = lid.clone();
+                                                        leptos::task::spawn_local(async move {
+                                                            match api::archive_list(&lid).await {
+                                                                Ok(_) => {
+                                                                    archived_data.update(|ls| ls.retain(|l| l.id != lid));
+                                                                    set_refresh.update(|n| *n += 1);
+                                                                    toast.push("Lista przywrócona".into(), ToastKind::Success);
+                                                                }
+                                                                Err(e) => toast.push(e, ToastKind::Error),
+                                                            }
+                                                        });
+                                                    }
+                                                >
+                                                    "\u{21A9}\u{FE0F} Przywróć"
+                                                </button>
+                                            </div>
+                                        }
+                                    }).collect::<Vec<_>>()}
+                                </div>
+                            </div>
+                        </div>
+                    }.into_any()
+                }
             }}
         </div>
     }

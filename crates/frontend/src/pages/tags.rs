@@ -1,5 +1,6 @@
 use kartoteka_shared::*;
 use leptos::prelude::*;
+use leptos_router::components::A;
 
 use crate::api;
 use crate::components::add_input::AddInput;
@@ -106,10 +107,13 @@ pub fn TagsPage() -> impl IntoView {
                                     <h4 class="text-xs text-base-content/50 uppercase tracking-wider mb-2">{label}</h4>
                                     {cat_tags.into_iter().map(|tag| {
                                         let tid = tag.id.clone();
+                                        let tid_link = tag.id.clone();
                                         let cb = del_cb.clone();
                                         view! {
                                             <div class="flex items-center gap-2 py-1">
-                                                <TagBadge tag=tag.clone() />
+                                                <A href=format!("/tags/{tid_link}") attr:class="no-underline">
+                                                    <TagBadge tag=tag.clone() />
+                                                </A>
                                                 <button class="btn btn-error btn-xs btn-square" on:click=move |_| cb.run(tid.clone())>"✕"</button>
                                             </div>
                                         }
