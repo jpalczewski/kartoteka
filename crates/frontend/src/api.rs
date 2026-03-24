@@ -113,6 +113,35 @@ pub async fn create_list(req: &CreateListRequest) -> Result<List, String> {
     post_json(&format!("{API_BASE}/lists"), req).await
 }
 
+pub async fn fetch_archived_lists() -> Result<Vec<List>, String> {
+    get(&format!("{API_BASE}/lists/archived"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn archive_list(id: &str) -> Result<List, String> {
+    patch_json(&format!("{API_BASE}/lists/{id}/archive"), &serde_json::json!({})).await
+}
+
+pub async fn reset_list(id: &str) -> Result<(), String> {
+    let json = serde_json::to_string(&serde_json::json!({})).map_err(|e| e.to_string())?;
+    let resp = Request::post(&format!("{API_BASE}/lists/{id}/reset"))
+        .headers(auth_headers())
+        .body(json)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if resp.status() >= 400 {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    Ok(())
+}
+
 pub async fn fetch_list(id: &str) -> Result<List, String> {
     get(&format!("{API_BASE}/lists/{id}"))
         .send()

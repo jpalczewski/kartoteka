@@ -43,6 +43,9 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         // Lists
         .get_async("/api/lists", lists::list_all)
         .post_async("/api/lists", lists::create)
+        .get_async("/api/lists/archived", lists::list_archived)
+        .patch_async("/api/lists/:id/archive", lists::toggle_archive)
+        .post_async("/api/lists/:id/reset", lists::reset)
         .get_async("/api/lists/:id", lists::get_one)
         .put_async("/api/lists/:id", lists::update)
         .delete_async("/api/lists/:id", lists::delete)

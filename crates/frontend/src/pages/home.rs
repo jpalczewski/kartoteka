@@ -41,6 +41,20 @@ pub fn HomePage() -> impl IntoView {
         }
     });
 
+    // Archived lists
+    let archived_res = LocalResource::new(move || {
+        let _ = refresh.get();
+        api::fetch_archived_lists()
+    });
+    let archived_data = RwSignal::new(Vec::<List>::new());
+    Effect::new(move |_| {
+        if let Some(data) = archived_res.get() {
+            if let Ok(lists) = data.as_deref() {
+                archived_data.set(lists.to_vec());
+            }
+        }
+    });
+
     let tags_res = LocalResource::new(|| api::fetch_tags());
     let links_res = LocalResource::new(move || {
         let _ = refresh.get();
@@ -313,6 +327,57 @@ pub fn HomePage() -> impl IntoView {
                         }).collect::<Vec<_>>()}
                     </div>
                 }.into_any()
+            }}
+
+            // Archived lists section
+            {move || {
+                let archived = archived_data.get();
+                if archived.is_empty() {
+                    view! {}.into_any()
+                } else {
+                    view! {
+                        <div class="collapse collapse-arrow bg-base-200 mt-6">
+                            <input type="checkbox" />
+                            <div class="collapse-title font-semibold">
+                                {format!("\u{1F4E6} Archiwum ({})", archived.len())}
+                            </div>
+                            <div class="collapse-content">
+                                <div class="flex flex-col gap-2 pt-2">
+                                    {archived.into_iter().map(|list| {
+                                        let lid = list.id.clone();
+                                        let icon = list_type_icon(&list.list_type);
+                                        view! {
+                                            <div class="flex items-center justify-between p-3 bg-base-100 rounded-lg">
+                                                <span class="text-base-content/70">
+                                                    {icon} " " {list.name.clone()}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-ghost btn-sm"
+                                                    on:click=move |_| {
+                                                        let lid = lid.clone();
+                                                        leptos::task::spawn_local(async move {
+                                                            match api::archive_list(&lid).await {
+                                                                Ok(_) => {
+                                                                    archived_data.update(|ls| ls.retain(|l| l.id != lid));
+                                                                    set_refresh.update(|n| *n += 1);
+                                                                    toast.push("Lista przywrócona".into(), ToastKind::Success);
+                                                                }
+                                                                Err(e) => toast.push(e, ToastKind::Error),
+                                                            }
+                                                        });
+                                                    }
+                                                >
+                                                    "\u{21A9}\u{FE0F} Przywróć"
+                                                </button>
+                                            </div>
+                                        }
+                                    }).collect::<Vec<_>>()}
+                                </div>
+                            </div>
+                        </div>
+                    }.into_any()
+                }
             }}
         </div>
     }

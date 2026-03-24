@@ -189,6 +189,99 @@ pub async fn list_sublists(_req: Request, ctx: RouteContext<String>) -> Result<R
     Response::from_json(&sublists)
 }
 
+pub async fn list_archived(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let d1 = ctx.env.d1("DB")?;
+    let result = d1
+        .prepare(
+            "SELECT id, user_id, name, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
+             FROM lists WHERE user_id = ?1 AND parent_list_id IS NULL AND archived = 1 ORDER BY updated_at DESC",
+        )
+        .bind(&[user_id.into()])?
+        .all()
+        .await?;
+    let lists = result.results::<List>()?;
+    Response::from_json(&lists)
+}
+
+pub async fn toggle_archive(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let id = ctx
+        .param("id")
+        .ok_or_else(|| Error::from("Missing id"))?
+        .to_string();
+    let d1 = ctx.env.d1("DB")?;
+
+    // Get current archived state
+    let row = d1
+        .prepare("SELECT archived FROM lists WHERE id = ?1 AND user_id = ?2")
+        .bind(&[id.clone().into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    let current = row
+        .as_ref()
+        .and_then(|r| r.get("archived"))
+        .and_then(|v| v.as_f64())
+        .map(|f| f != 0.0)
+        .unwrap_or(false);
+
+    let new_val: i32 = if current { 0 } else { 1 };
+    d1.prepare("UPDATE lists SET archived = ?1, updated_at = datetime('now') WHERE id = ?2")
+        .bind(&[new_val.into(), id.clone().into()])?
+        .run()
+        .await?;
+
+    let list = d1
+        .prepare(
+            "SELECT id, user_id, name, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
+             FROM lists WHERE id = ?1",
+        )
+        .bind(&[id.into()])?
+        .first::<List>(None)
+        .await?
+        .ok_or_else(|| Error::from("Not found"))?;
+
+    Response::from_json(&list)
+}
+
+pub async fn reset(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let id = ctx
+        .param("id")
+        .ok_or_else(|| Error::from("Missing id"))?
+        .to_string();
+    let d1 = ctx.env.d1("DB")?;
+
+    // Verify ownership
+    let check = d1
+        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
+        .bind(&[id.clone().into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if check.is_none() {
+        return Response::error("Not found", 404);
+    }
+
+    // Reset items in main list
+    d1.prepare(
+        "UPDATE items SET completed = 0, actual_quantity = 0, updated_at = datetime('now') WHERE list_id = ?1",
+    )
+    .bind(&[id.clone().into()])?
+    .run()
+    .await?;
+
+    // Reset items in all sublists
+    d1.prepare(
+        "UPDATE items SET completed = 0, actual_quantity = 0, updated_at = datetime('now') \
+         WHERE list_id IN (SELECT id FROM lists WHERE parent_list_id = ?1)",
+    )
+    .bind(&[id.into()])?
+    .run()
+    .await?;
+
+    Ok(Response::empty()?.with_status(204))
+}
+
 pub async fn create_sublist(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let parent_id = ctx

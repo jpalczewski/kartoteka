@@ -156,6 +156,39 @@ pub fn ListPage() -> impl IntoView {
         });
     });
 
+    let navigate_archive = use_navigate();
+    let on_archive = Callback::new(move |_: ()| {
+        let lid = list_id();
+        let nav = navigate_archive.clone();
+        leptos::task::spawn_local(async move {
+            match api::archive_list(&lid).await {
+                Ok(_) => {
+                    toast.push("Lista zarchiwizowana".into(), ToastKind::Success);
+                    nav("/", Default::default());
+                }
+                Err(e) => toast.push(e, ToastKind::Error),
+            }
+        });
+    });
+
+    let on_reset = Callback::new(move |_: ()| {
+        let lid = list_id();
+        leptos::task::spawn_local(async move {
+            match api::reset_list(&lid).await {
+                Ok(()) => {
+                    items.update(|list| {
+                        for item in list.iter_mut() {
+                            item.completed = false;
+                            item.actual_quantity = Some(0);
+                        }
+                    });
+                    toast.push("Lista zresetowana".into(), ToastKind::Success);
+                }
+                Err(e) => toast.push(e, ToastKind::Error),
+            }
+        });
+    });
+
     let on_create_group = Callback::new(move |name: String| {
         let lid = list_id();
         leptos::task::spawn_local(async move {
@@ -184,6 +217,8 @@ pub fn ListPage() -> impl IntoView {
                     list_id=list_id()
                     item_count=items.read().len()
                     on_delete_confirmed=on_delete_list
+                    on_archive=on_archive
+                    on_reset=on_reset
                 />
             }}
 
