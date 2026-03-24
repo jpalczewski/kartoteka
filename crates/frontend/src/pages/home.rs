@@ -165,6 +165,7 @@ pub fn HomePage() -> impl IntoView {
                             let lid = lid_confirm.clone();
                             leptos::task::spawn_local(async move {
                                 // Optimistic: remove from local signal
+                                let removed_idx = lists_data.read().iter().position(|l| l.id == lid);
                                 let removed = lists_data.read().iter().find(|l| l.id == lid).cloned();
                                 lists_data.update(|ls| ls.retain(|l| l.id != lid));
                                 pending_delete.set(None);
@@ -172,9 +173,12 @@ pub fn HomePage() -> impl IntoView {
                                 match api::delete_list(&lid).await {
                                     Ok(()) => toast.push("Lista usunięta".into(), ToastKind::Success),
                                     Err(e) => {
-                                        // Rollback
-                                        if let Some(list) = removed {
-                                            lists_data.update(|ls| ls.push(list));
+                                        // Rollback at original position
+                                        if let (Some(list), Some(idx)) = (removed, removed_idx) {
+                                            lists_data.update(|ls| {
+                                                let idx = idx.min(ls.len());
+                                                ls.insert(idx, list);
+                                            });
                                         }
                                         toast.push(e, ToastKind::Error);
                                     }
@@ -196,6 +200,13 @@ pub fn HomePage() -> impl IntoView {
                     .unwrap_or_default();
                 let all_links = list_tag_links.get();
                 let filter = active_tag_filter.get();
+
+                // Show loading while resource hasn't resolved yet
+                if lists_res.get().is_none() {
+                    return view! {
+                        <p>"Wczytywanie..."</p>
+                    }.into_any();
+                }
 
                 let all_lists = lists_data.get();
                 if all_lists.is_empty() {
