@@ -19,6 +19,7 @@ pub fn ToastContainer() -> impl IntoView {
                         <span>{toast.message}</span>
                         <button
                             type="button"
+                            aria-label="Zamknij"
                             class="btn btn-ghost btn-xs"
                             on:click=move |_| ctx.dismiss(id)
                         >
