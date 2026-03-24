@@ -111,8 +111,16 @@ deploy-api-dev:
     cd crates/api && HANKO_API_URL="${HANKO_API_URL}" npx wrangler deploy --env dev
 
 # Deploy frontend na CF Pages (prod)
-deploy-frontend: build-frontend
+deploy-frontend: _gen-hanko-prod
+    cd crates/frontend && npm install
+    cd crates/frontend && API_BASE_URL="${API_BASE_URL}" HANKO_API_URL="${HANKO_API_URL}" trunk build --release
     npx wrangler pages deploy crates/frontend/dist --project-name=kartoteka --branch=main --commit-dirty=true
+
+# Generuje hanko-init.js BEZ dev tokena (produkcja)
+_gen-hanko-prod:
+    sed -e 's|__HANKO_API_URL__|'"${HANKO_API_URL}"'|g' \
+        -e 's|__DEV_AUTH_TOKEN__||g' \
+        crates/frontend/hanko-init.js.template > crates/frontend/hanko-init.js
 
 # Deploy frontend na CF Pages (dev)
 deploy-frontend-dev:
