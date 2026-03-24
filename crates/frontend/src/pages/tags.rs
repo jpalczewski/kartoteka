@@ -2,6 +2,7 @@ use kartoteka_shared::*;
 use leptos::prelude::*;
 
 use crate::api;
+use crate::components::add_input::AddInput;
 use crate::components::tag_badge::TagBadge;
 
 fn category_label(cat: &TagCategory) -> &'static str {
@@ -20,7 +21,6 @@ pub fn TagsPage() -> impl IntoView {
 
     let tags = RwSignal::new(Vec::<Tag>::new());
     let (loading, set_loading) = signal(true);
-    let (new_name, set_new_name) = signal(String::new());
     let (new_color, set_new_color) = signal("#e94560".to_string());
     let (new_category, set_new_category) = signal("custom".to_string());
 
@@ -32,18 +32,13 @@ pub fn TagsPage() -> impl IntoView {
         set_loading.set(false);
     });
 
-    let on_create = move |_| {
-        let name = new_name.get();
-        if name.trim().is_empty() {
-            return;
-        }
+    let on_create = Callback::new(move |name: String| {
         let color = new_color.get();
         let category: TagCategory = match new_category.get().as_str() {
             "context" => TagCategory::Context,
             "priority" => TagCategory::Priority,
             _ => TagCategory::Custom,
         };
-        set_new_name.set(String::new());
         leptos::task::spawn_local(async move {
             let req = CreateTagRequest {
                 name,
@@ -55,7 +50,7 @@ pub fn TagsPage() -> impl IntoView {
                 tags.update(|t| t.push(tag));
             }
         });
-    };
+    });
 
     let on_delete = Callback::new(move |tag_id: String| {
         tags.update(|t| t.retain(|tag| tag.id != tag_id));
@@ -70,13 +65,6 @@ pub fn TagsPage() -> impl IntoView {
 
             <div class="flex gap-2 items-center mb-4">
                 <input
-                    type="text"
-                    class="input input-bordered flex-1"
-                    placeholder="Nazwa tagu..."
-                    prop:value=move || new_name.get()
-                    on:input=move |ev| set_new_name.set(event_target_value(&ev))
-                />
-                <input
                     type="color"
                     aria-label="Kolor tagu"
                     class="w-8 h-8 rounded cursor-pointer border-0 p-0"
@@ -88,7 +76,7 @@ pub fn TagsPage() -> impl IntoView {
                     <option value="context">"Kontekst"</option>
                     <option value="priority">"Priorytet"</option>
                 </select>
-                <button class="btn btn-primary btn-sm" on:click=on_create>"Dodaj tag"</button>
+                <AddInput placeholder="Nazwa tagu..." button_label="Dodaj tag" on_submit=on_create />
             </div>
 
             {move || {

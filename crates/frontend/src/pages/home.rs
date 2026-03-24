@@ -2,6 +2,7 @@ use kartoteka_shared::{CreateListRequest, List, ListTagLink, ListType, Tag};
 use leptos::prelude::*;
 
 use crate::api;
+use crate::components::add_input::AddInput;
 use crate::components::list_card::ListCard;
 
 fn parse_list_type(s: &str) -> ListType {
@@ -22,7 +23,6 @@ pub fn HomePage() -> impl IntoView {
         }
     }
 
-    let (new_name, set_new_name) = signal(String::new());
     let (new_list_type, set_new_list_type) = signal(ListType::Custom);
     let (refresh, set_refresh) = signal(0u32);
     let (active_tag_filter, set_active_tag_filter) = signal(Option::<String>::None);
@@ -38,19 +38,53 @@ pub fn HomePage() -> impl IntoView {
         api::fetch_list_tag_links()
     });
 
-    let on_create = move |_| {
-        let name = new_name.get();
-        if name.trim().is_empty() {
-            return;
+    // RwSignal for optimistic tag updates, synced from LocalResource
+    let list_tag_links = RwSignal::new(Vec::<ListTagLink>::new());
+    Effect::new(move |_| {
+        if let Some(data) = links_res.get() {
+            if let Some(links) = data.as_deref().ok().map(|s| s.to_vec()) {
+                list_tag_links.set(links);
+            }
         }
+    });
+
+    let on_list_tag_toggle = Callback::new(move |(list_id, tag_id): (String, String)| {
+        let has_tag = list_tag_links
+            .read()
+            .iter()
+            .any(|l| l.list_id == list_id && l.tag_id == tag_id);
+        if has_tag {
+            list_tag_links.update(|links| {
+                links.retain(|l| !(l.list_id == list_id && l.tag_id == tag_id))
+            });
+            let lid = list_id.clone();
+            let tid = tag_id.clone();
+            leptos::task::spawn_local(async move {
+                let _ = api::remove_tag_from_list(&lid, &tid).await;
+            });
+        } else {
+            list_tag_links.update(|links| {
+                links.push(ListTagLink {
+                    list_id: list_id.clone(),
+                    tag_id: tag_id.clone(),
+                })
+            });
+            let lid = list_id.clone();
+            let tid = tag_id.clone();
+            leptos::task::spawn_local(async move {
+                let _ = api::assign_tag_to_list(&lid, &tid).await;
+            });
+        }
+    });
+
+    let on_create = Callback::new(move |name: String| {
         let list_type = new_list_type.get();
-        set_new_name.set(String::new());
         leptos::task::spawn_local(async move {
             let req = CreateListRequest { name, list_type };
             let _ = api::create_list(&req).await;
             set_refresh.update(|n| *n += 1);
         });
-    };
+    });
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
@@ -96,33 +130,13 @@ pub fn HomePage() -> impl IntoView {
 
             // Create form
             <div class="flex gap-2 mb-4">
-                <input
-                    type="text"
-                    class="input input-bordered flex-1"
-                    placeholder="Nazwa nowej listy..."
-                    prop:value=new_name
-                    on:input=move |ev| set_new_name.set(event_target_value(&ev))
-                    on:keydown=move |ev: web_sys::KeyboardEvent| {
-                        if ev.key() == "Enter" {
-                            let name = new_name.get();
-                            if name.trim().is_empty() { return; }
-                            let list_type = new_list_type.get();
-                            set_new_name.set(String::new());
-                            leptos::task::spawn_local(async move {
-                                let req = CreateListRequest { name, list_type };
-                                let _ = api::create_list(&req).await;
-                                set_refresh.update(|n| *n += 1);
-                            });
-                        }
-                    }
-                />
                 <select class="select select-bordered" on:change=move |ev| set_new_list_type.set(parse_list_type(&event_target_value(&ev)))>
                     <option value="custom">"Lista"</option>
                     <option value="shopping">"Zakupy"</option>
                     <option value="packing">"Pakowanie"</option>
                     <option value="project">"Projekt"</option>
                 </select>
-                <button class="btn btn-primary" on:click=on_create>"Dodaj"</button>
+                <AddInput placeholder="Nazwa nowej listy..." button_label="Dodaj" on_submit=on_create />
             </div>
 
             // Lists grid
@@ -130,7 +144,6 @@ pub fn HomePage() -> impl IntoView {
                 {move || {
                     let lists_data = lists.get();
                     let tags_data = tags_res.get();
-                    let links_data = links_res.get();
 
                     lists_data.map(|lists_result| {
                         match &*lists_result {
@@ -144,11 +157,7 @@ pub fn HomePage() -> impl IntoView {
                                     .and_then(|r| r.as_deref().ok())
                                     .map(|s| s.to_vec())
                                     .unwrap_or_default();
-                                let all_links: Vec<ListTagLink> = links_data
-                                    .as_ref()
-                                    .and_then(|r| r.as_deref().ok())
-                                    .map(|s| s.to_vec())
-                                    .unwrap_or_default();
+                                let all_links = list_tag_links.get();
 
                                 let filter = active_tag_filter.get();
                                 let filtered_lists: Vec<List> = all_lists
@@ -165,16 +174,24 @@ pub fn HomePage() -> impl IntoView {
                                 view! {
                                     <div class="flex flex-col gap-3">
                                         {filtered_lists.into_iter().map(|list| {
-                                            let list_tags: Vec<Tag> = all_tags
+                                            let list_id = list.id.clone();
+                                            let list_tag_ids: Vec<String> = all_links
                                                 .iter()
-                                                .filter(|t| {
-                                                    all_links
-                                                        .iter()
-                                                        .any(|link| link.list_id == list.id && link.tag_id == t.id)
-                                                })
-                                                .cloned()
+                                                .filter(|l| l.list_id == list.id)
+                                                .map(|l| l.tag_id.clone())
                                                 .collect();
-                                            view! { <ListCard list tags=list_tags/> }
+                                            let tog = on_list_tag_toggle.clone();
+                                            let tag_cb = Callback::new(move |tag_id: String| {
+                                                tog.run((list_id.clone(), tag_id));
+                                            });
+                                            view! {
+                                                <ListCard
+                                                    list
+                                                    all_tags=all_tags.clone()
+                                                    list_tag_ids
+                                                    on_tag_toggle=tag_cb
+                                                />
+                                            }
                                         }).collect::<Vec<_>>()}
                                     </div>
                                 }.into_any()

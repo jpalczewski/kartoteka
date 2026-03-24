@@ -2,18 +2,23 @@ use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
 use crate::api;
+use crate::components::add_input::AddInput;
 use crate::components::item_row::ItemRow;
-use kartoteka_shared::{CreateItemRequest, Item, ItemTagLink, Tag, UpdateItemRequest};
+use crate::components::tag_badge::TagBadge;
+use crate::components::tag_selector::TagSelector;
+use kartoteka_shared::{
+    CreateItemRequest, Item, ItemTagLink, ListTagLink, Tag, UpdateItemRequest,
+};
 
 #[component]
 pub fn ListPage() -> impl IntoView {
     let params = use_params_map();
     let list_id = move || params.read().get("id").unwrap_or_default();
 
-    let (new_title, set_new_title) = signal(String::new());
     let items = RwSignal::new(Vec::<Item>::new());
     let all_tags = RwSignal::new(Vec::<Tag>::new());
     let item_tag_links = RwSignal::new(Vec::<ItemTagLink>::new());
+    let list_tag_links = RwSignal::new(Vec::<ListTagLink>::new());
     let (loading, set_loading) = signal(true);
     let (error, set_error) = signal(Option::<String>::None);
 
@@ -30,16 +35,16 @@ pub fn ListPage() -> impl IntoView {
         if let Ok(links) = api::fetch_item_tag_links().await {
             item_tag_links.set(links);
         }
+        if let Ok(links) = api::fetch_list_tag_links().await {
+            let filtered: Vec<ListTagLink> =
+                links.into_iter().filter(|l| l.list_id == lid).collect();
+            list_tag_links.set(filtered);
+        }
         set_loading.set(false);
     });
 
     let lid_for_create = list_id();
-    let on_add = move |_| {
-        let title = new_title.get();
-        if title.trim().is_empty() {
-            return;
-        }
-        set_new_title.set(String::new());
+    let on_add = Callback::new(move |title: String| {
         let lid = lid_for_create.clone();
         leptos::task::spawn_local(async move {
             let req = CreateItemRequest {
@@ -51,7 +56,7 @@ pub fn ListPage() -> impl IntoView {
                 Err(e) => set_error.set(Some(e)),
             }
         });
-    };
+    });
 
     let lid_for_toggle = list_id();
     let on_toggle = Callback::new(move |item_id: String| {
@@ -93,7 +98,7 @@ pub fn ListPage() -> impl IntoView {
         });
     });
 
-    // Tag toggle callback with optimistic updates
+    // Item tag toggle callback with optimistic updates
     let on_tag_toggle = Callback::new(move |(item_id, tag_id): (String, String)| {
         let has_tag = item_tag_links
             .read()
@@ -123,19 +128,75 @@ pub fn ListPage() -> impl IntoView {
         }
     });
 
+    // List tag toggle callback with optimistic updates
+    let lid_for_tag = list_id();
+    let on_list_tag_toggle = Callback::new(move |tag_id: String| {
+        let has_tag = list_tag_links.read().iter().any(|l| l.tag_id == tag_id);
+        if has_tag {
+            list_tag_links.update(|links| links.retain(|l| l.tag_id != tag_id));
+            let lid = lid_for_tag.clone();
+            let tid = tag_id.clone();
+            leptos::task::spawn_local(async move {
+                let _ = api::remove_tag_from_list(&lid, &tid).await;
+            });
+        } else {
+            let lid = lid_for_tag.clone();
+            list_tag_links.update(|links| {
+                links.push(ListTagLink {
+                    list_id: lid.clone(),
+                    tag_id: tag_id.clone(),
+                })
+            });
+            let tid = tag_id.clone();
+            leptos::task::spawn_local(async move {
+                let _ = api::assign_tag_to_list(&lid, &tid).await;
+            });
+        }
+    });
+
     view! {
         <div class="container mx-auto max-w-2xl p-4">
             <h2 class="text-2xl font-bold mb-4">"Lista"</h2>
 
+            // List tag management
+            {move || {
+                let links = list_tag_links.read();
+                let tags = all_tags.read();
+                let assigned_ids: Vec<String> = links.iter().map(|l| l.tag_id.clone()).collect();
+                let assigned: Vec<Tag> = tags
+                    .iter()
+                    .filter(|t| assigned_ids.contains(&t.id))
+                    .cloned()
+                    .collect();
+                view! {
+                    <div class="flex flex-wrap items-center gap-1 mb-3">
+                        {assigned.into_iter().map(|t| {
+                            let tid = t.id.clone();
+                            let cb = on_list_tag_toggle.clone();
+                            view! {
+                                <TagBadge
+                                    tag=t
+                                    on_remove=Callback::new(move |_: String| cb.run(tid.clone()))
+                                />
+                            }
+                        }).collect::<Vec<_>>()}
+                        {if !tags.is_empty() {
+                            view! {
+                                <TagSelector
+                                    all_tags=tags.clone()
+                                    selected_tag_ids=assigned_ids
+                                    on_toggle=on_list_tag_toggle
+                                />
+                            }.into_any()
+                        } else {
+                            view! {}.into_any()
+                        }}
+                    </div>
+                }
+            }}
+
             <div class="flex gap-2 mb-4">
-                <input
-                    type="text"
-                    class="input input-bordered flex-1"
-                    placeholder="Nowy element..."
-                    prop:value=new_title
-                    on:input=move |ev| set_new_title.set(event_target_value(&ev))
-                />
-                <button class="btn btn-primary" on:click=on_add>"Dodaj"</button>
+                <AddInput placeholder="Nowy element..." button_label="Dodaj" on_submit=on_add />
             </div>
 
             {move || {

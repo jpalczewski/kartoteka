@@ -47,7 +47,12 @@ pub fn ItemRow(
                     .collect();
                 view! {
                     <div class="tag-list">
-                        {item_tags.into_iter().map(|t| view! { <TagBadge tag=t/> }).collect::<Vec<_>>()}
+                        {item_tags.into_iter().map(|t| {
+                            match on_tag_toggle.clone() {
+                                Some(cb) => view! { <TagBadge tag=t on_remove=cb/> }.into_any(),
+                                None => view! { <TagBadge tag=t/> }.into_any(),
+                            }
+                        }).collect::<Vec<_>>()}
                     </div>
                 }.into_any()
             } else {
