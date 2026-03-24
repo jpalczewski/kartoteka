@@ -59,10 +59,12 @@ pub fn ListPage() -> impl IntoView {
 
     let lid_for_create = list_id();
     let on_add = Callback::new(
-        move |(title, description, quantity, unit): (
+        move |(title, description, quantity, unit, due_date, due_time): (
             String,
             Option<String>,
             Option<i32>,
+            Option<String>,
+            Option<String>,
             Option<String>,
         )| {
             let lid = lid_for_create.clone();
@@ -72,8 +74,8 @@ pub fn ListPage() -> impl IntoView {
                     description,
                     quantity,
                     unit,
-                    due_date: None,
-                    due_time: None,
+                    due_date,
+                    due_time,
                 };
                 match api::create_item(&lid, &req).await {
                     Ok(item) => items.update(|list| list.push(item)),
@@ -334,7 +336,7 @@ pub fn ListPage() -> impl IntoView {
                 }
             }}
 
-            {move || view! { <AddItemInput on_submit=on_add has_quantity=list_has_quantity.get() /> }}
+            {move || view! { <AddItemInput on_submit=on_add has_quantity=list_has_quantity.get() has_due_date=list_has_due_date.get() /> }}
 
             {move || {
                 if loading.get() {
