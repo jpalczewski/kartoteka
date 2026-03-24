@@ -1,7 +1,7 @@
 # Design: Usuwanie list z potwierdzeniem + system toastów
 
 **Data:** 2026-03-24
-**Status:** Zatwierdzony
+**Status:** Zatwierdzony (po spec review)
 
 ---
 
@@ -13,13 +13,33 @@ Dodanie możliwości usuwania list z:
 - globalnym systemem toastów (sukces / błąd)
 - przekierowaniem na `/` po usunięciu z widoku detail
 
-Brak zmian w API — `api::delete_list` już istnieje po stronie frontendu.
+Cascade delete jest zapewniony przez SQLite `ON DELETE CASCADE` w migracji — brak zmian w API.
 
 ---
 
-## 1. System toastów
+## 1. Naprawa `api::delete_list`
 
-### Typy (`app.rs`)
+Aktualny `api::delete_list` nie sprawdza HTTP status code — zawsze zwraca `Ok(())`. Należy to naprawić **jako pierwszy krok** przed budowaniem logiki usuwania:
+
+```rust
+pub async fn delete_list(id: &str) -> Result<(), String> {
+    let resp = del(&format!("{API_BASE}/lists/{id}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if resp.ok() {
+        Ok(())
+    } else {
+        Err(format!("Błąd serwera: {}", resp.status()))
+    }
+}
+```
+
+---
+
+## 2. System toastów
+
+### Typy i context (`app.rs`)
 
 ```rust
 #[derive(Clone, Debug, PartialEq)]
@@ -40,25 +60,36 @@ pub struct ToastContext {
 
 impl ToastContext {
     pub fn new() -> Self { ... }
-    pub fn push(&self, message: String, kind: ToastKind) { ... }  // dodaje toast, auto-dismiss po 3s
+    pub fn push(&self, message: String, kind: ToastKind) { ... }  // dodaje + auto-dismiss 3s via set_timeout
     pub fn dismiss(&self, id: u32) { ... }
 }
 ```
 
-### Integracja
+`set_timeout` to `leptos::leptos_dom::helpers::set_timeout` (lub re-eksport z `leptos`).
 
-- `App` wywołuje `provide_context(ToastContext::new())` **przed** `<Router>` — context dostępny we wszystkich stronach, przeżywa nawigację
-- Nowy komponent `components/toast_container.rs` renderowany w `App` obok `<Nav>` i `<main>`
-- Auto-dismiss: każdy toast usuwa się po 3000ms przez `set_timeout`
-- Użycie w komponentach: `use_context::<ToastContext>().unwrap().push(msg, kind)`
+### Integracja w `app.rs`
 
-### Wygląd
+`provide_context(ToastContext::new())` musi być wywołane **przed** `<Router>`. `ToastContainer` renderowany **poza** `<Routes>` (żeby nie unmountował się przy nawigacji):
 
-DaisyUI `<div class="toast toast-end z-50">`. Toast success: `alert-success`. Toast error: `alert-error`.
+```rust
+pub fn App() -> impl IntoView {
+    let toast_ctx = ToastContext::new();
+    provide_context(toast_ctx);
+    view! {
+        <Router>
+            <Nav/>
+            <ToastContainer/>   // poza Routes, wewnątrz Router
+            <main class="container">
+                <Routes ...>
+```
+
+### Komponent `components/toast_container.rs`
+
+DaisyUI `<div class="toast toast-end z-50">`. Iteruje po `toasts`, każdy z `class="alert alert-success"` lub `alert-error`. Każdy toast ma przycisk ✕ do ręcznego zamknięcia.
 
 ---
 
-## 2. ConfirmDeleteModal
+## 3. ConfirmDeleteModal
 
 Nowy komponent `components/confirm_delete_modal.rs`.
 
@@ -69,31 +100,36 @@ Nowy komponent `components/confirm_delete_modal.rs`.
 pub fn ConfirmDeleteModal(
     list_name: String,
     list_id: String,
-    show: RwSignal<bool>,
     on_confirm: Callback<()>,
+    on_cancel: Callback<()>,
 ) -> impl IntoView
 ```
 
+Brak `show: RwSignal<bool>` w propsach — widoczność kontrolowana przez **warunkowe renderowanie** w rodzicu (`{move || condition.then(|| view! { <ConfirmDeleteModal .../> })}`). Dzięki temu każde zamontowanie modala to świeży fetch.
+
 ### Zachowanie
 
-- Gdy `show` przejdzie na `true`, komponent asynchronicznie fetchuje item count przez `api::fetch_items(&list_id)`
-- Podczas ładowania wyświetla "Wczytywanie szczegółów…"
-- Po załadowaniu: "Czy na pewno chcesz usunąć listę **{list_name}**? Zawiera {n} elementów. Operacja jest nieodwracalna."
-- [Anuluj] (btn-ghost) → `show.set(false)`
-- [Usuń listę] (btn-error) → wywołuje `on_confirm`, rodzic odpowiada za API call i toast
-- Implementacja: `<dialog class="modal" open=move || show.get()>` — reaktywny atrybut bez JS interop
-- Tło (`modal-backdrop`) zamyka modal przez `show.set(false)`
-- Modal renderowany na poziomie strony, nie wewnątrz `ListCard`
+- Przy zamontowaniu asynchronicznie fetchuje items przez `api::fetch_items(&list_id)` (lokalny `RwSignal<FetchState>` z wariantami `Loading | Loaded(usize) | Error`)
+- Stan Loading: "Wczytywanie szczegółów…"
+- Stan Error: "Nie udało się pobrać szczegółów." (i tak można usunąć)
+- Stan Loaded: "Czy na pewno chcesz usunąć listę **{list_name}**? Zawiera {n} elementów. Operacja jest nieodwracalna."
+- Przycisk [Usuń listę] (btn-error): wywoływany callback `on_confirm`. Przycisk **wyłączony** (`disabled`) gdy `deleting` sygnał jest `true` — rodzic ustawia deleting przez czas API call.
+- Przycisk [Anuluj] (btn-ghost): wywołuje `on_cancel`
+- Backdrop (`modal-backdrop`) → wywołuje `on_cancel`
+
+### W `ListPage`
+
+`ListPage` już ma załadowane items (`items: RwSignal<Vec<Item>>`). Modal dostaje count z `items.read().len()` zamiast fetchować — jako dodatkowy optional prop `item_count: Option<usize>`. Gdy `Some`, pomija fetch.
 
 ---
 
-## 3. Przycisk usuwania w ListCard
+## 4. Przycisk usuwania w ListCard
 
 ### Zmiany w `components/list_card.rs`
 
 - Nowy prop: `#[prop(optional)] on_delete: Option<Callback<String>>`
-- Karta (`<div>`) dostaje `relative` w klasach
-- Przycisk renderowany gdy `on_delete.is_some()`:
+- Główny `<div class="card ...">` dostaje `relative` w klasach
+- Przycisk renderowany gdy `on_delete.is_some()`, **poza** wrapperem `on:click=stop_propagation` dla tagów:
 
 ```rust
 <button
@@ -109,40 +145,93 @@ pub fn ConfirmDeleteModal(
 </button>
 ```
 
-- `stop_propagation` blokuje nawigację karty
-- Zawsze widoczny, ale subtelny (opacity-40), pełny przy hover — działa na mobile
+Zawsze widoczny, subtelny (opacity-40), pełny przy hover — działa na mobile.
 
 ---
 
-## 4. Przepływ usuwania z HomePage
+## 5. Przepływ usuwania z HomePage
 
 ### Zmiany w `pages/home.rs`
 
-- Lokalny `RwSignal<Option<(String, String)>>` — `pending_delete`: `(list_id, list_name)`
-- `ListCard` otrzymuje `on_delete` callback: `|list_id| pending_delete.set(Some((list_id, list.name.clone())))`
-- `ConfirmDeleteModal` renderowany warunkowo gdy `pending_delete.is_some()`
-- `on_confirm` callback:
-  1. Odczytuje `list_id` z `pending_delete`
-  2. Optimistic: usuwa listę z lokalnego sygnału `lists`
-  3. `api::delete_list(&list_id).await`
-  4. Sukces → `toast.push("Lista usunięta", ToastKind::Success)`
-  5. Błąd → cofnięcie optimistic update + `toast.push("Błąd usuwania", ToastKind::Error)`
-  6. `pending_delete.set(None)`
+**Architektura list signal:** Aktualnie `lists` jest `LocalResource`. Należy dodać `lists_data: RwSignal<Vec<List>>` synchronizowany z resource (ten sam pattern co `list_tag_links`), żeby umożliwić optimistic update.
+
+```rust
+let lists_res = LocalResource::new(move || { let _ = refresh.get(); api::fetch_lists() });
+let lists_data = RwSignal::new(Vec::<List>::new());
+Effect::new(move |_| {
+    if let Some(data) = lists_res.get() {
+        if let Ok(lists) = data.as_deref() { lists_data.set(lists.to_vec()); }
+    }
+});
+```
+
+**Logika usuwania:**
+- `pending_delete: RwSignal<Option<(String, String)>>` — `(list_id, list_name)`
+- `deleting: RwSignal<bool>` — blokuje przycisk w modalu podczas API call
+- `ListCard` otrzymuje `on_delete` callback → `pending_delete.set(Some(...))`
+- Modal renderowany warunkowo:
+
+```rust
+{move || pending_delete.get().map(|(lid, lname)| view! {
+    <ConfirmDeleteModal
+        list_id=lid.clone()
+        list_name=lname
+        on_confirm=Callback::new(move |_| {
+            deleting.set(true);
+            spawn_local(async move {
+                // Optimistic update
+                let removed = lists_data.read().iter().find(|l| l.id == lid).cloned();
+                lists_data.update(|ls| ls.retain(|l| l.id != lid));
+
+                match api::delete_list(&lid).await {
+                    Ok(()) => toast.push("Lista usunięta".into(), ToastKind::Success),
+                    Err(e) => {
+                        // Rollback
+                        if let Some(list) = removed { lists_data.update(|ls| ls.push(list)); }
+                        toast.push(format!("Błąd: {e}"), ToastKind::Error);
+                    }
+                }
+                deleting.set(false);
+                pending_delete.set(None);
+            });
+        })
+        on_cancel=Callback::new(move |_| pending_delete.set(None))
+    />
+})}
+```
 
 ---
 
-## 5. Przepływ usuwania z ListPage
+## 6. Przepływ usuwania z ListPage
 
 ### Zmiany w `pages/list.rs`
 
-- Lokalny `RwSignal<bool>` — `show_delete_modal`
-- Przycisk `[🗑 Usuń listę]` w nagłówku obok tytułu "Lista" (btn-ghost btn-sm)
-- `ConfirmDeleteModal` renderowany gdy `show_delete_modal.get()`
-- `on_confirm` callback:
-  1. `api::delete_list(&list_id).await`
-  2. Sukces → `toast.push("Lista usunięta", ToastKind::Success)` + `navigate("/", Default::default())`
-  3. Błąd → `toast.push("Błąd usuwania", ToastKind::Error)`
-  4. `show_delete_modal.set(false)`
+- `show_delete: RwSignal<bool>`
+- `deleting: RwSignal<bool>`
+- Przycisk `[🗑 Usuń listę]` (btn-ghost btn-sm) w nagłówku obok "Lista"
+- Modal z `item_count=Some(items.read().len())` — bez dodatkowego fetcha
+
+```rust
+on_confirm=Callback::new(move |_| {
+    deleting.set(true);
+    let lid = list_id();
+    spawn_local(async move {
+        match api::delete_list(&lid).await {
+            Ok(()) => {
+                toast.push("Lista usunięta".into(), ToastKind::Success);
+                navigate("/", Default::default());
+            }
+            Err(e) => {
+                toast.push(format!("Błąd: {e}"), ToastKind::Error);
+                deleting.set(false);
+                show_delete.set(false);
+            }
+        }
+    });
+})
+```
+
+Po sukcesie `deleting` nie jest resetowane bo komponent przestaje istnieć po nawigacji.
 
 ---
 
@@ -150,12 +239,11 @@ pub fn ConfirmDeleteModal(
 
 | Akcja | Plik |
 |-------|------|
+| Modyfikuj | `crates/frontend/src/api.rs` — fix delete_list status check |
 | Utwórz | `crates/frontend/src/components/toast_container.rs` |
 | Utwórz | `crates/frontend/src/components/confirm_delete_modal.rs` |
-| Modyfikuj | `crates/frontend/src/app.rs` |
-| Modyfikuj | `crates/frontend/src/components/mod.rs` |
-| Modyfikuj | `crates/frontend/src/components/list_card.rs` |
-| Modyfikuj | `crates/frontend/src/pages/home.rs` |
-| Modyfikuj | `crates/frontend/src/pages/list.rs` |
-
-Brak zmian w API ani w `shared`.
+| Modyfikuj | `crates/frontend/src/app.rs` — provide_context + ToastContainer |
+| Modyfikuj | `crates/frontend/src/components/mod.rs` — nowe moduły |
+| Modyfikuj | `crates/frontend/src/components/list_card.rs` — on_delete prop + przycisk |
+| Modyfikuj | `crates/frontend/src/pages/home.rs` — lists_data RwSignal + modal + delete logic |
+| Modyfikuj | `crates/frontend/src/pages/list.rs` — modal + delete logic |
