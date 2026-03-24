@@ -29,6 +29,7 @@ pub fn ListCard(
     #[prop(default = vec![])] all_tags: Vec<Tag>,
     #[prop(default = vec![])] list_tag_ids: Vec<String>,
     #[prop(optional)] on_tag_toggle: Option<Callback<String>>,
+    #[prop(optional)] on_delete: Option<Callback<String>>,
 ) -> impl IntoView {
     let href = format!("/lists/{}", list.id);
     let icon = list_type_icon(&list.list_type);
@@ -43,11 +44,32 @@ pub fn ListCard(
         .cloned()
         .collect();
 
+    let list_id_for_delete = list.id.clone();
+    let on_delete_clone = on_delete.clone();
+
     view! {
         <div
-            class="card bg-base-200 border border-base-300 cursor-pointer card-neon"
+            class="card bg-base-200 border border-base-300 cursor-pointer card-neon relative"
             on:click=move |_| { navigate(&href_clone, Default::default()); }
         >
+            // Delete button — positioned absolute, stop_propagation prevents card navigation
+            {on_delete_clone.map(|cb| {
+                let lid = list_id_for_delete.clone();
+                view! {
+                    <button
+                        type="button"
+                        aria-label="Usuń listę"
+                        class="btn btn-ghost btn-xs absolute top-2 right-2 opacity-40 hover:opacity-100"
+                        on:click=move |ev| {
+                            ev.stop_propagation();
+                            cb.run(lid.clone());
+                        }
+                    >
+                        "🗑"
+                    </button>
+                }
+            })}
+
             <div class="card-body p-4">
                 <h3 class="card-title text-base">{list.name.clone()}</h3>
                 <span class="text-sm text-base-content/60">{icon} " " {label}</span>
