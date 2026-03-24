@@ -5,7 +5,10 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
     let user_id = ctx.data.clone();
     let d1 = ctx.env.d1("DB")?;
     let result = d1
-        .prepare("SELECT id, user_id, name, list_type, created_at, updated_at FROM lists WHERE user_id = ?1 ORDER BY updated_at DESC")
+        .prepare(
+            "SELECT id, user_id, name, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
+             FROM lists WHERE user_id = ?1 AND parent_list_id IS NULL AND archived = 0 ORDER BY updated_at DESC",
+        )
         .bind(&[user_id.into()])?
         .all()
         .await?;
@@ -23,14 +26,27 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         .unwrap_or("custom")
         .to_string();
 
+    let has_quantity: i32 = if body.has_quantity { 1 } else { 0 };
+    let has_due_date: i32 = if body.has_due_date { 1 } else { 0 };
+
     let d1 = ctx.env.d1("DB")?;
-    d1.prepare("INSERT INTO lists (id, user_id, name, list_type) VALUES (?1, ?2, ?3, ?4)")
-        .bind(&[id.clone().into(), user_id.clone().into(), body.name.clone().into(), list_type_str.into()])?
+    d1.prepare("INSERT INTO lists (id, user_id, name, list_type, has_quantity, has_due_date) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
+        .bind(&[
+            id.clone().into(),
+            user_id.clone().into(),
+            body.name.clone().into(),
+            list_type_str.into(),
+            has_quantity.into(),
+            has_due_date.into(),
+        ])?
         .run()
         .await?;
 
     let list = d1
-        .prepare("SELECT id, user_id, name, list_type, created_at, updated_at FROM lists WHERE id = ?1")
+        .prepare(
+            "SELECT id, user_id, name, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
+             FROM lists WHERE id = ?1",
+        )
         .bind(&[id.into()])?
         .first::<List>(None)
         .await?
@@ -46,7 +62,10 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
     let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?.to_string();
     let d1 = ctx.env.d1("DB")?;
     let list = d1
-        .prepare("SELECT id, user_id, name, list_type, created_at, updated_at FROM lists WHERE id = ?1 AND user_id = ?2")
+        .prepare(
+            "SELECT id, user_id, name, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
+             FROM lists WHERE id = ?1 AND user_id = ?2",
+        )
         .bind(&[id.into(), user_id.into()])?
         .first::<List>(None)
         .await?;
@@ -92,8 +111,35 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
             .await?;
     }
 
+    if let Some(has_quantity) = body.has_quantity {
+        let val: i32 = if has_quantity { 1 } else { 0 };
+        d1.prepare("UPDATE lists SET has_quantity = ?1, updated_at = datetime('now') WHERE id = ?2")
+            .bind(&[val.into(), id.clone().into()])?
+            .run()
+            .await?;
+    }
+
+    if let Some(has_due_date) = body.has_due_date {
+        let val: i32 = if has_due_date { 1 } else { 0 };
+        d1.prepare("UPDATE lists SET has_due_date = ?1, updated_at = datetime('now') WHERE id = ?2")
+            .bind(&[val.into(), id.clone().into()])?
+            .run()
+            .await?;
+    }
+
+    if let Some(archived) = body.archived {
+        let val: i32 = if archived { 1 } else { 0 };
+        d1.prepare("UPDATE lists SET archived = ?1, updated_at = datetime('now') WHERE id = ?2")
+            .bind(&[val.into(), id.clone().into()])?
+            .run()
+            .await?;
+    }
+
     let list = d1
-        .prepare("SELECT id, user_id, name, list_type, created_at, updated_at FROM lists WHERE id = ?1")
+        .prepare(
+            "SELECT id, user_id, name, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
+             FROM lists WHERE id = ?1",
+        )
         .bind(&[id.into()])?
         .first::<List>(None)
         .await?
