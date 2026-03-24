@@ -1,42 +1,42 @@
 # Kartoteka
 
-Aplikacja do zarządzania listami (zakupy, pakowanie, projekty, todo) z autoryzacją Hanko (passkeys + email).
+A list management app (shopping, packing, projects, todos) with Hanko authentication (passkeys + email).
 
-## Funkcje
+## Features
 
-- **Listy** — tworzenie, usuwanie (z modal potwierdzeniem i liczbą elementów), typy: lista / zakupy / pakowanie / projekt
-- **Elementy** — dodawanie, oznaczanie jako ukończone, usuwanie, edycja opisu, optymistyczne aktualizacje
-- **Tagi** — zarządzanie tagami (kolor), przypisywanie do list i elementów, filtrowanie list po tagu
-- **Powiadomienia** — globalny system toastów (sukces / błąd), auto-dismiss po 3s
+- **Lists** — create, delete (with confirmation modal showing item count), types: list / shopping / packing / project
+- **Items** — add, toggle completed, delete, edit description, optimistic updates
+- **Tags** — manage tags (color), assign to lists and items, filter lists by tag
+- **Notifications** — global toast system (success / error), auto-dismiss after 3s
 - **Auth** — Hanko Cloud: passkeys (Face ID / Touch ID) + email OTP
 
 ## Stack
 
-- **Frontend**: Leptos CSR (Rust → WASM), Trunk, PWA na iOS
+- **Frontend**: Leptos CSR (Rust → WASM), Trunk, PWA on iOS
 - **Backend**: Cloudflare Workers (Rust, workers-rs), D1 (SQLite)
 - **Auth**: Hanko Cloud (passkeys, email OTP)
 - **MCP**: TypeScript CF Worker (scaffold, `@cloudflare/workers-oauth-provider`)
 
-## Struktura
+## Structure
 
 ```
 kartoteka/
 ├── crates/
-│   ├── shared/       # Typy API (List, Item, DTOs)
+│   ├── shared/       # API types (List, Item, DTOs)
 │   ├── api/          # CF Worker — REST API + D1
 │   └── frontend/     # Leptos CSR SPA + PWA
 ├── mcp/              # MCP Server (TypeScript, scaffold)
 ├── justfile          # Task runner
-└── .env              # Konfiguracja (nie commitowana)
+└── .env              # Config (not committed)
 ```
 
 ## Setup
 
 ```bash
-# Wymagane: Rust, wasm32 target, Node.js, just
+# Required: Rust, wasm32 target, Node.js, just
 just setup
 
-# Skopiuj i uzupełnij .env
+# Copy and fill in .env
 cp .env.example .env
 ```
 
@@ -50,81 +50,80 @@ HANKO_API_URL=https://your-project.hanko.io
 
 ### D1
 
-Projekt używa trzech środowisk z osobnymi bazami D1:
+The project uses three environments with separate D1 databases:
 
-| Środowisko | Wrangler env | Baza D1 |
-|------------|-------------|---------|
-| local | `local` | SQLite lokalnie (Miniflare) |
+| Environment | Wrangler env | D1 database |
+|-------------|-------------|-------------|
+| local | `local` | SQLite locally (Miniflare) |
 | dev | `dev` | `kartoteka-dev` (CF D1) |
 | prod | *(default)* | `kartoteka` (CF D1) |
 
 ```bash
-just db-create        # Utwórz bazę prod (jednorazowo)
-just db-create-dev    # Utwórz bazę dev (jednorazowo)
-just migrate-local    # Migracje lokalnie
-just migrate-remote   # Migracje na produkcję
+just db-create        # Create prod database (once)
+just db-create-dev    # Create dev database (once)
+just migrate-local    # Run migrations locally
+just migrate-remote   # Run migrations on production
 ```
 
 ## Dev
 
 ```bash
-just dev              # API + frontend równolegle
-just dev-api          # Tylko API (localhost:8787)
-just dev-frontend     # Tylko frontend (localhost:8080, proxy → API)
+just dev              # API + frontend in parallel
+just dev-api          # API only (localhost:8787)
+just dev-frontend     # Frontend only (localhost:8080, proxy → API)
 ```
 
 ## Deploy
 
 ```bash
-just deploy           # Wszystko: migracje + API + frontend + MCP
-just deploy-api       # Tylko API worker
-just deploy-frontend  # Tylko frontend (CF Pages)
+just deploy           # Everything: migrations + API + frontend + MCP
+just deploy-api       # API worker only
+just deploy-frontend  # Frontend only (CF Pages)
 ```
 
-## Komendy
+## Commands
 
-| Komenda | Opis |
-|---------|------|
-| `just dev` | Dev lokalnie (API + frontend) |
-| `just deploy` | Deploy na produkcję |
-| `just check` | Sprawdź kompilację |
+| Command | Description |
+|---------|-------------|
+| `just dev` | Local dev (API + frontend) |
+| `just deploy` | Deploy to production |
+| `just check` | Check compilation |
 | `just lint` | Clippy + rustfmt |
-| `just fmt` | Formatuj kod |
-| `just test` | Testy |
-| `just migrate-create NAME` | Nowa migracja D1 |
-| `just migrate-local` | Migracje lokalnie |
-| `just migrate-remote` | Migracje na produkcję |
+| `just fmt` | Format code |
+| `just migrate-create NAME` | New D1 migration |
+| `just migrate-local` | Run migrations locally |
+| `just migrate-remote` | Run migrations on production |
 
 ## API
 
-| Metoda | Endpoint | Opis |
-|--------|----------|------|
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | GET | `/api/health` | Health check |
-| GET | `/api/lists` | Wszystkie listy |
-| POST | `/api/lists` | Utwórz listę |
-| GET | `/api/lists/:id` | Pobierz listę |
-| PUT | `/api/lists/:id` | Aktualizuj listę |
-| DELETE | `/api/lists/:id` | Usuń listę (kaskadowo usuwa elementy i tagi) |
-| GET | `/api/lists/:lid/items` | Elementy listy |
-| POST | `/api/lists/:lid/items` | Dodaj element |
-| PUT | `/api/lists/:lid/items/:id` | Aktualizuj element |
-| DELETE | `/api/lists/:lid/items/:id` | Usuń element |
-| GET | `/api/tags` | Wszystkie tagi |
-| POST | `/api/tags` | Utwórz tag |
-| PUT | `/api/tags/:id` | Aktualizuj tag |
-| DELETE | `/api/tags/:id` | Usuń tag |
-| GET | `/api/list-tags` | Powiązania lista–tag |
-| POST | `/api/lists/:lid/tags/:tid` | Przypisz tag do listy |
-| DELETE | `/api/lists/:lid/tags/:tid` | Odepnij tag od listy |
-| GET | `/api/item-tags` | Powiązania element–tag |
-| POST | `/api/items/:iid/tags/:tid` | Przypisz tag do elementu |
-| DELETE | `/api/items/:iid/tags/:tid` | Odepnij tag od elementu |
+| GET | `/api/lists` | All lists |
+| POST | `/api/lists` | Create list |
+| GET | `/api/lists/:id` | Get list |
+| PUT | `/api/lists/:id` | Update list |
+| DELETE | `/api/lists/:id` | Delete list (cascades to items and tags) |
+| GET | `/api/lists/:lid/items` | List items |
+| POST | `/api/lists/:lid/items` | Add item |
+| PUT | `/api/lists/:lid/items/:id` | Update item |
+| DELETE | `/api/lists/:lid/items/:id` | Delete item |
+| GET | `/api/tags` | All tags |
+| POST | `/api/tags` | Create tag |
+| PUT | `/api/tags/:id` | Update tag |
+| DELETE | `/api/tags/:id` | Delete tag |
+| GET | `/api/list-tags` | List–tag links |
+| POST | `/api/lists/:lid/tags/:tid` | Assign tag to list |
+| DELETE | `/api/lists/:lid/tags/:tid` | Remove tag from list |
+| GET | `/api/item-tags` | Item–tag links |
+| POST | `/api/items/:iid/tags/:tid` | Assign tag to item |
+| DELETE | `/api/items/:iid/tags/:tid` | Remove tag from item |
 
-Endpointy (poza health) wymagają tokena Hanko w `Authorization: Bearer <token>`.
+All endpoints (except health) require a Hanko token in `Authorization: Bearer <token>`.
 
 ## Auth
 
-Hanko Cloud — passkeys (Face ID / Touch ID) + email OTP jako fallback. Widget `<hanko-auth>` na stronie logowania, `<hanko-profile>` w ustawieniach.
+Hanko Cloud — passkeys (Face ID / Touch ID) + email OTP as fallback. The `<hanko-auth>` widget on the login page, `<hanko-profile>` in settings.
 
-Konfiguracja w Hanko Cloud dashboard:
+Hanko Cloud dashboard configuration:
 - Authorized origins: `http://localhost:8080`, `https://your-frontend.pages.dev`
