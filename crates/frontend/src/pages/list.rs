@@ -216,9 +216,7 @@ pub fn ListPage() -> impl IntoView {
                 item.actual_quantity = Some(new_actual);
                 // Auto-complete: if actual >= target, set completed
                 if let Some(target) = item.quantity {
-                    if new_actual >= target {
-                        item.completed = true;
-                    }
+                    item.completed = new_actual >= target;
                 }
             }
         });
@@ -336,7 +334,7 @@ pub fn ListPage() -> impl IntoView {
                 }
             }}
 
-            <AddItemInput on_submit=on_add has_quantity=list_has_quantity.get() />
+            {move || view! { <AddItemInput on_submit=on_add has_quantity=list_has_quantity.get() /> }}
 
             {move || {
                 if loading.get() {
