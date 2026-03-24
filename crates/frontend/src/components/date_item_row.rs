@@ -96,16 +96,31 @@ fn relative_date(date_str: &str, today_str: &str) -> String {
     }
 }
 
+fn current_time_hhmm() -> String {
+    let now = js_sys::Date::new_0();
+    format!("{:02}:{:02}", now.get_hours(), now.get_minutes())
+}
+
 pub fn is_overdue(item: &Item, today: &str) -> bool {
-    !item.completed && item.due_date.as_ref().is_some_and(|d| d.as_str() < today)
+    if item.completed {
+        return false;
+    }
+    match item.due_date.as_deref() {
+        None => false,
+        Some(d) if d < today => true,           // past date → overdue
+        Some(d) if d == today => {
+            // today: overdue only if time is set AND has passed
+            match item.due_time.as_deref() {
+                Some(t) if !t.is_empty() => t < current_time_hhmm().as_str(),
+                _ => false,                      // no time → not overdue yet
+            }
+        }
+        _ => false,                              // future → not overdue
+    }
 }
 
 pub fn is_upcoming(item: &Item, today: &str) -> bool {
-    !item.completed
-        && item
-            .due_date
-            .as_ref()
-            .map_or(true, |d| d.as_str() >= today)
+    !item.completed && !is_overdue(item, today)
 }
 
 pub fn sort_by_due_date(items: &mut [Item]) {
@@ -131,7 +146,7 @@ pub fn DateItemRow(
     let completed = item.completed;
     let today = get_today_string();
 
-    let overdue = !completed && item.due_date.as_ref().is_some_and(|d| d.as_str() < today.as_str());
+    let overdue = is_overdue(&item, &today);
 
     let row_class = if completed {
         "flex items-center gap-3 py-3 opacity-50"
