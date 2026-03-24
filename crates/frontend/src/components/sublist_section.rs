@@ -14,6 +14,8 @@ pub fn SublistSection(
     #[prop(default = vec![])] item_tag_links: Vec<ItemTagLink>,
     on_tag_toggle: Callback<(String, String)>,
     #[prop(default = vec![])] move_targets: Vec<(String, String)>,
+    /// Called when an item is moved OUT of this sublist: (moved_item, target_list_id)
+    #[prop(optional)] on_item_moved_out: Option<Callback<(Item, String)>>,
 ) -> impl IntoView {
     let expanded = RwSignal::new(true);
     let items = RwSignal::new(Vec::<Item>::new());
@@ -168,7 +170,15 @@ pub fn SublistSection(
 
     // Move item callback
     let on_move = Callback::new(move |(item_id, target_list_id): (String, String)| {
+        // Find and remove the item, notify parent
+        let moved_item = items.read().iter().find(|i| i.id == item_id).cloned();
         items.update(|list| list.retain(|i| i.id != item_id));
+        if let Some(mut item) = moved_item {
+            item.list_id = target_list_id.clone();
+            if let Some(cb) = on_item_moved_out {
+                cb.run((item, target_list_id.clone()));
+            }
+        }
         leptos::task::spawn_local(async move {
             let _ = api::move_item(&item_id, &target_list_id).await;
         });

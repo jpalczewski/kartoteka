@@ -256,6 +256,15 @@ pub fn ListPage() -> impl IntoView {
         });
     });
 
+    // When an item is moved OUT of a sublist, add it to main list if target is main
+    let parent_lid = list_id();
+    let on_item_moved_out = Callback::new(move |(moved_item, target_list_id): (Item, String)| {
+        if target_list_id == parent_lid {
+            items.update(|list| list.push(moved_item));
+        }
+        // If target is another sublist, that sublist will show it on next refetch
+    });
+
     let sorted_items = move || {
         let mut list = items.get();
         list.sort_by(|a, b| {
@@ -429,6 +438,7 @@ pub fn ListPage() -> impl IntoView {
                                                         item_tag_links=links
                                                         on_tag_toggle=on_tag_toggle
                                                         move_targets=mt
+                                                        on_item_moved_out=on_item_moved_out
                                                     />
                                                 }
                                             }).collect::<Vec<_>>()}
