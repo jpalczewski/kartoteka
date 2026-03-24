@@ -5,14 +5,13 @@ use crate::api;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::add_item_input::AddItemInput;
 use crate::components::add_group_input::AddGroupInput;
+use crate::components::item_actions::create_item_actions;
 use crate::components::item_row::ItemRow;
 use crate::components::list_header::ListHeader;
 use crate::components::sublist_section::SublistSection;
 use crate::components::tag_badge::TagBadge;
 use crate::components::tag_selector::TagSelector;
-use kartoteka_shared::{
-    CreateItemRequest, Item, ItemTagLink, List, ListTagLink, Tag, UpdateItemRequest,
-};
+use kartoteka_shared::{Item, ItemTagLink, List, ListTagLink, Tag};
 
 #[component]
 pub fn ListPage() -> impl IntoView {
@@ -62,78 +61,12 @@ pub fn ListPage() -> impl IntoView {
         set_loading.set(false);
     });
 
-    let lid_for_create = list_id();
-    let on_add = Callback::new(
-        move |(title, description, quantity, unit, due_date, due_time): (
-            String,
-            Option<String>,
-            Option<i32>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        )| {
-            let lid = lid_for_create.clone();
-            leptos::task::spawn_local(async move {
-                let req = CreateItemRequest {
-                    title,
-                    description,
-                    quantity,
-                    unit,
-                    due_date,
-                    due_time,
-                };
-                match api::create_item(&lid, &req).await {
-                    Ok(item) => items.update(|list| list.push(item)),
-                    Err(e) => set_error.set(Some(e)),
-                }
-            });
-        },
-    );
-
-    let lid_for_toggle = list_id();
-    let on_toggle = Callback::new(move |item_id: String| {
-        // Optimistic update
-        items.update(|list| {
-            if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
-                item.completed = !item.completed;
-            }
-        });
-
-        let lid = lid_for_toggle.clone();
-        let completed = items
-            .read()
-            .iter()
-            .find(|i| i.id == item_id)
-            .map(|i| i.completed);
-
-        if let Some(completed) = completed {
-            leptos::task::spawn_local(async move {
-                let req = UpdateItemRequest {
-                    title: None,
-                    description: None,
-                    completed: Some(completed),
-                    position: None,
-                    quantity: None,
-                    actual_quantity: None,
-                    unit: None,
-                    due_date: None,
-                    due_time: None,
-                };
-                let _ = api::update_item(&lid, &item_id, &req).await;
-            });
-        }
-    });
-
-    let lid_for_delete = list_id();
-    let on_delete = Callback::new(move |item_id: String| {
-        // Optimistic update
-        items.update(|list| list.retain(|i| i.id != item_id));
-
-        let lid = lid_for_delete.clone();
-        leptos::task::spawn_local(async move {
-            let _ = api::delete_item(&lid, &item_id).await;
-        });
-    });
+    let actions = create_item_actions(items, list_id(), Some(set_error));
+    let on_add = actions.on_add;
+    let on_toggle = actions.on_toggle;
+    let on_delete = actions.on_delete;
+    let on_description_save = actions.on_description_save;
+    let on_quantity_change = actions.on_quantity_change;
 
     // Item tag toggle callback with optimistic updates
     let on_tag_toggle = Callback::new(move |(item_id, tag_id): (String, String)| {
@@ -165,30 +98,6 @@ pub fn ListPage() -> impl IntoView {
         }
     });
 
-    let lid_for_desc = list_id();
-    let on_description_save = Callback::new(move |(item_id, new_desc): (String, String)| {
-        items.update(|list| {
-            if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
-                item.description = if new_desc.is_empty() { None } else { Some(new_desc.clone()) };
-            }
-        });
-        let lid = lid_for_desc.clone();
-        leptos::task::spawn_local(async move {
-            let req = UpdateItemRequest {
-                title: None,
-                description: Some(new_desc),
-                completed: None,
-                position: None,
-                quantity: None,
-                actual_quantity: None,
-                unit: None,
-                due_date: None,
-                due_time: None,
-            };
-            let _ = api::update_item(&lid, &item_id, &req).await;
-        });
-    });
-
     // List tag toggle callback with optimistic updates
     let lid_for_tag = list_id();
     let on_list_tag_toggle = Callback::new(move |tag_id: String| {
@@ -213,37 +122,6 @@ pub fn ListPage() -> impl IntoView {
                 let _ = api::assign_tag_to_list(&lid, &tid).await;
             });
         }
-    });
-
-    let lid_for_qty = list_id();
-    let on_quantity_change = Callback::new(move |(item_id, new_actual): (String, i32)| {
-        // Optimistic update
-        items.update(|list| {
-            if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
-                item.actual_quantity = Some(new_actual);
-                // Auto-complete: if actual >= target, set completed
-                if let Some(target) = item.quantity {
-                    item.completed = new_actual >= target;
-                }
-            }
-        });
-
-        let lid = lid_for_qty.clone();
-        let iid = item_id.clone();
-        leptos::task::spawn_local(async move {
-            let req = UpdateItemRequest {
-                title: None,
-                description: None,
-                completed: None,
-                position: None,
-                quantity: None,
-                actual_quantity: Some(new_actual),
-                unit: None,
-                due_date: None,
-                due_time: None,
-            };
-            let _ = api::update_item(&lid, &iid, &req).await;
-        });
     });
 
     // Move item callback (main list items)

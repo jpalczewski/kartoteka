@@ -2,8 +2,9 @@ use leptos::prelude::*;
 
 use crate::api;
 use crate::components::add_item_input::AddItemInput;
+use crate::components::item_actions::create_item_actions;
 use crate::components::item_row::ItemRow;
-use kartoteka_shared::{CreateItemRequest, Item, ItemTagLink, List, Tag, UpdateItemRequest};
+use kartoteka_shared::{Item, ItemTagLink, List, Tag};
 
 #[component]
 pub fn SublistSection(
@@ -35,136 +36,12 @@ pub fn SublistSection(
         });
     }
 
-    // Add item callback
-    let sid_for_add = sublist_id.clone();
-    let on_add = Callback::new(
-        move |(title, description, quantity, unit, due_date, due_time): (
-            String,
-            Option<String>,
-            Option<i32>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        )| {
-            let sid = sid_for_add.clone();
-            leptos::task::spawn_local(async move {
-                let req = CreateItemRequest {
-                    title,
-                    description,
-                    quantity,
-                    unit,
-                    due_date,
-                    due_time,
-                };
-                match api::create_item(&sid, &req).await {
-                    Ok(item) => items.update(|list| list.push(item)),
-                    Err(_e) => {} // silently fail for now
-                }
-            });
-        },
-    );
-
-    // Toggle callback
-    let sid_for_toggle = sublist_id.clone();
-    let on_toggle = Callback::new(move |item_id: String| {
-        items.update(|list| {
-            if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
-                item.completed = !item.completed;
-            }
-        });
-
-        let sid = sid_for_toggle.clone();
-        let completed = items
-            .read()
-            .iter()
-            .find(|i| i.id == item_id)
-            .map(|i| i.completed);
-
-        if let Some(completed) = completed {
-            leptos::task::spawn_local(async move {
-                let req = UpdateItemRequest {
-                    title: None,
-                    description: None,
-                    completed: Some(completed),
-                    position: None,
-                    quantity: None,
-                    actual_quantity: None,
-                    unit: None,
-                    due_date: None,
-                    due_time: None,
-                };
-                let _ = api::update_item(&sid, &item_id, &req).await;
-            });
-        }
-    });
-
-    // Delete callback
-    let sid_for_delete = sublist_id.clone();
-    let on_delete = Callback::new(move |item_id: String| {
-        items.update(|list| list.retain(|i| i.id != item_id));
-        let sid = sid_for_delete.clone();
-        leptos::task::spawn_local(async move {
-            let _ = api::delete_item(&sid, &item_id).await;
-        });
-    });
-
-    // Description save callback
-    let sid_for_desc = sublist_id.clone();
-    let on_description_save = Callback::new(move |(item_id, new_desc): (String, String)| {
-        items.update(|list| {
-            if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
-                item.description = if new_desc.is_empty() {
-                    None
-                } else {
-                    Some(new_desc.clone())
-                };
-            }
-        });
-        let sid = sid_for_desc.clone();
-        leptos::task::spawn_local(async move {
-            let req = UpdateItemRequest {
-                title: None,
-                description: Some(new_desc),
-                completed: None,
-                position: None,
-                quantity: None,
-                actual_quantity: None,
-                unit: None,
-                due_date: None,
-                due_time: None,
-            };
-            let _ = api::update_item(&sid, &item_id, &req).await;
-        });
-    });
-
-    // Quantity change callback
-    let sid_for_qty = sublist_id.clone();
-    let on_quantity_change = Callback::new(move |(item_id, new_actual): (String, i32)| {
-        items.update(|list| {
-            if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
-                item.actual_quantity = Some(new_actual);
-                if let Some(target) = item.quantity {
-                    item.completed = new_actual >= target;
-                }
-            }
-        });
-        let sid = sid_for_qty.clone();
-        let iid = item_id.clone();
-        leptos::task::spawn_local(async move {
-            let req = UpdateItemRequest {
-                title: None,
-                description: None,
-                completed: None,
-                position: None,
-                quantity: None,
-                actual_quantity: Some(new_actual),
-                unit: None,
-                due_date: None,
-                due_time: None,
-            };
-            let _ = api::update_item(&sid, &iid, &req).await;
-        });
-    });
+    let actions = create_item_actions(items, sublist_id.clone(), None);
+    let on_add = actions.on_add;
+    let on_toggle = actions.on_toggle;
+    let on_delete = actions.on_delete;
+    let on_description_save = actions.on_description_save;
+    let on_quantity_change = actions.on_quantity_change;
 
     let move_targets = StoredValue::new(move_targets);
 
