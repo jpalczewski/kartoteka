@@ -117,6 +117,14 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
             .await?;
     }
 
+    if let Some(description) = &body.description {
+        let desc_val: JsValue = description.as_str().into();
+        d1.prepare("UPDATE items SET description = ?1, updated_at = datetime('now') WHERE id = ?2")
+            .bind(&[desc_val, id.clone().into()])?
+            .run()
+            .await?;
+    }
+
     if let Some(completed) = body.completed {
         let val: i32 = if completed { 1 } else { 0 };
         d1.prepare("UPDATE items SET completed = ?1, updated_at = datetime('now') WHERE id = ?2")
