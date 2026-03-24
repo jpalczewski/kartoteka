@@ -15,10 +15,13 @@ pub fn ItemRow(
     #[prop(optional)] on_description_save: Option<Callback<(String, String)>>,
     #[prop(default = false)] has_quantity: bool,
     #[prop(optional)] on_quantity_change: Option<Callback<(String, i32)>>,
+    #[prop(default = vec![])] move_targets: Vec<(String, String)>,
+    #[prop(optional)] on_move: Option<Callback<(String, String)>>,
 ) -> impl IntoView {
     let id = item.id.clone();
     let id_toggle = id.clone();
     let id_delete = id.clone();
+    let id_move = id.clone();
     let completed = item.completed;
 
     let row_class = if completed {
@@ -141,6 +144,47 @@ pub fn ItemRow(
                             selected_tag_ids=item_tag_ids.clone()
                             on_toggle=toggle_cb
                         />
+                    }.into_any()
+                } else {
+                    view! {}.into_any()
+                }}
+                // Move to dropdown
+                {if !move_targets.is_empty() && on_move.is_some() {
+                    let move_open = RwSignal::new(false);
+                    let on_move_cb = on_move.unwrap();
+                    view! {
+                        <div class="relative">
+                            <button
+                                type="button"
+                                class="btn btn-ghost btn-xs btn-square"
+                                title="Przenieś do..."
+                                on:click=move |_| move_open.update(|v| *v = !*v)
+                            >
+                                "↗"
+                            </button>
+                            <div
+                                class="absolute right-0 top-full mt-1 bg-base-200 border border-base-300 rounded-box min-w-44 max-h-60 overflow-y-auto z-50 p-2 shadow-lg"
+                                style:display=move || if move_open.get() { "block" } else { "none" }
+                            >
+                                {move_targets.iter().map(|(tid, tname)| {
+                                    let tid = tid.clone();
+                                    let tname = tname.clone();
+                                    let iid = id_move.clone();
+                                    view! {
+                                        <button
+                                            type="button"
+                                            class="flex items-center gap-2 px-2 py-1.5 text-sm rounded cursor-pointer hover:bg-base-300 w-full text-left"
+                                            on:click=move |_| {
+                                                move_open.set(false);
+                                                on_move_cb.run((iid.clone(), tid.clone()));
+                                            }
+                                        >
+                                            {tname.clone()}
+                                        </button>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </div>
+                        </div>
                     }.into_any()
                 } else {
                     view! {}.into_any()

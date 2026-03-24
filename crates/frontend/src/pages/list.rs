@@ -248,6 +248,14 @@ pub fn ListPage() -> impl IntoView {
         });
     });
 
+    // Move item callback (main list items)
+    let on_move_main = Callback::new(move |(item_id, target_list_id): (String, String)| {
+        items.update(|list| list.retain(|i| i.id != item_id));
+        leptos::task::spawn_local(async move {
+            let _ = api::move_item(&item_id, &target_list_id).await;
+        });
+    });
+
     let sorted_items = move || {
         let mut list = items.get();
         list.sort_by(|a, b| {
@@ -356,31 +364,39 @@ pub fn ListPage() -> impl IntoView {
                     view! {
                         <div>
                             // Main list items
-                            {move || sorted_items().iter().map(|item| {
-                                let item_id = item.id.clone();
-                                let item_tags: Vec<String> = item_tag_links.read().iter()
-                                    .filter(|l| l.item_id == item.id)
-                                    .map(|l| l.tag_id.clone())
+                            {move || {
+                                let main_move_targets: Vec<(String, String)> = sublists.get().iter()
+                                    .map(|s| (s.id.clone(), s.name.clone()))
                                     .collect();
-                                let tags_clone = all_tags.get();
-                                let tog_cb = on_tag_toggle.clone();
-                                let item_tag_toggle = Callback::new(move |tag_id: String| {
-                                    tog_cb.run((item_id.clone(), tag_id));
-                                });
-                                view! {
-                                    <ItemRow
-                                        item=item.clone()
-                                        on_toggle=on_toggle
-                                        on_delete=on_delete
-                                        all_tags=tags_clone
-                                        item_tag_ids=item_tags
-                                        on_tag_toggle=item_tag_toggle
-                                        on_description_save=on_description_save
-                                        has_quantity=list_has_quantity.get()
-                                        on_quantity_change=on_quantity_change
-                                    />
-                                }
-                            }).collect::<Vec<_>>()}
+                                sorted_items().iter().map(|item| {
+                                    let item_id = item.id.clone();
+                                    let item_tags: Vec<String> = item_tag_links.read().iter()
+                                        .filter(|l| l.item_id == item.id)
+                                        .map(|l| l.tag_id.clone())
+                                        .collect();
+                                    let tags_clone = all_tags.get();
+                                    let tog_cb = on_tag_toggle.clone();
+                                    let item_tag_toggle = Callback::new(move |tag_id: String| {
+                                        tog_cb.run((item_id.clone(), tag_id));
+                                    });
+                                    let mt = main_move_targets.clone();
+                                    view! {
+                                        <ItemRow
+                                            item=item.clone()
+                                            on_toggle=on_toggle
+                                            on_delete=on_delete
+                                            all_tags=tags_clone
+                                            item_tag_ids=item_tags
+                                            on_tag_toggle=item_tag_toggle
+                                            on_description_save=on_description_save
+                                            has_quantity=list_has_quantity.get()
+                                            on_quantity_change=on_quantity_change
+                                            move_targets=mt
+                                            on_move=on_move_main
+                                        />
+                                    }
+                                }).collect::<Vec<_>>()
+                            }}
 
                             // Sub-lists
                             {move || {
@@ -390,17 +406,29 @@ pub fn ListPage() -> impl IntoView {
                                 } else {
                                     view! {
                                         <div class="mt-6">
-                                            {subs.into_iter().map(|sl| {
+                                            {subs.iter().map(|sl| {
                                                 let tags = all_tags.get();
                                                 let links = item_tag_links.get();
+                                                let lid = list_id();
+                                                let lname = list_name.get();
+                                                let sl_id = sl.id.clone();
+                                                let mut mt: Vec<(String, String)> = vec![
+                                                    (lid, format!("{lname} (główna)"))
+                                                ];
+                                                mt.extend(
+                                                    subs.iter()
+                                                        .filter(|s| s.id != sl_id)
+                                                        .map(|s| (s.id.clone(), s.name.clone()))
+                                                );
                                                 view! {
                                                     <SublistSection
-                                                        sublist=sl
+                                                        sublist=sl.clone()
                                                         has_quantity=list_has_quantity.get()
                                                         has_due_date=list_has_due_date.get()
                                                         all_tags=tags
                                                         item_tag_links=links
                                                         on_tag_toggle=on_tag_toggle
+                                                        move_targets=mt
                                                     />
                                                 }
                                             }).collect::<Vec<_>>()}

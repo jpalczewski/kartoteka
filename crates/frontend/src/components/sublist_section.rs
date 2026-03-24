@@ -13,6 +13,7 @@ pub fn SublistSection(
     #[prop(default = vec![])] all_tags: Vec<Tag>,
     #[prop(default = vec![])] item_tag_links: Vec<ItemTagLink>,
     on_tag_toggle: Callback<(String, String)>,
+    #[prop(default = vec![])] move_targets: Vec<(String, String)>,
 ) -> impl IntoView {
     let expanded = RwSignal::new(true);
     let items = RwSignal::new(Vec::<Item>::new());
@@ -163,6 +164,16 @@ pub fn SublistSection(
         });
     });
 
+    let move_targets = StoredValue::new(move_targets);
+
+    // Move item callback
+    let on_move = Callback::new(move |(item_id, target_list_id): (String, String)| {
+        items.update(|list| list.retain(|i| i.id != item_id));
+        leptos::task::spawn_local(async move {
+            let _ = api::move_item(&item_id, &target_list_id).await;
+        });
+    });
+
     let sorted_items = move || {
         let mut list = items.get();
         list.sort_by(|a, b| {
@@ -217,6 +228,7 @@ pub fn SublistSection(
                                     let item_tag_toggle = Callback::new(move |tag_id: String| {
                                         tog_cb.run((item_id.clone(), tag_id));
                                     });
+                                    let mt = move_targets.get_value();
                                     view! {
                                         <ItemRow
                                             item=item.clone()
@@ -228,6 +240,8 @@ pub fn SublistSection(
                                             on_description_save=on_description_save
                                             has_quantity=has_quantity
                                             on_quantity_change=on_quantity_change
+                                            move_targets=mt
+                                            on_move=on_move
                                         />
                                     }
                                 }).collect::<Vec<_>>()}
