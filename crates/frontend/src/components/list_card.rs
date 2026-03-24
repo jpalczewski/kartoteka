@@ -65,7 +65,7 @@ pub fn ListCard(
                             cb.run(lid.clone());
                         }
                     >
-                        "🗑"
+                        "\u{1F5D1}"
                     </button>
                 }
             })}
