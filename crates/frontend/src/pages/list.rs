@@ -310,11 +310,12 @@ pub fn ListPage() -> impl IntoView {
                                 }
                             }}
 
-                            <AddGroupInput on_submit=on_create_group />
                         </div>
                     }.into_any()
                 }
             }}
+
+            <AddGroupInput on_submit=on_create_group />
         </div>
     }
 }
