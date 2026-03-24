@@ -21,6 +21,7 @@ pub fn ConfirmDeleteModal(
         Some(n) => CountState::Loaded(n),
         None => CountState::Loading,
     });
+    let deleting = RwSignal::new(false);
 
     // Fetch item count on mount if not provided
     if item_count.is_none() {
@@ -71,7 +72,11 @@ pub fn ConfirmDeleteModal(
                     <button
                         type="button"
                         class="btn btn-error"
-                        on:click=move |_| on_confirm.run(())
+                        disabled=move || deleting.get()
+                        on:click=move |_| {
+                            deleting.set(true);
+                            on_confirm.run(());
+                        }
                     >
                         "Usuń listę"
                     </button>

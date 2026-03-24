@@ -27,10 +27,14 @@ pub fn ListPage() -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let navigate = use_navigate();
     let show_delete = RwSignal::new(false);
+    let list_name = RwSignal::new(String::new());
 
     // Initial fetch
     let lid = list_id();
     leptos::task::spawn_local(async move {
+        if let Ok(list) = api::fetch_list(&lid).await {
+            list_name.set(list.name);
+        }
         match api::fetch_items(&lid).await {
             Ok(fetched) => items.set(fetched),
             Err(e) => set_error.set(Some(e)),
@@ -198,7 +202,7 @@ pub fn ListPage() -> impl IntoView {
                     Some(view! {
                         <ConfirmDeleteModal
                             list_id=lid.clone()
-                            list_name="Lista".to_string()
+                            list_name=list_name.get()
                             item_count=item_count
                             on_confirm=Callback::new(move |_| {
                                 let lid = lid.clone();

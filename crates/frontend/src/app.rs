@@ -50,6 +50,12 @@ impl ToastContext {
     }
 }
 
+impl Default for ToastContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[component]
 pub fn App() -> impl IntoView {
     let toast_ctx = ToastContext::new();

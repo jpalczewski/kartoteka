@@ -95,6 +95,16 @@ pub async fn create_list(req: &CreateListRequest) -> Result<List, String> {
     post_json(&format!("{API_BASE}/lists"), req).await
 }
 
+pub async fn fetch_list(id: &str) -> Result<List, String> {
+    get(&format!("{API_BASE}/lists/{id}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
 pub async fn delete_list(id: &str) -> Result<(), String> {
     let resp = del(&format!("{API_BASE}/lists/{id}"))
         .send()
