@@ -1,5 +1,8 @@
-use kartoteka_shared::Item;
+use kartoteka_shared::{Item, Tag};
 use leptos::prelude::*;
+
+use super::tag_badge::TagBadge;
+use super::tag_selector::TagSelector;
 
 fn get_today_string() -> String {
     let today = js_sys::Date::new_0();
@@ -140,6 +143,9 @@ pub fn DateItemRow(
     item: Item,
     on_toggle: Callback<String>,
     on_delete: Callback<String>,
+    #[prop(default = vec![])] all_tags: Vec<Tag>,
+    #[prop(default = vec![])] item_tag_ids: Vec<String>,
+    #[prop(optional)] on_tag_toggle: Option<Callback<String>>,
 ) -> impl IntoView {
     let id_toggle = item.id.clone();
     let id_delete = item.id.clone();
@@ -187,6 +193,39 @@ pub fn DateItemRow(
                     on:change=move |_| on_toggle.run(id_toggle.clone())
                 />
                 <span class=title_class>{item.title}</span>
+
+                // Tag badges
+                {if !item_tag_ids.is_empty() {
+                    let item_tags: Vec<Tag> = all_tags.iter()
+                        .filter(|t| item_tag_ids.contains(&t.id))
+                        .cloned()
+                        .collect();
+                    view! {
+                        <div class="flex flex-wrap gap-1">
+                            {item_tags.into_iter().map(|t| {
+                                match on_tag_toggle {
+                                    Some(cb) => view! { <TagBadge tag=t on_remove=cb/> }.into_any(),
+                                    None => view! { <TagBadge tag=t/> }.into_any(),
+                                }
+                            }).collect::<Vec<_>>()}
+                        </div>
+                    }.into_any()
+                } else {
+                    view! {}.into_any()
+                }}
+                // Tag selector
+                {if let Some(toggle_cb) = on_tag_toggle {
+                    view! {
+                        <TagSelector
+                            all_tags=all_tags.clone()
+                            selected_tag_ids=item_tag_ids.clone()
+                            on_toggle=toggle_cb
+                        />
+                    }.into_any()
+                } else {
+                    view! {}.into_any()
+                }}
+
                 <div class=date_color>
                     {date_display.map(|d| view! { <div class="font-medium">{d}</div> })}
                     {relative.map(|r| view! { <div class="text-xs">{r}</div> })}

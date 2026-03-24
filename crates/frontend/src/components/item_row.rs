@@ -25,9 +25,9 @@ pub fn ItemRow(
     let completed = item.completed;
 
     let row_class = if completed {
-        "flex items-center gap-3 py-3 opacity-50"
+        "flex items-center gap-3 py-2 opacity-50"
     } else {
-        "flex items-center gap-3 py-3"
+        "flex items-center gap-3 py-2"
     };
 
     let title_class = if completed {
@@ -46,12 +46,15 @@ pub fn ItemRow(
     let unit_label = item.unit.clone().unwrap_or_default();
     let id_for_stepper = id.clone();
 
+    let has_tags = !item_tag_ids.is_empty() || on_tag_toggle.is_some();
+
     view! {
-        <div class="border-b border-base-300">
+        <div class="border-b border-base-300 py-1">
+            // Row 1: checkbox, expand, title, quantity, actions
             <div class=row_class>
                 <input
                     type="checkbox"
-                    class="checkbox checkbox-secondary"
+                    class="checkbox checkbox-secondary checkbox-sm"
                     checked=item.completed
                     on:change=move |_| on_toggle.run(id_toggle.clone())
                 />
@@ -75,39 +78,25 @@ pub fn ItemRow(
                     view! {
                         <div class="flex flex-col items-center gap-0.5">
                             <div class="flex items-center gap-1">
-                                <button
-                                    type="button"
-                                    class="btn btn-xs btn-circle btn-ghost"
+                                <button type="button" class="btn btn-xs btn-circle btn-ghost"
                                     on:click=move |_| {
                                         let new_val = (actual.get() - 1).max(0);
                                         actual.set(new_val);
-                                        if let Some(cb) = cb_dec {
-                                            cb.run((id_dec.clone(), new_val));
-                                        }
+                                        if let Some(cb) = cb_dec { cb.run((id_dec.clone(), new_val)); }
                                     }
-                                >
-                                    "−"
-                                </button>
+                                >"−"</button>
                                 <span class="text-sm font-mono">
                                     {move || actual.get()} " / " {target_qty} " " {unit_str.clone()}
                                 </span>
-                                <button
-                                    type="button"
-                                    class="btn btn-xs btn-circle btn-ghost"
+                                <button type="button" class="btn btn-xs btn-circle btn-ghost"
                                     on:click=move |_| {
                                         let new_val = actual.get() + 1;
                                         actual.set(new_val);
-                                        if let Some(cb) = cb_inc {
-                                            cb.run((id_inc.clone(), new_val));
-                                        }
+                                        if let Some(cb) = cb_inc { cb.run((id_inc.clone(), new_val)); }
                                     }
-                                >
-                                    "+"
-                                </button>
+                                >"+"</button>
                             </div>
-                            // Thin progress bar
-                            <progress
-                                class="progress progress-primary w-20 h-1"
+                            <progress class="progress progress-primary w-20 h-1"
                                 value=move || actual.get().to_string()
                                 max=target_qty.to_string()
                             />
@@ -117,51 +106,15 @@ pub fn ItemRow(
                     view! {}.into_any()
                 }}
 
-                // Tag badges for this item
-                {if !item_tag_ids.is_empty() {
-                    let item_tags: Vec<Tag> = all_tags.iter()
-                        .filter(|t| item_tag_ids.contains(&t.id))
-                        .cloned()
-                        .collect();
-                    view! {
-                        <div class="tag-list">
-                            {item_tags.into_iter().map(|t| {
-                                match on_tag_toggle.clone() {
-                                    Some(cb) => view! { <TagBadge tag=t on_remove=cb/> }.into_any(),
-                                    None => view! { <TagBadge tag=t/> }.into_any(),
-                                }
-                            }).collect::<Vec<_>>()}
-                        </div>
-                    }.into_any()
-                } else {
-                    view! {}.into_any()
-                }}
-                // Tag selector
-                {if let Some(toggle_cb) = on_tag_toggle.clone() {
-                    view! {
-                        <TagSelector
-                            all_tags=all_tags.clone()
-                            selected_tag_ids=item_tag_ids.clone()
-                            on_toggle=toggle_cb
-                        />
-                    }.into_any()
-                } else {
-                    view! {}.into_any()
-                }}
                 // Move to dropdown
                 {if !move_targets.is_empty() && on_move.is_some() {
                     let move_open = RwSignal::new(false);
                     let on_move_cb = on_move.unwrap();
                     view! {
                         <div class="relative">
-                            <button
-                                type="button"
-                                class="btn btn-ghost btn-xs btn-square"
-                                title="Przenieś do..."
+                            <button type="button" class="btn btn-ghost btn-xs btn-square" title="Przenieś do..."
                                 on:click=move |_| move_open.update(|v| *v = !*v)
-                            >
-                                "↗"
-                            </button>
+                            >"↗"</button>
                             <div
                                 class="absolute right-0 top-full mt-1 bg-base-200 border border-base-300 rounded-box min-w-44 max-h-60 overflow-y-auto z-50 p-2 shadow-lg"
                                 style:display=move || if move_open.get() { "block" } else { "none" }
@@ -171,16 +124,13 @@ pub fn ItemRow(
                                     let tname = tname.clone();
                                     let iid = id_move.clone();
                                     view! {
-                                        <button
-                                            type="button"
+                                        <button type="button"
                                             class="flex items-center gap-2 px-2 py-1.5 text-sm rounded cursor-pointer hover:bg-base-300 w-full text-left"
                                             on:click=move |_| {
                                                 move_open.set(false);
                                                 on_move_cb.run((iid.clone(), tid.clone()));
                                             }
-                                        >
-                                            {tname.clone()}
-                                        </button>
+                                        >{tname.clone()}</button>
                                     }
                                 }).collect::<Vec<_>>()}
                             </div>
@@ -189,19 +139,49 @@ pub fn ItemRow(
                 } else {
                     view! {}.into_any()
                 }}
-                <button
-                    type="button"
-                    class="btn btn-error btn-sm btn-square"
+
+                <button type="button" class="btn btn-ghost btn-xs btn-square opacity-60 hover:opacity-100"
                     on:click=move |_| on_delete.run(id_delete.clone())
-                >
-                    "✕"
-                </button>
+                >"✕"</button>
             </div>
+
+            // Row 2: Tags (below title, indented)
+            {if has_tags {
+                let item_tags: Vec<Tag> = all_tags.iter()
+                    .filter(|t| item_tag_ids.contains(&t.id))
+                    .cloned()
+                    .collect();
+                view! {
+                    <div class="flex flex-wrap items-center gap-1 pl-14 pb-1">
+                        {item_tags.into_iter().map(|t| {
+                            match on_tag_toggle {
+                                Some(cb) => view! { <TagBadge tag=t on_remove=cb/> }.into_any(),
+                                None => view! { <TagBadge tag=t/> }.into_any(),
+                            }
+                        }).collect::<Vec<_>>()}
+                        {if let Some(toggle_cb) = on_tag_toggle {
+                            view! {
+                                <TagSelector
+                                    all_tags=all_tags.clone()
+                                    selected_tag_ids=item_tag_ids.clone()
+                                    on_toggle=toggle_cb
+                                />
+                            }.into_any()
+                        } else {
+                            view! {}.into_any()
+                        }}
+                    </div>
+                }.into_any()
+            } else {
+                view! {}.into_any()
+            }}
+
+            // Description (expandable)
             {move || {
                 if expanded.get() {
                     let id_blur = id.clone();
                     view! {
-                        <div class="px-10 pb-3 pt-1">
+                        <div class="pl-14 pb-2">
                             <textarea
                                 class="textarea textarea-bordered w-full text-sm resize-none"
                                 rows="3"
@@ -222,7 +202,7 @@ pub fn ItemRow(
                         view! {}.into_any()
                     } else {
                         view! {
-                            <p class="px-10 pb-2 text-sm text-base-content/60">{desc}</p>
+                            <p class="pl-14 pb-1 text-sm text-base-content/60">{desc}</p>
                         }.into_any()
                     }
                 }

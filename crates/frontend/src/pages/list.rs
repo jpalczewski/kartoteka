@@ -347,7 +347,9 @@ pub fn ListPage() -> impl IntoView {
                                         .cloned().collect();
                                     sort_by_due_date(&mut done);
 
-                                    let render_section = |label: &str, css: &str, items: Vec<Item>| {
+                                    let tags_for_date = all_tags.get();
+                                    let links_for_date = item_tag_links.get();
+                                    let render_section = |label: &str, css: &str, items: Vec<Item>, tags: Vec<Tag>, links: Vec<ItemTagLink>| {
                                         let label = label.to_string();
                                         let css = css.to_string();
                                         if items.is_empty() {
@@ -357,11 +359,24 @@ pub fn ListPage() -> impl IntoView {
                                                 <div class="mb-4">
                                                     <h3 class=format!("text-sm font-semibold uppercase tracking-wide mb-2 {}", css)>{label}</h3>
                                                     {items.into_iter().map(|item| {
+                                                        let item_id = item.id.clone();
+                                                        let item_tags: Vec<String> = links.iter()
+                                                            .filter(|l| l.item_id == item.id)
+                                                            .map(|l| l.tag_id.clone())
+                                                            .collect();
+                                                        let tags_clone = tags.clone();
+                                                        let tog_cb = on_tag_toggle;
+                                                        let item_tag_toggle = Callback::new(move |tag_id: String| {
+                                                            tog_cb.run((item_id.clone(), tag_id));
+                                                        });
                                                         view! {
                                                             <DateItemRow
                                                                 item=item
                                                                 on_toggle=on_toggle
                                                                 on_delete=on_delete
+                                                                all_tags=tags_clone
+                                                                item_tag_ids=item_tags
+                                                                on_tag_toggle=item_tag_toggle
                                                             />
                                                         }
                                                     }).collect::<Vec<_>>()}
@@ -372,9 +387,9 @@ pub fn ListPage() -> impl IntoView {
 
                                     view! {
                                         <div>
-                                            {render_section("Zaległe", "text-error", overdue)}
-                                            {render_section("Nadchodzące", "text-warning", upcoming)}
-                                            {render_section("Zrobione", "text-base-content/40", done)}
+                                            {render_section("Zaległe", "text-error", overdue, tags_for_date.clone(), links_for_date.clone())}
+                                            {render_section("Nadchodzące", "text-warning", upcoming, tags_for_date.clone(), links_for_date.clone())}
+                                            {render_section("Zrobione", "text-base-content/40", done, tags_for_date, links_for_date)}
                                         </div>
                                     }.into_any()
                                 } else {
