@@ -33,8 +33,6 @@ pub fn ConfirmDeleteModal(
         });
     }
 
-    let list_name = list_name.clone();
-
     view! {
         <dialog class="modal" open=true>
             <div class="modal-box">
