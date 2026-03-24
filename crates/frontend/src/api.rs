@@ -96,11 +96,15 @@ pub async fn create_list(req: &CreateListRequest) -> Result<List, String> {
 }
 
 pub async fn delete_list(id: &str) -> Result<(), String> {
-    del(&format!("{API_BASE}/lists/{id}"))
+    let resp = del(&format!("{API_BASE}/lists/{id}"))
         .send()
         .await
         .map_err(|e| e.to_string())?;
-    Ok(())
+    if resp.ok() {
+        Ok(())
+    } else {
+        Err(format!("Błąd serwera: {}", resp.status()))
+    }
 }
 
 pub async fn fetch_items(list_id: &str) -> Result<Vec<Item>, String> {
