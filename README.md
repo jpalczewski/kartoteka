@@ -2,6 +2,14 @@
 
 Aplikacja do zarządzania listami (zakupy, pakowanie, projekty, todo) z autoryzacją Hanko (passkeys + email).
 
+## Funkcje
+
+- **Listy** — tworzenie, usuwanie (z modal potwierdzeniem i liczbą elementów), typy: lista / zakupy / pakowanie / projekt
+- **Elementy** — dodawanie, oznaczanie jako ukończone, usuwanie, edycja opisu, optymistyczne aktualizacje
+- **Tagi** — zarządzanie tagami (kolor), przypisywanie do list i elementów, filtrowanie list po tagu
+- **Powiadomienia** — globalny system toastów (sukces / błąd), auto-dismiss po 3s
+- **Auth** — Hanko Cloud: passkeys (Face ID / Touch ID) + email OTP
+
 ## Stack
 
 - **Frontend**: Leptos CSR (Rust → WASM), Trunk, PWA na iOS
@@ -42,8 +50,17 @@ HANKO_API_URL=https://your-project.hanko.io
 
 ### D1
 
+Projekt używa trzech środowisk z osobnymi bazami D1:
+
+| Środowisko | Wrangler env | Baza D1 |
+|------------|-------------|---------|
+| local | `local` | SQLite lokalnie (Miniflare) |
+| dev | `dev` | `kartoteka-dev` (CF D1) |
+| prod | *(default)* | `kartoteka` (CF D1) |
+
 ```bash
-just db-create        # Utwórz bazę (jednorazowo)
+just db-create        # Utwórz bazę prod (jednorazowo)
+just db-create-dev    # Utwórz bazę dev (jednorazowo)
 just migrate-local    # Migracje lokalnie
 just migrate-remote   # Migracje na produkcję
 ```
@@ -87,11 +104,21 @@ just deploy-frontend  # Tylko frontend (CF Pages)
 | POST | `/api/lists` | Utwórz listę |
 | GET | `/api/lists/:id` | Pobierz listę |
 | PUT | `/api/lists/:id` | Aktualizuj listę |
-| DELETE | `/api/lists/:id` | Usuń listę |
-| GET | `/api/lists/:lid/items` | Items listy |
-| POST | `/api/lists/:lid/items` | Dodaj item |
-| PUT | `/api/lists/:lid/items/:id` | Aktualizuj item |
-| DELETE | `/api/lists/:lid/items/:id` | Usuń item |
+| DELETE | `/api/lists/:id` | Usuń listę (kaskadowo usuwa elementy i tagi) |
+| GET | `/api/lists/:lid/items` | Elementy listy |
+| POST | `/api/lists/:lid/items` | Dodaj element |
+| PUT | `/api/lists/:lid/items/:id` | Aktualizuj element |
+| DELETE | `/api/lists/:lid/items/:id` | Usuń element |
+| GET | `/api/tags` | Wszystkie tagi |
+| POST | `/api/tags` | Utwórz tag |
+| PUT | `/api/tags/:id` | Aktualizuj tag |
+| DELETE | `/api/tags/:id` | Usuń tag |
+| GET | `/api/list-tags` | Powiązania lista–tag |
+| POST | `/api/lists/:lid/tags/:tid` | Przypisz tag do listy |
+| DELETE | `/api/lists/:lid/tags/:tid` | Odepnij tag od listy |
+| GET | `/api/item-tags` | Powiązania element–tag |
+| POST | `/api/items/:iid/tags/:tid` | Przypisz tag do elementu |
+| DELETE | `/api/items/:iid/tags/:tid` | Odepnij tag od elementu |
 
 Endpointy (poza health) wymagają tokena Hanko w `Authorization: Bearer <token>`.
 
