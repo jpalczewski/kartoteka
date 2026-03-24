@@ -5,6 +5,7 @@ use crate::api;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::add_item_input::AddItemInput;
 use crate::components::add_group_input::AddGroupInput;
+use crate::components::date_item_row::{DateItemRow, get_today, is_overdue, is_upcoming, sort_by_due_date};
 use crate::components::item_actions::create_item_actions;
 use crate::components::item_row::ItemRow;
 use crate::components::list_header::ListHeader;
@@ -237,37 +238,94 @@ pub fn ListPage() -> impl IntoView {
                         <div>
                             // Main list items
                             {move || {
-                                let main_move_targets: Vec<(String, String)> = sublists.get().iter()
-                                    .map(|s| (s.id.clone(), s.name.clone()))
-                                    .collect();
-                                sorted_items().iter().map(|item| {
-                                    let item_id = item.id.clone();
-                                    let item_tags: Vec<String> = item_tag_links.read().iter()
-                                        .filter(|l| l.item_id == item.id)
-                                        .map(|l| l.tag_id.clone())
-                                        .collect();
-                                    let tags_clone = all_tags.get();
-                                    let tog_cb = on_tag_toggle.clone();
-                                    let item_tag_toggle = Callback::new(move |tag_id: String| {
-                                        tog_cb.run((item_id.clone(), tag_id));
-                                    });
-                                    let mt = main_move_targets.clone();
+                                if list_has_due_date.get() {
+                                    // Date view: group into overdue, upcoming, done
+                                    let today = get_today();
+                                    let all = sorted_items();
+
+                                    let mut overdue: Vec<Item> = all.iter()
+                                        .filter(|i| is_overdue(i, &today))
+                                        .cloned().collect();
+                                    sort_by_due_date(&mut overdue);
+
+                                    let mut upcoming: Vec<Item> = all.iter()
+                                        .filter(|i| is_upcoming(i, &today))
+                                        .cloned().collect();
+                                    sort_by_due_date(&mut upcoming);
+
+                                    let mut done: Vec<Item> = all.iter()
+                                        .filter(|i| i.completed)
+                                        .cloned().collect();
+                                    sort_by_due_date(&mut done);
+
+                                    let render_section = |label: &str, css: &str, items: Vec<Item>| {
+                                        let label = label.to_string();
+                                        let css = css.to_string();
+                                        if items.is_empty() {
+                                            view! {}.into_any()
+                                        } else {
+                                            view! {
+                                                <div class="mb-4">
+                                                    <h3 class=format!("text-sm font-semibold uppercase tracking-wide mb-2 {}", css)>{label}</h3>
+                                                    {items.into_iter().map(|item| {
+                                                        view! {
+                                                            <DateItemRow
+                                                                item=item
+                                                                on_toggle=on_toggle
+                                                                on_delete=on_delete
+                                                            />
+                                                        }
+                                                    }).collect::<Vec<_>>()}
+                                                </div>
+                                            }.into_any()
+                                        }
+                                    };
+
                                     view! {
-                                        <ItemRow
-                                            item=item.clone()
-                                            on_toggle=on_toggle
-                                            on_delete=on_delete
-                                            all_tags=tags_clone
-                                            item_tag_ids=item_tags
-                                            on_tag_toggle=item_tag_toggle
-                                            on_description_save=on_description_save
-                                            has_quantity=list_has_quantity.get()
-                                            on_quantity_change=on_quantity_change
-                                            move_targets=mt
-                                            on_move=on_move_main
-                                        />
-                                    }
-                                }).collect::<Vec<_>>()
+                                        <div>
+                                            {render_section("Zaległe", "text-error", overdue)}
+                                            {render_section("Nadchodzące", "text-warning", upcoming)}
+                                            {render_section("Zrobione", "text-base-content/40", done)}
+                                        </div>
+                                    }.into_any()
+                                } else {
+                                    // Normal position-sorted view
+                                    let main_move_targets: Vec<(String, String)> = sublists.get().iter()
+                                        .map(|s| (s.id.clone(), s.name.clone()))
+                                        .collect();
+                                    view! {
+                                        <div>
+                                            {sorted_items().iter().map(|item| {
+                                                let item_id = item.id.clone();
+                                                let item_tags: Vec<String> = item_tag_links.read().iter()
+                                                    .filter(|l| l.item_id == item.id)
+                                                    .map(|l| l.tag_id.clone())
+                                                    .collect();
+                                                let tags_clone = all_tags.get();
+                                                let tog_cb = on_tag_toggle.clone();
+                                                let item_tag_toggle = Callback::new(move |tag_id: String| {
+                                                    tog_cb.run((item_id.clone(), tag_id));
+                                                });
+                                                let mt = main_move_targets.clone();
+                                                view! {
+                                                    <ItemRow
+                                                        item=item.clone()
+                                                        on_toggle=on_toggle
+                                                        on_delete=on_delete
+                                                        all_tags=tags_clone
+                                                        item_tag_ids=item_tags
+                                                        on_tag_toggle=item_tag_toggle
+                                                        on_description_save=on_description_save
+                                                        has_quantity=list_has_quantity.get()
+                                                        on_quantity_change=on_quantity_change
+                                                        move_targets=mt
+                                                        on_move=on_move_main
+                                                    />
+                                                }
+                                            }).collect::<Vec<_>>()}
+                                        </div>
+                                    }.into_any()
+                                }
                             }}
 
                             // Sub-lists
