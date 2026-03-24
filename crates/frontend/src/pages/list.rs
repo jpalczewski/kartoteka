@@ -1,8 +1,10 @@
 use leptos::prelude::*;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::api;
-use crate::components::add_input::AddInput;
+use crate::app::{ToastContext, ToastKind};
+use crate::components::add_item_input::AddItemInput;
+use crate::components::confirm_delete_modal::ConfirmDeleteModal;
 use crate::components::item_row::ItemRow;
 use crate::components::tag_badge::TagBadge;
 use crate::components::tag_selector::TagSelector;
@@ -21,6 +23,10 @@ pub fn ListPage() -> impl IntoView {
     let list_tag_links = RwSignal::new(Vec::<ListTagLink>::new());
     let (loading, set_loading) = signal(true);
     let (error, set_error) = signal(Option::<String>::None);
+
+    let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let navigate = use_navigate();
+    let show_delete = RwSignal::new(false);
 
     // Initial fetch
     let lid = list_id();
@@ -44,13 +50,10 @@ pub fn ListPage() -> impl IntoView {
     });
 
     let lid_for_create = list_id();
-    let on_add = Callback::new(move |title: String| {
+    let on_add = Callback::new(move |(title, description): (String, Option<String>)| {
         let lid = lid_for_create.clone();
         leptos::task::spawn_local(async move {
-            let req = CreateItemRequest {
-                title,
-                description: None,
-            };
+            let req = CreateItemRequest { title, description };
             match api::create_item(&lid, &req).await {
                 Ok(item) => items.update(|list| list.push(item)),
                 Err(e) => set_error.set(Some(e)),
@@ -128,6 +131,25 @@ pub fn ListPage() -> impl IntoView {
         }
     });
 
+    let lid_for_desc = list_id();
+    let on_description_save = Callback::new(move |(item_id, new_desc): (String, String)| {
+        items.update(|list| {
+            if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
+                item.description = if new_desc.is_empty() { None } else { Some(new_desc.clone()) };
+            }
+        });
+        let lid = lid_for_desc.clone();
+        leptos::task::spawn_local(async move {
+            let req = UpdateItemRequest {
+                title: None,
+                description: Some(new_desc),
+                completed: None,
+                position: None,
+            };
+            let _ = api::update_item(&lid, &item_id, &req).await;
+        });
+    });
+
     // List tag toggle callback with optimistic updates
     let lid_for_tag = list_id();
     let on_list_tag_toggle = Callback::new(move |tag_id: String| {
@@ -156,7 +178,51 @@ pub fn ListPage() -> impl IntoView {
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            <h2 class="text-2xl font-bold mb-4">"Lista"</h2>
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-2xl font-bold">"Lista"</h2>
+                <button
+                    type="button"
+                    class="btn btn-ghost btn-sm opacity-60 hover:opacity-100"
+                    on:click=move |_| show_delete.set(true)
+                >
+                    "\u{1F5D1} Usuń listę"
+                </button>
+            </div>
+
+            // Delete confirmation modal
+            {move || {
+                if show_delete.get() {
+                    let lid = list_id();
+                    let item_count = items.read().len();
+                    let nav = navigate.clone();
+                    Some(view! {
+                        <ConfirmDeleteModal
+                            list_id=lid.clone()
+                            list_name="Lista".to_string()
+                            item_count=item_count
+                            on_confirm=Callback::new(move |_| {
+                                let lid = lid.clone();
+                                let nav = nav.clone();
+                                leptos::task::spawn_local(async move {
+                                    match api::delete_list(&lid).await {
+                                        Ok(()) => {
+                                            toast.push("Lista usunięta".into(), ToastKind::Success);
+                                            nav("/", Default::default());
+                                        }
+                                        Err(e) => {
+                                            toast.push(e, ToastKind::Error);
+                                            show_delete.set(false);
+                                        }
+                                    }
+                                });
+                            })
+                            on_cancel=Callback::new(move |_| show_delete.set(false))
+                        />
+                    })
+                } else {
+                    None
+                }
+            }}
 
             // List tag management
             {move || {
@@ -195,9 +261,7 @@ pub fn ListPage() -> impl IntoView {
                 }
             }}
 
-            <div class="flex gap-2 mb-4">
-                <AddInput placeholder="Nowy element..." button_label="Dodaj" on_submit=on_add />
-            </div>
+            <AddItemInput on_submit=on_add />
 
             {move || {
                 if loading.get() {
@@ -228,6 +292,7 @@ pub fn ListPage() -> impl IntoView {
                                         all_tags=tags_clone
                                         item_tag_ids=item_tags
                                         on_tag_toggle=item_tag_toggle
+                                        on_description_save=on_description_save
                                     />
                                 }
                             }).collect::<Vec<_>>()}
