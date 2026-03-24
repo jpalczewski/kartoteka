@@ -100,11 +100,11 @@ deploy-dev: migrate-dev deploy-api-dev deploy-frontend-dev
 
 # Deploy migracji (prod)
 deploy-migrate:
-    cd crates/api && npx wrangler d1 migrations apply kartoteka-db --env="" --remote
+    cd crates/api && npx wrangler d1 migrations apply kartoteka-db --remote
 
 # Deploy API worker (prod)
 deploy-api:
-    cd crates/api && HANKO_API_URL="${HANKO_API_URL}" npx wrangler deploy --env=""
+    cd crates/api && HANKO_API_URL="${HANKO_API_URL}" npx wrangler deploy
 
 # Deploy API worker (dev)
 deploy-api-dev:
