@@ -192,13 +192,26 @@ pub fn DateItemRow(
                     {relative.map(|r| view! { <div class="text-xs">{r}</div> })}
                     {time_display.map(|t| view! { <div class="text-xs">{t}</div> })}
                 </div>
-                <button
-                    type="button"
-                    class="btn btn-error btn-sm btn-square"
-                    on:click=move |_| on_delete.run(id_delete.clone())
-                >
-                    "✕"
-                </button>
+                {
+                    let confirming = RwSignal::new(false);
+                    view! {
+                        <button
+                            type="button"
+                            class=move || if confirming.get() { "btn btn-error btn-sm" } else { "btn btn-ghost btn-sm btn-square opacity-60 hover:opacity-100" }
+                            on:click=move |_| {
+                                if confirming.get() {
+                                    on_delete.run(id_delete.clone());
+                                    confirming.set(false);
+                                } else {
+                                    confirming.set(true);
+                                    set_timeout(move || confirming.set(false), std::time::Duration::from_millis(2500));
+                                }
+                            }
+                        >
+                            {move || if confirming.get() { "Na pewno?" } else { "✕" }}
+                        </button>
+                    }
+                }
             </div>
         </div>
     }
