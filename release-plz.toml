@@ -1,0 +1,40 @@
+[workspace]
+git_only = true
+publish = false
+semver_check = false
+dependencies_update = false
+git_release_enable = true
+git_tag_enable = true
+changelog_path = "./CHANGELOG.md"
+pr_labels = ["release"]
+
+[changelog]
+body = """
+{% if version %}
+## [{{ version }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}
+## [Unreleased]
+{% endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}*({{ commit.scope }})* {% endif %}{% if commit.breaking %}[**breaking**] {% endif %}\
+{{ commit.message }}{% if commit.links %} ({% for link in commit.links %}[{{ link.text }}]({{ link.href }}){% endfor %}){% endif %}
+{%- endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+commit_parsers = [
+    { message = "^feat", group = "Features" },
+    { message = "^fix", group = "Bug Fixes" },
+    { message = "^refactor", group = "Refactor" },
+    { message = "^perf", group = "Performance" },
+    { message = "^doc", group = "Documentation" },
+    { message = "^style", group = "Styling" },
+    { message = "^test", group = "Testing" },
+    { message = "^chore", group = "Miscellaneous" },
+]
