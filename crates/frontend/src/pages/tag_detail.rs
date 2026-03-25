@@ -1,13 +1,18 @@
 use crate::api;
 use crate::components::editable_color::EditableColor;
 use crate::components::editable_title::EditableTitle;
-use crate::components::tag_badge::TagBadge;
-use crate::components::tag_tree::build_breadcrumb;
+use crate::components::tag_tree::{build_breadcrumb, build_subtree, get_descendant_ids, TagTreeRow};
 use kartoteka_shared::{Tag, UpdateTagRequest};
 use leptos::prelude::*;
 use leptos_router::components::A;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_navigate, use_params_map};
 use std::collections::BTreeMap;
+
+#[derive(Clone, PartialEq)]
+enum DetailAction {
+    Move,
+    Merge,
+}
 
 #[component]
 pub fn TagDetailPage() -> impl IntoView {
@@ -17,14 +22,16 @@ pub fn TagDetailPage() -> impl IntoView {
 
     let params = use_params_map();
     let tag_id = move || params.read().get("id").unwrap_or_default();
+    let navigate = use_navigate();
 
     let all_tags = RwSignal::new(Vec::<Tag>::new());
     let tag = RwSignal::new(Option::<Tag>::None);
     let items = RwSignal::new(Vec::<serde_json::Value>::new());
     let (loading, set_loading) = signal(true);
     let (recursive, set_recursive) = signal(true);
+    let active_action = RwSignal::new(Option::<DetailAction>::None);
+    let (new_color, _set_new_color) = signal("#e94560".to_string());
 
-    // Fetch data reactively — re-runs when tag_id changes (e.g. navigating between subtags)
     let _resource = LocalResource::new(move || {
         let tid = tag_id();
         let rec = recursive.get();
@@ -42,10 +49,18 @@ pub fn TagDetailPage() -> impl IntoView {
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            {move || {
+            // Back button
+            <A href="/tags" attr:class="text-sm text-base-content/50 hover:text-primary mb-2 inline-block">
+                "\u{2190} Wszystkie tagi"
+            </A>
+
+            {
+                let navigate = navigate.clone();
+                move || {
                 if loading.get() {
                     return view! { <p>"Wczytywanie..."</p> }.into_any();
                 }
+                let navigate = navigate.clone();
                 match tag.get() {
                     None => view! { <p>"Nie znaleziono tagu"</p> }.into_any(),
                     Some(t) => {
@@ -53,12 +68,6 @@ pub fn TagDetailPage() -> impl IntoView {
                         let tags_for_breadcrumb = all_tags.get();
                         let breadcrumb = build_breadcrumb(&tags_for_breadcrumb, &t.id);
                         let all_items = items.get();
-
-                        // Direct children of this tag
-                        let children: Vec<Tag> = tags_for_breadcrumb.iter()
-                            .filter(|tag| tag.parent_tag_id.as_deref() == Some(&t.id))
-                            .cloned()
-                            .collect();
 
                         // Group items by list_name
                         let mut groups: BTreeMap<(String, String), Vec<serde_json::Value>> = BTreeMap::new();
@@ -73,6 +82,13 @@ pub fn TagDetailPage() -> impl IntoView {
                                 .to_string();
                             groups.entry((list_id, list_name)).or_default().push(item);
                         }
+
+                        // Build subtree for this tag
+                        let subtree = build_subtree(&tags_for_breadcrumb, &t.id);
+
+                        let tag_id_for_move = t.id.clone();
+                        let tag_id_for_merge = t.id.clone();
+                        let tag_id_for_delete = t.id.clone();
 
                         view! {
                             <div>
@@ -101,7 +117,7 @@ pub fn TagDetailPage() -> impl IntoView {
                                     view! {}.into_any()
                                 }}
 
-                                // Tag header — click to edit name/color
+                                // Tag header — editable name + color
                                 <div class="flex items-center gap-2 mb-4">
                                     {
                                         let tag_id_color = t.id.clone();
@@ -149,6 +165,135 @@ pub fn TagDetailPage() -> impl IntoView {
                                     }
                                 </div>
 
+                                // Action buttons
+                                <div class="flex gap-1 mb-4">
+                                    <button
+                                        class="btn btn-ghost btn-xs"
+                                        on:click=move |_| {
+                                            let current = active_action.get_untracked();
+                                            if current == Some(DetailAction::Move) {
+                                                active_action.set(None);
+                                            } else {
+                                                active_action.set(Some(DetailAction::Move));
+                                            }
+                                        }
+                                    >"\u{2195} Przenieś"</button>
+                                    <button
+                                        class="btn btn-ghost btn-xs"
+                                        on:click=move |_| {
+                                            let current = active_action.get_untracked();
+                                            if current == Some(DetailAction::Merge) {
+                                                active_action.set(None);
+                                            } else {
+                                                active_action.set(Some(DetailAction::Merge));
+                                            }
+                                        }
+                                    >"\u{2295} Scal"</button>
+                                    <button
+                                        class="btn btn-error btn-xs"
+                                        on:click={
+                                            let nav = navigate.clone();
+                                            let tid = tag_id_for_delete.clone();
+                                            move |_| {
+                                                let tid = tid.clone();
+                                                let nav = nav.clone();
+                                                leptos::task::spawn_local(async move {
+                                                    let _ = api::delete_tag(&tid).await;
+                                                    nav("/tags", Default::default());
+                                                });
+                                            }
+                                        }
+                                    >"\u{1F5D1} Usuń"</button>
+                                </div>
+
+                                // Action forms
+                                {move || {
+                                    match active_action.get() {
+                                        Some(DetailAction::Move) => {
+                                            let tags_snapshot = all_tags.get_untracked();
+                                            let tid = tag_id_for_move.clone();
+                                            let desc_ids = get_descendant_ids(&tags_snapshot, &tid);
+                                            let available: Vec<(String, String)> = tags_snapshot.iter()
+                                                .filter(|t| t.id != tid && !desc_ids.contains(&t.id))
+                                                .map(|t| (t.id.clone(), t.name.clone()))
+                                                .collect();
+
+                                            view! {
+                                                <div class="flex gap-2 items-center mb-4">
+                                                    <select
+                                                        class="select select-bordered select-sm"
+                                                        on:change={
+                                                            let tid = tid.clone();
+                                                            move |ev| {
+                                                                let value = event_target_value(&ev);
+                                                                let new_parent = if value.is_empty() { None } else { Some(value) };
+                                                                let tid = tid.clone();
+                                                                leptos::task::spawn_local(async move {
+                                                                    let req = UpdateTagRequest {
+                                                                        name: None,
+                                                                        color: None,
+                                                                        parent_tag_id: Some(new_parent),
+                                                                    };
+                                                                    let _ = api::update_tag(&tid, &req).await;
+                                                                    if let Ok(fetched) = api::fetch_tags().await {
+                                                                        all_tags.set(fetched);
+                                                                    }
+                                                                    active_action.set(None);
+                                                                });
+                                                            }
+                                                        }
+                                                    >
+                                                        <option value="" selected=true>"\u{2014} Brak rodzica \u{2014}"</option>
+                                                        {available.into_iter().map(|(id, name)| {
+                                                            view! { <option value=id>{name}</option> }
+                                                        }).collect_view()}
+                                                    </select>
+                                                    <button class="btn btn-ghost btn-xs" on:click=move |_| active_action.set(None)>"\u{2715}"</button>
+                                                </div>
+                                            }.into_any()
+                                        }
+                                        Some(DetailAction::Merge) => {
+                                            let tags_snapshot = all_tags.get_untracked();
+                                            let tid = tag_id_for_merge.clone();
+                                            let nav = navigate.clone();
+                                            let available: Vec<(String, String)> = tags_snapshot.iter()
+                                                .filter(|t| t.id != tid)
+                                                .map(|t| (t.id.clone(), t.name.clone()))
+                                                .collect();
+
+                                            view! {
+                                                <div class="flex gap-2 items-center mb-4">
+                                                    <select
+                                                        class="select select-bordered select-sm"
+                                                        on:change={
+                                                            let tid = tid.clone();
+                                                            let nav = nav.clone();
+                                                            move |ev| {
+                                                                let value = event_target_value(&ev);
+                                                                if value.is_empty() { return; }
+                                                                let tid = tid.clone();
+                                                                let target = value.clone();
+                                                                let nav = nav.clone();
+                                                                leptos::task::spawn_local(async move {
+                                                                    let _ = api::merge_tag(&tid, &target).await;
+                                                                    nav(&format!("/tags/{target}"), Default::default());
+                                                                });
+                                                            }
+                                                        }
+                                                    >
+                                                        <option value="" selected=true>"\u{2014} Wybierz tag docelowy \u{2014}"</option>
+                                                        {available.into_iter().map(|(id, name)| {
+                                                            view! { <option value=id>{name}</option> }
+                                                        }).collect_view()}
+                                                    </select>
+                                                    <button class="btn btn-ghost btn-xs" on:click=move |_| active_action.set(None)>"\u{2715}"</button>
+                                                </div>
+                                            }.into_any()
+                                        }
+                                        None => view! {}.into_any(),
+                                    }
+                                }}
+
                                 // Recursive toggle
                                 <label class="flex items-center gap-2 cursor-pointer mb-4">
                                     <input
@@ -159,6 +304,27 @@ pub fn TagDetailPage() -> impl IntoView {
                                     />
                                     <span class="text-sm">"Uwzględnij podtagi"</span>
                                 </label>
+
+                                // Subtree section
+                                {if !subtree.is_empty() {
+                                    view! {
+                                        <div class="mb-6">
+                                            <h3 class="text-xs text-base-content/50 uppercase tracking-wider mb-2">"Poddrzewo"</h3>
+                                            {subtree.into_iter().map(|node| {
+                                                view! {
+                                                    <TagTreeRow
+                                                        node=node
+                                                        depth=0
+                                                        tags=all_tags
+                                                        new_color=new_color
+                                                    />
+                                                }
+                                            }).collect_view()}
+                                        </div>
+                                    }.into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }}
 
                                 // Items grouped by list
                                 {if groups.is_empty() {
@@ -203,27 +369,6 @@ pub fn TagDetailPage() -> impl IntoView {
                                         </div>
                                     }.into_any()
                                 }}
-
-                                // Subtags section
-                                {if !children.is_empty() {
-                                    view! {
-                                        <div class="mt-8">
-                                            <h3 class="text-xs text-base-content/50 uppercase tracking-wider mb-2">"Podtagi"</h3>
-                                            <div class="flex flex-wrap gap-2">
-                                                {children.into_iter().map(|child| {
-                                                    let child_id = child.id.clone();
-                                                    view! {
-                                                        <A href=format!("/tags/{child_id}") attr:class="no-underline">
-                                                            <TagBadge tag=child />
-                                                        </A>
-                                                    }
-                                                }).collect_view()}
-                                            </div>
-                                        </div>
-                                    }.into_any()
-                                } else {
-                                    view! {}.into_any()
-                                }}
                             </div>
                         }.into_any()
                     }
@@ -233,3 +378,4 @@ pub fn TagDetailPage() -> impl IntoView {
     }
     .into_any()
 }
+

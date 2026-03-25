@@ -2,6 +2,7 @@ use leptos::prelude::*;
 
 /// Click-on-color component. Shows color dot, click opens picker + random button.
 /// Saves only when the popup is closed (not on every change).
+/// Clicking outside closes the popup via a transparent overlay.
 #[component]
 pub fn EditableColor(
     color: String,
@@ -44,6 +45,11 @@ pub fn EditableColor(
             {move || {
                 if editing.get() {
                     view! {
+                        // Transparent overlay to catch clicks outside
+                        <div
+                            class="fixed inset-0 z-40"
+                            on:click=move |_| close_and_save()
+                        ></div>
                         <div class="absolute left-0 top-full mt-1 flex items-center gap-1 bg-base-200 border border-base-300 rounded-lg p-1.5 shadow-lg z-50">
                             <input
                                 type="color"
@@ -63,7 +69,10 @@ pub fn EditableColor(
                             >"🎲"</button>
                             <button
                                 class="btn btn-ghost btn-xs"
-                                on:click=move |_| close_and_save()
+                                on:click=move |ev: leptos::ev::MouseEvent| {
+                                    ev.stop_propagation();
+                                    close_and_save();
+                                }
                             >"✕"</button>
                         </div>
                     }.into_any()
