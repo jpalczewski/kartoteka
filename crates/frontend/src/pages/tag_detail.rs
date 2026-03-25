@@ -1,7 +1,7 @@
 use crate::api;
 use crate::components::tag_badge::TagBadge;
 use crate::components::tag_tree::build_breadcrumb;
-use kartoteka_shared::Tag;
+use kartoteka_shared::{Tag, UpdateTagRequest};
 use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
@@ -21,6 +21,8 @@ pub fn TagDetailPage() -> impl IntoView {
     let items = RwSignal::new(Vec::<serde_json::Value>::new());
     let (loading, set_loading) = signal(true);
     let (recursive, set_recursive) = signal(true);
+    let (editing_name, set_editing_name) = signal(false);
+    let edit_value = RwSignal::new(String::new());
 
     // Fetch data reactively — re-runs when tag_id changes (e.g. navigating between subtags)
     let _resource = LocalResource::new(move || {
@@ -99,14 +101,98 @@ pub fn TagDetailPage() -> impl IntoView {
                                     view! {}.into_any()
                                 }}
 
-                                // Tag header
-                                <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">
+                                // Tag header — click to edit
+                                <div class="flex items-center gap-2 mb-4">
                                     <span
                                         class="inline-block w-4 h-4 rounded-full"
                                         style=format!("background: {color}")
                                     ></span>
-                                    {t.name}
-                                </h2>
+                                    {move || {
+                                        let tag_name = t.name.clone();
+                                        let tag_id = t.id.clone();
+                                        if editing_name.get() {
+                                            let tag_id_blur = tag_id.clone();
+                                            let tag_id_key = tag_id.clone();
+                                            view! {
+                                                <input
+                                                    type="text"
+                                                    class="input input-bordered text-2xl font-bold h-10 w-full"
+                                                    prop:value=move || edit_value.get()
+                                                    on:input=move |ev| edit_value.set(event_target_value(&ev))
+                                                    on:blur=move |_| {
+                                                        let new_name = edit_value.get_untracked();
+                                                        set_editing_name.set(false);
+                                                        if !new_name.is_empty() && new_name != tag_name {
+                                                            // Update local state
+                                                            tag.update(|t| {
+                                                                if let Some(t) = t {
+                                                                    t.name = new_name.clone();
+                                                                }
+                                                            });
+                                                            let tid = tag_id_blur.clone();
+                                                            leptos::task::spawn_local(async move {
+                                                                let req = UpdateTagRequest {
+                                                                    name: Some(new_name),
+                                                                    color: None,
+                                                                    parent_tag_id: None,
+                                                                };
+                                                                let _ = api::update_tag(&tid, &req).await;
+                                                            });
+                                                        }
+                                                    }
+                                                    on:keydown=move |ev: leptos::ev::KeyboardEvent| {
+                                                        if ev.key() == "Enter" {
+                                                            let new_name = edit_value.get_untracked();
+                                                            set_editing_name.set(false);
+                                                            if !new_name.is_empty() {
+                                                                tag.update(|t| {
+                                                                    if let Some(t) = t {
+                                                                        t.name = new_name.clone();
+                                                                    }
+                                                                });
+                                                                let tid = tag_id_key.clone();
+                                                                leptos::task::spawn_local(async move {
+                                                                    let req = UpdateTagRequest {
+                                                                        name: Some(new_name),
+                                                                        color: None,
+                                                                        parent_tag_id: None,
+                                                                    };
+                                                                    let _ = api::update_tag(&tid, &req).await;
+                                                                });
+                                                            }
+                                                        } else if ev.key() == "Escape" {
+                                                            set_editing_name.set(false);
+                                                        }
+                                                    }
+                                                    node_ref={
+                                                        let node = NodeRef::<leptos::html::Input>::new();
+                                                        leptos::task::spawn_local(async move {
+                                                            // Auto-focus after render
+                                                            if let Some(el) = node.get() {
+                                                                let _ = el.focus();
+                                                                let _ = el.select();
+                                                            }
+                                                        });
+                                                        node
+                                                    }
+                                                />
+                                            }.into_any()
+                                        } else {
+                                            view! {
+                                                <h2
+                                                    class="text-2xl font-bold cursor-pointer hover:text-primary transition-colors"
+                                                    title="Kliknij aby zmienić nazwę"
+                                                    on:click=move |_| {
+                                                        edit_value.set(tag_name.clone());
+                                                        set_editing_name.set(true);
+                                                    }
+                                                >
+                                                    {t.name.clone()}
+                                                </h2>
+                                            }.into_any()
+                                        }
+                                    }}
+                                </div>
 
                                 // Recursive toggle
                                 <label class="flex items-center gap-2 cursor-pointer mb-4">
