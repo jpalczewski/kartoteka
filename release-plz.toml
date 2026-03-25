@@ -19,15 +19,11 @@ body = """
 ### {{ group | upper_first }}
 {% for commit in commits %}
 - {% if commit.scope %}*({{ commit.scope }})* {% endif %}{% if commit.breaking %}[**breaking**] {% endif %}\
-{{ commit.message }}{% if commit.links %} ({% for link in commit.links %}[{{ link.text }}]({{ link.href }}){% endfor %}){% endif %}
+{{ commit.message }}
 {%- endfor %}
 {% endfor %}
 """
 trim = true
-
-[git]
-conventional_commits = true
-filter_unconventional = false
 commit_parsers = [
     { message = "^feat", group = "Features" },
     { message = "^fix", group = "Bug Fixes" },
@@ -37,4 +33,5 @@ commit_parsers = [
     { message = "^style", group = "Styling" },
     { message = "^test", group = "Testing" },
     { message = "^chore", group = "Miscellaneous" },
+    { message = "^ci", group = "Miscellaneous" },
 ]
