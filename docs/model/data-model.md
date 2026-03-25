@@ -59,11 +59,10 @@ Indexes: `idx_items_list_id` on `list_id`, `idx_items_position` on `(list_id, po
 | `user_id` | TEXT | NOT NULL | Hanko user ID |
 | `name` | TEXT | NOT NULL | |
 | `color` | TEXT | NOT NULL, DEFAULT `'#888888'` | hex color |
-| `category` | TEXT | NOT NULL, DEFAULT `'custom'` | `context` / `priority` / `custom` |
-| `parent_tag_id` | TEXT | nullable, FK → `tags(id)` ON DELETE SET NULL | for tag hierarchy |
+| `parent_tag_id` | TEXT | nullable, FK → `tags(id)` ON DELETE SET NULL | for tag hierarchy (unlimited depth) |
 | `created_at` | TEXT | NOT NULL, DEFAULT `datetime('now')` | |
 
-Indexes: `idx_tags_user` on `user_id`, `idx_tags_user_cat` on `(user_id, category)`.
+Indexes: `idx_tags_user` on `user_id`.
 
 ---
 
@@ -118,14 +117,11 @@ pub struct Item {
     pub updated_at: String,
 }
 
-pub enum TagCategory { Context, Priority, Custom }
-
 pub struct Tag {
     pub id: String,
     pub user_id: String,
     pub name: String,
     pub color: String,
-    pub category: TagCategory,
     pub parent_tag_id: Option<String>,
     pub created_at: String,
 }
@@ -151,13 +147,11 @@ pub struct UpdateItemRequest {
 pub struct CreateTagRequest {
     pub name: String,
     pub color: String,
-    pub category: TagCategory,
     pub parent_tag_id: Option<String>,
 }
 pub struct UpdateTagRequest {
     pub name: Option<String>,
     pub color: Option<String>,
-    pub category: Option<TagCategory>,
     pub parent_tag_id: Option<Option<String>>,  // Some(None) = clear parent
 }
 
