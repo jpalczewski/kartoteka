@@ -117,7 +117,6 @@ fn TagTreeRow(
 ) -> impl IntoView {
     let tag = node.tag;
     let children = node.children;
-    let tid = tag.id.clone();
     let tid_link = tag.id.clone();
     let tid_add = tag.id.clone();
     let tid_rename = tag.id.clone();
