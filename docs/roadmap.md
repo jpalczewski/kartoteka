@@ -1,139 +1,175 @@
-# Kartoteka — Roadmapa projektu
+# Kartoteka — Roadmapa projektu (v2)
 
 ## Context
 
-Kartoteka to osobista aplikacja todo/listy — miks Todoist, Nozbe, Amazing Marvin, listy zakupów i checklist pakowania. Obecny stan to działające MVP (Rust API na CF Workers + Leptos CSR frontend + Hanko auth) z podstawowym CRUD list i itemów. Brakuje: tagów, typów list w UI, szablonów checklist, terminów, redesignu UI.
+Kartoteka to osobista aplikacja todo/listy — miks Todoist, Nozbe, Amazing Marvin, listy zakupów i checklist pakowania. Architektura: Rust API na CF Workers + Leptos CSR frontend + Hanko auth.
 
-Cel roadmapy: zbudować elastyczne, konfigurowalne narzędzie pod siebie, feature-first (najpierw wartość, potem estetyka).
+Cel roadmapy: zbudować elastyczne, konfigurowalne narzędzie pod siebie, feature-first z refaktoryzacją wplecioną w każdy milestone.
 
----
+### Co już jest (po roadmapie v1)
 
-## Faza 1: System tagów + rozbudowa typów list
+- **Tagi** — pełne CRUD, hierarchia, kategorie, kolory, przypisywanie do items/list, strona tagów, tag detail, badge, selector
+- **Feature slices v1** — sublists (parent_list_id), archiwum, has_quantity/has_due_date per lista, quantity/unit/due_date/due_time na itemach, reset listy, move item
+- **ListType** — Checklist, Zakupy, Pakowanie, Terminarz, Custom
+- **Terminarz** — due_date + due_time, date_item_row, grupowanie overdue/upcoming/done
+- **UI** — toast system, confirm delete modal, sublist section, list header, add_group_input, item_actions
 
-**Cel**: Fundament pod filtrowanie i organizację — tagi hierarchiczne z kolorami + pełne wsparcie typów list w UI.
+### Znane problemy w kodzie
 
-### Backend
-- Nowa tabela `tags` (id TEXT PK, name, color TEXT, category TEXT, parent_tag_id TEXT nullable FK, user_id TEXT, created_at)
-- Tabele łączące: `item_tags` (item_id, tag_id), `list_tags` (list_id, tag_id)
-- Migracja `0002_tags.sql`
-- Endpointy: CRUD tagów, przypisywanie/usuwanie tagów z items/list, filtrowanie items/list po tagach
-- Kategorie tagów: kontekst (dom/praca/siłownia), priorytet (wysoki/średni/niski), custom
-
-### Frontend
-- Selektor tagów z kolorami przy tworzeniu/edycji itema i listy
-- Widok filtrowany po tagach (sidebar lub top bar)
-- Zarządzanie tagami w ustawieniach (CRUD, przypisywanie kolorów, hierarchia)
-- Wybór `ListType` przy tworzeniu listy (ikony + labele zamiast raw debug format)
+- `list.rs` — 480 linii, za dużo logiki w jednym komponencie
+- `api.rs` — 34 funkcje w jednym pliku, brak modularyzacji
+- Feature slices jako flat booleany (`has_quantity`, `has_due_date`) — nie skaluje się
+- Brak cross-list query (każdy widok operuje na jednej liście)
+- Brak opisu na listach (items mają, listy nie)
+- Daty jako plain stringi bez spójnego modelu
 
 ---
 
-## Faza 2: Reużywalne checklisty (szablony)
+## Kluczowe decyzje architektoniczne
 
-**Cel**: System szablonów checklist — "kosmetyczka", "elektronika", "ubrania" jako podzbiory listy pakowania.
+### Container (folder/projekt)
 
-### Backend
-- Tabela `templates` (id, name, list_type, user_id, created_at)
-- Tabela `template_items` (id, template_id, title, position)
-- Endpointy: CRUD szablonów, tworzenie listy z szablonów
-- Endpoint "reset checklist" — odznacz wszystkie itemy w liście
+Ujednolicony typ `Container` — folder i projekt to ten sam byt, rozróżniany przez `status`:
 
-### Frontend
-- Tworzenie szablonu z istniejącej listy ("Zapisz jako szablon")
-- Przy tworzeniu listy pakowania — wybór szablonów do dołączenia (multi-select)
-- Przycisk "Reset wszystko" na liście typu Packing
-- Zarządzanie szablonami (edycja, usuwanie)
+- `status = NULL` → folder (czysta organizacja wizualna)
+- `status = 'active'/'done'/'paused'` → projekt (logiczna jednostka pracy)
 
-### Logika
-- Szablon = snapshot itemów — edycja szablonu nie zmienia istniejących list
-- Tworzenie listy z wielu szablonów = merge itemów z zachowaniem pozycji
+Projekt to kontener który łączy różne typy list (Terminarz, Zakupy, Checklist) w jedną logiczną całość. Może żyć w folderze, mieć własne podfoldery, mieć opis i daty.
+
+### Feature slices v2
+
+Z flat booleans na tabelę `list_features(list_id, feature_name, config TEXT/JSON)`. D1 wspiera JSON query (`->>`, `json_extract`). Każdy ficzer to obiekt z konfiguracją, np. time tracking: `{"mode": "pomodoro", "default_duration": 25}`.
 
 ---
 
-## Faza 3: Todo z terminami i powtarzalnością
+## ~~M1: Cross-list query + widok "Dziś"~~ ✅
 
-**Cel**: Rozszerzenie itemów o daty, priorytety, powtarzalność — zamienia prostą checklistę w pełny todo.
+**Dostarcza:** Dashboard "co mam dziś" — pierwszy widok cross-list w apce.
 
-### Backend
-- Migracja ALTER `items`: dodanie `due_date` (TEXT nullable), `priority` (INTEGER 0-3), `recurrence` (TEXT nullable), `completed_at` (TEXT nullable)
-- Logika powtarzalności: po completion itema z recurrence — tworzenie nowego z przesuniętą datą
-- Format recurrence: "daily", "weekly:mon,fri", "monthly:15", "yearly:03-23"
-- Endpoint widoku "dziś" / "nadchodzące" (filtr po due_date)
+- ✅ Backend: `GET /api/items/by-date?date=YYYY-MM-DD` z opcjonalnymi filtrami list/tag. Queryuje `due_date` (jedyne pole daty w obecnym schemacie). M3 rozszerzy ten endpoint o nowe typy dat.
+- ✅ Frontend: strona `/today`, itemy pogrupowane per lista źródłowa, toggle widoczności per lista/tag
+- ✅ Migracja: dodanie `description TEXT` do tabeli `lists` (rozwiązuje znany problem braku opisu na listach)
 
-### Frontend
-- Datepicker (due_date)
-- Wskaźnik priorytetu (kolorowy badge/ikona)
-- Widok "Dziś" — wszystkie itemy z due_date = today (cross-list)
-- Widok "Nadchodzące" — kalendarzowy przegląd
-- Sortowanie po dacie / priorytecie
-- Ustawianie powtarzalności
+**Refaktor:** ✅ Wydzielenie query helpera w API (reużywalny across endpoints). ✅ Wydzielenie `api.rs` frontendu na moduły (`api/lists.rs`, `api/items.rs`, `api/tags.rs`). ✅ Rozbicie `list.rs` na mniejsze komponenty (`EditableDescription`, `ListTagBar`, `TagFilterBar`).
 
 ---
 
-## Faza 4: Redesign "Neonowa Noc"
+## M2: Widok kalendarza (miesiąc + tydzień)
 
-**Cel**: Pełny redesign UI z estetyką neonowej nocy — ciemne tło, neonowe akcenty, glow effects.
+**Dostarcza:** Nawigacja po dniach z lotu ptaka.
 
-### Design System
-- Paleta: tło (#0a0a1a, #12122a, #1a1a3e), neon cyan (#00f5ff), neon magenta (#ff00ff), neon fiolet (#8b5cf6), neon zielony (#39ff14)
-- CSS custom properties (design tokens) dla kolorów, spacing, border-radius, shadows
-- Neon glow: `box-shadow` i `text-shadow` z neonowymi kolorami
-- Typografia: monospace lub geometric sans-serif dla nagłówków
+- Backend: `GET /api/items/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD` — per-day counts + item summaries
+- Frontend: widok miesiąca (kratki z kropkami/liczbą, klik → widok dnia via M1 `/api/items/by-date`), widok tygodniowy, przełącznik
+- Filtrowanie per lista/tag (reużywa toggle z M1)
 
-### Komponenty
-- Karty list z neonowym border-glow (kolor zależny od typu listy)
-- Animacje hover (glow intensyfikacja, subtle transform)
-- Neonowe checkbox/toggle
-- Gradient accent na przyciskach
-- Nav bar z neonowym underline na aktywnej stronie
-- Tag badges z neonowym kolorem
+**Refaktor:** Wydzielenie komponentów date-related z `list.rs` do osobnych plików. Rozbicie `list.rs` (480 linii) na mniejsze komponenty.
 
 ---
 
-## Faza 5: Projekty i sub-taski
+## M3: Konfigurowalny feature slice system
 
-**Cel**: Grupowanie zadań w projekty, hierarchia zadań z progress tracking.
+**Dostarcza:** Feature jako obiekt z konfiguracją zamiast flat booleans. Fundament pod wszystkie przyszłe ficzery.
 
-### Backend
-- Dodanie `parent_item_id` (TEXT nullable FK) do `items` — sub-taski
-- Progress na poziomie projektu (obliczany: completed sub-items / total)
-- Opcjonalnie: widok Kanban (kolumny statusów)
+- Backend: tabela `list_features(list_id, feature_name, config TEXT/JSON)`
+- Migracja istniejących flag:
+  - `has_quantity` → feature `"quantity"`, config `{"unit_default": "szt"}`
+  - `has_due_date` → feature `"due_date"`, config `{}`
+- Endpointy: CRUD features per lista
+- Frontend: UI konfiguracji features przy tworzeniu/edycji listy (toggle + config per ficzer), dynamiczny item form renderuje pola na podstawie aktywnych features
 
-### Frontend
-- Rozwinięcie/zwinięcie sub-tasków pod parent itemem
-- Pasek postępu na liście typu Project
-- Indent wizualny sub-tasków
-- Drag & drop do reorganizacji (opcjonalnie)
+**Refaktor:** Usunięcie flat booleans (`has_quantity`, `has_due_date`) z `List` struct i kolumn w DB. Dynamiczny UI zamiast hardcoded warunków w komponentach. Wydzielenie feature-specific komponentów (quantity input, date picker) jako pluggable modules.
 
 ---
 
-## Faza 6: PWA / Offline (opcjonalnie, średni priorytet)
+## M4: Bogatsza semantyka czasu
 
-**Cel**: Działanie bez internetu — service worker, cache, sync.
+**Dostarcza:** Różne typy dat — start_date, deadline, hard_deadline. Buduje na feature slice system z M3.
 
-### Zakres
-- Service worker z cache-first dla statycznych assetów
-- IndexedDB jako lokalny store
-- Kolejka operacji offline → sync po powrocie online
-- Conflict resolution (last-write-wins lub merge)
-- PWA ikony (brak w obecnym manifest.json)
+- Backend: nowe kolumny na items (`start_date`, `deadline`, `hard_deadline`)
+- Nowy feature slice `"deadlines"` z config `{"has_start_date": true, "has_deadline": true, "has_hard_deadline": false}` — włączany per lista przez M3 system
+- Cross-list query (M1) rozszerzony o nowe typy dat (`?date_field=deadline`)
+- Frontend: dynamiczne pola w formularzu itema (zależne od config feature slice), wizualne rozróżnienie per typ daty (kolor/ikona)
+- Kalendarz (M2) i "Dziś" (M1) rozumieją nowe typy dat
+
+**Refaktor:** Ujednolicenie obsługi dat w shared (due_date + due_time jako raw stringi → spójny model dat).
 
 ---
 
-## Weryfikacja (per faza)
+## M5: Containers (foldery + projekty)
+
+**Dostarcza:** Foldery i projekty jako unified Container.
+
+- Backend: tabela `containers`, `container_id TEXT` na listach (nullable FK)
+- Progress na projektach: computed server-side — `GET /api/containers/:id` zwraca `completed_items / total_items` across all list w kontenerze (nie stored, obliczany przy każdym request)
+- Endpointy: CRUD containers, przenoszenie list między kontenerami
+- Frontend: home page jako drzewiasta struktura, tworzenie folderów/projektów, status projektu z progress barem, breadcrumbs nawigacja
+
+**Refaktor:** Home page z flat → tree. Wydzielenie nawigacji/breadcrumbs.
+
+---
+
+## M6: Szablony checklist
+
+**Dostarcza:** Reużywalne checklisty — "kosmetyczka", "elektronika" jako podzbiory listy pakowania.
+
+- Backend: `templates` + `template_items`, CRUD, tworzenie listy z wielu szablonów (merge)
+- Frontend: "Zapisz jako szablon", wybór szablonów przy tworzeniu listy
+- Szablon = snapshot — edycja szablonu nie zmienia istniejących list
+
+**Refaktor:** Wydzielenie logiki tworzenia list/itemów do shared service layer.
+
+---
+
+## M7: Ikony
+
+**Dostarcza:** SVG ikony (Lucide) na kontenerach, listach, tagach, itemach.
+
+- Backend: `icon TEXT` na tabelach
+- Frontend: icon picker, przycisk "random"
+
+**Refaktor:** Ujednolicenie wizualne — wspólny komponent `IconLabel` dla elementów z ikoną + kolorem + nazwą.
+
+---
+
+## M8: Redesign "Neonowa Noc"
+
+**Dostarcza:** Pełny redesign UI z neonową estetyką.
+
+- Paleta: tło (#0a0a1a, #12122a, #1a1a3e), neon cyan (#00f5ff), magenta (#ff00ff), fiolet (#8b5cf6), zielony (#39ff14)
+- CSS custom properties (design tokens), neon glow, typografia mono/geometric
+- Karty z border-glow, animacje hover, neonowe checkbox/toggle, gradient buttons
+
+**Refaktor:** Design tokens zamiast hardcoded DaisyUI classes. Ujednolicenie komponentów pod nowy system.
+
+---
+
+## M9: PWA / Offline
+
+**Dostarcza:** Działanie bez internetu.
+
+- Service worker, IndexedDB, sync queue, conflict resolution (last-write-wins), PWA ikony
+
+**Refaktor:** Wydzielenie warstwy data access w frontend (api:: calls → abstrakcja API/local cache).
+
+---
+
+## Backlog
+
+- [ ] Time tracking — pomodoro vs stoper jako feature slice (wymaga M3). Storage: `time_entries(id, item_id, started_at, ended_at, mode)`. UI: timer per item, raporty czasu. Odłożony bo wymaga osobnego designu UX.
+- [ ] Recurrence (powtarzalność itemów) — odłożone do ustabilizowania modelu dat (po M4)
+- [ ] Widok dnia v2 (timeline godzinowy z blokami czasowymi)
+- [ ] Czas trwania na elementach terminarza (estimated duration vs time tracking = actual time spent)
+- [ ] CORS — restrict do właściwej domeny
+- [ ] Error handling — retry logic, lepsze komunikaty
+- [ ] Loading states — skeleton loaders
+- [ ] Testy — unit + integration
+- [ ] Drag & drop reordering — pozycja (`position`) istnieje w DB, brak UI
+- [ ] Kanban (opcjonalnie na projektach)
+
+## Weryfikacja (per milestone)
 
 1. `just check` — kompilacja workspace
 2. `just lint` — clippy + fmt
-3. `just dev` — lokalne testowanie (API + frontend)
-4. Ręczne testy: tworzenie/edycja/usuwanie w UI
-5. `just deploy` — deploy na CF i smoke test na produkcji
-
----
-
-## Backlog (do wplecenia w fazy)
-
-- [ ] CORS — restrict do właściwej domeny (obecne TODO w router.rs)
-- [ ] Error handling — retry logic, lepsze komunikaty błędów w UI
-- [ ] Loading states — skeleton loaders
-- [ ] Testy — unit + integration (Rust + WASM)
-- [ ] Item description — wyświetlanie/edycja w UI (pole istnieje w DB)
-- [ ] Item reordering — drag & drop (pole position istnieje w DB)
+3. `just dev` — lokalne testowanie
+4. Ręczne testy w UI
+5. `just deploy` — deploy + smoke test

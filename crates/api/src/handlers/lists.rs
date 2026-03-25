@@ -6,7 +6,7 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
     let d1 = ctx.env.d1("DB")?;
     let result = d1
         .prepare(
-            "SELECT id, user_id, name, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
+            "SELECT id, user_id, name, description, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
              FROM lists WHERE user_id = ?1 AND parent_list_id IS NULL AND archived = 0 ORDER BY updated_at DESC",
         )
         .bind(&[user_id.into()])?
@@ -44,7 +44,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
     let list = d1
         .prepare(
-            "SELECT id, user_id, name, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
+            "SELECT id, user_id, name, description, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
              FROM lists WHERE id = ?1",
         )
         .bind(&[id.into()])?
@@ -63,7 +63,7 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
     let d1 = ctx.env.d1("DB")?;
     let list = d1
         .prepare(
-            "SELECT id, user_id, name, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
+            "SELECT id, user_id, name, description, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
              FROM lists WHERE id = ?1 AND user_id = ?2",
         )
         .bind(&[id.into(), user_id.into()])?
@@ -95,6 +95,13 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     if let Some(name) = &body.name {
         d1.prepare("UPDATE lists SET name = ?1, updated_at = datetime('now') WHERE id = ?2")
             .bind(&[name.clone().into(), id.clone().into()])?
+            .run()
+            .await?;
+    }
+
+    if let Some(description) = &body.description {
+        d1.prepare("UPDATE lists SET description = ?1, updated_at = datetime('now') WHERE id = ?2")
+            .bind(&[description.clone().into(), id.clone().into()])?
             .run()
             .await?;
     }
@@ -137,7 +144,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
     let list = d1
         .prepare(
-            "SELECT id, user_id, name, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
+            "SELECT id, user_id, name, description, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
              FROM lists WHERE id = ?1",
         )
         .bind(&[id.into()])?
@@ -179,7 +186,7 @@ pub async fn list_sublists(_req: Request, ctx: RouteContext<String>) -> Result<R
 
     let result = d1
         .prepare(
-            "SELECT id, user_id, name, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
+            "SELECT id, user_id, name, description, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
              FROM lists WHERE parent_list_id = ?1 ORDER BY position ASC",
         )
         .bind(&[parent_id.into()])?
@@ -194,7 +201,7 @@ pub async fn list_archived(_req: Request, ctx: RouteContext<String>) -> Result<R
     let d1 = ctx.env.d1("DB")?;
     let result = d1
         .prepare(
-            "SELECT id, user_id, name, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
+            "SELECT id, user_id, name, description, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
              FROM lists WHERE user_id = ?1 AND parent_list_id IS NULL AND archived = 1 ORDER BY updated_at DESC",
         )
         .bind(&[user_id.into()])?
@@ -233,7 +240,7 @@ pub async fn toggle_archive(_req: Request, ctx: RouteContext<String>) -> Result<
 
     let list = d1
         .prepare(
-            "SELECT id, user_id, name, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
+            "SELECT id, user_id, name, description, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
              FROM lists WHERE id = ?1",
         )
         .bind(&[id.into()])?
@@ -333,7 +340,7 @@ pub async fn create_sublist(mut req: Request, ctx: RouteContext<String>) -> Resu
 
     let sublist = d1
         .prepare(
-            "SELECT id, user_id, name, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
+            "SELECT id, user_id, name, description, list_type, parent_list_id, position, archived, has_quantity, has_due_date, created_at, updated_at \
              FROM lists WHERE id = ?1",
         )
         .bind(&[id.into()])?

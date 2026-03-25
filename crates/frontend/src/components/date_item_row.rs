@@ -4,7 +4,7 @@ use leptos::prelude::*;
 use super::tag_badge::TagBadge;
 use super::tag_selector::TagSelector;
 
-fn get_today_string() -> String {
+pub fn get_today_string() -> String {
     let today = js_sys::Date::new_0();
     let year = today.get_full_year() as i32;
     let month = today.get_month() as u32 + 1;

@@ -57,6 +57,8 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         .post_async("/api/lists/:list_id/items", items::create)
         .put_async("/api/lists/:list_id/items/:id", items::update)
         .delete_async("/api/lists/:list_id/items/:id", items::delete)
+        // Cross-list queries
+        .get_async("/api/items/by-date", items::by_date)
         // Item move
         .patch_async("/api/items/:id/move", items::move_item)
         // Tags CRUD

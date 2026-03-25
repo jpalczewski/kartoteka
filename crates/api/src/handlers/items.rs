@@ -326,3 +326,55 @@ pub async fn move_item(mut req: Request, ctx: RouteContext<String>) -> Result<Re
 
     Response::from_json(&item)
 }
+
+/// GET /api/items/by-date?date=YYYY-MM-DD&include_overdue=true
+pub async fn by_date(req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let url = req.url()?;
+
+    let date = url
+        .query_pairs()
+        .find(|(k, _)| k == "date")
+        .map(|(_, v)| v.to_string())
+        .ok_or_else(|| Error::from("Missing date parameter"))?;
+
+    let include_overdue = url
+        .query_pairs()
+        .find(|(k, _)| k == "include_overdue")
+        .map(|(_, v)| v != "false")
+        .unwrap_or(true);
+
+    let d1 = ctx.env.d1("DB")?;
+
+    let result = if include_overdue {
+        d1.prepare(
+            "SELECT i.id, i.list_id, i.title, i.description, i.completed, i.position, \
+             i.quantity, i.actual_quantity, i.unit, i.due_date, i.due_time, \
+             i.created_at, i.updated_at, l.name as list_name, l.list_type \
+             FROM items i \
+             JOIN lists l ON l.id = i.list_id \
+             WHERE l.user_id = ?1 AND l.archived = 0 \
+             AND (i.due_date = ?2 OR (i.due_date < ?2 AND i.completed = 0)) \
+             ORDER BY i.completed ASC, i.due_date ASC, l.name ASC, i.due_time ASC, i.position ASC",
+        )
+        .bind(&[user_id.into(), date.into()])?
+        .all()
+        .await?
+    } else {
+        d1.prepare(
+            "SELECT i.id, i.list_id, i.title, i.description, i.completed, i.position, \
+             i.quantity, i.actual_quantity, i.unit, i.due_date, i.due_time, \
+             i.created_at, i.updated_at, l.name as list_name, l.list_type \
+             FROM items i \
+             JOIN lists l ON l.id = i.list_id \
+             WHERE l.user_id = ?1 AND l.archived = 0 AND i.due_date = ?2 \
+             ORDER BY i.completed ASC, l.name ASC, i.due_time ASC, i.position ASC",
+        )
+        .bind(&[user_id.into(), date.into()])?
+        .all()
+        .await?
+    };
+
+    let items = result.results::<DateItem>()?;
+    Response::from_json(&items)
+}
