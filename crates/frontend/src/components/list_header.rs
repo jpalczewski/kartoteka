@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 
 use crate::components::confirm_delete_modal::ConfirmDeleteModal;
+use crate::components::editable_title::EditableTitle;
 
 #[component]
 pub fn ListHeader(
@@ -10,12 +11,19 @@ pub fn ListHeader(
     on_delete_confirmed: Callback<()>,
     #[prop(optional)] on_archive: Option<Callback<()>>,
     #[prop(optional)] on_reset: Option<Callback<()>>,
+    #[prop(optional)] on_rename: Option<Callback<String>>,
 ) -> impl IntoView {
     let show_delete = RwSignal::new(false);
 
     view! {
         <div class="flex items-center justify-between mb-4">
-            <h2 class="text-2xl font-bold">"Lista"</h2>
+            {if let Some(on_rename) = on_rename {
+                view! {
+                    <EditableTitle value=list_name.clone() on_save=on_rename />
+                }.into_any()
+            } else {
+                view! { <h2 class="text-2xl font-bold">{list_name.clone()}</h2> }.into_any()
+            }}
             <div class="flex gap-1">
                 {on_reset.map(|cb| view! {
                     <button

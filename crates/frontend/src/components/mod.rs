@@ -11,5 +11,7 @@ pub mod tag_badge;
 pub mod tag_selector;
 pub mod item_actions;
 pub mod sublist_section;
+pub mod editable_color;
+pub mod editable_title;
 pub mod tag_tree;
 pub mod toast_container;

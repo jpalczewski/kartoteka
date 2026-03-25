@@ -152,6 +152,10 @@ pub async fn fetch_list(id: &str) -> Result<List, String> {
         .map_err(|e| e.to_string())
 }
 
+pub async fn update_list(id: &str, req: &UpdateListRequest) -> Result<List, String> {
+    put_json(&format!("{API_BASE}/lists/{id}"), req).await
+}
+
 pub async fn delete_list(id: &str) -> Result<(), String> {
     let resp = del(&format!("{API_BASE}/lists/{id}"))
         .send()

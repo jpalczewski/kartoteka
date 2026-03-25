@@ -12,7 +12,7 @@ use crate::components::list_header::ListHeader;
 use crate::components::sublist_section::SublistSection;
 use crate::components::tag_badge::TagBadge;
 use crate::components::tag_selector::TagSelector;
-use kartoteka_shared::{Item, ItemTagLink, List, ListTagLink, Tag};
+use kartoteka_shared::{Item, ItemTagLink, List, ListTagLink, Tag, UpdateListRequest};
 
 #[component]
 pub fn ListPage() -> impl IntoView {
@@ -240,6 +240,20 @@ pub fn ListPage() -> impl IntoView {
                     on_delete_confirmed=on_delete_list
                     on_archive=on_archive
                     on_reset=on_reset
+                    on_rename=Callback::new(move |new_name: String| {
+                        list_name.set(new_name.clone());
+                        let lid = list_id();
+                        leptos::task::spawn_local(async move {
+                            let req = UpdateListRequest {
+                                name: Some(new_name),
+                                list_type: None,
+                                has_quantity: None,
+                                has_due_date: None,
+                                archived: None,
+                            };
+                            let _ = api::update_list(&lid, &req).await;
+                        });
+                    })
                 />
             }}
 
