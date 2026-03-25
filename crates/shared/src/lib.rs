@@ -125,6 +125,11 @@ pub struct UpdateTagRequest {
     pub parent_tag_id: Option<Option<String>>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MergeTagRequest {
+    pub target_tag_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TagAssignment {
     pub tag_id: String,

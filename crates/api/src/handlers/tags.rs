@@ -132,6 +132,70 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
     Ok(Response::empty()?.with_status(204))
 }
 
+/// POST /api/tags/:id/merge
+pub async fn merge(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let source_id = ctx
+        .param("id")
+        .ok_or_else(|| Error::from("Missing id"))?
+        .to_string();
+    let body: kartoteka_shared::MergeTagRequest = req.json().await?;
+    let target_id = body.target_tag_id;
+    let d1 = ctx.env.d1("DB")?;
+
+    // Verify both tags belong to user
+    let source = d1
+        .prepare("SELECT id FROM tags WHERE id = ?1 AND user_id = ?2")
+        .bind(&[source_id.clone().into(), user_id.clone().into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if source.is_none() {
+        return Response::error("Source tag not found", 404);
+    }
+    let target = d1
+        .prepare("SELECT id FROM tags WHERE id = ?1 AND user_id = ?2")
+        .bind(&[target_id.clone().into(), user_id.clone().into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if target.is_none() {
+        return Response::error("Target tag not found", 404);
+    }
+
+    // Move item_tags from source to target (skip duplicates)
+    d1.prepare("INSERT OR IGNORE INTO item_tags (item_id, tag_id) SELECT item_id, ?1 FROM item_tags WHERE tag_id = ?2")
+        .bind(&[target_id.clone().into(), source_id.clone().into()])?
+        .run()
+        .await?;
+
+    // Move list_tags from source to target (skip duplicates)
+    d1.prepare("INSERT OR IGNORE INTO list_tags (list_id, tag_id) SELECT list_id, ?1 FROM list_tags WHERE tag_id = ?2")
+        .bind(&[target_id.clone().into(), source_id.clone().into()])?
+        .run()
+        .await?;
+
+    // Reparent source's children to target
+    d1.prepare("UPDATE tags SET parent_tag_id = ?1 WHERE parent_tag_id = ?2")
+        .bind(&[target_id.clone().into(), source_id.clone().into()])?
+        .run()
+        .await?;
+
+    // Delete source tag (cascades remove its item_tags/list_tags)
+    d1.prepare("DELETE FROM tags WHERE id = ?1")
+        .bind(&[source_id.into()])?
+        .run()
+        .await?;
+
+    // Return updated target
+    let tag = d1
+        .prepare("SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE id = ?1")
+        .bind(&[target_id.into()])?
+        .first::<Tag>(None)
+        .await?
+        .ok_or_else(|| Error::from("Target not found after merge"))?;
+
+    Response::from_json(&tag)
+}
+
 /// POST /api/items/:item_id/tags
 pub async fn assign_to_item(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();

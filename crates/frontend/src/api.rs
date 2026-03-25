@@ -246,6 +246,12 @@ pub async fn delete_tag(id: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub async fn merge_tag(source_id: &str, target_id: &str) -> Result<Tag, String> {
+    let url = format!("{API_BASE}/tags/{source_id}/merge");
+    let body = serde_json::json!({ "target_tag_id": target_id });
+    post_json(&url, &body).await
+}
+
 pub async fn fetch_tag_items(tag_id: &str, recursive: bool) -> Result<Vec<serde_json::Value>, String> {
     let url = format!("{API_BASE}/tags/{tag_id}/items?recursive={recursive}");
     get(&url)
