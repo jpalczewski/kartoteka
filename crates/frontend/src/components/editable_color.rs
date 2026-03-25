@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 
 /// Click-on-color component. Shows color dot, click opens picker + random button.
+/// Saves only when the popup is closed (not on every change).
 #[component]
 pub fn EditableColor(
     color: String,
@@ -8,6 +9,7 @@ pub fn EditableColor(
 ) -> impl IntoView {
     let (editing, set_editing) = signal(false);
     let current_color = RwSignal::new(color.clone());
+    let original_color = RwSignal::new(color.clone());
 
     let random_color = move || {
         let r = (js_sys::Math::random() * 255.0) as u8;
@@ -16,13 +18,28 @@ pub fn EditableColor(
         format!("#{:02x}{:02x}{:02x}", r, g, b)
     };
 
+    let close_and_save = move || {
+        set_editing.set(false);
+        let c = current_color.get_untracked();
+        if c != original_color.get_untracked() {
+            original_color.set(c.clone());
+            on_save.run(c);
+        }
+    };
+
     view! {
         <div class="relative inline-flex items-center">
             <span
                 class="inline-block w-5 h-5 rounded-full cursor-pointer border-2 border-transparent hover:border-primary transition-colors"
                 style=move || format!("background: {}", current_color.get())
                 title="Kliknij aby zmienić kolor"
-                on:click=move |_| set_editing.update(|v| *v = !*v)
+                on:click=move |_| {
+                    if editing.get_untracked() {
+                        close_and_save();
+                    } else {
+                        set_editing.set(true);
+                    }
+                }
             ></span>
             {move || {
                 if editing.get() {
@@ -33,23 +50,20 @@ pub fn EditableColor(
                                 class="w-8 h-8 rounded cursor-pointer border-0 p-0"
                                 prop:value=move || current_color.get()
                                 on:input=move |ev| {
-                                    let c = event_target_value(&ev);
-                                    current_color.set(c.clone());
-                                    on_save.run(c);
+                                    current_color.set(event_target_value(&ev));
                                 }
                             />
                             <button
                                 class="btn btn-ghost btn-xs"
                                 title="Losowy kolor"
-                                on:click=move |_| {
-                                    let c = random_color();
-                                    current_color.set(c.clone());
-                                    on_save.run(c);
+                                on:click=move |ev: leptos::ev::MouseEvent| {
+                                    ev.stop_propagation();
+                                    current_color.set(random_color());
                                 }
                             >"🎲"</button>
                             <button
                                 class="btn btn-ghost btn-xs"
-                                on:click=move |_| set_editing.set(false)
+                                on:click=move |_| close_and_save()
                             >"✕"</button>
                         </div>
                     }.into_any()
