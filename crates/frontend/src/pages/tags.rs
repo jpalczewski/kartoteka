@@ -1,18 +1,10 @@
-use kartoteka_shared::*;
-use leptos::prelude::*;
-use leptos_router::components::A;
-
 use crate::api;
 use crate::components::add_input::AddInput;
 use crate::components::tag_badge::TagBadge;
-
-fn category_label(cat: &TagCategory) -> &'static str {
-    match cat {
-        TagCategory::Context => "Kontekst",
-        TagCategory::Priority => "Priorytet",
-        TagCategory::Custom => "Własne",
-    }
-}
+use crate::components::tag_tree::{build_tag_tree, TagNode};
+use kartoteka_shared::{CreateTagRequest, Tag};
+use leptos::prelude::*;
+use leptos_router::components::A;
 
 #[component]
 pub fn TagsPage() -> impl IntoView {
@@ -23,7 +15,8 @@ pub fn TagsPage() -> impl IntoView {
     let tags = RwSignal::new(Vec::<Tag>::new());
     let (loading, set_loading) = signal(true);
     let (new_color, set_new_color) = signal("#e94560".to_string());
-    let (new_category, set_new_category) = signal("custom".to_string());
+    // Which parent tag is currently in "add child" mode (None = top-level add only)
+    let adding_child_to = RwSignal::new(Option::<String>::None);
 
     // Initial fetch
     leptos::task::spawn_local(async move {
@@ -33,24 +26,23 @@ pub fn TagsPage() -> impl IntoView {
         set_loading.set(false);
     });
 
-    let on_create = Callback::new(move |name: String| {
-        let color = new_color.get();
-        let category: TagCategory = match new_category.get().as_str() {
-            "context" => TagCategory::Context,
-            "priority" => TagCategory::Priority,
-            _ => TagCategory::Custom,
-        };
+    let do_create = Callback::new(move |(name, parent_id): (String, Option<String>)| {
+        let color = new_color.get_untracked();
         leptos::task::spawn_local(async move {
             let req = CreateTagRequest {
                 name,
                 color,
-                category,
-                parent_tag_id: None,
+                parent_tag_id: parent_id,
             };
             if let Ok(tag) = api::create_tag(&req).await {
                 tags.update(|t| t.push(tag));
             }
+            adding_child_to.set(None);
         });
+    });
+
+    let on_create_root = Callback::new(move |name: String| {
+        do_create.run((name, None));
     });
 
     let on_delete = Callback::new(move |tag_id: String| {
@@ -72,12 +64,7 @@ pub fn TagsPage() -> impl IntoView {
                     prop:value=move || new_color.get()
                     on:input=move |ev| set_new_color.set(event_target_value(&ev))
                 />
-                <select class="select select-bordered" on:change=move |ev| set_new_category.set(event_target_value(&ev))>
-                    <option value="custom">"Własne"</option>
-                    <option value="context">"Kontekst"</option>
-                    <option value="priority">"Priorytet"</option>
-                </select>
-                <AddInput placeholder="Nazwa tagu..." button_label="Dodaj tag" on_submit=on_create />
+                <AddInput placeholder="Nowy tag..." button_label="Dodaj" on_submit=on_create_root />
             </div>
 
             {move || {
@@ -89,42 +76,95 @@ pub fn TagsPage() -> impl IntoView {
                     return view! { <p class="text-center text-base-content/50 py-12">"Brak tagów. Dodaj pierwszy!"</p> }.into_any();
                 }
 
-                let categories = [TagCategory::Context, TagCategory::Priority, TagCategory::Custom];
+                let tree = build_tag_tree(&all_tags);
                 view! {
                     <div>
-                        {categories.into_iter().map(|cat| {
-                            let cat_tags: Vec<Tag> = all_tags.iter()
-                                .filter(|t| t.category == cat)
-                                .cloned()
-                                .collect();
-                            if cat_tags.is_empty() {
-                                return view! {}.into_any();
-                            }
-                            let label = category_label(&cat);
-                            let del_cb = on_delete.clone();
+                        {tree.into_iter().map(|node| {
                             view! {
-                                <div class="mb-6">
-                                    <h4 class="text-xs text-base-content/50 uppercase tracking-wider mb-2">{label}</h4>
-                                    {cat_tags.into_iter().map(|tag| {
-                                        let tid = tag.id.clone();
-                                        let tid_link = tag.id.clone();
-                                        let cb = del_cb.clone();
-                                        view! {
-                                            <div class="flex items-center gap-2 py-1">
-                                                <A href=format!("/tags/{tid_link}") attr:class="no-underline">
-                                                    <TagBadge tag=tag.clone() />
-                                                </A>
-                                                <button class="btn btn-error btn-xs btn-square" on:click=move |_| cb.run(tid.clone())>"✕"</button>
-                                            </div>
-                                        }
-                                    }).collect::<Vec<_>>()}
-                                </div>
-                            }.into_any()
-                        }).collect::<Vec<_>>()}
+                                <TagTreeRow
+                                    node=node
+                                    depth=0
+                                    on_delete=on_delete
+                                    adding_child_to=adding_child_to
+                                    do_create=do_create
+                                />
+                            }
+                        }).collect_view()}
                     </div>
                 }.into_any()
             }}
         </div>
     }
     .into_any()
+}
+
+#[component]
+fn TagTreeRow(
+    node: TagNode,
+    depth: usize,
+    on_delete: Callback<String>,
+    adding_child_to: RwSignal<Option<String>>,
+    do_create: Callback<(String, Option<String>)>,
+) -> impl IntoView {
+    let tag = node.tag;
+    let children = node.children;
+    let tid = tag.id.clone();
+    let tid_link = tag.id.clone();
+    let tid_add = tag.id.clone();
+    let tid_delete = tag.id.clone();
+    let padding = format!("padding-left: {}rem;", depth as f64 * 1.0);
+
+    view! {
+        <div>
+            <div class="flex items-center gap-2 py-1" style=padding.clone()>
+                <A href=format!("/tags/{tid_link}") attr:class="no-underline">
+                    <TagBadge tag=tag.clone() />
+                </A>
+                <button
+                    class="btn btn-ghost btn-xs btn-square"
+                    title="Dodaj podtag"
+                    on:click=move |_| {
+                        adding_child_to.set(Some(tid_add.clone()));
+                    }
+                >"+"</button>
+                <button
+                    class="btn btn-error btn-xs btn-square"
+                    on:click=move |_| on_delete.run(tid_delete.clone())
+                >"✕"</button>
+            </div>
+
+            // Inline add-child form
+            {move || {
+                let current = adding_child_to.get();
+                if current.as_deref() == Some(&tid) {
+                    let tid_for_create = tid.clone();
+                    let on_submit_child = Callback::new(move |name: String| {
+                        do_create.run((name, Some(tid_for_create.clone())));
+                    });
+                    let child_padding = format!("padding-left: {}rem;", (depth + 1) as f64 * 1.0);
+                    view! {
+                        <div class="flex gap-2 items-center py-1" style=child_padding>
+                            <AddInput placeholder="Nazwa podtagu..." button_label="Dodaj" on_submit=on_submit_child />
+                            <button class="btn btn-ghost btn-xs" on:click=move |_| adding_child_to.set(None)>"✕"</button>
+                        </div>
+                    }.into_any()
+                } else {
+                    view! {}.into_any()
+                }
+            }}
+
+            // Children
+            {children.into_iter().map(|child| {
+                view! {
+                    <TagTreeRow
+                        node=child
+                        depth=depth + 1
+                        on_delete=on_delete
+                        adding_child_to=adding_child_to
+                        do_create=do_create
+                    />
+                }
+            }).collect_view()}
+        </div>
+    }
 }
