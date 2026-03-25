@@ -20,13 +20,13 @@ Replace flat tag categories (Context/Priority/Custom) with a single unified tag 
 - `category_label()` function from frontend
 - Category grouping on tags page
 - Category dropdown in tag creation form
-- Index `idx_tags_user_category`
+- Index `idx_tags_user_cat`
 
 ## Database Migration
 
 ```sql
 ALTER TABLE tags DROP COLUMN category;
-DROP INDEX IF EXISTS idx_tags_user_category;
+DROP INDEX IF EXISTS idx_tags_user_cat;
 ```
 
 D1 uses SQLite 3.40+ which supports `DROP COLUMN`.
@@ -84,14 +84,14 @@ pub struct UpdateTagRequest {
 
 **`tag_items` — recursive filtering:**
 
-New query with `WITH RECURSIVE`:
+New query with `WITH RECURSIVE` and `DISTINCT` (an item tagged with both parent and child would otherwise appear twice):
 ```sql
 WITH RECURSIVE tag_tree AS (
-    SELECT id FROM tags WHERE id = ?1
+    SELECT id FROM tags WHERE id = ?1 AND user_id = ?2
     UNION ALL
-    SELECT t.id FROM tags t JOIN tag_tree tt ON t.parent_tag_id = tt.id
+    SELECT t.id FROM tags t JOIN tag_tree tt ON t.parent_tag_id = tt.id WHERE t.user_id = ?2
 )
-SELECT i.id, i.list_id, i.title, i.description, i.completed, i.position,
+SELECT DISTINCT i.id, i.list_id, i.title, i.description, i.completed, i.position,
        i.quantity, i.actual_quantity, i.unit, i.due_date, i.due_time,
        i.created_at, i.updated_at, l.name as list_name
 FROM items i
@@ -102,6 +102,10 @@ ORDER BY l.name, i.position
 ```
 
 Query param `?recursive=false` disables propagation (uses simple `WHERE it.tag_id = ?1` like current).
+
+**`update` — cycle prevention:**
+
+When `parent_tag_id` is set, walk up the ancestor chain with `WITH RECURSIVE` to verify the new parent is not a descendant of the tag being updated. Return 400 if a cycle would be created.
 
 ### No changes to:
 - `assign_to_item`, `remove_from_item`, `assign_to_list`, `remove_from_list`
@@ -116,7 +120,7 @@ Query param `?recursive=false` disables propagation (uses simple `WHERE it.tag_i
 - Category `<select>` dropdown in creation form
 
 **New structure:**
-- Build tree from flat `Vec<Tag>` by grouping on `parent_tag_id`
+- Shared `build_tag_tree()` utility function builds tree from flat `Vec<Tag>` by grouping on `parent_tag_id`. Used by tags page, tag selector, and tag detail. Children sorted alphabetically within each parent.
 - Recursive `TagTreeNode` component renders each tag with:
   - Indentation: `pl-4` per level
   - Tag badge (color + name, clickable → tag detail)
@@ -144,6 +148,7 @@ Query param `?recursive=false` disables propagation (uses simple `WHERE it.tag_i
 **New:** Tree with indentation in same dropdown.
 - Parent tags with children have expand/collapse arrow (▶/▼)
 - Default: top-level visible, children collapsed
+- Expand/collapse state: local `HashMap<String, bool>` signal per `TagSelector` instance
 - Click arrow → expand/collapse (does NOT toggle tag)
 - Click checkbox → assign/remove tag (same as current)
 - Indentation: `pl-4` per level, consistent with tags page
