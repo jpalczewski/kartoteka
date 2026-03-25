@@ -246,8 +246,8 @@ pub async fn delete_tag(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub async fn fetch_tag_items(tag_id: &str) -> Result<Vec<serde_json::Value>, String> {
-    let url = format!("{API_BASE}/tags/{tag_id}/items");
+pub async fn fetch_tag_items(tag_id: &str, recursive: bool) -> Result<Vec<serde_json::Value>, String> {
+    let url = format!("{API_BASE}/tags/{tag_id}/items?recursive={recursive}");
     get(&url)
         .send()
         .await

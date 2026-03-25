@@ -24,7 +24,7 @@ pub fn TagDetailPage() -> impl IntoView {
         if let Ok(tags) = api::fetch_tags().await {
             tag.set(tags.into_iter().find(|t| t.id == tid));
         }
-        if let Ok(fetched) = api::fetch_tag_items(&tid).await {
+        if let Ok(fetched) = api::fetch_tag_items(&tid, false).await {
             items.set(fetched);
         }
         set_loading.set(false);

@@ -11,4 +11,5 @@ pub mod tag_badge;
 pub mod tag_selector;
 pub mod item_actions;
 pub mod sublist_section;
+pub mod tag_tree;
 pub mod toast_container;
