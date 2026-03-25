@@ -3,15 +3,16 @@ use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::api;
 use crate::app::{ToastContext, ToastKind};
-use crate::components::add_item_input::AddItemInput;
 use crate::components::add_group_input::AddGroupInput;
-use crate::components::date_item_row::{DateItemRow, get_today, is_overdue, is_upcoming, sort_by_due_date};
+use crate::components::add_item_input::AddItemInput;
+use crate::components::date_item_row::{get_today, is_overdue, is_upcoming, sort_by_due_date, DateItemRow};
+use crate::components::editable_description::EditableDescription;
 use crate::components::item_actions::create_item_actions;
 use crate::components::item_row::ItemRow;
 use crate::components::list_header::ListHeader;
+use crate::components::list_tag_bar::ListTagBar;
 use crate::components::sublist_section::SublistSection;
-use crate::components::tag_badge::TagBadge;
-use crate::components::tag_selector::TagSelector;
+use crate::components::tag_filter_bar::TagFilterBar;
 use kartoteka_shared::{Item, ItemTagLink, List, ListTagLink, Tag, UpdateListRequest};
 
 #[component]
@@ -29,6 +30,7 @@ pub fn ListPage() -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let navigate = use_navigate();
     let list_name = RwSignal::new(String::new());
+    let list_description = RwSignal::new(Option::<String>::None);
     let list_has_quantity = RwSignal::new(false);
     let list_has_due_date = RwSignal::new(false);
     let sublists = RwSignal::new(Vec::<List>::new());
@@ -38,6 +40,7 @@ pub fn ListPage() -> impl IntoView {
     leptos::task::spawn_local(async move {
         if let Ok(list) = api::fetch_list(&lid).await {
             list_name.set(list.name);
+            list_description.set(list.description);
             list_has_quantity.set(list.has_quantity);
             list_has_due_date.set(list.has_due_date);
         }
@@ -69,107 +72,51 @@ pub fn ListPage() -> impl IntoView {
     let on_description_save = actions.on_description_save;
     let on_quantity_change = actions.on_quantity_change;
 
-    // Item tag toggle callback with optimistic updates
-    let on_tag_toggle = Callback::new(move |(item_id, tag_id): (String, String)| {
-        let has_tag = item_tag_links
-            .read()
-            .iter()
-            .any(|l| l.item_id == item_id && l.tag_id == tag_id);
-        if has_tag {
-            item_tag_links.update(|links| {
-                links.retain(|l| !(l.item_id == item_id && l.tag_id == tag_id))
-            });
-            let iid = item_id.clone();
-            let tid = tag_id.clone();
-            leptos::task::spawn_local(async move {
-                let _ = api::remove_tag_from_item(&iid, &tid).await;
-            });
-        } else {
-            item_tag_links.update(|links| {
-                links.push(ItemTagLink {
-                    item_id: item_id.clone(),
-                    tag_id: tag_id.clone(),
-                })
-            });
-            let iid = item_id.clone();
-            let tid = tag_id.clone();
-            leptos::task::spawn_local(async move {
-                let _ = api::assign_tag_to_item(&iid, &tid).await;
-            });
-        }
-    });
-
-    // List tag toggle callback with optimistic updates
+    let on_tag_toggle = make_item_tag_toggle(item_tag_links);
     let lid_for_tag = list_id();
-    let on_list_tag_toggle = Callback::new(move |tag_id: String| {
-        let has_tag = list_tag_links.read().iter().any(|l| l.tag_id == tag_id);
-        if has_tag {
-            list_tag_links.update(|links| links.retain(|l| l.tag_id != tag_id));
-            let lid = lid_for_tag.clone();
-            let tid = tag_id.clone();
-            leptos::task::spawn_local(async move {
-                let _ = api::remove_tag_from_list(&lid, &tid).await;
-            });
-        } else {
-            let lid = lid_for_tag.clone();
-            list_tag_links.update(|links| {
-                links.push(ListTagLink {
-                    list_id: lid.clone(),
-                    tag_id: tag_id.clone(),
-                })
-            });
-            let tid = tag_id.clone();
-            leptos::task::spawn_local(async move {
-                let _ = api::assign_tag_to_list(&lid, &tid).await;
-            });
-        }
-    });
+    let on_list_tag_toggle = make_list_tag_toggle(list_tag_links, lid_for_tag);
+    let on_move_main = make_move_callback(items);
 
-    // Move item callback (main list items)
-    let on_move_main = Callback::new(move |(item_id, target_list_id): (String, String)| {
-        items.update(|list| list.retain(|i| i.id != item_id));
-        leptos::task::spawn_local(async move {
-            let _ = api::move_item(&item_id, &target_list_id).await;
-        });
-    });
-
-    // When an item is moved OUT of a sublist, add it to main list if target is main
     let parent_lid = list_id();
     let on_item_moved_out = Callback::new(move |(moved_item, target_list_id): (Item, String)| {
         if target_list_id == parent_lid {
             items.update(|list| list.push(moved_item));
         }
-        // If target is another sublist, that sublist will show it on next refetch
     });
 
-    let on_delete_list = Callback::new(move |_: ()| {
-        let lid = list_id();
-        let nav = navigate.clone();
-        leptos::task::spawn_local(async move {
-            match api::delete_list(&lid).await {
-                Ok(()) => {
-                    toast.push("Lista usunięta".into(), ToastKind::Success);
-                    nav("/", Default::default());
+    let on_delete_list = {
+        let navigate = navigate.clone();
+        Callback::new(move |_: ()| {
+            let lid = list_id();
+            let nav = navigate.clone();
+            leptos::task::spawn_local(async move {
+                match api::delete_list(&lid).await {
+                    Ok(()) => {
+                        toast.push("Lista usunięta".into(), ToastKind::Success);
+                        nav("/", Default::default());
+                    }
+                    Err(e) => toast.push(e, ToastKind::Error),
                 }
-                Err(e) => toast.push(e, ToastKind::Error),
-            }
-        });
-    });
+            });
+        })
+    };
 
-    let navigate_archive = use_navigate();
-    let on_archive = Callback::new(move |_: ()| {
-        let lid = list_id();
-        let nav = navigate_archive.clone();
-        leptos::task::spawn_local(async move {
-            match api::archive_list(&lid).await {
-                Ok(_) => {
-                    toast.push("Lista zarchiwizowana".into(), ToastKind::Success);
-                    nav("/", Default::default());
+    let on_archive = {
+        let navigate = use_navigate();
+        Callback::new(move |_: ()| {
+            let lid = list_id();
+            let nav = navigate.clone();
+            leptos::task::spawn_local(async move {
+                match api::archive_list(&lid).await {
+                    Ok(_) => {
+                        toast.push("Lista zarchiwizowana".into(), ToastKind::Success);
+                        nav("/", Default::default());
+                    }
+                    Err(e) => toast.push(e, ToastKind::Error),
                 }
-                Err(e) => toast.push(e, ToastKind::Error),
-            }
-        });
-    });
+            });
+        })
+    };
 
     let on_reset = Callback::new(move |_: ()| {
         let lid = list_id();
@@ -192,9 +139,8 @@ pub fn ListPage() -> impl IntoView {
     let on_create_group = Callback::new(move |name: String| {
         let lid = list_id();
         leptos::task::spawn_local(async move {
-            match api::create_sublist(&lid, &name).await {
-                Ok(sl) => sublists.update(|list| list.push(sl)),
-                Err(_) => {}
+            if let Ok(sl) = api::create_sublist(&lid, &name).await {
+                sublists.update(|list| list.push(sl));
             }
         });
     });
@@ -232,6 +178,7 @@ pub fn ListPage() -> impl IntoView {
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
+            // Header with editable name
             {move || view! {
                 <ListHeader
                     list_name=list_name.get()
@@ -246,6 +193,7 @@ pub fn ListPage() -> impl IntoView {
                         leptos::task::spawn_local(async move {
                             let req = UpdateListRequest {
                                 name: Some(new_name),
+                                description: None,
                                 list_type: None,
                                 has_quantity: None,
                                 has_due_date: None,
@@ -257,78 +205,51 @@ pub fn ListPage() -> impl IntoView {
                 />
             }}
 
-            // List tag management
+            // Editable description
+            {move || view! {
+                <EditableDescription
+                    value=list_description.get()
+                    on_save=Callback::new(move |new_desc: Option<String>| {
+                        list_description.set(new_desc.clone());
+                        let lid = list_id();
+                        leptos::task::spawn_local(async move {
+                            let req = UpdateListRequest {
+                                name: None,
+                                description: new_desc,
+                                list_type: None,
+                                has_quantity: None,
+                                has_due_date: None,
+                                archived: None,
+                            };
+                            let _ = api::update_list(&lid, &req).await;
+                        });
+                    })
+                />
+            }}
+
+            // List tags
             {move || {
                 let links = list_tag_links.read();
                 let tags = all_tags.read();
                 let assigned_ids: Vec<String> = links.iter().map(|l| l.tag_id.clone()).collect();
-                let assigned: Vec<Tag> = tags
-                    .iter()
-                    .filter(|t| assigned_ids.contains(&t.id))
-                    .cloned()
-                    .collect();
                 view! {
-                    <div class="flex flex-wrap items-center gap-1 mb-3">
-                        {assigned.into_iter().map(|t| {
-                            let tid = t.id.clone();
-                            let cb = on_list_tag_toggle.clone();
-                            view! {
-                                <TagBadge
-                                    tag=t
-                                    on_remove=Callback::new(move |_: String| cb.run(tid.clone()))
-                                />
-                            }
-                        }).collect::<Vec<_>>()}
-                        {if !tags.is_empty() {
-                            view! {
-                                <TagSelector
-                                    all_tags=tags.clone()
-                                    selected_tag_ids=assigned_ids
-                                    on_toggle=on_list_tag_toggle
-                                />
-                            }.into_any()
-                        } else {
-                            view! {}.into_any()
-                        }}
-                    </div>
+                    <ListTagBar
+                        all_tags=tags.clone()
+                        assigned_tag_ids=assigned_ids
+                        on_toggle=on_list_tag_toggle
+                    />
                 }
             }}
 
             {move || view! { <AddItemInput on_submit=on_add has_quantity=list_has_quantity.get() has_due_date=list_has_due_date.get() /> }}
 
-            // Tag filter bar
+            // Tag filter
             {move || {
                 let tags = all_tags.read();
-                if tags.is_empty() {
-                    view! {}.into_any()
-                } else {
-                    let tags_list: Vec<Tag> = tags.clone();
-                    view! {
-                        <div class="flex flex-wrap gap-1 mb-3">
-                            <button
-                                class=move || if active_tag_filter.get().is_none() { "btn btn-xs btn-primary" } else { "btn btn-xs btn-ghost" }
-                                on:click=move |_| set_active_tag_filter.set(None)
-                            >"Wszystkie"</button>
-                            {tags_list.into_iter().map(|t| {
-                                let tid_class = t.id.clone();
-                                let tid_style = t.id.clone();
-                                let tid_click = t.id.clone();
-                                let tname = t.name.clone();
-                                let tcolor_class = t.color.clone();
-                                let tcolor_style = t.color.clone();
-                                view! {
-                                    <button
-                                        class=move || if active_tag_filter.get().as_deref() == Some(&tid_class) { "btn btn-xs btn-primary" } else { "btn btn-xs btn-outline" }
-                                        style=move || format!("border-color: {}; color: {}", tcolor_style, if active_tag_filter.get().as_deref() == Some(&tid_style) { "#fff" } else { &tcolor_class })
-                                        on:click=move |_| set_active_tag_filter.set(Some(tid_click.clone()))
-                                    >{tname}</button>
-                                }
-                            }).collect::<Vec<_>>()}
-                        </div>
-                    }.into_any()
-                }
+                view! { <TagFilterBar tags=tags.clone() active_tag_id=active_tag_filter on_select=set_active_tag_filter /> }
             }}
 
+            // Items and sublists
             {move || {
                 if loading.get() {
                     view! { <p>"Wczytywanie..."</p> }.into_any()
@@ -339,110 +260,20 @@ pub fn ListPage() -> impl IntoView {
                 } else {
                     view! {
                         <div>
-                            // Main list items
                             {move || {
                                 if list_has_due_date.get() {
-                                    // Date view: group into overdue, upcoming, done
-                                    let today = get_today();
-                                    let all = filtered_items();
-
-                                    let mut overdue: Vec<Item> = all.iter()
-                                        .filter(|i| is_overdue(i, &today))
-                                        .cloned().collect();
-                                    sort_by_due_date(&mut overdue);
-
-                                    let mut upcoming: Vec<Item> = all.iter()
-                                        .filter(|i| is_upcoming(i, &today))
-                                        .cloned().collect();
-                                    sort_by_due_date(&mut upcoming);
-
-                                    let mut done: Vec<Item> = all.iter()
-                                        .filter(|i| i.completed)
-                                        .cloned().collect();
-                                    sort_by_due_date(&mut done);
-
-                                    let tags_for_date = all_tags.get();
-                                    let links_for_date = item_tag_links.get();
-                                    let render_section = |label: &str, css: &str, items: Vec<Item>, tags: Vec<Tag>, links: Vec<ItemTagLink>| {
-                                        let label = label.to_string();
-                                        let css = css.to_string();
-                                        if items.is_empty() {
-                                            view! {}.into_any()
-                                        } else {
-                                            view! {
-                                                <div class="mb-4">
-                                                    <h3 class=format!("text-sm font-semibold uppercase tracking-wide mb-2 {}", css)>{label}</h3>
-                                                    {items.into_iter().map(|item| {
-                                                        let item_id = item.id.clone();
-                                                        let item_tags: Vec<String> = links.iter()
-                                                            .filter(|l| l.item_id == item.id)
-                                                            .map(|l| l.tag_id.clone())
-                                                            .collect();
-                                                        let tags_clone = tags.clone();
-                                                        let tog_cb = on_tag_toggle;
-                                                        let item_tag_toggle = Callback::new(move |tag_id: String| {
-                                                            tog_cb.run((item_id.clone(), tag_id));
-                                                        });
-                                                        view! {
-                                                            <DateItemRow
-                                                                item=item
-                                                                on_toggle=on_toggle
-                                                                on_delete=on_delete
-                                                                all_tags=tags_clone
-                                                                item_tag_ids=item_tags
-                                                                on_tag_toggle=item_tag_toggle
-                                                            />
-                                                        }
-                                                    }).collect::<Vec<_>>()}
-                                                </div>
-                                            }.into_any()
-                                        }
-                                    };
-
-                                    view! {
-                                        <div>
-                                            {render_section("Zaległe", "text-error", overdue, tags_for_date.clone(), links_for_date.clone())}
-                                            {render_section("Nadchodzące", "text-warning", upcoming, tags_for_date.clone(), links_for_date.clone())}
-                                            {render_section("Zrobione", "text-base-content/40", done, tags_for_date, links_for_date)}
-                                        </div>
-                                    }.into_any()
+                                    render_date_view(filtered_items(), all_tags.get(), item_tag_links.get(), on_toggle, on_delete, on_tag_toggle).into_any()
                                 } else {
-                                    // Normal position-sorted view
-                                    let main_move_targets: Vec<(String, String)> = sublists.get().iter()
-                                        .map(|s| (s.id.clone(), s.name.clone()))
-                                        .collect();
-                                    view! {
-                                        <div>
-                                            {filtered_items().iter().map(|item| {
-                                                let item_id = item.id.clone();
-                                                let item_tags: Vec<String> = item_tag_links.read().iter()
-                                                    .filter(|l| l.item_id == item.id)
-                                                    .map(|l| l.tag_id.clone())
-                                                    .collect();
-                                                let tags_clone = all_tags.get();
-                                                let tog_cb = on_tag_toggle.clone();
-                                                let item_tag_toggle = Callback::new(move |tag_id: String| {
-                                                    tog_cb.run((item_id.clone(), tag_id));
-                                                });
-                                                let mt = main_move_targets.clone();
-                                                view! {
-                                                    <ItemRow
-                                                        item=item.clone()
-                                                        on_toggle=on_toggle
-                                                        on_delete=on_delete
-                                                        all_tags=tags_clone
-                                                        item_tag_ids=item_tags
-                                                        on_tag_toggle=item_tag_toggle
-                                                        on_description_save=on_description_save
-                                                        has_quantity=list_has_quantity.get()
-                                                        on_quantity_change=on_quantity_change
-                                                        move_targets=mt
-                                                        on_move=on_move_main
-                                                    />
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                        </div>
-                                    }.into_any()
+                                    render_normal_view(NormalViewProps {
+                                        items: filtered_items(),
+                                        tags: all_tags.get(),
+                                        item_tag_links,
+                                        sublists: sublists.get(),
+                                        on_toggle, on_delete, on_tag_toggle,
+                                        on_description_save, on_quantity_change,
+                                        has_quantity: list_has_quantity.get(),
+                                        on_move: on_move_main,
+                                    }).into_any()
                                 }
                             }}
 
@@ -450,7 +281,7 @@ pub fn ListPage() -> impl IntoView {
                             {move || {
                                 let subs = sublists.get();
                                 if subs.is_empty() {
-                                    view! {}.into_any()
+                                    ().into_any()
                                 } else {
                                     view! {
                                         <div class="mt-6">
@@ -485,13 +316,210 @@ pub fn ListPage() -> impl IntoView {
                                     }.into_any()
                                 }
                             }}
-
                         </div>
                     }.into_any()
                 }
             }}
 
             <AddGroupInput on_submit=on_create_group />
+        </div>
+    }
+}
+
+// --- Helper callbacks ---
+
+fn make_item_tag_toggle(
+    item_tag_links: RwSignal<Vec<ItemTagLink>>,
+) -> Callback<(String, String)> {
+    Callback::new(move |(item_id, tag_id): (String, String)| {
+        let has_tag = item_tag_links
+            .read()
+            .iter()
+            .any(|l| l.item_id == item_id && l.tag_id == tag_id);
+        if has_tag {
+            item_tag_links.update(|links| {
+                links.retain(|l| !(l.item_id == item_id && l.tag_id == tag_id))
+            });
+            let iid = item_id.clone();
+            let tid = tag_id.clone();
+            leptos::task::spawn_local(async move {
+                let _ = api::remove_tag_from_item(&iid, &tid).await;
+            });
+        } else {
+            item_tag_links.update(|links| {
+                links.push(ItemTagLink {
+                    item_id: item_id.clone(),
+                    tag_id: tag_id.clone(),
+                })
+            });
+            let iid = item_id.clone();
+            let tid = tag_id.clone();
+            leptos::task::spawn_local(async move {
+                let _ = api::assign_tag_to_item(&iid, &tid).await;
+            });
+        }
+    })
+}
+
+fn make_list_tag_toggle(
+    list_tag_links: RwSignal<Vec<ListTagLink>>,
+    list_id: String,
+) -> Callback<String> {
+    Callback::new(move |tag_id: String| {
+        let has_tag = list_tag_links.read().iter().any(|l| l.tag_id == tag_id);
+        if has_tag {
+            list_tag_links.update(|links| links.retain(|l| l.tag_id != tag_id));
+            let lid = list_id.clone();
+            let tid = tag_id.clone();
+            leptos::task::spawn_local(async move {
+                let _ = api::remove_tag_from_list(&lid, &tid).await;
+            });
+        } else {
+            let lid = list_id.clone();
+            list_tag_links.update(|links| {
+                links.push(ListTagLink {
+                    list_id: lid.clone(),
+                    tag_id: tag_id.clone(),
+                })
+            });
+            let tid = tag_id.clone();
+            leptos::task::spawn_local(async move {
+                let _ = api::assign_tag_to_list(&lid, &tid).await;
+            });
+        }
+    })
+}
+
+fn make_move_callback(items: RwSignal<Vec<Item>>) -> Callback<(String, String)> {
+    Callback::new(move |(item_id, target_list_id): (String, String)| {
+        items.update(|list| list.retain(|i| i.id != item_id));
+        leptos::task::spawn_local(async move {
+            let _ = api::move_item(&item_id, &target_list_id).await;
+        });
+    })
+}
+
+// --- Render helpers ---
+
+fn render_date_view(
+    all: Vec<Item>,
+    tags: Vec<Tag>,
+    links: Vec<ItemTagLink>,
+    on_toggle: Callback<String>,
+    on_delete: Callback<String>,
+    on_tag_toggle: Callback<(String, String)>,
+) -> impl IntoView {
+    let today = get_today();
+
+    let mut overdue: Vec<Item> = all.iter().filter(|i| is_overdue(i, &today)).cloned().collect();
+    sort_by_due_date(&mut overdue);
+
+    let mut upcoming: Vec<Item> = all.iter().filter(|i| is_upcoming(i, &today)).cloned().collect();
+    sort_by_due_date(&mut upcoming);
+
+    let mut done: Vec<Item> = all.iter().filter(|i| i.completed).cloned().collect();
+    sort_by_due_date(&mut done);
+
+    let render_section = |label: &str, css: &str, items: Vec<Item>, tags: Vec<Tag>, links: Vec<ItemTagLink>| {
+        let label = label.to_string();
+        let css = css.to_string();
+        if items.is_empty() {
+            ().into_any()
+        } else {
+            view! {
+                <div class="mb-4">
+                    <h3 class=format!("text-sm font-semibold uppercase tracking-wide mb-2 {css}")>{label}</h3>
+                    {items.into_iter().map(|item| {
+                        let item_id = item.id.clone();
+                        let item_tags: Vec<String> = links.iter()
+                            .filter(|l| l.item_id == item.id)
+                            .map(|l| l.tag_id.clone())
+                            .collect();
+                        let tags_clone = tags.clone();
+                        let item_tag_toggle = Callback::new(move |tag_id: String| {
+                            on_tag_toggle.run((item_id.clone(), tag_id));
+                        });
+                        view! {
+                            <DateItemRow
+                                item=item
+                                on_toggle=on_toggle
+                                on_delete=on_delete
+                                all_tags=tags_clone
+                                item_tag_ids=item_tags
+                                on_tag_toggle=item_tag_toggle
+                            />
+                        }
+                    }).collect::<Vec<_>>()}
+                </div>
+            }.into_any()
+        }
+    };
+
+    view! {
+        <div>
+            {render_section("Zaległe", "text-error", overdue, tags.clone(), links.clone())}
+            {render_section("Nadchodzące", "text-warning", upcoming, tags.clone(), links.clone())}
+            {render_section("Zrobione", "text-base-content/40", done, tags, links)}
+        </div>
+    }
+}
+
+struct NormalViewProps {
+    items: Vec<Item>,
+    tags: Vec<Tag>,
+    item_tag_links: RwSignal<Vec<ItemTagLink>>,
+    sublists: Vec<List>,
+    on_toggle: Callback<String>,
+    on_delete: Callback<String>,
+    on_tag_toggle: Callback<(String, String)>,
+    on_description_save: Callback<(String, String)>,
+    on_quantity_change: Callback<(String, i32)>,
+    has_quantity: bool,
+    on_move: Callback<(String, String)>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_normal_view(p: NormalViewProps) -> impl IntoView {
+    let NormalViewProps {
+        items, tags, item_tag_links, sublists,
+        on_toggle, on_delete, on_tag_toggle,
+        on_description_save, on_quantity_change,
+        has_quantity, on_move,
+    } = p;
+    let move_targets: Vec<(String, String)> = sublists
+        .iter()
+        .map(|s| (s.id.clone(), s.name.clone()))
+        .collect();
+
+    view! {
+        <div>
+            {items.iter().map(|item| {
+                let item_id = item.id.clone();
+                let item_tags: Vec<String> = item_tag_links.read().iter()
+                    .filter(|l| l.item_id == item.id)
+                    .map(|l| l.tag_id.clone())
+                    .collect();
+                let tags_clone = tags.clone();
+                let item_tag_toggle = Callback::new(move |tag_id: String| {
+                    on_tag_toggle.run((item_id.clone(), tag_id));
+                });
+                let mt = move_targets.clone();
+                view! {
+                    <ItemRow
+                        item=item.clone()
+                        on_toggle=on_toggle
+                        on_delete=on_delete
+                        all_tags=tags_clone
+                        item_tag_ids=item_tags
+                        on_tag_toggle=item_tag_toggle
+                        on_description_save=on_description_save
+                        has_quantity=has_quantity
+                        on_quantity_change=on_quantity_change
+                        move_targets=mt
+                        on_move=on_move
+                    />
+                }
+            }).collect::<Vec<_>>()}
         </div>
     }
 }

@@ -26,6 +26,7 @@ pub struct List {
     pub id: String,
     pub user_id: String,
     pub name: String,
+    pub description: Option<String>,
     pub list_type: ListType,
     pub parent_list_id: Option<String>,
     pub position: i32,
@@ -72,6 +73,7 @@ pub struct CreateListRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateListRequest {
     pub name: Option<String>,
+    pub description: Option<String>,
     pub list_type: Option<ListType>,
     pub has_quantity: Option<bool>,
     pub has_due_date: Option<bool>,
@@ -145,4 +147,46 @@ pub struct ItemTagLink {
 pub struct ListTagLink {
     pub list_id: String,
     pub tag_id: String,
+}
+
+// === Cross-list query types ===
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DateItem {
+    pub id: String,
+    pub list_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    #[serde(deserialize_with = "bool_from_number")]
+    pub completed: bool,
+    pub position: i32,
+    pub quantity: Option<i32>,
+    pub actual_quantity: Option<i32>,
+    pub unit: Option<String>,
+    pub due_date: Option<String>,
+    pub due_time: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub list_name: String,
+    pub list_type: ListType,
+}
+
+impl From<DateItem> for Item {
+    fn from(di: DateItem) -> Self {
+        Item {
+            id: di.id,
+            list_id: di.list_id,
+            title: di.title,
+            description: di.description,
+            completed: di.completed,
+            position: di.position,
+            quantity: di.quantity,
+            actual_quantity: di.actual_quantity,
+            unit: di.unit,
+            due_date: di.due_date,
+            due_time: di.due_time,
+            created_at: di.created_at,
+            updated_at: di.updated_at,
+        }
+    }
 }

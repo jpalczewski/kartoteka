@@ -2,6 +2,7 @@ use worker::*;
 
 mod auth;
 mod handlers;
+pub(crate) mod helpers;
 mod router;
 
 #[event(fetch, respond_with_errors)]

@@ -4,7 +4,7 @@ use leptos_router::path;
 
 use crate::components::nav::Nav;
 use crate::components::toast_container::ToastContainer;
-use crate::pages::{home::HomePage, list::ListPage, login::LoginPage, settings::SettingsPage, tag_detail::TagDetailPage, tags::TagsPage};
+use crate::pages::{home::HomePage, list::ListPage, login::LoginPage, settings::SettingsPage, tag_detail::TagDetailPage, tags::TagsPage, today::TodayPage};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToastKind {
@@ -68,6 +68,7 @@ pub fn App() -> impl IntoView {
             <main class="container">
                 <Routes fallback=|| view! { <p>"Nie znaleziono strony"</p> }>
                     <Route path=path!("/") view=HomePage/>
+                    <Route path=path!("/today") view=TodayPage/>
                     <Route path=path!("/login") view=LoginPage/>
                     <Route path=path!("/settings") view=SettingsPage/>
                     <Route path=path!("/tags") view=TagsPage/>
