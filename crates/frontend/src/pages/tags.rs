@@ -167,4 +167,5 @@ fn TagTreeRow(
             }).collect_view()}
         </div>
     }
+    .into_any()
 }
