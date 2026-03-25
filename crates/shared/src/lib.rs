@@ -101,21 +101,12 @@ pub struct UpdateItemRequest {
     pub due_time: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TagCategory {
-    Context,
-    Priority,
-    Custom,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tag {
     pub id: String,
     pub user_id: String,
     pub name: String,
     pub color: String,
-    pub category: TagCategory,
     pub parent_tag_id: Option<String>,
     pub created_at: String,
 }
@@ -124,7 +115,6 @@ pub struct Tag {
 pub struct CreateTagRequest {
     pub name: String,
     pub color: String,
-    pub category: TagCategory,
     pub parent_tag_id: Option<String>,
 }
 
@@ -132,7 +122,6 @@ pub struct CreateTagRequest {
 pub struct UpdateTagRequest {
     pub name: Option<String>,
     pub color: Option<String>,
-    pub category: Option<TagCategory>,
     pub parent_tag_id: Option<Option<String>>,
 }
 
