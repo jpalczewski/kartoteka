@@ -1,9 +1,9 @@
 use leptos::prelude::*;
 
 use crate::api;
-use crate::components::add_item_input::AddItemInput;
-use crate::components::item_actions::create_item_actions;
-use crate::components::item_row::ItemRow;
+use crate::components::items::add_item_input::AddItemInput;
+use crate::components::items::item_actions::create_item_actions;
+use crate::components::items::item_row::ItemRow;
 use kartoteka_shared::{Item, ItemTagLink, List, Tag};
 
 #[component]

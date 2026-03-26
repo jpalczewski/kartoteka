@@ -1,3 +1,5 @@
+pub mod detail;
+
 use crate::api;
 use crate::components::add_input::AddInput;
 use crate::components::tag_tree::{TagTreeRow, build_tag_tree};

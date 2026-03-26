@@ -396,3 +396,81 @@ pub async fn by_date(req: Request, ctx: RouteContext<String>) -> Result<Response
     let items = result.results::<DateItem>()?;
     Response::from_json(&items)
 }
+
+/// GET /api/items/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD&detail=counts|full
+pub async fn calendar(req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let url = req.url()?;
+
+    let from = url
+        .query_pairs()
+        .find(|(k, _)| k == "from")
+        .map(|(_, v)| v.to_string())
+        .ok_or_else(|| Error::from("Missing from parameter"))?;
+
+    let to = url
+        .query_pairs()
+        .find(|(k, _)| k == "to")
+        .map(|(_, v)| v.to_string())
+        .ok_or_else(|| Error::from("Missing to parameter"))?;
+
+    let detail = url
+        .query_pairs()
+        .find(|(k, _)| k == "detail")
+        .map(|(_, v)| v.to_string())
+        .unwrap_or_else(|| "counts".to_string());
+
+    let d1 = ctx.env.d1("DB")?;
+
+    if detail == "full" {
+        let result = d1
+            .prepare(
+                "SELECT i.id, i.list_id, i.title, i.description, i.completed, i.position, \
+                 i.quantity, i.actual_quantity, i.unit, i.due_date, i.due_time, \
+                 i.created_at, i.updated_at, l.name as list_name, l.list_type \
+                 FROM items i \
+                 JOIN lists l ON l.id = i.list_id \
+                 WHERE l.user_id = ?1 AND l.archived = 0 \
+                 AND i.due_date >= ?2 AND i.due_date <= ?3 \
+                 ORDER BY i.due_date ASC, i.completed ASC, l.name ASC, i.due_time ASC, i.position ASC",
+            )
+            .bind(&[user_id.into(), from.into(), to.into()])?
+            .all()
+            .await?;
+
+        let items = result.results::<DateItem>()?;
+
+        // Group by date
+        let mut day_map: std::collections::BTreeMap<String, Vec<DateItem>> =
+            std::collections::BTreeMap::new();
+        for item in items {
+            let date = item.due_date.clone().unwrap_or_default();
+            day_map.entry(date).or_default().push(item);
+        }
+        let day_items: Vec<DayItems> = day_map
+            .into_iter()
+            .map(|(date, items)| DayItems { date, items })
+            .collect();
+
+        Response::from_json(&day_items)
+    } else {
+        let result = d1
+            .prepare(
+                "SELECT i.due_date as date, \
+                 COUNT(*) as total, \
+                 CAST(SUM(i.completed) AS INTEGER) as completed \
+                 FROM items i \
+                 JOIN lists l ON l.id = i.list_id \
+                 WHERE l.user_id = ?1 AND l.archived = 0 \
+                 AND i.due_date >= ?2 AND i.due_date <= ?3 \
+                 GROUP BY i.due_date \
+                 ORDER BY i.due_date ASC",
+            )
+            .bind(&[user_id.into(), from.into(), to.into()])?
+            .all()
+            .await?;
+
+        let summaries = result.results::<DaySummary>()?;
+        Response::from_json(&summaries)
+    }
+}

@@ -1,7 +1,7 @@
 use kartoteka_shared::{Item, Tag};
 use leptos::prelude::*;
 
-use super::tag_list::TagList;
+use crate::components::tags::tag_list::TagList;
 
 #[component]
 pub fn ItemRow(
