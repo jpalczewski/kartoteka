@@ -59,7 +59,10 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
 pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?.to_string();
+    let id = ctx
+        .param("id")
+        .ok_or_else(|| Error::from("Missing id"))?
+        .to_string();
     let d1 = ctx.env.d1("DB")?;
     let list = d1
         .prepare(
@@ -78,7 +81,10 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
 
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?.to_string();
+    let id = ctx
+        .param("id")
+        .ok_or_else(|| Error::from("Missing id"))?
+        .to_string();
     let body: UpdateListRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
@@ -120,18 +126,22 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
     if let Some(has_quantity) = body.has_quantity {
         let val: i32 = if has_quantity { 1 } else { 0 };
-        d1.prepare("UPDATE lists SET has_quantity = ?1, updated_at = datetime('now') WHERE id = ?2")
-            .bind(&[val.into(), id.clone().into()])?
-            .run()
-            .await?;
+        d1.prepare(
+            "UPDATE lists SET has_quantity = ?1, updated_at = datetime('now') WHERE id = ?2",
+        )
+        .bind(&[val.into(), id.clone().into()])?
+        .run()
+        .await?;
     }
 
     if let Some(has_due_date) = body.has_due_date {
         let val: i32 = if has_due_date { 1 } else { 0 };
-        d1.prepare("UPDATE lists SET has_due_date = ?1, updated_at = datetime('now') WHERE id = ?2")
-            .bind(&[val.into(), id.clone().into()])?
-            .run()
-            .await?;
+        d1.prepare(
+            "UPDATE lists SET has_due_date = ?1, updated_at = datetime('now') WHERE id = ?2",
+        )
+        .bind(&[val.into(), id.clone().into()])?
+        .run()
+        .await?;
     }
 
     if let Some(archived) = body.archived {
@@ -157,7 +167,10 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?.to_string();
+    let id = ctx
+        .param("id")
+        .ok_or_else(|| Error::from("Missing id"))?
+        .to_string();
     let d1 = ctx.env.d1("DB")?;
     d1.prepare("DELETE FROM lists WHERE id = ?1 AND user_id = ?2")
         .bind(&[id.into(), user_id.into()])?
@@ -316,7 +329,9 @@ pub async fn create_sublist(mut req: Request, ctx: RouteContext<String>) -> Resu
 
     // Get next position
     let max_pos = d1
-        .prepare("SELECT COALESCE(MAX(position), -1) as max_pos FROM lists WHERE parent_list_id = ?1")
+        .prepare(
+            "SELECT COALESCE(MAX(position), -1) as max_pos FROM lists WHERE parent_list_id = ?1",
+        )
         .bind(&[parent_id.clone().into()])?
         .first::<serde_json::Value>(None)
         .await?

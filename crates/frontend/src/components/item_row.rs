@@ -106,9 +106,8 @@ pub fn ItemRow(
                 }}
 
                 // Move to dropdown
-                {if !move_targets.is_empty() && on_move.is_some() {
+                {if let Some(on_move_cb) = on_move.filter(|_| !move_targets.is_empty()) {
                     let move_open = RwSignal::new(false);
-                    let on_move_cb = on_move.unwrap();
                     view! {
                         <div class="relative">
                             <button type="button" class="btn btn-ghost btn-xs btn-square" title="Przenieś do..."

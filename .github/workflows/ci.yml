@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches-ignore: [master]
+
+env:
+  API_BASE_URL: "/api"
+  HANKO_API_URL: "https://placeholder.hanko.io"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  check-clippy:
+    name: Check & Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Cargo check
+        run: cargo check --workspace
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+
+  deny:
+    name: Deny (licenses & advisories)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+
+  machete:
+    name: Unused dependencies
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-machete
+        run: cargo install cargo-machete
+      - name: Check unused dependencies
+        run: |
+          set +e
+          OUTPUT=$(cargo machete 2>&1)
+          EXIT_CODE=$?
+          echo "$OUTPUT"
+
+          echo "## Unused Dependencies" >> "$GITHUB_STEP_SUMMARY"
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "$OUTPUT" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            # Emit annotations visible in PR
+            echo "$OUTPUT" | grep "crate " | while IFS= read -r line; do
+              echo "::warning::$line"
+            done
+          else
+            echo "No unused dependencies found." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    needs: check-clippy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace

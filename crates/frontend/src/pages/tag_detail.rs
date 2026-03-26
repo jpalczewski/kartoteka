@@ -1,7 +1,9 @@
 use crate::api;
 use crate::components::editable_color::EditableColor;
 use crate::components::editable_title::EditableTitle;
-use crate::components::tag_tree::{build_breadcrumb, build_subtree, get_descendant_ids, TagTreeRow};
+use crate::components::tag_tree::{
+    TagTreeRow, build_breadcrumb, build_subtree, get_descendant_ids,
+};
 use kartoteka_shared::{Tag, UpdateTagRequest};
 use leptos::prelude::*;
 use leptos_router::components::A;
@@ -378,4 +380,3 @@ pub fn TagDetailPage() -> impl IntoView {
     }
     .into_any()
 }
-

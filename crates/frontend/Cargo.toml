@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 kartoteka-shared = { path = "../shared", version = "0.1.1" }
 leptos = { version = "0.7", features = ["csr"] }

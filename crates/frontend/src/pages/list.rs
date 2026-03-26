@@ -5,7 +5,9 @@ use crate::api;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::add_group_input::AddGroupInput;
 use crate::components::add_item_input::AddItemInput;
-use crate::components::date_item_row::{get_today, is_overdue, is_upcoming, sort_by_due_date, DateItemRow};
+use crate::components::date_item_row::{
+    DateItemRow, get_today, is_overdue, is_upcoming, sort_by_due_date,
+};
 use crate::components::editable_description::EditableDescription;
 use crate::components::item_actions::create_item_actions;
 use crate::components::item_row::ItemRow;
@@ -328,18 +330,15 @@ pub fn ListPage() -> impl IntoView {
 
 // --- Helper callbacks ---
 
-fn make_item_tag_toggle(
-    item_tag_links: RwSignal<Vec<ItemTagLink>>,
-) -> Callback<(String, String)> {
+fn make_item_tag_toggle(item_tag_links: RwSignal<Vec<ItemTagLink>>) -> Callback<(String, String)> {
     Callback::new(move |(item_id, tag_id): (String, String)| {
         let has_tag = item_tag_links
             .read()
             .iter()
             .any(|l| l.item_id == item_id && l.tag_id == tag_id);
         if has_tag {
-            item_tag_links.update(|links| {
-                links.retain(|l| !(l.item_id == item_id && l.tag_id == tag_id))
-            });
+            item_tag_links
+                .update(|links| links.retain(|l| !(l.item_id == item_id && l.tag_id == tag_id)));
             let iid = item_id.clone();
             let tid = tag_id.clone();
             leptos::task::spawn_local(async move {
@@ -411,16 +410,28 @@ fn render_date_view(
 ) -> impl IntoView {
     let today = get_today();
 
-    let mut overdue: Vec<Item> = all.iter().filter(|i| is_overdue(i, &today)).cloned().collect();
+    let mut overdue: Vec<Item> = all
+        .iter()
+        .filter(|i| is_overdue(i, &today))
+        .cloned()
+        .collect();
     sort_by_due_date(&mut overdue);
 
-    let mut upcoming: Vec<Item> = all.iter().filter(|i| is_upcoming(i, &today)).cloned().collect();
+    let mut upcoming: Vec<Item> = all
+        .iter()
+        .filter(|i| is_upcoming(i, &today))
+        .cloned()
+        .collect();
     sort_by_due_date(&mut upcoming);
 
     let mut done: Vec<Item> = all.iter().filter(|i| i.completed).cloned().collect();
     sort_by_due_date(&mut done);
 
-    let render_section = |label: &str, css: &str, items: Vec<Item>, tags: Vec<Tag>, links: Vec<ItemTagLink>| {
+    let render_section = |label: &str,
+                          css: &str,
+                          items: Vec<Item>,
+                          tags: Vec<Tag>,
+                          links: Vec<ItemTagLink>| {
         let label = label.to_string();
         let css = css.to_string();
         if items.is_empty() {
@@ -481,10 +492,17 @@ struct NormalViewProps {
 #[allow(clippy::too_many_arguments)]
 fn render_normal_view(p: NormalViewProps) -> impl IntoView {
     let NormalViewProps {
-        items, tags, item_tag_links, sublists,
-        on_toggle, on_delete, on_tag_toggle,
-        on_description_save, on_quantity_change,
-        has_quantity, on_move,
+        items,
+        tags,
+        item_tag_links,
+        sublists,
+        on_toggle,
+        on_delete,
+        on_tag_toggle,
+        on_description_save,
+        on_quantity_change,
+        has_quantity,
+        on_move,
     } = p;
     let move_targets: Vec<(String, String)> = sublists
         .iter()

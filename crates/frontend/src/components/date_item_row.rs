@@ -6,8 +6,8 @@ use super::tag_list::TagList;
 pub fn get_today_string() -> String {
     let today = js_sys::Date::new_0();
     let year = today.get_full_year() as i32;
-    let month = today.get_month() as u32 + 1;
-    let day = today.get_date() as u32;
+    let month = today.get_month() + 1;
+    let day = today.get_date();
     format!("{:04}-{:02}-{:02}", year, month, day)
 }
 
@@ -109,15 +109,15 @@ pub fn is_overdue(item: &Item, today: &str) -> bool {
     }
     match item.due_date.as_deref() {
         None => false,
-        Some(d) if d < today => true,           // past date → overdue
+        Some(d) if d < today => true, // past date → overdue
         Some(d) if d == today => {
             // today: overdue only if time is set AND has passed
             match item.due_time.as_deref() {
                 Some(t) if !t.is_empty() => t < current_time_hhmm().as_str(),
-                _ => false,                      // no time → not overdue yet
+                _ => false, // no time → not overdue yet
             }
         }
-        _ => false,                              // future → not overdue
+        _ => false, // future → not overdue
     }
 }
 
@@ -168,10 +168,7 @@ pub fn DateItemRow(
     };
 
     let date_display = item.due_date.as_ref().map(|d| format_date_short(d));
-    let relative = item
-        .due_date
-        .as_ref()
-        .map(|d| relative_date(d, &today));
+    let relative = item.due_date.as_ref().map(|d| relative_date(d, &today));
     let time_display = item.due_time.clone();
 
     let date_color = if completed {

@@ -68,6 +68,14 @@ sqlx-d1 0.3+, DaisyUI 5). Przed pisaniem kodu sprawdzaj aktualne API przez conte
 
 Używaj tego proaktywnie, nie czekaj na błędy kompilacji.
 
+## CI/CD
+
+- PR workflow (`.github/workflows/ci.yml`): fmt → check → clippy → deny → machete → test
+- Security audit (`.github/workflows/security-audit.yml`): weekly cron + on Cargo.lock changes
+- Workspace lints w `Cargo.toml` — clippy correctness=deny, suspicious/complexity/perf/style=warn
+- `deny.toml` — licencje, advisories, supply chain security
+- Lokalne sprawdzenie: `just ci` (uruchamia wszystko naraz)
+
 ## Pliki do NIE commitowania
 
 - `.env` — sekrety i konfiguracja

@@ -1,9 +1,7 @@
 use leptos::prelude::*;
 
 #[component]
-pub fn AddGroupInput(
-    on_submit: Callback<String>,
-) -> impl IntoView {
+pub fn AddGroupInput(on_submit: Callback<String>) -> impl IntoView {
     let adding = RwSignal::new(false);
     let name = RwSignal::new(String::new());
 

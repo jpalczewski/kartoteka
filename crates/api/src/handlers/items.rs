@@ -4,7 +4,10 @@ use worker::*;
 
 pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let list_id = ctx.param("list_id").ok_or_else(|| Error::from("Missing list_id"))?.to_string();
+    let list_id = ctx
+        .param("list_id")
+        .ok_or_else(|| Error::from("Missing list_id"))?
+        .to_string();
     let d1 = ctx.env.d1("DB")?;
 
     // Verify list belongs to user
@@ -31,7 +34,10 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
 
 pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let list_id = ctx.param("list_id").ok_or_else(|| Error::from("Missing list_id"))?.to_string();
+    let list_id = ctx
+        .param("list_id")
+        .ok_or_else(|| Error::from("Missing list_id"))?
+        .to_string();
     let body: CreateItemRequest = req.json().await?;
     let id = uuid::Uuid::new_v4().to_string();
 
@@ -123,7 +129,10 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?.to_string();
+    let id = ctx
+        .param("id")
+        .ok_or_else(|| Error::from("Missing id"))?
+        .to_string();
     let body: UpdateItemRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
@@ -179,10 +188,12 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     }
 
     if let Some(actual) = body.actual_quantity {
-        d1.prepare("UPDATE items SET actual_quantity = ?1, updated_at = datetime('now') WHERE id = ?2")
-            .bind(&[JsValue::from(actual), id.clone().into()])?
-            .run()
-            .await?;
+        d1.prepare(
+            "UPDATE items SET actual_quantity = ?1, updated_at = datetime('now') WHERE id = ?2",
+        )
+        .bind(&[JsValue::from(actual), id.clone().into()])?
+        .run()
+        .await?;
 
         // Auto-complete: check if actual >= target
         let row = d1
@@ -193,10 +204,12 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         if let Some(row) = row {
             if let Some(target) = row.get("quantity").and_then(|v| v.as_i64()) {
                 let completed_val: i32 = if (actual as i64) >= target { 1 } else { 0 };
-                d1.prepare("UPDATE items SET completed = ?1, updated_at = datetime('now') WHERE id = ?2")
-                    .bind(&[JsValue::from(completed_val), id.clone().into()])?
-                    .run()
-                    .await?;
+                d1.prepare(
+                    "UPDATE items SET completed = ?1, updated_at = datetime('now') WHERE id = ?2",
+                )
+                .bind(&[JsValue::from(completed_val), id.clone().into()])?
+                .run()
+                .await?;
             }
         }
     }
@@ -237,7 +250,10 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx.param("id").ok_or_else(|| Error::from("Missing id"))?.to_string();
+    let id = ctx
+        .param("id")
+        .ok_or_else(|| Error::from("Missing id"))?
+        .to_string();
     let d1 = ctx.env.d1("DB")?;
 
     // Verify item belongs to user (via list ownership)
@@ -309,10 +325,12 @@ pub async fn move_item(mut req: Request, ctx: RouteContext<String>) -> Result<Re
         .unwrap_or(-1);
     let position = (max_pos + 1) as i32;
 
-    d1.prepare("UPDATE items SET list_id = ?1, position = ?2, updated_at = datetime('now') WHERE id = ?3")
-        .bind(&[target_list_id.into(), position.into(), id.clone().into()])?
-        .run()
-        .await?;
+    d1.prepare(
+        "UPDATE items SET list_id = ?1, position = ?2, updated_at = datetime('now') WHERE id = ?3",
+    )
+    .bind(&[target_list_id.into(), position.into(), id.clone().into()])?
+    .run()
+    .await?;
 
     let item = d1
         .prepare(

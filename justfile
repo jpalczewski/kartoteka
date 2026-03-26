@@ -143,6 +143,17 @@ lint:
 fmt:
     cargo fmt --all
 
+# Security & license audit
+audit:
+    cargo deny check
+
+# Unused dependencies check
+machete:
+    cargo machete
+
 # Uruchom testy
 test:
     API_BASE_URL="/api" HANKO_API_URL="${HANKO_API_URL}" cargo test --workspace
+
+# Full CI check (local)
+ci: fmt lint audit machete test

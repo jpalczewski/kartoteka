@@ -14,11 +14,7 @@ pub async fn create_item(list_id: &str, req: &CreateItemRequest) -> Result<Item,
     super::post_json(&format!("{}/lists/{list_id}/items", super::API_BASE), req).await
 }
 
-pub async fn update_item(
-    list_id: &str,
-    id: &str,
-    req: &UpdateItemRequest,
-) -> Result<Item, String> {
+pub async fn update_item(list_id: &str, id: &str, req: &UpdateItemRequest) -> Result<Item, String> {
     super::put_json(
         &format!("{}/lists/{list_id}/items/{id}", super::API_BASE),
         req,

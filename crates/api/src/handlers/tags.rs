@@ -27,13 +27,23 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     };
 
     let d1 = ctx.env.d1("DB")?;
-    d1.prepare("INSERT INTO tags (id, user_id, name, color, parent_tag_id) VALUES (?1, ?2, ?3, ?4, ?5)")
-        .bind(&[id.clone().into(), user_id.into(), body.name.into(), body.color.into(), parent_val])?
-        .run()
-        .await?;
+    d1.prepare(
+        "INSERT INTO tags (id, user_id, name, color, parent_tag_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+    )
+    .bind(&[
+        id.clone().into(),
+        user_id.into(),
+        body.name.into(),
+        body.color.into(),
+        parent_val,
+    ])?
+    .run()
+    .await?;
 
     let tag = d1
-        .prepare("SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE id = ?1")
+        .prepare(
+            "SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE id = ?1",
+        )
         .bind(&[id.into()])?
         .first::<Tag>(None)
         .await?
@@ -87,9 +97,12 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
                      SELECT id FROM tags WHERE parent_tag_id = ?1 \
                      UNION ALL \
                      SELECT t.id FROM tags t JOIN descendants d ON t.parent_tag_id = d.id \
-                     ) SELECT 1 FROM descendants WHERE id = ?2 LIMIT 1"
+                     ) SELECT 1 FROM descendants WHERE id = ?2 LIMIT 1",
                 )
-                .bind(&[JsValue::from(id.as_str()), JsValue::from(new_parent_id.as_str())])?
+                .bind(&[
+                    JsValue::from(id.as_str()),
+                    JsValue::from(new_parent_id.as_str()),
+                ])?
                 .first::<serde_json::Value>(None)
                 .await?;
             if cycle_check.is_some() {
@@ -108,7 +121,9 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     }
 
     let tag = d1
-        .prepare("SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE id = ?1")
+        .prepare(
+            "SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE id = ?1",
+        )
         .bind(&[id.into()])?
         .first::<Tag>(None)
         .await?
@@ -187,7 +202,9 @@ pub async fn merge(mut req: Request, ctx: RouteContext<String>) -> Result<Respon
 
     // Return updated target
     let tag = d1
-        .prepare("SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE id = ?1")
+        .prepare(
+            "SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE id = ?1",
+        )
         .bind(&[target_id.into()])?
         .first::<Tag>(None)
         .await?
@@ -394,7 +411,7 @@ pub async fn tag_items(req: Request, ctx: RouteContext<String>) -> Result<Respon
              JOIN item_tags it ON it.item_id = i.id \
              JOIN lists l ON l.id = i.list_id \
              WHERE it.tag_id = ?1 \
-             ORDER BY l.name, i.position"
+             ORDER BY l.name, i.position",
         )
         .bind(&[tag_id.into()])?
         .all()

@@ -16,7 +16,8 @@ pub fn SublistSection(
     on_tag_toggle: Callback<(String, String)>,
     #[prop(default = vec![])] move_targets: Vec<(String, String)>,
     /// Called when an item is moved OUT of this sublist: (moved_item, target_list_id)
-    #[prop(optional)] on_item_moved_out: Option<Callback<(Item, String)>>,
+    #[prop(optional)]
+    on_item_moved_out: Option<Callback<(Item, String)>>,
 ) -> impl IntoView {
     let expanded = RwSignal::new(true);
     let items = RwSignal::new(Vec::<Item>::new());
