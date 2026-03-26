@@ -14,7 +14,10 @@ use crate::components::lists::list_header::ListHeader;
 use crate::components::lists::list_tag_bar::ListTagBar;
 use crate::components::lists::sublist_section::SublistSection;
 use crate::components::tags::tag_filter_bar::TagFilterBar;
-use kartoteka_shared::{Item, ItemTagLink, List, ListTagLink, Tag, UpdateListRequest};
+use kartoteka_shared::{
+    FEATURE_DUE_DATE, FEATURE_QUANTITY, Item, ItemTagLink, List, ListFeature, ListTagLink, Tag,
+    UpdateListRequest,
+};
 
 use date_view::render_date_view;
 use normal_view::{NormalViewProps, render_normal_view};
@@ -35,8 +38,7 @@ pub fn ListPage() -> impl IntoView {
     let navigate = use_navigate();
     let list_name = RwSignal::new(String::new());
     let list_description = RwSignal::new(Option::<String>::None);
-    let list_has_quantity = RwSignal::new(false);
-    let list_has_due_date = RwSignal::new(false);
+    let list_features = RwSignal::new(Vec::<ListFeature>::new());
     let sublists = RwSignal::new(Vec::<List>::new());
 
     let lid = list_id();
@@ -44,8 +46,7 @@ pub fn ListPage() -> impl IntoView {
         if let Ok(list) = api::fetch_list(&lid).await {
             list_name.set(list.name);
             list_description.set(list.description);
-            list_has_quantity.set(list.has_quantity);
-            list_has_due_date.set(list.has_due_date);
+            list_features.set(list.features);
         }
         match api::fetch_items(&lid).await {
             Ok(fetched) => items.set(fetched),
@@ -189,6 +190,31 @@ pub fn ListPage() -> impl IntoView {
                     on_delete_confirmed=on_delete_list
                     on_archive=on_archive
                     on_reset=on_reset
+                    features=list_features.get()
+                    on_feature_toggle=Callback::new(move |(feature_name, enabled): (String, bool)| {
+                        let lid = list_id();
+                        // Optimistic update
+                        list_features.update(|feats| {
+                            if enabled {
+                                if !feats.iter().any(|f| f.name == feature_name) {
+                                    feats.push(ListFeature {
+                                        name: feature_name.clone(),
+                                        config: serde_json::json!({}),
+                                    });
+                                }
+                            } else {
+                                feats.retain(|f| f.name != feature_name);
+                            }
+                        });
+                        let fname = feature_name.clone();
+                        leptos::task::spawn_local(async move {
+                            if enabled {
+                                let _ = api::add_feature(&lid, &fname, serde_json::json!({})).await;
+                            } else {
+                                let _ = api::remove_feature(&lid, &fname).await;
+                            }
+                        });
+                    })
                     on_rename=Callback::new(move |new_name: String| {
                         list_name.set(new_name.clone());
                         let lid = list_id();
@@ -197,8 +223,6 @@ pub fn ListPage() -> impl IntoView {
                                 name: Some(new_name),
                                 description: None,
                                 list_type: None,
-                                has_quantity: None,
-                                has_due_date: None,
                                 archived: None,
                             };
                             let _ = api::update_list(&lid, &req).await;
@@ -218,8 +242,6 @@ pub fn ListPage() -> impl IntoView {
                                 name: None,
                                 description: new_desc,
                                 list_type: None,
-                                has_quantity: None,
-                                has_due_date: None,
                                 archived: None,
                             };
                             let _ = api::update_list(&lid, &req).await;
@@ -241,7 +263,10 @@ pub fn ListPage() -> impl IntoView {
                 }
             }}
 
-            {move || view! { <AddItemInput on_submit=on_add has_quantity=list_has_quantity.get() has_due_date=list_has_due_date.get() /> }}
+            {move || {
+                let feats = list_features.get();
+                view! { <AddItemInput on_submit=on_add has_quantity=feats.iter().any(|f| f.name == FEATURE_QUANTITY) has_due_date=feats.iter().any(|f| f.name == FEATURE_DUE_DATE) /> }
+            }}
 
             {move || {
                 let tags = all_tags.read();
@@ -259,7 +284,8 @@ pub fn ListPage() -> impl IntoView {
                     view! {
                         <div>
                             {move || {
-                                if list_has_due_date.get() {
+                                let feats = list_features.get();
+                                if feats.iter().any(|f| f.name == FEATURE_DUE_DATE) {
                                     render_date_view(filtered_items(), all_tags.get(), item_tag_links.get(), on_toggle, on_delete, on_tag_toggle).into_any()
                                 } else {
                                     render_normal_view(NormalViewProps {
@@ -269,7 +295,7 @@ pub fn ListPage() -> impl IntoView {
                                         sublists: sublists.get(),
                                         on_toggle, on_delete, on_tag_toggle,
                                         on_description_save, on_quantity_change,
-                                        has_quantity: list_has_quantity.get(),
+                                        has_quantity: feats.iter().any(|f| f.name == FEATURE_QUANTITY),
                                         on_move: on_move_main,
                                     }).into_any()
                                 }
@@ -296,11 +322,12 @@ pub fn ListPage() -> impl IntoView {
                                                         .filter(|s| s.id != sl_id)
                                                         .map(|s| (s.id.clone(), s.name.clone()))
                                                 );
+                                                let feats = list_features.get();
                                                 view! {
                                                     <SublistSection
                                                         sublist=sl.clone()
-                                                        has_quantity=list_has_quantity.get()
-                                                        has_due_date=list_has_due_date.get()
+                                                        has_quantity=feats.iter().any(|f| f.name == FEATURE_QUANTITY)
+                                                        has_due_date=feats.iter().any(|f| f.name == FEATURE_DUE_DATE)
                                                         all_tags=tags
                                                         item_tag_links=links
                                                         on_tag_toggle=on_tag_toggle

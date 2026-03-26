@@ -11,6 +11,27 @@ fn bool_from_number<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
 
 // === Domain types ===
 
+/// Known feature names
+pub const FEATURE_QUANTITY: &str = "quantity";
+pub const FEATURE_DUE_DATE: &str = "due_date";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ListFeature {
+    pub name: String,
+    #[serde(default)]
+    pub config: serde_json::Value,
+}
+
+fn features_from_json<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<ListFeature>, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    match v {
+        serde_json::Value::String(s) => serde_json::from_str(&s).map_err(serde::de::Error::custom),
+        serde_json::Value::Array(_) => serde_json::from_value(v).map_err(serde::de::Error::custom),
+        serde_json::Value::Null => Ok(vec![]),
+        _ => Ok(vec![]),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ListType {
@@ -19,6 +40,22 @@ pub enum ListType {
     Pakowanie,
     Terminarz,
     Custom,
+}
+
+impl ListType {
+    pub fn default_features(&self) -> Vec<ListFeature> {
+        match self {
+            Self::Zakupy | Self::Pakowanie => vec![ListFeature {
+                name: FEATURE_QUANTITY.into(),
+                config: serde_json::json!({"unit_default": "szt"}),
+            }],
+            Self::Terminarz => vec![ListFeature {
+                name: FEATURE_DUE_DATE.into(),
+                config: serde_json::json!({}),
+            }],
+            _ => vec![],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,12 +69,16 @@ pub struct List {
     pub position: i32,
     #[serde(deserialize_with = "bool_from_number")]
     pub archived: bool,
-    #[serde(deserialize_with = "bool_from_number")]
-    pub has_quantity: bool,
-    #[serde(deserialize_with = "bool_from_number")]
-    pub has_due_date: bool,
+    #[serde(default, deserialize_with = "features_from_json")]
+    pub features: Vec<ListFeature>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+impl List {
+    pub fn has_feature(&self, name: &str) -> bool {
+        self.features.iter().any(|f| f.name == name)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,10 +105,7 @@ pub struct Item {
 pub struct CreateListRequest {
     pub name: String,
     pub list_type: ListType,
-    #[serde(default)]
-    pub has_quantity: bool,
-    #[serde(default)]
-    pub has_due_date: bool,
+    pub features: Option<Vec<ListFeature>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,9 +113,17 @@ pub struct UpdateListRequest {
     pub name: Option<String>,
     pub description: Option<String>,
     pub list_type: Option<ListType>,
-    pub has_quantity: Option<bool>,
-    pub has_due_date: Option<bool>,
     pub archived: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeatureConfigRequest {
+    #[serde(default = "default_config")]
+    pub config: serde_json::Value,
+}
+
+fn default_config() -> serde_json::Value {
+    serde_json::json!({})
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

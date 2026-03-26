@@ -58,6 +58,9 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         // Sublists
         .get_async("/api/lists/:id/sublists", lists::list_sublists)
         .post_async("/api/lists/:id/sublists", lists::create_sublist)
+        // List features
+        .post_async("/api/lists/:id/features/:name", lists::add_feature)
+        .delete_async("/api/lists/:id/features/:name", lists::remove_feature)
         // Items
         .get_async("/api/lists/:list_id/items", items::list_all)
         .post_async("/api/lists/:list_id/items", items::create)

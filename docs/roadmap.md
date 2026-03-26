@@ -54,30 +54,30 @@ Z flat booleans na tabelę `list_features(list_id, feature_name, config TEXT/JSO
 
 ---
 
-## M2: Widok kalendarza (miesiąc + tydzień)
+## ~~M2: Widok kalendarza (miesiąc + tydzień)~~ ✅
 
 **Dostarcza:** Nawigacja po dniach z lotu ptaka.
 
-- Backend: `GET /api/items/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD` — per-day counts + item summaries
-- Frontend: widok miesiąca (kratki z kropkami/liczbą, klik → widok dnia via M1 `/api/items/by-date`), widok tygodniowy, przełącznik
-- Filtrowanie per lista/tag (reużywa toggle z M1)
+- ✅ Backend: `GET /api/items/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD` — per-day counts + item summaries
+- ✅ Frontend: widok miesiąca (kratki z kropkami/liczbą, klik → widok dnia via M1 `/api/items/by-date`), widok tygodniowy, przełącznik
+- ✅ Filtrowanie per lista/tag (reużywa toggle z M1)
 
-**Refaktor:** Wydzielenie komponentów date-related z `list.rs` do osobnych plików. Rozbicie `list.rs` (480 linii) na mniejsze komponenty.
+**Refaktor:** ✅ Wydzielenie komponentów date-related z `list.rs` do osobnych plików. Rozbicie `list.rs` (480 linii) na mniejsze komponenty.
 
 ---
 
-## M3: Konfigurowalny feature slice system
+## ~~M3: Konfigurowalny feature slice system~~ ✅
 
 **Dostarcza:** Feature jako obiekt z konfiguracją zamiast flat booleans. Fundament pod wszystkie przyszłe ficzery.
 
-- Backend: tabela `list_features(list_id, feature_name, config TEXT/JSON)`
-- Migracja istniejących flag:
+- ✅ Backend: tabela `list_features(list_id, feature_name, config TEXT/JSON)`
+- ✅ Migracja istniejących flag:
   - `has_quantity` → feature `"quantity"`, config `{"unit_default": "szt"}`
   - `has_due_date` → feature `"due_date"`, config `{}`
-- Endpointy: CRUD features per lista
-- Frontend: UI konfiguracji features przy tworzeniu/edycji listy (toggle + config per ficzer), dynamiczny item form renderuje pola na podstawie aktywnych features
+- ✅ Endpointy: CRUD features per lista
+- ✅ Frontend: UI konfiguracji features przy tworzeniu/edycji listy (toggle + config per ficzer), dynamiczny item form renderuje pola na podstawie aktywnych features
 
-**Refaktor:** Usunięcie flat booleans (`has_quantity`, `has_due_date`) z `List` struct i kolumn w DB. Dynamiczny UI zamiast hardcoded warunków w komponentach. Wydzielenie feature-specific komponentów (quantity input, date picker) jako pluggable modules.
+**Refaktor:** ✅ Usunięcie flat booleans (`has_quantity`, `has_due_date`) z `List` struct i kolumn w DB. ✅ Dynamiczny UI zamiast hardcoded warunków w komponentach.
 
 ---
 
