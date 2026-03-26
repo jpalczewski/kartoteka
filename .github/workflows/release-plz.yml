@@ -51,6 +51,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Install wasm32 target
         run: rustup target add wasm32-unknown-unknown
+      - name: Cache Cargo registry and build
+        uses: Swatinem/rust-cache@v2
       - name: Run release-plz
         uses: release-plz/action@v0.5
         with:
