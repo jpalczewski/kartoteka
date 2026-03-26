@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use super::tag_list::TagList;
+use crate::components::tags::tag_list::TagList;
 use kartoteka_shared::Tag;
 
 /// Displays assigned tags as badges with remove, plus a tag selector to add more.

@@ -171,6 +171,31 @@ pub struct DateItem {
     pub list_type: ListType,
 }
 
+// === Calendar types ===
+
+fn u32_from_number<'de, D: Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    match v {
+        serde_json::Value::Number(n) => Ok(n.as_f64().unwrap_or(0.0) as u32),
+        _ => Ok(0),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DaySummary {
+    pub date: String,
+    #[serde(deserialize_with = "u32_from_number")]
+    pub total: u32,
+    #[serde(deserialize_with = "u32_from_number")]
+    pub completed: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DayItems {
+    pub date: String,
+    pub items: Vec<DateItem>,
+}
+
 impl From<DateItem> for Item {
     fn from(di: DateItem) -> Self {
         Item {

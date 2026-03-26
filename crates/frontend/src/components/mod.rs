@@ -1,21 +1,21 @@
-pub mod add_group_input;
-pub mod add_input;
-pub mod add_item_input;
-pub mod confirm_delete_modal;
-pub mod date_item_row;
-pub mod editable_color;
-pub mod editable_description;
-pub mod editable_title;
-pub mod item_actions;
-pub mod item_row;
-pub mod list_card;
-pub mod list_header;
-pub mod list_tag_bar;
+pub mod calendar;
+pub mod common;
+pub mod filters;
+pub mod items;
+pub mod lists;
 pub mod nav;
-pub mod sublist_section;
-pub mod tag_badge;
-pub mod tag_filter_bar;
-pub mod tag_list;
-pub mod tag_selector;
-pub mod tag_tree;
-pub mod toast_container;
+pub mod tags;
+
+// Re-exports for backward compatibility with existing imports
+pub use common::confirm_delete_modal;
+pub use common::editable_color;
+pub use common::editable_title;
+pub use common::toast_container;
+
+pub use items::add_input;
+
+pub use tags::tag_badge;
+pub use tags::tag_list;
+pub use tags::tag_tree;
+
+pub use lists::list_card;

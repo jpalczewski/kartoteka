@@ -1,21 +1,23 @@
+mod date_view;
+mod normal_view;
+
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::api;
 use crate::app::{ToastContext, ToastKind};
-use crate::components::add_group_input::AddGroupInput;
-use crate::components::add_item_input::AddItemInput;
-use crate::components::date_item_row::{
-    DateItemRow, get_today, is_overdue, is_upcoming, sort_by_due_date,
-};
-use crate::components::editable_description::EditableDescription;
-use crate::components::item_actions::create_item_actions;
-use crate::components::item_row::ItemRow;
-use crate::components::list_header::ListHeader;
-use crate::components::list_tag_bar::ListTagBar;
-use crate::components::sublist_section::SublistSection;
-use crate::components::tag_filter_bar::TagFilterBar;
+use crate::components::common::editable_description::EditableDescription;
+use crate::components::items::add_item_input::AddItemInput;
+use crate::components::items::item_actions::create_item_actions;
+use crate::components::lists::add_group_input::AddGroupInput;
+use crate::components::lists::list_header::ListHeader;
+use crate::components::lists::list_tag_bar::ListTagBar;
+use crate::components::lists::sublist_section::SublistSection;
+use crate::components::tags::tag_filter_bar::TagFilterBar;
 use kartoteka_shared::{Item, ItemTagLink, List, ListTagLink, Tag, UpdateListRequest};
+
+use date_view::render_date_view;
+use normal_view::{NormalViewProps, render_normal_view};
 
 #[component]
 pub fn ListPage() -> impl IntoView {
@@ -37,7 +39,6 @@ pub fn ListPage() -> impl IntoView {
     let list_has_due_date = RwSignal::new(false);
     let sublists = RwSignal::new(Vec::<List>::new());
 
-    // Initial fetch
     let lid = list_id();
     leptos::task::spawn_local(async move {
         if let Ok(list) = api::fetch_list(&lid).await {
@@ -180,7 +181,6 @@ pub fn ListPage() -> impl IntoView {
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            // Header with editable name
             {move || view! {
                 <ListHeader
                     list_name=list_name.get()
@@ -207,7 +207,6 @@ pub fn ListPage() -> impl IntoView {
                 />
             }}
 
-            // Editable description
             {move || view! {
                 <EditableDescription
                     value=list_description.get()
@@ -229,7 +228,6 @@ pub fn ListPage() -> impl IntoView {
                 />
             }}
 
-            // List tags
             {move || {
                 let links = list_tag_links.read();
                 let tags = all_tags.read();
@@ -245,13 +243,11 @@ pub fn ListPage() -> impl IntoView {
 
             {move || view! { <AddItemInput on_submit=on_add has_quantity=list_has_quantity.get() has_due_date=list_has_due_date.get() /> }}
 
-            // Tag filter
             {move || {
                 let tags = all_tags.read();
                 view! { <TagFilterBar tags=tags.clone() active_tag_id=active_tag_filter on_select=set_active_tag_filter /> }
             }}
 
-            // Items and sublists
             {move || {
                 if loading.get() {
                     view! { <p>"Wczytywanie..."</p> }.into_any()
@@ -279,7 +275,6 @@ pub fn ListPage() -> impl IntoView {
                                 }
                             }}
 
-                            // Sub-lists
                             {move || {
                                 let subs = sublists.get();
                                 if subs.is_empty() {
@@ -327,8 +322,6 @@ pub fn ListPage() -> impl IntoView {
         </div>
     }
 }
-
-// --- Helper callbacks ---
 
 fn make_item_tag_toggle(item_tag_links: RwSignal<Vec<ItemTagLink>>) -> Callback<(String, String)> {
     Callback::new(move |(item_id, tag_id): (String, String)| {
@@ -396,148 +389,4 @@ fn make_move_callback(items: RwSignal<Vec<Item>>) -> Callback<(String, String)> 
             let _ = api::move_item(&item_id, &target_list_id).await;
         });
     })
-}
-
-// --- Render helpers ---
-
-fn render_date_view(
-    all: Vec<Item>,
-    tags: Vec<Tag>,
-    links: Vec<ItemTagLink>,
-    on_toggle: Callback<String>,
-    on_delete: Callback<String>,
-    on_tag_toggle: Callback<(String, String)>,
-) -> impl IntoView {
-    let today = get_today();
-
-    let mut overdue: Vec<Item> = all
-        .iter()
-        .filter(|i| is_overdue(i, &today))
-        .cloned()
-        .collect();
-    sort_by_due_date(&mut overdue);
-
-    let mut upcoming: Vec<Item> = all
-        .iter()
-        .filter(|i| is_upcoming(i, &today))
-        .cloned()
-        .collect();
-    sort_by_due_date(&mut upcoming);
-
-    let mut done: Vec<Item> = all.iter().filter(|i| i.completed).cloned().collect();
-    sort_by_due_date(&mut done);
-
-    let render_section = |label: &str,
-                          css: &str,
-                          items: Vec<Item>,
-                          tags: Vec<Tag>,
-                          links: Vec<ItemTagLink>| {
-        let label = label.to_string();
-        let css = css.to_string();
-        if items.is_empty() {
-            ().into_any()
-        } else {
-            view! {
-                <div class="mb-4">
-                    <h3 class=format!("text-sm font-semibold uppercase tracking-wide mb-2 {css}")>{label}</h3>
-                    {items.into_iter().map(|item| {
-                        let item_id = item.id.clone();
-                        let item_tags: Vec<String> = links.iter()
-                            .filter(|l| l.item_id == item.id)
-                            .map(|l| l.tag_id.clone())
-                            .collect();
-                        let tags_clone = tags.clone();
-                        let item_tag_toggle = Callback::new(move |tag_id: String| {
-                            on_tag_toggle.run((item_id.clone(), tag_id));
-                        });
-                        view! {
-                            <DateItemRow
-                                item=item
-                                on_toggle=on_toggle
-                                on_delete=on_delete
-                                all_tags=tags_clone
-                                item_tag_ids=item_tags
-                                on_tag_toggle=item_tag_toggle
-                            />
-                        }
-                    }).collect::<Vec<_>>()}
-                </div>
-            }.into_any()
-        }
-    };
-
-    view! {
-        <div>
-            {render_section("Zaległe", "text-error", overdue, tags.clone(), links.clone())}
-            {render_section("Nadchodzące", "text-warning", upcoming, tags.clone(), links.clone())}
-            {render_section("Zrobione", "text-base-content/40", done, tags, links)}
-        </div>
-    }
-}
-
-struct NormalViewProps {
-    items: Vec<Item>,
-    tags: Vec<Tag>,
-    item_tag_links: RwSignal<Vec<ItemTagLink>>,
-    sublists: Vec<List>,
-    on_toggle: Callback<String>,
-    on_delete: Callback<String>,
-    on_tag_toggle: Callback<(String, String)>,
-    on_description_save: Callback<(String, String)>,
-    on_quantity_change: Callback<(String, i32)>,
-    has_quantity: bool,
-    on_move: Callback<(String, String)>,
-}
-
-#[allow(clippy::too_many_arguments)]
-fn render_normal_view(p: NormalViewProps) -> impl IntoView {
-    let NormalViewProps {
-        items,
-        tags,
-        item_tag_links,
-        sublists,
-        on_toggle,
-        on_delete,
-        on_tag_toggle,
-        on_description_save,
-        on_quantity_change,
-        has_quantity,
-        on_move,
-    } = p;
-    let move_targets: Vec<(String, String)> = sublists
-        .iter()
-        .map(|s| (s.id.clone(), s.name.clone()))
-        .collect();
-
-    view! {
-        <div>
-            {items.iter().map(|item| {
-                let item_id = item.id.clone();
-                let item_tags: Vec<String> = item_tag_links.read().iter()
-                    .filter(|l| l.item_id == item.id)
-                    .map(|l| l.tag_id.clone())
-                    .collect();
-                let tags_clone = tags.clone();
-                let item_tag_toggle = Callback::new(move |tag_id: String| {
-                    on_tag_toggle.run((item_id.clone(), tag_id));
-                });
-                let mt = move_targets.clone();
-                view! {
-                    <ItemRow
-                        item=item.clone()
-                        on_toggle=on_toggle
-                        on_delete=on_delete
-                        all_tags=tags_clone
-                        item_tag_ids=item_tags
-                        on_tag_toggle=item_tag_toggle
-                        on_description_save=on_description_save
-                        has_quantity=has_quantity
-                        on_quantity_change=on_quantity_change
-                        move_targets=mt
-                        on_move=on_move
-                    />
-                }
-            }).collect::<Vec<_>>()}
-        </div>
-    }
 }

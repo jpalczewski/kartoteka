@@ -5,8 +5,9 @@ use leptos_router::path;
 use crate::components::nav::Nav;
 use crate::components::toast_container::ToastContainer;
 use crate::pages::{
-    home::HomePage, list::ListPage, login::LoginPage, settings::SettingsPage,
-    tag_detail::TagDetailPage, tags::TagsPage, today::TodayPage,
+    calendar::CalendarPage, calendar::day::CalendarDayPage, home::HomePage, list::ListPage,
+    login::LoginPage, settings::SettingsPage, tags::TagsPage, tags::detail::TagDetailPage,
+    today::TodayPage,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -75,6 +76,8 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/today") view=TodayPage/>
                     <Route path=path!("/login") view=LoginPage/>
                     <Route path=path!("/settings") view=SettingsPage/>
+                    <Route path=path!("/calendar") view=CalendarPage/>
+                    <Route path=path!("/calendar/:date") view=CalendarDayPage/>
                     <Route path=path!("/tags") view=TagsPage/>
                     <Route path=path!("/tags/:id") view=TagDetailPage/>
                     <Route path=path!("/lists/:id") view=ListPage/>

@@ -30,6 +30,7 @@ pub fn Nav() -> impl IntoView {
 
                     view! {
                         <a href="/today" class="btn btn-ghost btn-sm">"Dziś"</a>
+                        <a href="/calendar" class="btn btn-ghost btn-sm">"Kalendarz"</a>
                         <div class="relative">
                             <button
                                 class="btn btn-ghost btn-sm"

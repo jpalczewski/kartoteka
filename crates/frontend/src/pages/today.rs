@@ -5,7 +5,9 @@ use leptos_router::components::A;
 
 use crate::api;
 use crate::app::{ToastContext, ToastKind};
-use crate::components::date_item_row::{DateItemRow, get_today_string};
+use crate::components::common::date_utils::{format_polish_date, get_today_string};
+use crate::components::filters::filter_chips::FilterChips;
+use crate::components::items::date_item_row::DateItemRow;
 use kartoteka_shared::*;
 
 #[component]
@@ -130,83 +132,13 @@ pub fn TodayPage() -> impl IntoView {
 
                 view! {
                     <div>
-                        // Filter chips — lists
-                        <div class="flex flex-wrap gap-2 mb-2">
-                            {unique_lists.into_iter().map(|(list_id, list_name)| {
-                                let lid = list_id.clone();
-                                let is_hidden = {
-                                    let lid = lid.clone();
-                                    move || hidden_lists.get().contains(&lid)
-                                };
-                                view! {
-                                    <button
-                                        class=move || if is_hidden() {
-                                            "btn btn-xs btn-ghost opacity-40 line-through"
-                                        } else {
-                                            "btn btn-xs btn-outline btn-primary"
-                                        }
-                                        on:click=move |_| {
-                                            hidden_lists.update(|s| {
-                                                if !s.remove(&list_id) {
-                                                    s.insert(list_id.clone());
-                                                }
-                                            });
-                                        }
-                                    >
-                                        {list_name}
-                                    </button>
-                                }
-                            }).collect_view()}
-                        </div>
-
-                        // Filter chips — tags
-                        {if !relevant_tags.is_empty() {
-                            view! {
-                                <div class="flex flex-wrap gap-1 mb-2">
-                                    {relevant_tags.into_iter().map(|tag| {
-                                        let tid = tag.id.clone();
-                                        let tag_name = tag.name.clone();
-                                        let tag_color = tag.color.clone();
-                                        let is_hidden = {
-                                            let tid = tid.clone();
-                                            move || hidden_tags.get().contains(&tid)
-                                        };
-                                        view! {
-                                            <button
-                                                class=move || if is_hidden() {
-                                                    "badge badge-sm opacity-40 line-through cursor-pointer"
-                                                } else {
-                                                    "badge badge-sm cursor-pointer"
-                                                }
-                                                style=format!("background-color: {}; color: white;", tag_color)
-                                                on:click=move |_| {
-                                                    hidden_tags.update(|s| {
-                                                        if !s.remove(&tid) {
-                                                            s.insert(tid.clone());
-                                                        }
-                                                    });
-                                                }
-                                            >
-                                                {tag_name}
-                                            </button>
-                                        }
-                                    }).collect_view()}
-                                </div>
-                            }.into_any()
-                        } else {
-                            ().into_any()
-                        }}
-
-                        // Show completed toggle
-                        <label class="flex items-center gap-2 cursor-pointer mb-4">
-                            <input
-                                type="checkbox"
-                                class="toggle toggle-sm toggle-primary"
-                                prop:checked=move || show_completed.get()
-                                on:change=move |_| show_completed.update(|v| *v = !*v)
-                            />
-                            <span class="text-sm text-base-content/60">"Ukończone"</span>
-                        </label>
+                        <FilterChips
+                            unique_lists=unique_lists
+                            relevant_tags=relevant_tags
+                            hidden_lists=hidden_lists
+                            hidden_tags=hidden_tags
+                            show_completed=show_completed
+                        />
 
                         // Overdue section
                         {
@@ -291,7 +223,6 @@ fn render_groups(
                         let on_toggle = Callback::new(move |_id: String| {
                             let lid = toggle_list_id.clone();
                             let iid = toggle_item_id.clone();
-                            // Optimistic update
                             items_signal.update(|items| {
                                 if let Some(item) = items.iter_mut().find(|i| i.id == iid) {
                                     item.completed = !item.completed;
@@ -345,28 +276,4 @@ fn render_groups(
             }
         })
         .collect_view()
-}
-
-fn format_polish_date(date_str: &str) -> String {
-    let parts: Vec<&str> = date_str.split('-').collect();
-    if parts.len() != 3 {
-        return date_str.to_string();
-    }
-    let day = parts[2].trim_start_matches('0');
-    let month = match parts[1] {
-        "01" => "stycznia",
-        "02" => "lutego",
-        "03" => "marca",
-        "04" => "kwietnia",
-        "05" => "maja",
-        "06" => "czerwca",
-        "07" => "lipca",
-        "08" => "sierpnia",
-        "09" => "września",
-        "10" => "października",
-        "11" => "listopada",
-        "12" => "grudnia",
-        _ => parts[1],
-    };
-    format!("{day} {month} {}", parts[0])
 }
