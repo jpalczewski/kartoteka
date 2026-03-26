@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-kartoteka-shared = { path = "../shared" }
+kartoteka-shared = { path = "../shared", version = "0.1.0" }
 leptos = { version = "0.7", features = ["csr"] }
 leptos_router = "0.7"
 gloo-net = { version = "0.6", features = ["http"] }
