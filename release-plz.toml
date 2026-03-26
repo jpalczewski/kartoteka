@@ -7,6 +7,15 @@ git_release_enable = true
 git_tag_enable = true
 changelog_path = "./CHANGELOG.md"
 pr_labels = ["release"]
+publish_no_verify = true
+
+[[package]]
+name = "kartoteka-api"
+release = false
+
+[[package]]
+name = "kartoteka-frontend"
+release = false
 
 [changelog]
 body = """
