@@ -1,8 +1,7 @@
 use kartoteka_shared::{Item, Tag};
 use leptos::prelude::*;
 
-use super::tag_badge::TagBadge;
-use super::tag_selector::TagSelector;
+use super::tag_list::TagList;
 
 #[component]
 pub fn ItemRow(
@@ -147,29 +146,13 @@ pub fn ItemRow(
 
             // Row 2: Tags (below title, indented)
             {if has_tags {
-                let item_tags: Vec<Tag> = all_tags.iter()
-                    .filter(|t| item_tag_ids.contains(&t.id))
-                    .cloned()
-                    .collect();
                 view! {
-                    <div class="flex flex-wrap items-center gap-1 pl-14 pb-1">
-                        {item_tags.into_iter().map(|t| {
-                            match on_tag_toggle {
-                                Some(cb) => view! { <TagBadge tag=t on_remove=cb/> }.into_any(),
-                                None => view! { <TagBadge tag=t/> }.into_any(),
-                            }
-                        }).collect::<Vec<_>>()}
-                        {if let Some(toggle_cb) = on_tag_toggle {
-                            view! {
-                                <TagSelector
-                                    all_tags=all_tags.clone()
-                                    selected_tag_ids=item_tag_ids.clone()
-                                    on_toggle=toggle_cb
-                                />
-                            }.into_any()
-                        } else {
-                            view! {}.into_any()
-                        }}
+                    <div class="pl-14 pb-1">
+                        <TagList
+                            all_tags=all_tags.clone()
+                            selected_tag_ids=item_tag_ids.clone()
+                            on_toggle=on_tag_toggle
+                        />
                     </div>
                 }.into_any()
             } else {
