@@ -4,10 +4,7 @@ use leptos::prelude::*;
 /// Saves only when the popup is closed (not on every change).
 /// Clicking outside closes the popup via a transparent overlay.
 #[component]
-pub fn EditableColor(
-    color: String,
-    on_save: Callback<String>,
-) -> impl IntoView {
+pub fn EditableColor(color: String, on_save: Callback<String>) -> impl IntoView {
     let (editing, set_editing) = signal(false);
     let current_color = RwSignal::new(color.clone());
     let original_color = RwSignal::new(color.clone());

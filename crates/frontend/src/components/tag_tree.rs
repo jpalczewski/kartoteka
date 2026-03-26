@@ -40,10 +40,17 @@ pub fn build_tag_tree(tags: &[Tag]) -> Vec<TagNode> {
         children.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     }
 
-    fn build_subtree_inner<'a>(tag: &'a Tag, children_map: &HashMap<&str, Vec<&'a Tag>>) -> TagNode {
+    fn build_subtree_inner<'a>(
+        tag: &'a Tag,
+        children_map: &HashMap<&str, Vec<&'a Tag>>,
+    ) -> TagNode {
         let children = children_map
             .get(tag.id.as_str())
-            .map(|kids| kids.iter().map(|t| build_subtree_inner(t, children_map)).collect())
+            .map(|kids| {
+                kids.iter()
+                    .map(|t| build_subtree_inner(t, children_map))
+                    .collect()
+            })
             .unwrap_or_default();
         TagNode {
             tag: tag.clone(),
@@ -51,7 +58,10 @@ pub fn build_tag_tree(tags: &[Tag]) -> Vec<TagNode> {
         }
     }
 
-    roots.iter().map(|t| build_subtree_inner(t, &children_map)).collect()
+    roots
+        .iter()
+        .map(|t| build_subtree_inner(t, &children_map))
+        .collect()
 }
 
 /// Walk ancestors of a tag (from tag up to root). Returns list from root to tag.
@@ -95,7 +105,8 @@ pub fn get_descendant_ids(tags: &[Tag], tag_id: &str) -> Vec<String> {
 /// Build a subtree rooted at a specific tag. Returns children of that tag as roots.
 pub fn build_subtree(tags: &[Tag], root_id: &str) -> Vec<TagNode> {
     let descendant_ids = get_descendant_ids(tags, root_id);
-    let subtags: Vec<Tag> = tags.iter()
+    let subtags: Vec<Tag> = tags
+        .iter()
         .filter(|t| descendant_ids.contains(&t.id))
         .cloned()
         .collect();

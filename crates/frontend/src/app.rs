@@ -4,7 +4,10 @@ use leptos_router::path;
 
 use crate::components::nav::Nav;
 use crate::components::toast_container::ToastContainer;
-use crate::pages::{home::HomePage, list::ListPage, login::LoginPage, settings::SettingsPage, tag_detail::TagDetailPage, tags::TagsPage, today::TodayPage};
+use crate::pages::{
+    home::HomePage, list::ListPage, login::LoginPage, settings::SettingsPage,
+    tag_detail::TagDetailPage, tags::TagsPage, today::TodayPage,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToastKind {
@@ -36,7 +39,8 @@ impl ToastContext {
     pub fn push(&self, message: String, kind: ToastKind) {
         let id = self.next_id.get();
         self.next_id.update(|n| *n += 1);
-        self.toasts.update(|ts| ts.push(Toast { id, message, kind }));
+        self.toasts
+            .update(|ts| ts.push(Toast { id, message, kind }));
 
         let toasts = self.toasts;
         set_timeout(

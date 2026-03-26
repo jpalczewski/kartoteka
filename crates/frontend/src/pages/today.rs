@@ -5,7 +5,7 @@ use leptos_router::components::A;
 
 use crate::api;
 use crate::app::{ToastContext, ToastKind};
-use crate::components::date_item_row::{get_today_string, DateItemRow};
+use crate::components::date_item_row::{DateItemRow, get_today_string};
 use kartoteka_shared::*;
 
 #[component]

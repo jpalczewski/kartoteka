@@ -1,4 +1,4 @@
-use crate::components::tag_tree::{build_tag_tree, TagNode};
+use crate::components::tag_tree::{TagNode, build_tag_tree};
 use kartoteka_shared::Tag;
 use leptos::prelude::*;
 use std::collections::HashMap;

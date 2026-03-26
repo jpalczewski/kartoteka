@@ -3,14 +3,24 @@ use leptos::prelude::*;
 /// Helper: get today's date as YYYY-MM-DD
 fn today_str() -> String {
     let d = js_sys::Date::new_0();
-    format!("{:04}-{:02}-{:02}", d.get_full_year(), d.get_month() + 1, d.get_date())
+    format!(
+        "{:04}-{:02}-{:02}",
+        d.get_full_year(),
+        d.get_month() + 1,
+        d.get_date()
+    )
 }
 
 /// Helper: get tomorrow's date as YYYY-MM-DD
 fn tomorrow_str() -> String {
     let d = js_sys::Date::new_0();
     d.set_date(d.get_date() + 1);
-    format!("{:04}-{:02}-{:02}", d.get_full_year(), d.get_month() + 1, d.get_date())
+    format!(
+        "{:04}-{:02}-{:02}",
+        d.get_full_year(),
+        d.get_month() + 1,
+        d.get_date()
+    )
 }
 
 /// Helper: get next Monday's date as YYYY-MM-DD
@@ -18,16 +28,32 @@ fn next_monday_str() -> String {
     let d = js_sys::Date::new_0();
     let dow = d.get_day(); // 0=Sun, 1=Mon, ...
     let days_until_monday = if dow == 0 { 1 } else { (8 - dow) % 7 };
-    let days_until_monday = if days_until_monday == 0 { 7 } else { days_until_monday };
+    let days_until_monday = if days_until_monday == 0 {
+        7
+    } else {
+        days_until_monday
+    };
     d.set_date(d.get_date() + days_until_monday);
-    format!("{:04}-{:02}-{:02}", d.get_full_year(), d.get_month() + 1, d.get_date())
+    format!(
+        "{:04}-{:02}-{:02}",
+        d.get_full_year(),
+        d.get_month() + 1,
+        d.get_date()
+    )
 }
 
 /// Form for adding a new list item.
 /// Calls `on_submit` with `(title, description, quantity, unit, due_date, due_time)`.
 #[component]
 pub fn AddItemInput(
-    on_submit: Callback<(String, Option<String>, Option<i32>, Option<String>, Option<String>, Option<String>)>,
+    on_submit: Callback<(
+        String,
+        Option<String>,
+        Option<i32>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )>,
     #[prop(default = false)] has_quantity: bool,
     #[prop(default = false)] has_due_date: bool,
 ) -> impl IntoView {
@@ -49,7 +75,11 @@ pub fn AddItemInput(
         let q: Option<i32> = quantity.get().trim().parse::<i32>().ok().map(|v| v.max(1));
         let u = if q.is_some() {
             let u_val = unit.get();
-            if u_val.trim().is_empty() { None } else { Some(u_val) }
+            if u_val.trim().is_empty() {
+                None
+            } else {
+                Some(u_val)
+            }
         } else {
             None
         };

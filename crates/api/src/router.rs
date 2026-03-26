@@ -7,8 +7,14 @@ fn cors_headers() -> Headers {
     let headers = Headers::new();
     // TODO: restrict to actual domain in production
     let _ = headers.set("Access-Control-Allow-Origin", "*");
-    let _ = headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-    let _ = headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    let _ = headers.set(
+        "Access-Control-Allow-Methods",
+        "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    );
+    let _ = headers.set(
+        "Access-Control-Allow-Headers",
+        "Content-Type, Authorization",
+    );
     headers
 }
 

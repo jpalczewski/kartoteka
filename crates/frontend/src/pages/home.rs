@@ -5,7 +5,7 @@ use crate::api;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::add_input::AddInput;
 use crate::components::confirm_delete_modal::ConfirmDeleteModal;
-use crate::components::list_card::{list_type_icon, list_type_label, ListCard};
+use crate::components::list_card::{ListCard, list_type_icon, list_type_label};
 
 #[component]
 pub fn HomePage() -> impl IntoView {
@@ -55,7 +55,7 @@ pub fn HomePage() -> impl IntoView {
         }
     });
 
-    let tags_res = LocalResource::new(|| api::fetch_tags());
+    let tags_res = LocalResource::new(api::fetch_tags);
     let links_res = LocalResource::new(move || {
         let _ = refresh.get();
         api::fetch_list_tag_links()
@@ -76,9 +76,8 @@ pub fn HomePage() -> impl IntoView {
             .iter()
             .any(|l| l.list_id == list_id && l.tag_id == tag_id);
         if has_tag {
-            list_tag_links.update(|links| {
-                links.retain(|l| !(l.list_id == list_id && l.tag_id == tag_id))
-            });
+            list_tag_links
+                .update(|links| links.retain(|l| !(l.list_id == list_id && l.tag_id == tag_id)));
             let lid = list_id.clone();
             let tid = tag_id.clone();
             leptos::task::spawn_local(async move {

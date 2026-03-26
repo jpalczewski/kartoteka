@@ -5,7 +5,14 @@ use kartoteka_shared::{CreateItemRequest, Item, UpdateItemRequest};
 
 /// All item-level callbacks for a list or sublist.
 pub struct ItemActions {
-    pub on_add: Callback<(String, Option<String>, Option<i32>, Option<String>, Option<String>, Option<String>)>,
+    pub on_add: Callback<(
+        String,
+        Option<String>,
+        Option<i32>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )>,
     pub on_toggle: Callback<String>,
     pub on_delete: Callback<String>,
     pub on_description_save: Callback<(String, String)>,
