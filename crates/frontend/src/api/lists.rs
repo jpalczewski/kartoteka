@@ -92,3 +92,29 @@ pub async fn create_sublist(parent_id: &str, name: &str) -> Result<List, String>
     )
     .await
 }
+
+pub async fn add_feature(
+    list_id: &str,
+    feature_name: &str,
+    config: serde_json::Value,
+) -> Result<List, String> {
+    super::post_json(
+        &format!(
+            "{}/lists/{list_id}/features/{feature_name}",
+            super::API_BASE
+        ),
+        &FeatureConfigRequest { config },
+    )
+    .await
+}
+
+pub async fn remove_feature(list_id: &str, feature_name: &str) -> Result<List, String> {
+    let resp = super::del(&format!(
+        "{}/lists/{list_id}/features/{feature_name}",
+        super::API_BASE
+    ))
+    .send()
+    .await
+    .map_err(|e| e.to_string())?;
+    resp.json().await.map_err(|e| e.to_string())
+}

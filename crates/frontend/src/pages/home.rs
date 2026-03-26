@@ -1,4 +1,7 @@
-use kartoteka_shared::{CreateListRequest, List, ListTagLink, ListType, Tag};
+use kartoteka_shared::{
+    CreateListRequest, FEATURE_DUE_DATE, FEATURE_QUANTITY, List, ListFeature, ListTagLink,
+    ListType, Tag,
+};
 use leptos::prelude::*;
 
 use crate::api;
@@ -19,8 +22,8 @@ pub fn HomePage() -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
 
     let (new_list_type, set_new_list_type) = signal(ListType::Custom);
-    let (has_quantity, set_has_quantity) = signal(false);
-    let (has_due_date, set_has_due_date) = signal(false);
+    let (feat_quantity, set_feat_quantity) = signal(false);
+    let (feat_due_date, set_feat_due_date) = signal(false);
     let (refresh, set_refresh) = signal(0u32);
     let (active_tag_filter, set_active_tag_filter) = signal(Option::<String>::None);
 
@@ -100,14 +103,26 @@ pub fn HomePage() -> impl IntoView {
 
     let on_create = Callback::new(move |name: String| {
         let list_type = new_list_type.get();
-        let hq = has_quantity.get();
-        let hd = has_due_date.get();
+        let fq = feat_quantity.get();
+        let fd = feat_due_date.get();
         leptos::task::spawn_local(async move {
+            let mut features = Vec::new();
+            if fq {
+                features.push(ListFeature {
+                    name: FEATURE_QUANTITY.into(),
+                    config: serde_json::json!({"unit_default": "szt"}),
+                });
+            }
+            if fd {
+                features.push(ListFeature {
+                    name: FEATURE_DUE_DATE.into(),
+                    config: serde_json::json!({}),
+                });
+            }
             let req = CreateListRequest {
                 name,
                 list_type,
-                has_quantity: hq,
-                has_due_date: hd,
+                features: Some(features),
             };
             let _ = api::create_list(&req).await;
             set_refresh.update(|n| *n += 1);
@@ -178,20 +193,9 @@ pub fn HomePage() -> impl IntoView {
                                     }
                                     on:click=move |_| {
                                         set_new_list_type.set(lt_for_click.clone());
-                                        match &lt_for_click {
-                                            ListType::Checklist | ListType::Custom => {
-                                                set_has_quantity.set(false);
-                                                set_has_due_date.set(false);
-                                            }
-                                            ListType::Zakupy | ListType::Pakowanie => {
-                                                set_has_quantity.set(true);
-                                                set_has_due_date.set(false);
-                                            }
-                                            ListType::Terminarz => {
-                                                set_has_quantity.set(false);
-                                                set_has_due_date.set(true);
-                                            }
-                                        }
+                                        let defaults = lt_for_click.default_features();
+                                        set_feat_quantity.set(defaults.iter().any(|f| f.name == FEATURE_QUANTITY));
+                                        set_feat_due_date.set(defaults.iter().any(|f| f.name == FEATURE_DUE_DATE));
                                     }
                                 >
                                     {icon} " " {label}
@@ -205,8 +209,8 @@ pub fn HomePage() -> impl IntoView {
                         <input
                             type="checkbox"
                             class="checkbox checkbox-sm"
-                            prop:checked=has_quantity
-                            on:change=move |ev| set_has_quantity.set(event_target_checked(&ev))
+                            prop:checked=feat_quantity
+                            on:change=move |ev| set_feat_quantity.set(event_target_checked(&ev))
                         />
                         <span class="label-text">"Ilości"</span>
                     </label>
@@ -214,8 +218,8 @@ pub fn HomePage() -> impl IntoView {
                         <input
                             type="checkbox"
                             class="checkbox checkbox-sm"
-                            prop:checked=has_due_date
-                            on:change=move |ev| set_has_due_date.set(event_target_checked(&ev))
+                            prop:checked=feat_due_date
+                            on:change=move |ev| set_feat_due_date.set(event_target_checked(&ev))
                         />
                         <span class="label-text">"Terminy"</span>
                     </label>
