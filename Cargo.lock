@@ -867,7 +867,7 @@ dependencies = [
 
 [[package]]
 name = "kartoteka-api"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "kartoteka-shared",
  "serde",
@@ -879,7 +879,7 @@ dependencies = [
 
 [[package]]
 name = "kartoteka-frontend"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "console_error_panic_hook",
  "gloo-net",
@@ -895,7 +895,7 @@ dependencies = [
 
 [[package]]
 name = "kartoteka-shared"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
