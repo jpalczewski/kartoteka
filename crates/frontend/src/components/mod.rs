@@ -16,5 +16,6 @@ pub mod editable_description;
 pub mod editable_title;
 pub mod list_tag_bar;
 pub mod tag_filter_bar;
+pub mod tag_list;
 pub mod tag_tree;
 pub mod toast_container;

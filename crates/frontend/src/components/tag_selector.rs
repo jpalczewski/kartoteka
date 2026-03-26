@@ -55,13 +55,13 @@ fn TagSelectorNode(
     let tid = tag.id.clone();
     let tid_toggle = tag.id.clone();
     let tid_expand = tag.id.clone();
-    let padding = format!("padding-left: {}rem;", depth as f64 * 0.75);
+    let margin = format!("margin-left: {}rem;", depth as f64 * 0.75);
 
     view! {
-        <div>
+        <div style=margin>
             <label
                 class="flex items-center gap-1.5 px-2 py-1.5 text-sm rounded cursor-pointer hover:bg-base-300"
-                style=format!("{padding} border-left: 3px solid {color};")
+                style=format!("border-left: 3px solid {color};")
             >
                 {has_children.then(|| {
                     let tid_e = tid_expand.clone();

@@ -1,8 +1,7 @@
 use kartoteka_shared::{Item, Tag};
 use leptos::prelude::*;
 
-use super::tag_badge::TagBadge;
-use super::tag_selector::TagSelector;
+use super::tag_list::TagList;
 
 pub fn get_today_string() -> String {
     let today = js_sys::Date::new_0();
@@ -194,37 +193,12 @@ pub fn DateItemRow(
                 />
                 <span class=title_class>{item.title}</span>
 
-                // Tag badges
-                {if !item_tag_ids.is_empty() {
-                    let item_tags: Vec<Tag> = all_tags.iter()
-                        .filter(|t| item_tag_ids.contains(&t.id))
-                        .cloned()
-                        .collect();
-                    view! {
-                        <div class="flex flex-wrap gap-1">
-                            {item_tags.into_iter().map(|t| {
-                                match on_tag_toggle {
-                                    Some(cb) => view! { <TagBadge tag=t on_remove=cb/> }.into_any(),
-                                    None => view! { <TagBadge tag=t/> }.into_any(),
-                                }
-                            }).collect::<Vec<_>>()}
-                        </div>
-                    }.into_any()
-                } else {
-                    view! {}.into_any()
-                }}
-                // Tag selector
-                {if let Some(toggle_cb) = on_tag_toggle {
-                    view! {
-                        <TagSelector
-                            all_tags=all_tags.clone()
-                            selected_tag_ids=item_tag_ids.clone()
-                            on_toggle=toggle_cb
-                        />
-                    }.into_any()
-                } else {
-                    view! {}.into_any()
-                }}
+                // Tags
+                <TagList
+                    all_tags=all_tags.clone()
+                    selected_tag_ids=item_tag_ids.clone()
+                    on_toggle=on_tag_toggle
+                />
 
                 <div class=date_color>
                     {date_display.map(|d| view! { <div class="font-medium">{d}</div> })}
