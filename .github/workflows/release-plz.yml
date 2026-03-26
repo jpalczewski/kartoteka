@@ -5,6 +5,12 @@ on:
     branches:
       - master
 
+# Compile-time env vars needed by cargo package --verify
+# (release-plz runs cargo package during version detection)
+env:
+  API_BASE_URL: "/api"
+  HANKO_API_URL: "https://placeholder.hanko.io"
+
 jobs:
   release-plz-release:
     name: Release-plz release
@@ -43,6 +49,8 @@ jobs:
           persist-credentials: false
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+      - name: Install wasm32 target
+        run: rustup target add wasm32-unknown-unknown
       - name: Run release-plz
         uses: release-plz/action@v0.5
         with:
