@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { getMigrations } from "better-auth/db/migration";
+import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import type { Env, Variables } from "./types";
 import { getAuth } from "./auth";
 import { authMiddleware } from "./middleware";
 import { proxy } from "./proxy";
+import { McpApiHandler } from "./mcp/server";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -46,8 +48,104 @@ app.all("/auth/*", async (c) => {
   return auth.handler(c.req.raw);
 });
 
+// MCP OAuth consent screen
+// GET: show login form (if not authenticated) or consent screen (if authenticated)
+// POST: complete the OAuth authorization flow
+app.all("/mcp/authorize", async (c) => {
+  const env = c.env;
+  const request = c.req.raw;
+
+  // Parse the OAuth request parameters
+  const oauthReqInfo = await env.OAUTH_PROVIDER.parseAuthRequest(request);
+
+  // Check for an existing Better Auth session
+  const auth = getAuth(env);
+  const session = await auth.api.getSession({ headers: request.headers });
+
+  if (!session) {
+    // No session — show a combined login + consent form
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kartoteka — Grant Access to Claude</title>
+  <style>
+    body { font-family: sans-serif; max-width: 400px; margin: 80px auto; padding: 0 16px; }
+    h1 { font-size: 1.4rem; }
+    label { display: block; margin-top: 12px; font-size: 0.9rem; }
+    input { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
+    button { margin-top: 20px; width: 100%; padding: 10px; background: #6366f1; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Grant Kartoteka access to Claude</h1>
+  <p>Sign in to your Kartoteka account to authorize Claude to access your lists.</p>
+  <form method="POST" action="/auth/sign-in/email">
+    <input type="hidden" name="callbackURL" value="/mcp/authorize?${new URL(request.url).searchParams.toString()}">
+    <label>Email<input type="email" name="email" required></label>
+    <label>Password<input type="password" name="password" required></label>
+    <button type="submit">Sign in &amp; Authorize</button>
+  </form>
+</body>
+</html>`;
+    return c.html(html);
+  }
+
+  if (request.method === "POST") {
+    // User approved — complete the authorization
+    const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
+      request: oauthReqInfo,
+      userId: session.user.id,
+      metadata: { label: "Claude MCP access" },
+      scope: oauthReqInfo.scope ?? [],
+      props: { userId: session.user.id },
+    });
+    return Response.redirect(redirectTo, 302);
+  }
+
+  // GET with valid session — show consent screen
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kartoteka — Grant Access to Claude</title>
+  <style>
+    body { font-family: sans-serif; max-width: 400px; margin: 80px auto; padding: 0 16px; }
+    h1 { font-size: 1.4rem; }
+    p { color: #555; }
+    button { margin-top: 20px; width: 100%; padding: 10px; background: #6366f1; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Grant Kartoteka access to Claude</h1>
+  <p>Signed in as <strong>${session.user.email}</strong></p>
+  <p>Claude is requesting access to your Kartoteka lists.</p>
+  <form method="POST">
+    <button type="submit">Approve</button>
+  </form>
+</body>
+</html>`;
+  return c.html(html);
+});
+
 // API routes — require auth, then proxy to Rust API Worker
 app.use("/api/*", authMiddleware);
 app.route("/api", proxy);
 
-export default app;
+export { McpApiHandler };
+
+export default new OAuthProvider({
+  apiRoute: "/mcp/",
+  apiHandler: McpApiHandler,
+  defaultHandler: {
+    fetch: (request: Request, env: unknown, ctx: ExecutionContext) =>
+      app.fetch(request, env as Env, ctx),
+  },
+  authorizeEndpoint: "/mcp/authorize",
+  tokenEndpoint: "/mcp/oauth/token",
+  clientRegistrationEndpoint: "/mcp/oauth/register",
+  scopesSupported: ["read", "write"],
+  accessTokenTTL: 3600,
+});

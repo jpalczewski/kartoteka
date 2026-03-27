@@ -1,3 +1,5 @@
+import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
+
 export interface Env {
   AUTH_DB: D1Database;
   OAUTH_KV: KVNamespace;
@@ -9,6 +11,8 @@ export interface Env {
   DEV_AUTH_USER_ID?: string;
   DEV_API_URL?: string;
   MIGRATE_SECRET?: string;
+  // Injected by OAuthProvider at request time
+  OAUTH_PROVIDER: OAuthHelpers;
 }
 
 export interface Variables {
