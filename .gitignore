@@ -18,6 +18,9 @@ build/
 mcp/node_modules/
 mcp/dist/
 
+# Gateway (Node)
+gateway/node_modules/
+
 # OS
 .DS_Store
 *.swp

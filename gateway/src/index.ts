@@ -4,6 +4,7 @@ import type { Env, Variables } from "./types";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+// TODO: restrict CORS origins to frontend domain in production
 app.use("/api/*", cors());
 app.use("/auth/*", cors());
 

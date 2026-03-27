@@ -20,6 +20,12 @@ id = "TODO_CREATE_WITH_WRANGLER"
 binding = "API_WORKER"
 service = "kartoteka-api"
 
+# Secrets — configure before first deploy:
+#   wrangler secret put BETTER_AUTH_SECRET
+#   wrangler secret put BETTER_AUTH_URL
+#   wrangler secret put GITHUB_CLIENT_ID      (optional)
+#   wrangler secret put GITHUB_CLIENT_SECRET   (optional)
+
 # Local dev environment
 [env.local]
 name = "kartoteka-gateway-local"
