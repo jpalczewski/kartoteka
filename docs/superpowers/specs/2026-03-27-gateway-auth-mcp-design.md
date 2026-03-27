@@ -54,7 +54,8 @@ CF Pages (Leptos frontend)
 - Gateway validates session, injects `X-User-Id` header, proxies to API Worker via service binding
 - Rust API Worker drops its own auth middleware — trusts `X-User-Id` from Gateway
 - Two separate D1 databases: auth DB (users, sessions, accounts) and app DB (lists, items)
-- Dev mode: `DEV_USER_ID` env var bypasses auth in Gateway, same as current approach
+- Dev mode: `DEV_AUTH_USER_ID` env var bypasses auth in Gateway, consistent with existing API Worker convention
+- D1 holds Better Auth tables (users, sessions, accounts); KV holds OAuth 2.1 authorization codes and access tokens managed by the MCP OAuth provider
 
 ## Auth — Better Auth
 
@@ -79,7 +80,7 @@ Future (no architecture changes needed): magic link, passkeys, 2FA — all Bette
 1. Custom login/signup UI in Leptos (no external widgets)
 2. Frontend POSTs credentials to Gateway `/auth/api/sign-in/email`
 3. Better Auth returns session cookie
-4. Subsequent requests carry cookie → Gateway validates → proxies to API with `X-User-Id`
+4. Subsequent requests carry cookie (`credentials: "include"` on all `gloo-net` requests) → Gateway validates → proxies to API with `X-User-Id`
 
 **MCP (Claude Desktop/Code):**
 1. Claude initiates OAuth 2.1 PKCE flow
@@ -93,7 +94,7 @@ Future (no architecture changes needed): magic link, passkeys, 2FA — all Bette
 3. CLI receives token via polling/callback
 
 **Dev mode:**
-- Env var `DEV_USER_ID` — Gateway passes through without auth, sets `X-User-Id` to hardcoded value
+- Env var `DEV_AUTH_USER_ID` — Gateway passes through without auth, sets `X-User-Id` to hardcoded value
 
 ## MCP Server — Scope
 
@@ -105,18 +106,22 @@ Minimum viable, 5 tools:
 | `get_list_items` | Show items in a list | `GET /api/lists/:list_id/items` |
 | `create_list` | Create a new list | `POST /api/lists` |
 | `add_item` | Add item to a list | `POST /api/lists/:list_id/items` |
-| `toggle_item` | Mark item done/undone | `PUT /api/lists/:list_id/items/:id` |
+| `toggle_item` | Mark item done/undone | `PUT /api/lists/:list_id/items/:id` (sends `{ completed: true/false }` to general update endpoint) |
 
 Each tool is a thin wrapper: Zod input validation → service binding call to Rust API → format response for LLM.
 
-Expansion (containers, tags, sublists) in future iterations without architecture changes.
+Note: The Gateway proxy passes through ALL `/api/*` routes to the API Worker, not just those listed above. The MCP tools are a curated subset of the full API surface. Expansion (containers, tags, sublists) in future iterations without architecture changes.
 
 ## Hanko Migration
 
 ### What changes
 
 - **Frontend:** Remove `hanko-init.js`, `hanko-init.js.template`, Hanko SDK. Replace with custom login/signup forms in Leptos calling Better Auth API.
-- **API Worker:** Remove `auth.rs` (Hanko JWT validation). Replace with simple `X-User-Id` header check from service binding.
+- **API Worker:**
+  - Remove `auth.rs` (Hanko JWT validation). Replace with simple `X-User-Id` header presence check — return 401 if absent.
+  - Set `workers_dev = false` in `wrangler.toml` to prevent direct public access (only reachable via Gateway service binding).
+  - `/api/health` remains unauthenticated (no `X-User-Id` required).
+  - Remove CORS handling from `router.rs` — Gateway owns CORS now.
 - **Config:** Drop `HANKO_API_URL` env var. Add `BETTER_AUTH_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`.
 - **User migration:** Not needed — no production users on Hanko.
 
@@ -146,17 +151,18 @@ gateway/                        ← new TS project in repo root (replaces mcp/)
 - API Worker rejects requests without `X-User-Id` (defense in depth)
 - Better Auth built-in rate limiting for auth endpoints
 - Cloudflare default rate limiting for MCP/API on Workers level
-- Gateway owns CORS — Rust API Worker drops CORS headers (internal only)
+- Gateway owns CORS via Hono `cors()` middleware on `/api/*` and `/auth/*` routes — replaces CORS handling removed from Rust API Worker
 
 ## Environment Variables
 
 ### Gateway Worker
 - `BETTER_AUTH_SECRET` — session encryption
+- `BETTER_AUTH_URL` — public URL of the Gateway Worker (cookie domain, OAuth redirect URLs)
 - `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` — GitHub OAuth app
-- `DEV_USER_ID` — dev mode bypass (optional)
+- `DEV_AUTH_USER_ID` — dev mode bypass (optional)
 
-### API Worker (unchanged)
-- `DEV_USER_ID` — kept for direct dev access (optional)
+### API Worker
+- `DEV_AUTH_USER_ID` — kept for direct dev access (optional)
 - D1 binding to app database
 
 ## Out of Scope
