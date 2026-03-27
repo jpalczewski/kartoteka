@@ -54,6 +54,15 @@ app.post("/migrate", async (c) => {
   }
 });
 
+// In local dev, return a fake session so the frontend doesn't force login
+app.get("/auth/api/get-session", (c) => {
+  if (!c.env.DEV_AUTH_USER_ID) return c.notFound();
+  return c.json({
+    session: { id: "dev-session", userId: c.env.DEV_AUTH_USER_ID, expiresAt: "2099-01-01T00:00:00.000Z" },
+    user: { id: c.env.DEV_AUTH_USER_ID, email: "dev@local", name: "Dev User", emailVerified: true },
+  });
+});
+
 app.all("/auth/*", async (c) => {
   const auth = getAuth(c.env);
   return auth.handler(c.req.raw);
