@@ -81,17 +81,18 @@ Z flat booleans na tabelę `list_features(list_id, feature_name, config TEXT/JSO
 
 ---
 
-## M4: Bogatsza semantyka czasu
+## ~~M4: Bogatsza semantyka czasu~~ ✅
 
 **Dostarcza:** Różne typy dat — start_date, deadline, hard_deadline. Buduje na feature slice system z M3.
 
-- Backend: nowe kolumny na items (`start_date`, `deadline`, `hard_deadline`)
-- Nowy feature slice `"deadlines"` z config `{"has_start_date": true, "has_deadline": true, "has_hard_deadline": false}` — włączany per lista przez M3 system
-- Cross-list query (M1) rozszerzony o nowe typy dat (`?date_field=deadline`)
-- Frontend: dynamiczne pola w formularzu itema (zależne od config feature slice), wizualne rozróżnienie per typ daty (kolor/ikona)
-- Kalendarz (M2) i "Dziś" (M1) rozumieją nowe typy dat
+- ✅ Backend: nowe kolumny na items (`start_date`, `start_time`, `deadline`, `deadline_time`, `hard_deadline`) — rename z `due_date`/`due_time`
+- ✅ Nowy feature slice `"deadlines"` z config `{"has_start_date": true, "has_deadline": true, "has_hard_deadline": false}` — włączany per lista przez M3 system, z sub-checkboxami w UI
+- ✅ Cross-list query (M1) rozszerzony o nowe typy dat (`?date_field=deadline|start_date|hard_deadline|all`), UNION ALL dla `all`, `COUNT(DISTINCT)` w calendar counts
+- ✅ Frontend: compact chip-based date input, inline date editor na istniejących itemach (klikalne badge), DateEditor shared component, quick dates + quick times
+- ✅ Kalendarz (M2) i "Dziś" (M1) rozumieją nowe typy dat z badge per date_type
+- ✅ `Option<Option<String>>` w `UpdateItemRequest` do clearing dat
 
-**Refaktor:** Ujednolicenie obsługi dat w shared (due_date + due_time jako raw stringi → spójny model dat).
+**Refaktor:** ✅ Ujednolicenie obsługi dat — `DateField` enum, `item_date_badges()` helper, `DateEditor` shared component. Rename `due_date`/`due_time` → `deadline`/`deadline_time` w całym codebase.
 
 ---
 
