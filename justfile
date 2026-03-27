@@ -86,6 +86,9 @@ migrate-remote: migrate-prod
 migrate-gateway-local:
     curl -X POST http://localhost:8788/migrate -H "x-migrate-secret: dev-migrate-secret"
 
+migrate-gateway-dev:
+    curl -X POST ${GATEWAY_DEV_URL}/migrate -H "x-migrate-secret: ${MIGRATE_SECRET}"
+
 migrate-gateway-prod:
     curl -X POST https://kartoteka-gateway.jpalczewski.workers.dev/migrate -H "x-migrate-secret: ${MIGRATE_SECRET}"
 
@@ -96,7 +99,7 @@ deploy: deploy-migrate migrate-gateway-prod deploy-api deploy-gateway deploy-fro
 deploy-gateway-dev:
     cd gateway && npx wrangler deploy --env dev
 
-deploy-dev: migrate-dev deploy-api-dev deploy-gateway-dev deploy-frontend-dev
+deploy-dev: migrate-dev deploy-api-dev deploy-gateway-dev migrate-gateway-dev deploy-frontend-dev
 
 deploy-migrate:
     cd crates/api && npx wrangler d1 migrations apply kartoteka-db --remote

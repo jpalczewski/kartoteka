@@ -34,6 +34,7 @@ service = "kartoteka-api"
 #   wrangler secret put MIGRATE_SECRET --env dev
 [env.dev]
 name = "kartoteka-gateway-dev"
+workers_dev = true
 
 [env.dev.vars]
 TRUSTED_ORIGINS = "https://kartoteka-dev.pages.dev"
