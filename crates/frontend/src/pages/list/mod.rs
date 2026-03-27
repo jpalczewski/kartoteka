@@ -6,6 +6,7 @@ use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::api;
 use crate::app::{ToastContext, ToastKind};
+use crate::components::common::breadcrumbs::Breadcrumbs;
 use crate::components::common::editable_description::EditableDescription;
 use crate::components::items::add_item_input::AddItemInput;
 use crate::components::items::item_actions::create_item_actions;
@@ -33,6 +34,7 @@ pub fn ListPage() -> impl IntoView {
     let list_tag_links = RwSignal::new(Vec::<ListTagLink>::new());
     let (loading, set_loading) = signal(true);
     let (error, set_error) = signal(Option::<String>::None);
+    let breadcrumbs = RwSignal::new(Vec::<(String, String)>::new());
 
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let navigate = use_navigate();
@@ -44,6 +46,28 @@ pub fn ListPage() -> impl IntoView {
     let lid = list_id();
     leptos::task::spawn_local(async move {
         if let Ok(list) = api::fetch_list(&lid).await {
+            // Build breadcrumbs if the list belongs to a container
+            if let Some(cid) = list.container_id.clone() {
+                if let Ok(all_containers) = api::fetch_containers().await {
+                    let mut chain = Vec::new();
+                    let mut current_id = Some(cid);
+                    let mut depth = 0;
+                    while let Some(ref id) = current_id.clone() {
+                        if depth > 10 {
+                            break;
+                        }
+                        if let Some(c) = all_containers.iter().find(|c| &c.id == id) {
+                            chain.push((c.name.clone(), format!("/containers/{}", c.id)));
+                            current_id = c.parent_container_id.clone();
+                        } else {
+                            break;
+                        }
+                        depth += 1;
+                    }
+                    chain.reverse();
+                    breadcrumbs.set(chain);
+                }
+            }
             list_name.set(list.name);
             list_description.set(list.description);
             list_features.set(list.features);
@@ -192,6 +216,15 @@ pub fn ListPage() -> impl IntoView {
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
+            {move || {
+                let crumbs = breadcrumbs.get();
+                if !crumbs.is_empty() {
+                    view! { <Breadcrumbs crumbs=crumbs /> }.into_any()
+                } else {
+                    view! {}.into_any()
+                }
+            }}
+
             {move || view! {
                 <ListHeader
                     list_name=list_name.get()

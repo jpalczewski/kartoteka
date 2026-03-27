@@ -1,18 +1,17 @@
 use kartoteka_shared::{
-    CreateListRequest, FEATURE_DEADLINES, FEATURE_QUANTITY, List, ListFeature, ListTagLink,
-    ListType, Tag,
+    Container, CreateContainerRequest, CreateListRequest, List, ListTagLink, Tag,
 };
 use leptos::prelude::*;
 
 use crate::api;
 use crate::app::{ToastContext, ToastKind};
-use crate::components::add_input::AddInput;
 use crate::components::confirm_delete_modal::ConfirmDeleteModal;
-use crate::components::list_card::{ListCard, list_type_icon, list_type_label};
+use crate::components::container_card::ContainerCard;
+use crate::components::create_entity_input::CreateEntityInput;
+use crate::components::list_card::{ListCard, list_type_icon};
 
 #[component]
 pub fn HomePage() -> impl IntoView {
-    // Redirect to login if no Hanko token
     if !api::is_logged_in() {
         if let Some(w) = web_sys::window() {
             let _ = w.location().set_href("/login");
@@ -21,25 +20,62 @@ pub fn HomePage() -> impl IntoView {
 
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
 
-    let (new_list_type, set_new_list_type) = signal(ListType::Custom);
-    let (feat_quantity, set_feat_quantity) = signal(false);
-    let (feat_deadlines, set_feat_deadlines) = signal(false);
     let (refresh, set_refresh) = signal(0u32);
     let (active_tag_filter, set_active_tag_filter) = signal(Option::<String>::None);
-
-    // pending_delete: (list_id, list_name) — drives the modal
     let pending_delete = RwSignal::new(Option::<(String, String)>::None);
 
-    // Lists: fetched via LocalResource, kept in writable RwSignal for optimistic updates
-    let lists_res = LocalResource::new(move || {
+    // Home data: pinned + recent + root
+    let home_res = LocalResource::new(move || {
         let _ = refresh.get();
-        api::fetch_lists()
+        api::fetch_home()
     });
-    let lists_data = RwSignal::new(Vec::<List>::new());
+
+    let pinned_lists = RwSignal::new(Vec::<List>::new());
+    let pinned_containers = RwSignal::new(Vec::<Container>::new());
+    let recent_lists = RwSignal::new(Vec::<List>::new());
+    let recent_containers = RwSignal::new(Vec::<Container>::new());
+    let root_containers = RwSignal::new(Vec::<Container>::new());
+    let root_lists = RwSignal::new(Vec::<List>::new());
+
     Effect::new(move |_| {
-        if let Some(data) = lists_res.get() {
-            if let Ok(lists) = data.as_deref() {
-                lists_data.set(lists.to_vec());
+        if let Some(data) = home_res.get() {
+            if let Ok(v) = &*data {
+                if let Some(pl) = v
+                    .get("pinned_lists")
+                    .and_then(|x| serde_json::from_value::<Vec<List>>(x.clone()).ok())
+                {
+                    pinned_lists.set(pl);
+                }
+                if let Some(pc) = v
+                    .get("pinned_containers")
+                    .and_then(|x| serde_json::from_value::<Vec<Container>>(x.clone()).ok())
+                {
+                    pinned_containers.set(pc);
+                }
+                if let Some(rl) = v
+                    .get("recent_lists")
+                    .and_then(|x| serde_json::from_value::<Vec<List>>(x.clone()).ok())
+                {
+                    recent_lists.set(rl);
+                }
+                if let Some(rc) = v
+                    .get("recent_containers")
+                    .and_then(|x| serde_json::from_value::<Vec<Container>>(x.clone()).ok())
+                {
+                    recent_containers.set(rc);
+                }
+                if let Some(rcc) = v
+                    .get("root_containers")
+                    .and_then(|x| serde_json::from_value::<Vec<Container>>(x.clone()).ok())
+                {
+                    root_containers.set(rcc);
+                }
+                if let Some(rll) = v
+                    .get("root_lists")
+                    .and_then(|x| serde_json::from_value::<Vec<List>>(x.clone()).ok())
+                {
+                    root_lists.set(rll);
+                }
             }
         }
     });
@@ -63,7 +99,6 @@ pub fn HomePage() -> impl IntoView {
         let _ = refresh.get();
         api::fetch_list_tag_links()
     });
-
     let list_tag_links = RwSignal::new(Vec::<ListTagLink>::new());
     Effect::new(move |_| {
         if let Some(data) = links_res.get() {
@@ -81,10 +116,8 @@ pub fn HomePage() -> impl IntoView {
         if has_tag {
             list_tag_links
                 .update(|links| links.retain(|l| !(l.list_id == list_id && l.tag_id == tag_id)));
-            let lid = list_id.clone();
-            let tid = tag_id.clone();
             leptos::task::spawn_local(async move {
-                let _ = api::remove_tag_from_list(&lid, &tid).await;
+                let _ = api::remove_tag_from_list(&list_id, &tag_id).await;
             });
         } else {
             list_tag_links.update(|links| {
@@ -93,45 +126,33 @@ pub fn HomePage() -> impl IntoView {
                     tag_id: tag_id.clone(),
                 })
             });
-            let lid = list_id.clone();
-            let tid = tag_id.clone();
             leptos::task::spawn_local(async move {
-                let _ = api::assign_tag_to_list(&lid, &tid).await;
+                let _ = api::assign_tag_to_list(&list_id, &tag_id).await;
             });
         }
     });
 
-    let on_create = Callback::new(move |name: String| {
-        let list_type = new_list_type.get();
-        let fq = feat_quantity.get();
-        let fd = feat_deadlines.get();
+    let on_create_list = Callback::new(move |req: CreateListRequest| {
         leptos::task::spawn_local(async move {
-            let mut features = Vec::new();
-            if fq {
-                features.push(ListFeature {
-                    name: FEATURE_QUANTITY.into(),
-                    config: serde_json::json!({"unit_default": "szt"}),
-                });
+            match api::create_list(&req).await {
+                Ok(_) => set_refresh.update(|n| *n += 1),
+                Err(e) => toast.push(e, ToastKind::Error),
             }
-            if fd {
-                features.push(ListFeature {
-                    name: FEATURE_DEADLINES.into(),
-                    config: serde_json::json!({"has_start_date": false, "has_deadline": true, "has_hard_deadline": false}),
-                });
+        });
+    });
+
+    let on_create_container = Callback::new(move |req: CreateContainerRequest| {
+        leptos::task::spawn_local(async move {
+            match api::create_container(&req).await {
+                Ok(_) => set_refresh.update(|n| *n += 1),
+                Err(e) => toast.push(e, ToastKind::Error),
             }
-            let req = CreateListRequest {
-                name,
-                list_type,
-                features: Some(features),
-            };
-            let _ = api::create_list(&req).await;
-            set_refresh.update(|n| *n += 1);
         });
     });
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            <h2 class="text-2xl font-bold mb-4">"Twoje listy"</h2>
+            <h2 class="text-2xl font-bold mb-4">"Kartoteka"</h2>
 
             // Tag filter bar
             <Suspense fallback=|| view! {}>
@@ -171,65 +192,14 @@ pub fn HomePage() -> impl IntoView {
                 })}
             </Suspense>
 
-            // Create form — preset picker
-            <div class="mb-4">
-                <div class="flex flex-wrap gap-2 mb-2">
-                    {[ListType::Checklist, ListType::Zakupy, ListType::Pakowanie, ListType::Terminarz, ListType::Custom]
-                        .into_iter()
-                        .map(|lt| {
-                            let lt_for_class = lt.clone();
-                            let lt_for_click = lt.clone();
-                            let icon = list_type_icon(&lt);
-                            let label = list_type_label(&lt);
-                            view! {
-                                <button
-                                    type="button"
-                                    class=move || {
-                                        if new_list_type.get() == lt_for_class {
-                                            "btn btn-sm btn-primary"
-                                        } else {
-                                            "btn btn-sm btn-outline"
-                                        }
-                                    }
-                                    on:click=move |_| {
-                                        set_new_list_type.set(lt_for_click.clone());
-                                        let defaults = lt_for_click.default_features();
-                                        set_feat_quantity.set(defaults.iter().any(|f| f.name == FEATURE_QUANTITY));
-                                        set_feat_deadlines.set(defaults.iter().any(|f| f.name == FEATURE_DEADLINES));
-                                    }
-                                >
-                                    {icon} " " {label}
-                                </button>
-                            }
-                        })
-                        .collect::<Vec<_>>()}
-                </div>
-                <div class="flex items-center gap-4 mb-2">
-                    <label class="label cursor-pointer gap-2">
-                        <input
-                            type="checkbox"
-                            class="checkbox checkbox-sm"
-                            prop:checked=feat_quantity
-                            on:change=move |ev| set_feat_quantity.set(event_target_checked(&ev))
-                        />
-                        <span class="label-text">"Ilości"</span>
-                    </label>
-                    <label class="label cursor-pointer gap-2">
-                        <input
-                            type="checkbox"
-                            class="checkbox checkbox-sm"
-                            prop:checked=feat_deadlines
-                            on:change=move |ev| set_feat_deadlines.set(event_target_checked(&ev))
-                        />
-                        <span class="label-text">"Terminy"</span>
-                    </label>
-                </div>
-                <div class="flex gap-2">
-                    <AddInput placeholder="Nazwa nowej listy..." button_label="Dodaj" on_submit=on_create />
-                </div>
-            </div>
+            // Create form
+            <CreateEntityInput
+                show_container_options=true
+                on_create_list=on_create_list
+                on_create_container=on_create_container
+            />
 
-            // Delete confirmation modal (conditionally rendered)
+            // Delete confirmation modal
             {move || pending_delete.get().map(|(lid, lname)| {
                 let lid_confirm = lid.clone();
                 view! {
@@ -239,18 +209,18 @@ pub fn HomePage() -> impl IntoView {
                         on_confirm=Callback::new(move |_| {
                             let lid = lid_confirm.clone();
                             leptos::task::spawn_local(async move {
-                                // Optimistic: remove from local signal
-                                let removed_idx = lists_data.read().iter().position(|l| l.id == lid);
-                                let removed = lists_data.read().iter().find(|l| l.id == lid).cloned();
-                                lists_data.update(|ls| ls.retain(|l| l.id != lid));
+                                let removed_idx = root_lists.read().iter().position(|l| l.id == lid);
+                                let removed = root_lists.read().iter().find(|l| l.id == lid).cloned();
+                                root_lists.update(|ls| ls.retain(|l| l.id != lid));
+                                pinned_lists.update(|ls| ls.retain(|l| l.id != lid));
+                                recent_lists.update(|ls| ls.retain(|l| l.id != lid));
                                 pending_delete.set(None);
 
                                 match api::delete_list(&lid).await {
                                     Ok(()) => toast.push("Lista usunięta".into(), ToastKind::Success),
                                     Err(e) => {
-                                        // Rollback at original position
                                         if let (Some(list), Some(idx)) = (removed, removed_idx) {
-                                            lists_data.update(|ls| {
+                                            root_lists.update(|ls| {
                                                 let idx = idx.min(ls.len());
                                                 ls.insert(idx, list);
                                             });
@@ -265,8 +235,11 @@ pub fn HomePage() -> impl IntoView {
                 }
             })}
 
-            // Lists grid
             {move || {
+                if home_res.get().is_none() {
+                    return view! { <p>"Wczytywanie..."</p> }.into_any();
+                }
+
                 let tags_data = tags_res.get();
                 let all_tags: Vec<Tag> = tags_data
                     .as_ref()
@@ -276,58 +249,222 @@ pub fn HomePage() -> impl IntoView {
                 let all_links = list_tag_links.get();
                 let filter = active_tag_filter.get();
 
-                // Show loading while resource hasn't resolved yet
-                if lists_res.get().is_none() {
-                    return view! {
-                        <p>"Wczytywanie..."</p>
-                    }.into_any();
-                }
+                let pl = pinned_lists.get();
+                let pc = pinned_containers.get();
+                let rl = recent_lists.get();
+                let rc = recent_containers.get();
+                let rc_list = root_containers.get();
+                let rll = root_lists.get();
 
-                let all_lists = lists_data.get();
-                if all_lists.is_empty() {
-                    return view! {
-                        <div class="text-center text-base-content/50 py-12">"Brak list. Utwórz pierwszą!"</div>
-                    }.into_any();
-                }
-
-                let filtered_lists: Vec<List> = all_lists
-                    .iter()
-                    .filter(|l| match &filter {
-                        None => true,
-                        Some(tag_id) => all_links
-                            .iter()
-                            .any(|link| link.list_id == l.id && &link.tag_id == tag_id),
-                    })
-                    .cloned()
-                    .collect();
+                let filter_list = |list: &List| match &filter {
+                    None => true,
+                    Some(tag_id) => all_links
+                        .iter()
+                        .any(|link| link.list_id == list.id && &link.tag_id == tag_id),
+                };
 
                 view! {
-                    <div class="flex flex-col gap-3">
-                        {filtered_lists.into_iter().map(|list| {
-                            let list_id = list.id.clone();
-                            let list_name = list.name.clone();
-                            let list_tag_ids: Vec<String> = all_links
-                                .iter()
-                                .filter(|l| l.list_id == list.id)
-                                .map(|l| l.tag_id.clone())
-                                .collect();
-                            let tog = on_list_tag_toggle.clone();
-                            let tag_cb = Callback::new(move |tag_id: String| {
-                                tog.run((list_id.clone(), tag_id));
-                            });
-                            let lid = list.id.clone();
+                    <div>
+                        // === Pinned section ===
+                        {if !pl.is_empty() || !pc.is_empty() {
+                            let pl = pl.clone();
+                            let pc = pc.clone();
+                            let all_tags = all_tags.clone();
+                            let all_links = all_links.clone();
                             view! {
-                                <ListCard
-                                    list
-                                    all_tags=all_tags.clone()
-                                    list_tag_ids
-                                    on_tag_toggle=tag_cb
-                                    on_delete=Callback::new(move |_: String| {
-                                        pending_delete.set(Some((lid.clone(), list_name.clone())));
-                                    })
-                                />
+                                <div class="collapse collapse-arrow bg-base-200 mb-4">
+                                    <input type="checkbox" checked />
+                                    <div class="collapse-title font-semibold">"📌 Przypięte"</div>
+                                    <div class="collapse-content">
+                                        <div class="flex flex-col gap-3 pt-2">
+                                            {pc.into_iter().map(|c| {
+                                                let cid = c.id.clone();
+                                                view! {
+                                                    <ContainerCard
+                                                        container=c
+                                                        on_pin=Callback::new(move |_| {
+                                                            let cid = cid.clone();
+                                                            leptos::task::spawn_local(async move {
+                                                                let _ = api::toggle_container_pin(&cid).await;
+                                                                set_refresh.update(|n| *n += 1);
+                                                            });
+                                                        })
+                                                    />
+                                                }
+                                            }).collect::<Vec<_>>()}
+                                            {pl.into_iter().filter(|l| filter_list(l)).map(|list| {
+                                                let list_id = list.id.clone();
+                                                let list_name = list.name.clone();
+                                                let lid_del = list.id.clone();
+                                                let list_tag_ids: Vec<String> = all_links
+                                                    .iter()
+                                                    .filter(|l| l.list_id == list.id)
+                                                    .map(|l| l.tag_id.clone())
+                                                    .collect();
+                                                let tog = on_list_tag_toggle.clone();
+                                                let tag_cb = Callback::new(move |tag_id: String| tog.run((list_id.clone(), tag_id)));
+                                                view! {
+                                                    <ListCard
+                                                        list
+                                                        all_tags=all_tags.clone()
+                                                        list_tag_ids
+                                                        on_tag_toggle=tag_cb
+                                                        on_delete=Callback::new(move |_: String| {
+                                                            pending_delete.set(Some((lid_del.clone(), list_name.clone())));
+                                                        })
+                                                    />
+                                                }
+                                            }).collect::<Vec<_>>()}
+                                        </div>
+                                    </div>
+                                </div>
+                            }.into_any()
+                        } else {
+                            view! {}.into_any()
+                        }}
+
+                        // === Recent section ===
+                        {if !rl.is_empty() || !rc.is_empty() {
+                            let rl = rl.clone();
+                            let rc = rc.clone();
+                            let all_tags = all_tags.clone();
+                            let all_links = all_links.clone();
+                            view! {
+                                <div class="collapse collapse-arrow bg-base-200 mb-4">
+                                    <input type="checkbox" checked />
+                                    <div class="collapse-title font-semibold">"🕐 Ostatnio otwierane"</div>
+                                    <div class="collapse-content">
+                                        <div class="flex flex-col gap-3 pt-2">
+                                            {rc.into_iter().map(|c| {
+                                                view! {
+                                                    <ContainerCard container=c />
+                                                }
+                                            }).collect::<Vec<_>>()}
+                                            {rl.into_iter().filter(|l| filter_list(l)).map(|list| {
+                                                let list_id = list.id.clone();
+                                                let list_name = list.name.clone();
+                                                let lid_del = list.id.clone();
+                                                let list_tag_ids: Vec<String> = all_links
+                                                    .iter()
+                                                    .filter(|l| l.list_id == list.id)
+                                                    .map(|l| l.tag_id.clone())
+                                                    .collect();
+                                                let tog = on_list_tag_toggle.clone();
+                                                let tag_cb = Callback::new(move |tag_id: String| tog.run((list_id.clone(), tag_id)));
+                                                view! {
+                                                    <ListCard
+                                                        list
+                                                        all_tags=all_tags.clone()
+                                                        list_tag_ids
+                                                        on_tag_toggle=tag_cb
+                                                        on_delete=Callback::new(move |_: String| {
+                                                            pending_delete.set(Some((lid_del.clone(), list_name.clone())));
+                                                        })
+                                                    />
+                                                }
+                                            }).collect::<Vec<_>>()}
+                                        </div>
+                                    </div>
+                                </div>
+                            }.into_any()
+                        } else {
+                            view! {}.into_any()
+                        }}
+
+                        // === Root containers ===
+                        {if !rc_list.is_empty() {
+                            let rc_list = rc_list.clone();
+                            view! {
+                                <div class="mb-4">
+                                    <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">"Foldery i projekty"</h3>
+                                    <div class="flex flex-col gap-3">
+                                        {rc_list.into_iter().map(|c| {
+                                            let cid = c.id.clone();
+                                            let cid_del = c.id.clone();
+                                            view! {
+                                                <ContainerCard
+                                                    container=c
+                                                    on_delete=Callback::new(move |_: String| {
+                                                        let cid = cid_del.clone();
+                                                        leptos::task::spawn_local(async move {
+                                                            match api::delete_container(&cid).await {
+                                                                Ok(()) => {
+                                                                    root_containers.update(|cs| cs.retain(|c| c.id != cid));
+                                                                    toast.push("Kontener usunięty".into(), ToastKind::Success);
+                                                                }
+                                                                Err(e) => toast.push(e, ToastKind::Error),
+                                                            }
+                                                        });
+                                                    })
+                                                    on_pin=Callback::new(move |_| {
+                                                        let cid = cid.clone();
+                                                        leptos::task::spawn_local(async move {
+                                                            let _ = api::toggle_container_pin(&cid).await;
+                                                            set_refresh.update(|n| *n += 1);
+                                                        });
+                                                    })
+                                                />
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    </div>
+                                </div>
+                            }.into_any()
+                        } else {
+                            view! {}.into_any()
+                        }}
+
+                        // === Root lists ===
+                        {
+                            let filtered: Vec<List> = rll.iter()
+                                .filter(|l| filter_list(l))
+                                .cloned()
+                                .collect();
+
+                            if filtered.is_empty() && rc_list.is_empty() && pl.is_empty() && pc.is_empty() {
+                                view! {
+                                    <div class="text-center text-base-content/50 py-12">"Brak list i kontenerów. Utwórz pierwszy!"</div>
+                                }.into_any()
+                            } else if filtered.is_empty() {
+                                view! {}.into_any()
+                            } else {
+                                let all_tags = all_tags.clone();
+                                let all_links = all_links.clone();
+                                view! {
+                                    <div>
+                                        {if !rc_list.is_empty() {
+                                            view! {
+                                                <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">"Listy"</h3>
+                                            }.into_any()
+                                        } else { view! {}.into_any() }}
+                                        <div class="flex flex-col gap-3">
+                                            {filtered.into_iter().map(|list| {
+                                                let list_id = list.id.clone();
+                                                let list_name = list.name.clone();
+                                                let lid_del = list.id.clone();
+                                                let list_tag_ids: Vec<String> = all_links
+                                                    .iter()
+                                                    .filter(|l| l.list_id == list.id)
+                                                    .map(|l| l.tag_id.clone())
+                                                    .collect();
+                                                let tog = on_list_tag_toggle.clone();
+                                                let tag_cb = Callback::new(move |tag_id: String| tog.run((list_id.clone(), tag_id)));
+                                                view! {
+                                                    <ListCard
+                                                        list
+                                                        all_tags=all_tags.clone()
+                                                        list_tag_ids
+                                                        on_tag_toggle=tag_cb
+                                                        on_delete=Callback::new(move |_: String| {
+                                                            pending_delete.set(Some((lid_del.clone(), list_name.clone())));
+                                                        })
+                                                    />
+                                                }
+                                            }).collect::<Vec<_>>()}
+                                        </div>
+                                    </div>
+                                }.into_any()
                             }
-                        }).collect::<Vec<_>>()}
+                        }
                     </div>
                 }.into_any()
             }}

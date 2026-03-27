@@ -15,6 +15,19 @@ pub async fn verify_list_belongs_to_user(
     Ok(check.is_some())
 }
 
+pub async fn verify_container_belongs_to_user(
+    d1: &D1Database,
+    container_id: &str,
+    user_id: &str,
+) -> Result<bool> {
+    let check = d1
+        .prepare("SELECT id FROM containers WHERE id = ?1 AND user_id = ?2")
+        .bind(&[container_id.into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    Ok(check.is_some())
+}
+
 pub async fn verify_item_belongs_to_user(
     d1: &D1Database,
     item_id: &str,

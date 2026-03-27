@@ -9,6 +9,94 @@ fn bool_from_number<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
     }
 }
 
+// === Container types ===
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ContainerStatus {
+    Active,
+    Done,
+    Paused,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Container {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub status: Option<ContainerStatus>,
+    pub parent_container_id: Option<String>,
+    pub position: i32,
+    #[serde(deserialize_with = "bool_from_number")]
+    pub pinned: bool,
+    pub last_opened_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerDetail {
+    #[serde(flatten)]
+    pub container: Container,
+    #[serde(deserialize_with = "u32_from_number", default)]
+    pub completed_items: u32,
+    #[serde(deserialize_with = "u32_from_number", default)]
+    pub total_items: u32,
+    #[serde(deserialize_with = "u32_from_number", default)]
+    pub completed_lists: u32,
+    #[serde(deserialize_with = "u32_from_number", default)]
+    pub total_lists: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateContainerRequest {
+    pub name: String,
+    pub status: Option<ContainerStatus>,
+    pub parent_container_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateContainerRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub status: Option<Option<ContainerStatus>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MoveListRequest {
+    pub container_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MoveContainerRequest {
+    pub parent_container_id: Option<String>,
+}
+
+/// Combined home data returned by GET /api/home
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HomeItem {
+    pub kind: String, // "list" or "container"
+    pub id: String,
+    pub name: String,
+    pub updated_at: String,
+    pub last_opened_at: Option<String>,
+    // list-specific
+    pub list_type: Option<String>,
+    // container-specific
+    pub status: Option<ContainerStatus>,
+    pub parent_container_id: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HomeData {
+    pub pinned: Vec<HomeItem>,
+    pub recent: Vec<HomeItem>,
+    pub root_containers: Vec<Container>,
+    pub root_lists: Vec<List>,
+}
+
 // === Domain types ===
 
 /// Known feature names
@@ -106,6 +194,12 @@ pub struct List {
     pub archived: bool,
     #[serde(default, deserialize_with = "features_from_json")]
     pub features: Vec<ListFeature>,
+    #[serde(default)]
+    pub container_id: Option<String>,
+    #[serde(default, deserialize_with = "bool_from_number")]
+    pub pinned: bool,
+    #[serde(default)]
+    pub last_opened_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
