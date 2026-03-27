@@ -30,13 +30,18 @@ dev-frontend:
     cd crates/frontend && npm install
     cd crates/frontend && API_BASE_URL="/api" trunk serve
 
-# Uruchom API + Gateway + frontend
+# Wystaw Gateway przez HTTPS via cloudflared tunnel
+dev-tunnel:
+    cloudflared tunnel --url http://localhost:8788
+
+# Uruchom API + Gateway + frontend + cloudflared tunnel
 dev:
     #!/usr/bin/env bash
     trap 'kill 0' EXIT
     just dev-api &
     just dev-gateway &
     just dev-frontend &
+    just dev-tunnel &
     wait
 
 # === BUILD ===
