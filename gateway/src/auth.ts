@@ -15,7 +15,7 @@ export function createAuth(env: Env) {
     database: env.AUTH_DB,
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
-    basePath: "/auth",
+    basePath: "/auth/api",
     emailAndPassword: {
       enabled: true,
     },

@@ -97,7 +97,7 @@ app.all("/mcp/authorize", async (c) => {
 <body>
   <h1>Grant Kartoteka access to Claude</h1>
   <p>Sign in to your Kartoteka account to authorize Claude to access your lists.</p>
-  <form method="POST" action="/auth/sign-in/email">
+  <form method="POST" action="/auth/api/sign-in/email">
     <input type="hidden" name="callbackURL" value="/mcp/authorize?${new URL(request.url).searchParams.toString()}">
     <label>Email<input type="email" name="email" required></label>
     <label>Password<input type="password" name="password" required></label>
