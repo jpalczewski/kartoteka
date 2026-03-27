@@ -11,6 +11,7 @@ export interface Env {
   DEV_AUTH_USER_ID?: string;
   DEV_API_URL?: string;
   MIGRATE_SECRET?: string;
+  TRUSTED_ORIGINS?: string;
   // Injected by OAuthProvider at request time
   OAUTH_PROVIDER: OAuthHelpers;
 }

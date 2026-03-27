@@ -34,7 +34,8 @@ name = "kartoteka-gateway-local"
 [env.local.vars]
 DEV_AUTH_USER_ID = "dev-user-00000000-0000-0000-0000-000000000001"
 BETTER_AUTH_SECRET = "dev-secret-not-for-production"
-BETTER_AUTH_URL = "http://localhost:8788"
+BETTER_AUTH_URL = "http://localhost:8080"
+TRUSTED_ORIGINS = "http://localhost:8080,http://127.0.0.1:8080"
 DEV_API_URL = "http://localhost:8787"
 MIGRATE_SECRET = "dev-migrate-secret"
 

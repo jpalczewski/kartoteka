@@ -18,11 +18,14 @@ function escapeHtml(s: string): string {
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+const allowedOrigins = (env: Env) =>
+  env.TRUSTED_ORIGINS ? env.TRUSTED_ORIGINS.split(",") : [env.BETTER_AUTH_URL];
+
 app.use("/api/*", (c, next) =>
-  cors({ origin: c.env.BETTER_AUTH_URL, credentials: true })(c, next)
+  cors({ origin: allowedOrigins(c.env), credentials: true })(c, next)
 );
 app.use("/auth/*", (c, next) =>
-  cors({ origin: c.env.BETTER_AUTH_URL, credentials: true })(c, next)
+  cors({ origin: allowedOrigins(c.env), credentials: true })(c, next)
 );
 
 app.get("/health", (c) => c.text("ok"));
