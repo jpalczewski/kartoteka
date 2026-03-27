@@ -98,6 +98,7 @@ pub struct SessionInfo {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[allow(dead_code)]
 pub struct SessionUser {
     pub id: String,
     pub email: String,
