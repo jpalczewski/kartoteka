@@ -16,6 +16,14 @@ export function createAuth(env: Env) {
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
     basePath: "/auth/api",
+    advanced: {
+      crossSubDomainCookies: { enabled: false },
+      cookies: {
+        session_token: {
+          attributes: { sameSite: "none", secure: true },
+        },
+      },
+    },
     trustedOrigins: async (request) => {
       const base = [env.BETTER_AUTH_URL];
       if (!request) return base;
