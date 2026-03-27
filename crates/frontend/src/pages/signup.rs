@@ -20,13 +20,27 @@ pub fn SignupPage() -> impl IntoView {
                 "password": password.get_untracked(),
             });
             let url = format!("{}/auth/api/sign-up/email", crate::api::auth_base());
-            let result = gloo_net::http::Request::post(&url)
+            let json = match serde_json::to_string(&body) {
+                Ok(s) => s,
+                Err(e) => {
+                    loading.set(false);
+                    error.set(Some(format!("Błąd: {e}")));
+                    return;
+                }
+            };
+            let request = match gloo_net::http::Request::post(&url)
                 .header("Content-Type", "application/json")
                 .credentials(web_sys::RequestCredentials::Include)
-                .body(serde_json::to_string(&body).unwrap())
-                .unwrap()
-                .send()
-                .await;
+                .body(json)
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    loading.set(false);
+                    error.set(Some(format!("Błąd: {e}")));
+                    return;
+                }
+            };
+            let result = request.send().await;
 
             loading.set(false);
             match result {
