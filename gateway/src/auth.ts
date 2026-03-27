@@ -16,7 +16,21 @@ export function createAuth(env: Env) {
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
     basePath: "/auth/api",
-    trustedOrigins: env.TRUSTED_ORIGINS ? env.TRUSTED_ORIGINS.split(",") : [env.BETTER_AUTH_URL],
+    trustedOrigins: async (request) => {
+      const base = [env.BETTER_AUTH_URL];
+      if (!request) return base;
+      const origin = request.headers.get("origin") ?? "";
+      // Trust any localhost / 127.0.0.1 origin in local dev
+      if (
+        origin.startsWith("http://localhost:") ||
+        origin.startsWith("http://127.0.0.1:")
+      ) {
+        return [origin];
+      }
+      return env.TRUSTED_ORIGINS
+        ? env.TRUSTED_ORIGINS.split(",").map((o) => o.trim())
+        : base;
+    },
     emailAndPassword: {
       enabled: true,
     },
