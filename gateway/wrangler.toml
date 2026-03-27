@@ -9,7 +9,6 @@ account_id = "6b703fac2c4f8b359e430bf11b8dde7f"
 binding = "AUTH_DB"
 database_name = "kartoteka-auth"
 database_id = "TODO_CREATE_WITH_WRANGLER"
-migrations_dir = "./migrations"
 
 # OAuth token storage for MCP
 [[kv_namespaces]]
@@ -41,7 +40,6 @@ DEV_API_URL = "http://localhost:8787"
 binding = "AUTH_DB"
 database_name = "kartoteka-gateway-local"
 database_id = "00000000-0000-0000-0000-000000000000"
-migrations_dir = "./migrations"
 
 [[env.local.kv_namespaces]]
 binding = "OAUTH_KV"
