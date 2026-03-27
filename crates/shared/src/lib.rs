@@ -13,7 +13,7 @@ fn bool_from_number<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
 
 /// Known feature names
 pub const FEATURE_QUANTITY: &str = "quantity";
-pub const FEATURE_DUE_DATE: &str = "due_date";
+pub const FEATURE_DEADLINES: &str = "deadlines";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ListFeature {
@@ -50,10 +50,45 @@ impl ListType {
                 config: serde_json::json!({"unit_default": "szt"}),
             }],
             Self::Terminarz => vec![ListFeature {
-                name: FEATURE_DUE_DATE.into(),
-                config: serde_json::json!({}),
+                name: FEATURE_DEADLINES.into(),
+                config: serde_json::json!({"has_start_date": false, "has_deadline": true, "has_hard_deadline": false}),
             }],
             _ => vec![],
+        }
+    }
+}
+
+/// Date field types for cross-list queries
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DateField {
+    StartDate,
+    Deadline,
+    HardDeadline,
+}
+
+impl DateField {
+    pub fn column_name(&self) -> &'static str {
+        match self {
+            Self::StartDate => "start_date",
+            Self::Deadline => "deadline",
+            Self::HardDeadline => "hard_deadline",
+        }
+    }
+
+    pub fn time_column_name(&self) -> Option<&'static str> {
+        match self {
+            Self::StartDate => Some("start_time"),
+            Self::Deadline => Some("deadline_time"),
+            Self::HardDeadline => None,
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::StartDate => "start",
+            Self::Deadline => "deadline",
+            Self::HardDeadline => "hard_deadline",
         }
     }
 }
@@ -93,8 +128,11 @@ pub struct Item {
     pub quantity: Option<i32>,
     pub actual_quantity: Option<i32>,
     pub unit: Option<String>,
-    pub due_date: Option<String>,
-    pub due_time: Option<String>,
+    pub start_date: Option<String>,
+    pub start_time: Option<String>,
+    pub deadline: Option<String>,
+    pub deadline_time: Option<String>,
+    pub hard_deadline: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -132,8 +170,11 @@ pub struct CreateItemRequest {
     pub description: Option<String>,
     pub quantity: Option<i32>,
     pub unit: Option<String>,
-    pub due_date: Option<String>,
-    pub due_time: Option<String>,
+    pub start_date: Option<String>,
+    pub start_time: Option<String>,
+    pub deadline: Option<String>,
+    pub deadline_time: Option<String>,
+    pub hard_deadline: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,8 +186,11 @@ pub struct UpdateItemRequest {
     pub quantity: Option<i32>,
     pub actual_quantity: Option<i32>,
     pub unit: Option<String>,
-    pub due_date: Option<String>,
-    pub due_time: Option<String>,
+    pub start_date: Option<Option<String>>,
+    pub start_time: Option<Option<String>>,
+    pub deadline: Option<Option<String>>,
+    pub deadline_time: Option<Option<String>>,
+    pub hard_deadline: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -209,12 +253,17 @@ pub struct DateItem {
     pub quantity: Option<i32>,
     pub actual_quantity: Option<i32>,
     pub unit: Option<String>,
-    pub due_date: Option<String>,
-    pub due_time: Option<String>,
+    pub start_date: Option<String>,
+    pub start_time: Option<String>,
+    pub deadline: Option<String>,
+    pub deadline_time: Option<String>,
+    pub hard_deadline: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub list_name: String,
     pub list_type: ListType,
+    #[serde(default)]
+    pub date_type: Option<String>,
 }
 
 // === Calendar types ===
@@ -254,8 +303,11 @@ impl From<DateItem> for Item {
             quantity: di.quantity,
             actual_quantity: di.actual_quantity,
             unit: di.unit,
-            due_date: di.due_date,
-            due_time: di.due_time,
+            start_date: di.start_date,
+            start_time: di.start_time,
+            deadline: di.deadline,
+            deadline_time: di.deadline_time,
+            hard_deadline: di.hard_deadline,
             created_at: di.created_at,
             updated_at: di.updated_at,
         }

@@ -35,7 +35,7 @@ pub fn CalendarDayPage() -> impl IntoView {
         let d = date();
         async move {
             set_loading.set(true);
-            match api::fetch_items_by_date(&d, false).await {
+            match api::fetch_items_by_date(&d, false, "all").await {
                 Ok(fetched) => items.set(fetched),
                 Err(e) => toast.push(format!("Błąd: {e}"), ToastKind::Error),
             }
@@ -164,6 +164,7 @@ pub fn CalendarDayPage() -> impl IntoView {
                                     {group_items.into_iter().map(|date_item| {
                                         let item_id = date_item.id.clone();
                                         let item_list_id = date_item.list_id.clone();
+                                        let date_type = date_item.date_type.clone();
                                         let item: Item = date_item.into();
 
                                         let item_tag_ids: Vec<String> = links.iter()
@@ -195,8 +196,11 @@ pub fn CalendarDayPage() -> impl IntoView {
                                                     quantity: None,
                                                     actual_quantity: None,
                                                     unit: None,
-                                                    due_date: None,
-                                                    due_time: None,
+                                                    start_date: None,
+                                                    start_time: None,
+                                                    deadline: None,
+                                                    deadline_time: None,
+                                                    hard_deadline: None,
                                                 };
                                                 let _ = api::update_item(&lid, &iid, &req).await;
                                             });
@@ -215,15 +219,55 @@ pub fn CalendarDayPage() -> impl IntoView {
                                             });
                                         });
 
-                                        view! {
-                                            <DateItemRow
-                                                item=item
-                                                on_toggle=on_toggle
-                                                on_delete=on_delete
-                                                all_tags=tags.clone()
-                                                item_tag_ids=item_tag_ids
-                                            />
-                                        }
+                                        // Date save
+                                        let ds_lid = item_list_id.clone();
+                                        let ds_iid = item_id.clone();
+                                        let on_date_save = Callback::new(move |(_iid, dt, date, time): (String, String, String, Option<String>)| {
+                                            let lid = ds_lid.clone();
+                                            let iid = ds_iid.clone();
+                                            let date_opt = if date.is_empty() { Some(None) } else { Some(Some(date)) };
+                                            let time_opt = if date_opt == Some(None) { Some(None) } else { time.map(Some) };
+                                            leptos::task::spawn_local(async move {
+                                                let mut req = UpdateItemRequest {
+                                                    title: None, description: None, completed: None, position: None,
+                                                    quantity: None, actual_quantity: None, unit: None,
+                                                    start_date: None, start_time: None,
+                                                    deadline: None, deadline_time: None, hard_deadline: None,
+                                                };
+                                                match dt.as_str() {
+                                                    "start" => { req.start_date = date_opt; req.start_time = time_opt; }
+                                                    "deadline" => { req.deadline = date_opt; req.deadline_time = time_opt; }
+                                                    "hard_deadline" => { req.hard_deadline = date_opt; }
+                                                    _ => {}
+                                                }
+                                                let _ = api::update_item(&lid, &iid, &req).await;
+                                            });
+                                        });
+
+                                        {if let Some(dt) = date_type {
+                                            view! {
+                                                <DateItemRow
+                                                    item=item
+                                                    on_toggle=on_toggle
+                                                    on_delete=on_delete
+                                                    all_tags=tags.clone()
+                                                    item_tag_ids=item_tag_ids
+                                                    date_type=dt
+                                                    on_date_save=on_date_save
+                                                />
+                                            }.into_any()
+                                        } else {
+                                            view! {
+                                                <DateItemRow
+                                                    item=item
+                                                    on_toggle=on_toggle
+                                                    on_delete=on_delete
+                                                    all_tags=tags.clone()
+                                                    item_tag_ids=item_tag_ids
+                                                    on_date_save=on_date_save
+                                                />
+                                            }.into_any()
+                                        }}
                                     }).collect_view()}
                                 </div>
                             }

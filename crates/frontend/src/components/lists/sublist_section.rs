@@ -10,7 +10,7 @@ use kartoteka_shared::{Item, ItemTagLink, List, Tag};
 pub fn SublistSection(
     sublist: List,
     #[prop(default = false)] has_quantity: bool,
-    #[prop(default = false)] has_due_date: bool,
+    #[prop(default = serde_json::Value::Null)] deadlines_config: serde_json::Value,
     #[prop(default = vec![])] all_tags: Vec<Tag>,
     #[prop(default = vec![])] item_tag_links: Vec<ItemTagLink>,
     on_tag_toggle: Callback<(String, String)>,
@@ -134,7 +134,7 @@ pub fn SublistSection(
                                     }
                                 }).collect::<Vec<_>>()}
                                 <div class="mt-2">
-                                    <AddItemInput on_submit=on_add has_quantity=has_quantity has_due_date=has_due_date />
+                                    <AddItemInput on_submit=on_add has_quantity=has_quantity deadlines_config=deadlines_config.clone() />
                                 </div>
                             </div>
                         }.into_any()

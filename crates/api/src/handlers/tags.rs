@@ -390,7 +390,7 @@ pub async fn tag_items(req: Request, ctx: RouteContext<String>) -> Result<Respon
              SELECT t.id FROM tags t JOIN tag_tree tt ON t.parent_tag_id = tt.id WHERE t.user_id = ?2 \
              ) \
              SELECT DISTINCT i.id, i.list_id, i.title, i.description, i.completed, i.position, \
-             i.quantity, i.actual_quantity, i.unit, i.due_date, i.due_time, \
+             i.quantity, i.actual_quantity, i.unit, i.start_date, i.start_time, i.deadline, i.deadline_time, i.hard_deadline, \
              i.created_at, i.updated_at, l.name as list_name \
              FROM items i \
              JOIN item_tags it ON it.item_id = i.id \
@@ -405,7 +405,7 @@ pub async fn tag_items(req: Request, ctx: RouteContext<String>) -> Result<Respon
     } else {
         d1.prepare(
             "SELECT i.id, i.list_id, i.title, i.description, i.completed, i.position, \
-             i.quantity, i.actual_quantity, i.unit, i.due_date, i.due_time, \
+             i.quantity, i.actual_quantity, i.unit, i.start_date, i.start_time, i.deadline, i.deadline_time, i.hard_deadline, \
              i.created_at, i.updated_at, l.name as list_name \
              FROM items i \
              JOIN item_tags it ON it.item_id = i.id \

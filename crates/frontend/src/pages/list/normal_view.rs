@@ -15,6 +15,8 @@ pub struct NormalViewProps {
     pub on_quantity_change: Callback<(String, i32)>,
     pub has_quantity: bool,
     pub on_move: Callback<(String, String)>,
+    pub on_date_save: Callback<(String, String, String, Option<String>)>,
+    pub deadlines_config: serde_json::Value,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -31,6 +33,8 @@ pub fn render_normal_view(p: NormalViewProps) -> impl IntoView {
         on_quantity_change,
         has_quantity,
         on_move,
+        on_date_save,
+        deadlines_config,
     } = p;
     let move_targets: Vec<(String, String)> = sublists
         .iter()
@@ -50,6 +54,7 @@ pub fn render_normal_view(p: NormalViewProps) -> impl IntoView {
                     on_tag_toggle.run((item_id.clone(), tag_id));
                 });
                 let mt = move_targets.clone();
+                let dc = deadlines_config.clone();
                 view! {
                     <ItemRow
                         item=item.clone()
@@ -63,6 +68,8 @@ pub fn render_normal_view(p: NormalViewProps) -> impl IntoView {
                         on_quantity_change=on_quantity_change
                         move_targets=mt
                         on_move=on_move
+                        on_date_save=on_date_save
+                        deadlines_config=dc
                     />
                 }
             }).collect::<Vec<_>>()}

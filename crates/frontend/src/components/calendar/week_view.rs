@@ -91,8 +91,11 @@ pub fn WeekView(
                                             quantity: None,
                                             actual_quantity: None,
                                             unit: None,
-                                            due_date: None,
-                                            due_time: None,
+                                            start_date: None,
+                                            start_time: None,
+                                            deadline: None,
+                                            deadline_time: None,
+                                            hard_deadline: None,
                                         };
                                         let _ = api::update_item(&lid, &iid, &req).await;
                                     });

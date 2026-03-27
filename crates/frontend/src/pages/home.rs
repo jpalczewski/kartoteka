@@ -1,5 +1,5 @@
 use kartoteka_shared::{
-    CreateListRequest, FEATURE_DUE_DATE, FEATURE_QUANTITY, List, ListFeature, ListTagLink,
+    CreateListRequest, FEATURE_DEADLINES, FEATURE_QUANTITY, List, ListFeature, ListTagLink,
     ListType, Tag,
 };
 use leptos::prelude::*;
@@ -23,7 +23,7 @@ pub fn HomePage() -> impl IntoView {
 
     let (new_list_type, set_new_list_type) = signal(ListType::Custom);
     let (feat_quantity, set_feat_quantity) = signal(false);
-    let (feat_due_date, set_feat_due_date) = signal(false);
+    let (feat_deadlines, set_feat_deadlines) = signal(false);
     let (refresh, set_refresh) = signal(0u32);
     let (active_tag_filter, set_active_tag_filter) = signal(Option::<String>::None);
 
@@ -104,7 +104,7 @@ pub fn HomePage() -> impl IntoView {
     let on_create = Callback::new(move |name: String| {
         let list_type = new_list_type.get();
         let fq = feat_quantity.get();
-        let fd = feat_due_date.get();
+        let fd = feat_deadlines.get();
         leptos::task::spawn_local(async move {
             let mut features = Vec::new();
             if fq {
@@ -115,8 +115,8 @@ pub fn HomePage() -> impl IntoView {
             }
             if fd {
                 features.push(ListFeature {
-                    name: FEATURE_DUE_DATE.into(),
-                    config: serde_json::json!({}),
+                    name: FEATURE_DEADLINES.into(),
+                    config: serde_json::json!({"has_start_date": false, "has_deadline": true, "has_hard_deadline": false}),
                 });
             }
             let req = CreateListRequest {
@@ -195,7 +195,7 @@ pub fn HomePage() -> impl IntoView {
                                         set_new_list_type.set(lt_for_click.clone());
                                         let defaults = lt_for_click.default_features();
                                         set_feat_quantity.set(defaults.iter().any(|f| f.name == FEATURE_QUANTITY));
-                                        set_feat_due_date.set(defaults.iter().any(|f| f.name == FEATURE_DUE_DATE));
+                                        set_feat_deadlines.set(defaults.iter().any(|f| f.name == FEATURE_DEADLINES));
                                     }
                                 >
                                     {icon} " " {label}
@@ -218,8 +218,8 @@ pub fn HomePage() -> impl IntoView {
                         <input
                             type="checkbox"
                             class="checkbox checkbox-sm"
-                            prop:checked=feat_due_date
-                            on:change=move |ev| set_feat_due_date.set(event_target_checked(&ev))
+                            prop:checked=feat_deadlines
+                            on:change=move |ev| set_feat_deadlines.set(event_target_checked(&ev))
                         />
                         <span class="label-text">"Terminy"</span>
                     </label>

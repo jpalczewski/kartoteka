@@ -15,7 +15,7 @@ use crate::components::lists::list_tag_bar::ListTagBar;
 use crate::components::lists::sublist_section::SublistSection;
 use crate::components::tags::tag_filter_bar::TagFilterBar;
 use kartoteka_shared::{
-    FEATURE_DUE_DATE, FEATURE_QUANTITY, Item, ItemTagLink, List, ListFeature, ListTagLink, Tag,
+    FEATURE_DEADLINES, FEATURE_QUANTITY, Item, ItemTagLink, List, ListFeature, ListTagLink, Tag,
     UpdateListRequest,
 };
 
@@ -75,6 +75,7 @@ pub fn ListPage() -> impl IntoView {
     let on_delete = actions.on_delete;
     let on_description_save = actions.on_description_save;
     let on_quantity_change = actions.on_quantity_change;
+    let on_date_save = actions.on_date_save;
 
     let on_tag_toggle = make_item_tag_toggle(item_tag_links);
     let lid_for_tag = list_id();
@@ -180,6 +181,15 @@ pub fn ListPage() -> impl IntoView {
         }
     };
 
+    /// Get deadlines feature config from list features, or Null if not enabled
+    fn get_deadlines_config(feats: &[ListFeature]) -> serde_json::Value {
+        feats
+            .iter()
+            .find(|f| f.name == FEATURE_DEADLINES)
+            .map(|f| f.config.clone())
+            .unwrap_or(serde_json::Value::Null)
+    }
+
     view! {
         <div class="container mx-auto max-w-2xl p-4">
             {move || view! {
@@ -197,9 +207,14 @@ pub fn ListPage() -> impl IntoView {
                         list_features.update(|feats| {
                             if enabled {
                                 if !feats.iter().any(|f| f.name == feature_name) {
+                                    let config = if feature_name == FEATURE_DEADLINES {
+                                        serde_json::json!({"has_start_date": false, "has_deadline": true, "has_hard_deadline": false})
+                                    } else {
+                                        serde_json::json!({})
+                                    };
                                     feats.push(ListFeature {
                                         name: feature_name.clone(),
-                                        config: serde_json::json!({}),
+                                        config,
                                     });
                                 }
                             } else {
@@ -207,12 +222,29 @@ pub fn ListPage() -> impl IntoView {
                             }
                         });
                         let fname = feature_name.clone();
+                        let config = if fname == FEATURE_DEADLINES {
+                            serde_json::json!({"has_start_date": false, "has_deadline": true, "has_hard_deadline": false})
+                        } else {
+                            serde_json::json!({})
+                        };
                         leptos::task::spawn_local(async move {
                             if enabled {
-                                let _ = api::add_feature(&lid, &fname, serde_json::json!({})).await;
+                                let _ = api::add_feature(&lid, &fname, config).await;
                             } else {
                                 let _ = api::remove_feature(&lid, &fname).await;
                             }
+                        });
+                    })
+                    on_deadlines_config_change=Callback::new(move |new_config: serde_json::Value| {
+                        let lid = list_id();
+                        // Optimistic update
+                        list_features.update(|feats| {
+                            if let Some(f) = feats.iter_mut().find(|f| f.name == FEATURE_DEADLINES) {
+                                f.config = new_config.clone();
+                            }
+                        });
+                        leptos::task::spawn_local(async move {
+                            let _ = api::add_feature(&lid, FEATURE_DEADLINES, new_config).await;
                         });
                     })
                     on_rename=Callback::new(move |new_name: String| {
@@ -265,7 +297,8 @@ pub fn ListPage() -> impl IntoView {
 
             {move || {
                 let feats = list_features.get();
-                view! { <AddItemInput on_submit=on_add has_quantity=feats.iter().any(|f| f.name == FEATURE_QUANTITY) has_due_date=feats.iter().any(|f| f.name == FEATURE_DUE_DATE) /> }
+                let deadlines_config = get_deadlines_config(&feats);
+                view! { <AddItemInput on_submit=on_add has_quantity=feats.iter().any(|f| f.name == FEATURE_QUANTITY) deadlines_config=deadlines_config /> }
             }}
 
             {move || {
@@ -277,7 +310,7 @@ pub fn ListPage() -> impl IntoView {
                 if loading.get() {
                     view! { <p>"Wczytywanie..."</p> }.into_any()
                 } else if let Some(e) = error.get() {
-                    view! { <p style="color: red;">{format!("Błąd: {e}")}</p> }.into_any()
+                    view! { <p style="color: red;">{format!("B\u{0142}\u{0105}d: {e}")}</p> }.into_any()
                 } else if items.read().is_empty() && sublists.read().is_empty() {
                     view! { <div class="text-center text-base-content/50 py-12">"Lista jest pusta"</div> }.into_any()
                 } else {
@@ -285,8 +318,8 @@ pub fn ListPage() -> impl IntoView {
                         <div>
                             {move || {
                                 let feats = list_features.get();
-                                if feats.iter().any(|f| f.name == FEATURE_DUE_DATE) {
-                                    render_date_view(filtered_items(), all_tags.get(), item_tag_links.get(), on_toggle, on_delete, on_tag_toggle).into_any()
+                                if feats.iter().any(|f| f.name == FEATURE_DEADLINES) {
+                                    render_date_view(filtered_items(), all_tags.get(), item_tag_links.get(), on_toggle, on_delete, on_tag_toggle, on_date_save).into_any()
                                 } else {
                                     render_normal_view(NormalViewProps {
                                         items: filtered_items(),
@@ -297,6 +330,8 @@ pub fn ListPage() -> impl IntoView {
                                         on_description_save, on_quantity_change,
                                         has_quantity: feats.iter().any(|f| f.name == FEATURE_QUANTITY),
                                         on_move: on_move_main,
+                                        on_date_save,
+                                        deadlines_config: get_deadlines_config(&feats),
                                     }).into_any()
                                 }
                             }}
@@ -315,7 +350,7 @@ pub fn ListPage() -> impl IntoView {
                                                 let lname = list_name.get();
                                                 let sl_id = sl.id.clone();
                                                 let mut mt: Vec<(String, String)> = vec![
-                                                    (lid, format!("{lname} (główna)"))
+                                                    (lid, format!("{lname} (g\u{0142}\u{00F3}wna)"))
                                                 ];
                                                 mt.extend(
                                                     subs.iter()
@@ -323,11 +358,12 @@ pub fn ListPage() -> impl IntoView {
                                                         .map(|s| (s.id.clone(), s.name.clone()))
                                                 );
                                                 let feats = list_features.get();
+                                                let deadlines_config = get_deadlines_config(&feats);
                                                 view! {
                                                     <SublistSection
                                                         sublist=sl.clone()
                                                         has_quantity=feats.iter().any(|f| f.name == FEATURE_QUANTITY)
-                                                        has_due_date=feats.iter().any(|f| f.name == FEATURE_DUE_DATE)
+                                                        deadlines_config=deadlines_config
                                                         all_tags=tags
                                                         item_tag_links=links
                                                         on_tag_toggle=on_tag_toggle

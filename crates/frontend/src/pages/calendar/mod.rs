@@ -51,7 +51,7 @@ pub fn CalendarPage() -> impl IntoView {
                 ViewMode::Month => {
                     if let Some((y, m, _)) = parse_date(&date) {
                         let (from, to) = month_grid_range(y, m);
-                        match api::fetch_calendar_counts(&from, &to).await {
+                        match api::fetch_calendar_counts(&from, &to, "all").await {
                             Ok(counts) => month_counts.set(counts),
                             Err(e) => toast.push(format!("Błąd: {e}"), ToastKind::Error),
                         }
@@ -59,7 +59,7 @@ pub fn CalendarPage() -> impl IntoView {
                 }
                 ViewMode::Week => {
                     let (from, to) = week_range(&date);
-                    match api::fetch_calendar_full(&from, &to).await {
+                    match api::fetch_calendar_full(&from, &to, "all").await {
                         Ok(days) => week_data.set(days),
                         Err(e) => toast.push(format!("Błąd: {e}"), ToastKind::Error),
                     }
