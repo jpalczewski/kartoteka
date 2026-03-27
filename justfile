@@ -3,12 +3,6 @@ set dotenv-load
 
 export CLOUDFLARE_ACCOUNT_ID := env("CLOUDFLARE_ACCOUNT_ID", "")
 
-# Generuje hanko-init.js z template
-_gen-hanko:
-    sed -e 's|__HANKO_API_URL__|'"${HANKO_API_URL}"'|g' \
-        -e 's|__DEV_AUTH_TOKEN__|'"${DEV_AUTH_TOKEN:-}"'|g' \
-        crates/frontend/hanko-init.js.template > crates/frontend/hanko-init.js
-
 default:
     @just --list
 
@@ -18,142 +12,117 @@ default:
 setup:
     cargo install trunk worker-build
     rustup target add wasm32-unknown-unknown
-    cd mcp && npm install
+    cd gateway && npm install
     cd crates/frontend && npm install
-
-# Utwórz bazy D1 (jednorazowo)
-db-create:
-    cd crates/api && npx wrangler d1 create kartoteka-db
-
-db-create-dev:
-    cd crates/api && npx wrangler d1 create kartoteka-dev
 
 # === DEV ===
 
-# Uruchom API worker lokalnie (lokalny SQLite)
+# Uruchom API worker lokalnie
 dev-api:
-    cd crates/api && HANKO_API_URL="${HANKO_API_URL}" npx wrangler dev --env local --local
+    cd crates/api && npx wrangler dev --env local --local --port 8787
 
-# Uruchom frontend z proxy do API
-dev-frontend: _gen-hanko
+# Uruchom Gateway worker lokalnie
+dev-gateway:
+    cd gateway && npx wrangler dev --env local --local --port 8788
+
+# Uruchom frontend (proxy config in Trunk.toml)
+dev-frontend:
     cd crates/frontend && npm install
-    cd crates/frontend && API_BASE_URL="/api" HANKO_API_URL="${HANKO_API_URL}" trunk serve --proxy-backend=http://127.0.0.1:8787/api
+    cd crates/frontend && API_BASE_URL="/api" trunk serve
 
-# Uruchom MCP server lokalnie
-dev-mcp:
-    cd mcp && npx wrangler dev
-
-# Uruchom API + frontend równolegle
+# Uruchom API + Gateway + frontend
 dev:
-    just dev-api & just dev-frontend & wait
+    just dev-api & just dev-gateway & just dev-frontend & wait
 
 # === BUILD ===
 
-# Zbuduj wszystko
-build: build-api build-frontend build-mcp
+# Sprawdź kompilację workspace
+check:
+    API_BASE_URL="/api" cargo check --workspace
 
-# Zbuduj API worker
+build: build-api build-frontend build-gateway
+
 build-api:
     cd crates/api && worker-build --release
 
-# Zbuduj frontend
-build-frontend: _gen-hanko
+build-frontend:
     cd crates/frontend && npm install
-    cd crates/frontend && API_BASE_URL="${API_BASE_URL}" HANKO_API_URL="${HANKO_API_URL}" trunk build --release
+    cd crates/frontend && API_BASE_URL="${API_BASE_URL}" trunk build --release
 
-# Zbuduj MCP server
-build-mcp:
-    cd mcp && npx wrangler deploy --dry-run
-
-# Sprawdź kompilację workspace
-check:
-    API_BASE_URL="/api" HANKO_API_URL="${HANKO_API_URL}" cargo check --workspace
+build-gateway:
+    cd gateway && npx wrangler deploy --dry-run
 
 # === MIGRACJE ===
 
-# Utwórz nową migrację D1
+# Utwórz nową migrację D1 (API worker)
 migrate-create NAME:
     cd crates/api && npx wrangler d1 migrations create kartoteka-db {{NAME}}
 
-# Zastosuj migracje lokalnie (kartoteka-api-local, lokalny SQLite)
+# Zastosuj migracje API lokalnie
 migrate-local:
     cd crates/api && npx wrangler d1 migrations apply kartoteka-api-local --env local --local
 
-# Zastosuj migracje na dev (kartoteka-dev, remote)
+# Zastosuj migracje API na dev
 migrate-dev:
     cd crates/api && npx wrangler d1 migrations apply kartoteka-dev --env dev --remote
 
-# Zastosuj migracje na produkcję (kartoteka-db, remote)
+# Zastosuj migracje API na produkcję
 migrate-prod:
     cd crates/api && npx wrangler d1 migrations apply kartoteka-db --env="" --remote
 
-# Alias wstecznej kompatybilności
 migrate-remote: migrate-prod
+
+# Gateway auth DB migrations — uses /migrate endpoint (programmatic, Better Auth generates schema)
+migrate-gateway-local:
+    curl -X POST http://localhost:8788/migrate -H "x-migrate-secret: dev-migrate-secret"
+
+migrate-gateway-prod:
+    curl -X POST https://kartoteka-gateway.jpalczewski.workers.dev/migrate -H "x-migrate-secret: ${MIGRATE_SECRET}"
 
 # === DEPLOY ===
 
-# Deploy wszystkiego na produkcję (bez MCP — scaffold, nie gotowy)
-deploy: deploy-migrate deploy-api deploy-frontend
+deploy: deploy-migrate migrate-gateway-prod deploy-api deploy-gateway deploy-frontend
 
-# Deploy wszystkiego na dev
 deploy-dev: migrate-dev deploy-api-dev deploy-frontend-dev
 
-# Deploy migracji (prod)
 deploy-migrate:
     cd crates/api && npx wrangler d1 migrations apply kartoteka-db --remote
 
-# Deploy API worker (prod)
 deploy-api:
-    cd crates/api && HANKO_API_URL="${HANKO_API_URL}" npx wrangler deploy
+    cd crates/api && npx wrangler deploy
 
-# Deploy API worker (dev)
 deploy-api-dev:
-    cd crates/api && HANKO_API_URL="${HANKO_API_URL}" npx wrangler deploy --env dev
+    cd crates/api && npx wrangler deploy --env dev
 
-# Deploy frontend na CF Pages (prod)
-deploy-frontend: _gen-hanko-prod
+deploy-gateway:
+    cd gateway && npx wrangler deploy
+
+deploy-frontend:
     cd crates/frontend && npm install
-    cd crates/frontend && API_BASE_URL="${API_BASE_URL}" HANKO_API_URL="${HANKO_API_URL}" trunk build --release
+    cd crates/frontend && API_BASE_URL="${API_BASE_URL}" trunk build --release
     npx wrangler pages deploy crates/frontend/dist --project-name=kartoteka --branch=main --commit-dirty=true
 
-# Generuje hanko-init.js BEZ dev tokena (produkcja)
-_gen-hanko-prod:
-    sed -e 's|__HANKO_API_URL__|'"${HANKO_API_URL}"'|g' \
-        -e 's|__DEV_AUTH_TOKEN__||g' \
-        crates/frontend/hanko-init.js.template > crates/frontend/hanko-init.js
-
-# Deploy frontend na CF Pages (dev)
 deploy-frontend-dev:
     cd crates/frontend && npm install
-    cd crates/frontend && API_BASE_URL="https://kartoteka-api-dev.jpalczewski.workers.dev/api" HANKO_API_URL="${HANKO_API_URL}" trunk build --release
+    cd crates/frontend && API_BASE_URL="https://kartoteka-gateway.jpalczewski.workers.dev/api" trunk build --release
     npx wrangler pages deploy crates/frontend/dist --project-name=kartoteka --branch=dev --commit-dirty=true
-
-# Deploy MCP server
-deploy-mcp:
-    cd mcp && npx wrangler deploy
 
 # === QUALITY ===
 
-# Lint + format check
 lint:
-    API_BASE_URL="/api" HANKO_API_URL="${HANKO_API_URL}" cargo clippy --workspace -- -D warnings
+    API_BASE_URL="/api" cargo clippy --workspace -- -D warnings
     cargo fmt --check --all
 
-# Format kodu
 fmt:
     cargo fmt --all
 
-# Security & license audit
 audit:
     cargo deny check
 
-# Unused dependencies check
 machete:
     cargo machete
 
-# Uruchom testy
 test:
-    API_BASE_URL="/api" HANKO_API_URL="${HANKO_API_URL}" cargo test --workspace
+    API_BASE_URL="/api" cargo test --workspace
 
-# Full CI check (local)
 ci: fmt lint audit machete test
