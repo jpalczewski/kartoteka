@@ -8,10 +8,6 @@ use leptos::prelude::*;
 
 #[component]
 pub fn TagsPage() -> impl IntoView {
-    if !api::is_logged_in() {
-        return view! { <p><a href="/login">"Zaloguj się"</a></p> }.into_any();
-    }
-
     let tags = RwSignal::new(Vec::<Tag>::new());
     let (loading, set_loading) = signal(true);
     let (new_color, set_new_color) = signal("#e94560".to_string());

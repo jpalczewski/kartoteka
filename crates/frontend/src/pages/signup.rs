@@ -1,7 +1,8 @@
 use leptos::prelude::*;
 
 #[component]
-pub fn LoginPage() -> impl IntoView {
+pub fn SignupPage() -> impl IntoView {
+    let name = RwSignal::new(String::new());
     let email = RwSignal::new(String::new());
     let password = RwSignal::new(String::new());
     let error = RwSignal::new(Option::<String>::None);
@@ -14,10 +15,11 @@ pub fn LoginPage() -> impl IntoView {
 
         wasm_bindgen_futures::spawn_local(async move {
             let body = serde_json::json!({
+                "name": name.get_untracked(),
                 "email": email.get_untracked(),
                 "password": password.get_untracked(),
             });
-            let url = format!("{}/auth/api/sign-in/email", crate::api::auth_base());
+            let url = format!("{}/auth/api/sign-up/email", crate::api::auth_base());
             let result = gloo_net::http::Request::post(&url)
                 .header("Content-Type", "application/json")
                 .credentials(web_sys::RequestCredentials::Include)
@@ -34,7 +36,7 @@ pub fn LoginPage() -> impl IntoView {
                     }
                 }
                 Ok(resp) => {
-                    error.set(Some(format!("Błąd logowania ({})", resp.status())));
+                    error.set(Some(format!("Błąd rejestracji ({})", resp.status())));
                 }
                 Err(e) => {
                     error.set(Some(format!("Błąd sieci: {e}")));
@@ -47,7 +49,7 @@ pub fn LoginPage() -> impl IntoView {
         <div class="flex flex-col items-center justify-center min-h-[60vh] p-4">
             <div class="card bg-base-200 border border-base-300 w-full max-w-sm">
                 <div class="card-body items-center">
-                    <h2 class="card-title text-2xl mb-4">"Zaloguj się"</h2>
+                    <h2 class="card-title text-2xl mb-4">"Utwórz konto"</h2>
 
                     {move || error.get().map(|e| view! {
                         <div class="alert alert-error mb-4">
@@ -56,6 +58,15 @@ pub fn LoginPage() -> impl IntoView {
                     })}
 
                     <form on:submit=on_submit class="w-full space-y-4">
+                        <label class="input input-bordered flex items-center gap-2 w-full">
+                            <input
+                                type="text"
+                                placeholder="Imię"
+                                class="grow"
+                                required=true
+                                on:input=move |ev| name.set(event_target_value(&ev))
+                            />
+                        </label>
                         <label class="input input-bordered flex items-center gap-2 w-full">
                             <input
                                 type="email"
@@ -79,12 +90,12 @@ pub fn LoginPage() -> impl IntoView {
                             class="btn btn-primary w-full"
                             disabled=move || loading.get()
                         >
-                            {move || if loading.get() { "Logowanie..." } else { "Zaloguj się" }}
+                            {move || if loading.get() { "Tworzenie konta..." } else { "Utwórz konto" }}
                         </button>
                     </form>
 
                     <div class="divider">"lub"</div>
-                    <a href="/signup" class="link link-primary">"Utwórz konto"</a>
+                    <a href="/login" class="link link-primary">"Masz już konto? Zaloguj się"</a>
                 </div>
             </div>
         </div>

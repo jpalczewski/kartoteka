@@ -6,8 +6,8 @@ use crate::components::nav::Nav;
 use crate::components::toast_container::ToastContainer;
 use crate::pages::{
     calendar::CalendarPage, calendar::day::CalendarDayPage, container::ContainerPage,
-    home::HomePage, list::ListPage, login::LoginPage, settings::SettingsPage, tags::TagsPage,
-    tags::detail::TagDetailPage, today::TodayPage,
+    home::HomePage, list::ListPage, login::LoginPage, settings::SettingsPage,
+    signup::SignupPage, tags::TagsPage, tags::detail::TagDetailPage, today::TodayPage,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -75,6 +75,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/") view=HomePage/>
                     <Route path=path!("/today") view=TodayPage/>
                     <Route path=path!("/login") view=LoginPage/>
+                    <Route path=path!("/signup") view=SignupPage/>
                     <Route path=path!("/settings") view=SettingsPage/>
                     <Route path=path!("/calendar") view=CalendarPage/>
                     <Route path=path!("/calendar/:date") view=CalendarDayPage/>

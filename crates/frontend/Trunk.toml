@@ -9,3 +9,11 @@ watch = ["src", "style/input.css", "index.html"]
 stage = "pre_build"
 command = "npx"
 command_arguments = ["@tailwindcss/cli", "-i", "style/input.css", "-o", "style/main.css"]
+
+[[proxy]]
+backend = "http://localhost:8788"
+rewrite = "/api"
+
+[[proxy]]
+backend = "http://localhost:8788"
+rewrite = "/auth"

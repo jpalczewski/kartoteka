@@ -9,31 +9,25 @@ pub use lists::*;
 pub use tags::*;
 
 use gloo_net::http::{Headers, Request};
-use wasm_bindgen::JsCast;
-use web_sys::js_sys;
 
 pub(crate) const API_BASE: &str = env!("API_BASE_URL");
-
-fn get_hanko_token() -> Option<String> {
-    let storage = web_sys::window()?.local_storage().ok()??;
-    storage.get_item("hanko_token").ok()?
-}
 
 pub(crate) fn auth_headers() -> Headers {
     let headers = Headers::new();
     headers.set("Content-Type", "application/json");
-    if let Some(token) = get_hanko_token() {
-        headers.set("Authorization", &format!("Bearer {token}"));
-    }
     headers
 }
 
 pub(crate) fn get(url: &str) -> gloo_net::http::RequestBuilder {
-    Request::get(url).headers(auth_headers())
+    Request::get(url)
+        .headers(auth_headers())
+        .credentials(web_sys::RequestCredentials::Include)
 }
 
 pub(crate) fn del(url: &str) -> gloo_net::http::RequestBuilder {
-    Request::delete(url).headers(auth_headers())
+    Request::delete(url)
+        .headers(auth_headers())
+        .credentials(web_sys::RequestCredentials::Include)
 }
 
 pub(crate) async fn post_json<T: serde::de::DeserializeOwned>(
@@ -43,6 +37,7 @@ pub(crate) async fn post_json<T: serde::de::DeserializeOwned>(
     let json = serde_json::to_string(body).map_err(|e| e.to_string())?;
     Request::post(url)
         .headers(auth_headers())
+        .credentials(web_sys::RequestCredentials::Include)
         .body(json)
         .map_err(|e| e.to_string())?
         .send()
@@ -60,6 +55,7 @@ pub(crate) async fn put_json<T: serde::de::DeserializeOwned>(
     let json = serde_json::to_string(body).map_err(|e| e.to_string())?;
     Request::put(url)
         .headers(auth_headers())
+        .credentials(web_sys::RequestCredentials::Include)
         .body(json)
         .map_err(|e| e.to_string())?
         .send()
@@ -77,6 +73,7 @@ pub(crate) async fn patch_json<T: serde::de::DeserializeOwned>(
     let json = serde_json::to_string(body).map_err(|e| e.to_string())?;
     let resp = Request::patch(url)
         .headers(auth_headers())
+        .credentials(web_sys::RequestCredentials::Include)
         .body(json)
         .map_err(|e| e.to_string())?
         .send()
@@ -88,21 +85,50 @@ pub(crate) async fn patch_json<T: serde::de::DeserializeOwned>(
     resp.json().await.map_err(|e| e.to_string())
 }
 
-pub fn is_logged_in() -> bool {
-    get_hanko_token().is_some()
+/// Auth base URL — same origin as the page (Trunk proxies /auth to Gateway)
+pub fn auth_base() -> String {
+    web_sys::window()
+        .and_then(|w| w.location().origin().ok())
+        .unwrap_or_default()
 }
 
-pub fn get_user_email() -> Option<String> {
-    let storage = web_sys::window()?.local_storage().ok()??;
-    storage.get_item("hanko_user_email").ok()?
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SessionInfo {
+    pub user: SessionUser,
 }
 
-pub fn logout() {
-    if let Some(func) = web_sys::window().and_then(|w| {
-        js_sys::Reflect::get(&w, &"__hankoLogout".into())
-            .ok()
-            .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
-    }) {
-        let _ = func.call0(&wasm_bindgen::JsValue::NULL);
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SessionUser {
+    pub id: String,
+    pub email: String,
+    pub name: Option<String>,
+}
+
+/// Check current session. Returns Some(SessionInfo) if logged in.
+pub async fn get_session() -> Option<SessionInfo> {
+    let url = format!("{}/auth/api/get-session", auth_base());
+    let resp = Request::get(&url)
+        .credentials(web_sys::RequestCredentials::Include)
+        .send()
+        .await
+        .ok()?;
+    if resp.status() == 200 {
+        resp.json::<SessionInfo>().await.ok()
+    } else {
+        None
     }
+}
+
+/// Sign out and redirect to /login
+pub fn logout() {
+    wasm_bindgen_futures::spawn_local(async {
+        let url = format!("{}/auth/api/sign-out", auth_base());
+        let _ = Request::post(&url)
+            .credentials(web_sys::RequestCredentials::Include)
+            .send()
+            .await;
+        if let Some(window) = web_sys::window() {
+            let _ = window.location().set_href("/login");
+        }
+    });
 }
