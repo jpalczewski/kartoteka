@@ -61,49 +61,18 @@ pub fn ContainerPage() -> impl IntoView {
     let (loading, set_loading) = signal(true);
     let pending_delete_list = RwSignal::new(Option::<(String, String)>::None);
 
-    let cid = container_id();
-    leptos::task::spawn_local({
-        let cid = cid.clone();
-        async move {
-            // Fetch container detail
-            if let Ok(det) = api::fetch_container(&cid).await {
-                detail.set(Some(det));
-            }
-
-            // Fetch children
-            if let Ok(children) = api::fetch_container_children(&cid).await {
-                if let Some(sc) = children
-                    .get("containers")
-                    .and_then(|v| serde_json::from_value::<Vec<Container>>(v.clone()).ok())
-                {
-                    sub_containers.set(sc);
-                }
-                if let Some(sl) = children
-                    .get("lists")
-                    .and_then(|v| serde_json::from_value::<Vec<List>>(v.clone()).ok())
-                {
-                    sub_lists.set(sl);
-                }
-            }
-
-            // Fetch all containers for breadcrumbs
-            if let Ok(all) = api::fetch_containers().await {
-                let crumbs = build_breadcrumbs(&cid, &all).await;
-                breadcrumbs.set(crumbs);
-            }
-
-            set_loading.set(false);
-        }
-    });
-
-    // Reload on refresh signal
-    let cid_refresh = cid.clone();
+    // Reactive effect: re-runs whenever container_id or refresh changes.
+    // This ensures navigating folder→folder (same route, different :id) re-fetches data.
     Effect::new(move |_| {
-        let r = refresh.get();
-        if r == 0 {
-            return;
-        } // Skip initial run
-        let cid = cid_refresh.clone();
+        let cid = container_id();
+        let _r = refresh.get(); // track refresh signal too
+
+        detail.set(None);
+        sub_containers.set(vec![]);
+        sub_lists.set(vec![]);
+        breadcrumbs.set(vec![]);
+        set_loading.set(true);
+
         leptos::task::spawn_local(async move {
             if let Ok(det) = api::fetch_container(&cid).await {
                 detail.set(Some(det));
@@ -122,10 +91,14 @@ pub fn ContainerPage() -> impl IntoView {
                     sub_lists.set(sl);
                 }
             }
+            if let Ok(all) = api::fetch_containers().await {
+                let crumbs = build_breadcrumbs(&cid, &all).await;
+                breadcrumbs.set(crumbs);
+            }
+            set_loading.set(false);
         });
     });
 
-    let cid_create = cid.clone();
     let is_project = move || {
         detail
             .get()
@@ -134,7 +107,7 @@ pub fn ContainerPage() -> impl IntoView {
     };
 
     let on_create_list = Callback::new(move |req: CreateListRequest| {
-        let cid = cid_create.clone();
+        let cid = container_id();
         leptos::task::spawn_local(async move {
             match api::create_list(&req).await {
                 Ok(mut list) => {
