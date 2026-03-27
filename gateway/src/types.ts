@@ -8,6 +8,7 @@ export interface Env {
   GITHUB_CLIENT_SECRET?: string;
   DEV_AUTH_USER_ID?: string;
   DEV_API_URL?: string;
+  MIGRATE_SECRET?: string;
 }
 
 export interface Variables {

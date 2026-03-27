@@ -23,6 +23,7 @@ service = "kartoteka-api"
 # Secrets — configure before first deploy:
 #   wrangler secret put BETTER_AUTH_SECRET
 #   wrangler secret put BETTER_AUTH_URL
+#   wrangler secret put MIGRATE_SECRET
 #   wrangler secret put GITHUB_CLIENT_ID      (optional)
 #   wrangler secret put GITHUB_CLIENT_SECRET   (optional)
 
@@ -35,6 +36,7 @@ DEV_AUTH_USER_ID = "dev-user-00000000-0000-0000-0000-000000000001"
 BETTER_AUTH_SECRET = "dev-secret-not-for-production"
 BETTER_AUTH_URL = "http://localhost:8788"
 DEV_API_URL = "http://localhost:8787"
+MIGRATE_SECRET = "dev-migrate-secret"
 
 [[env.local.d1_databases]]
 binding = "AUTH_DB"

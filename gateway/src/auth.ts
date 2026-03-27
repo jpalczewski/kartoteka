@@ -1,6 +1,15 @@
 import { betterAuth } from "better-auth";
 import type { Env } from "./types";
 
+const authCache = new WeakMap<object, ReturnType<typeof createAuth>>();
+
+export function getAuth(env: Env): ReturnType<typeof createAuth> {
+  if (!authCache.has(env)) {
+    authCache.set(env, createAuth(env));
+  }
+  return authCache.get(env)!;
+}
+
 export function createAuth(env: Env) {
   return betterAuth({
     database: env.AUTH_DB,
