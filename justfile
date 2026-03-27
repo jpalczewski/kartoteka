@@ -32,7 +32,12 @@ dev-frontend:
 
 # Uruchom API + Gateway + frontend
 dev:
-    just dev-api & just dev-gateway & just dev-frontend & wait
+    #!/usr/bin/env bash
+    trap 'kill 0' EXIT
+    just dev-api &
+    just dev-gateway &
+    just dev-frontend &
+    wait
 
 # === BUILD ===
 
