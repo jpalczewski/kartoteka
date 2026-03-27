@@ -2,7 +2,7 @@
 name = "kartoteka-shared"
 version.workspace = true
 edition.workspace = true
-publish = false
+license = "MIT"
 
 [lints]
 workspace = true
