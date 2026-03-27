@@ -1,7 +1,7 @@
 use worker::*;
 
 use crate::auth;
-use crate::handlers::{items, lists, tags};
+use crate::handlers::{containers, items, lists, tags};
 
 fn cors_headers() -> Headers {
     let headers = Headers::new();
@@ -46,6 +46,17 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
 
     let router = Router::with_data(user_id);
     let response = router
+        // Home
+        .get_async("/api/home", containers::home)
+        // Containers
+        .get_async("/api/containers", containers::list_all)
+        .post_async("/api/containers", containers::create)
+        .get_async("/api/containers/:id", containers::get_one)
+        .put_async("/api/containers/:id", containers::update)
+        .delete_async("/api/containers/:id", containers::delete)
+        .get_async("/api/containers/:id/children", containers::get_children)
+        .patch_async("/api/containers/:id/move", containers::move_container)
+        .patch_async("/api/containers/:id/pin", containers::toggle_pin)
         // Lists
         .get_async("/api/lists", lists::list_all)
         .post_async("/api/lists", lists::create)
@@ -69,6 +80,9 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         // Cross-list queries
         .get_async("/api/items/by-date", items::by_date)
         .get_async("/api/items/calendar", items::calendar)
+        // List container + pin
+        .patch_async("/api/lists/:id/container", lists::move_list)
+        .patch_async("/api/lists/:id/pin", lists::toggle_pin)
         // Item move
         .patch_async("/api/items/:id/move", items::move_item)
         // Tags CRUD

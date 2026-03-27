@@ -1,16 +1,6 @@
 use gloo_net::http::Request;
 use kartoteka_shared::*;
 
-pub async fn fetch_lists() -> Result<Vec<List>, String> {
-    super::get(&format!("{}/lists", super::API_BASE))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
-        .map_err(|e| e.to_string())
-}
-
 pub async fn create_list(req: &CreateListRequest) -> Result<List, String> {
     super::post_json(&format!("{}/lists", super::API_BASE), req).await
 }

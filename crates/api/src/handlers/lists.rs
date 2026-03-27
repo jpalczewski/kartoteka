@@ -1,9 +1,11 @@
 use kartoteka_shared::*;
+use wasm_bindgen::JsValue;
 use worker::*;
 
-const LIST_SELECT: &str = "\
+pub const LIST_SELECT: &str = "\
     SELECT l.id, l.user_id, l.name, l.description, l.list_type, \
-    l.parent_list_id, l.position, l.archived, l.created_at, l.updated_at, \
+    l.parent_list_id, l.position, l.archived, l.container_id, l.pinned, l.last_opened_at, \
+    l.created_at, l.updated_at, \
     COALESCE((SELECT json_group_array(json_object('name', lf.feature_name, 'config', json(lf.config))) \
     FROM list_features lf WHERE lf.list_id = l.id), '[]') as features \
     FROM lists l";
@@ -13,7 +15,7 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
     let d1 = ctx.env.d1("DB")?;
     let result = d1
         .prepare(format!(
-            "{LIST_SELECT} WHERE l.user_id = ?1 AND l.parent_list_id IS NULL AND l.archived = 0 ORDER BY l.updated_at DESC"
+            "{LIST_SELECT} WHERE l.user_id = ?1 AND l.parent_list_id IS NULL AND l.container_id IS NULL AND l.archived = 0 ORDER BY l.updated_at DESC"
         ))
         .bind(&[user_id.into()])?
         .all()
@@ -78,6 +80,14 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
         .ok_or_else(|| Error::from("Missing id"))?
         .to_string();
     let d1 = ctx.env.d1("DB")?;
+
+    // Track last opened
+    let _ = d1
+        .prepare("UPDATE lists SET last_opened_at = datetime('now') WHERE id = ?1 AND user_id = ?2")
+        .bind(&[id.clone().into(), user_id.clone().into()])?
+        .run()
+        .await;
+
     let list = d1
         .prepare(format!("{LIST_SELECT} WHERE l.id = ?1 AND l.user_id = ?2"))
         .bind(&[id.into(), user_id.into()])?
@@ -439,6 +449,100 @@ pub async fn remove_feature(_req: Request, ctx: RouteContext<String>) -> Result<
     let list = d1
         .prepare(format!("{LIST_SELECT} WHERE l.id = ?1"))
         .bind(&[list_id.into()])?
+        .first::<List>(None)
+        .await?
+        .ok_or_else(|| Error::from("Not found"))?;
+
+    Response::from_json(&list)
+}
+
+// === Container assignment ===
+
+pub async fn move_list(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let id = ctx
+        .param("id")
+        .ok_or_else(|| Error::from("Missing id"))?
+        .to_string();
+    let body: MoveListRequest = req.json().await?;
+    let d1 = ctx.env.d1("DB")?;
+
+    // Verify list ownership
+    let check = d1
+        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
+        .bind(&[id.clone().into(), user_id.clone().into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    if check.is_none() {
+        return Response::error("Not found", 404);
+    }
+
+    // If target container specified, verify ownership
+    if let Some(ref cid) = body.container_id {
+        let ccheck = d1
+            .prepare("SELECT id FROM containers WHERE id = ?1 AND user_id = ?2")
+            .bind(&[cid.clone().into(), user_id.into()])?
+            .first::<serde_json::Value>(None)
+            .await?;
+        if ccheck.is_none() {
+            return Response::error("Container not found", 404);
+        }
+    }
+
+    let cid_val: JsValue = match &body.container_id {
+        Some(cid) => JsValue::from(cid.as_str()),
+        None => JsValue::NULL,
+    };
+
+    d1.prepare("UPDATE lists SET container_id = ?1, updated_at = datetime('now') WHERE id = ?2")
+        .bind(&[cid_val, id.clone().into()])?
+        .run()
+        .await?;
+
+    let list = d1
+        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1"))
+        .bind(&[id.into()])?
+        .first::<List>(None)
+        .await?
+        .ok_or_else(|| Error::from("Not found"))?;
+
+    Response::from_json(&list)
+}
+
+pub async fn toggle_pin(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let id = ctx
+        .param("id")
+        .ok_or_else(|| Error::from("Missing id"))?
+        .to_string();
+    let d1 = ctx.env.d1("DB")?;
+
+    let row = d1
+        .prepare("SELECT pinned FROM lists WHERE id = ?1 AND user_id = ?2")
+        .bind(&[id.clone().into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+
+    if row.is_none() {
+        return Response::error("Not found", 404);
+    }
+
+    let current = row
+        .as_ref()
+        .and_then(|r| r.get("pinned"))
+        .and_then(|v| v.as_f64())
+        .map(|f| f != 0.0)
+        .unwrap_or(false);
+
+    let new_val: i32 = if current { 0 } else { 1 };
+    d1.prepare("UPDATE lists SET pinned = ?1, updated_at = datetime('now') WHERE id = ?2")
+        .bind(&[new_val.into(), id.clone().into()])?
+        .run()
+        .await?;
+
+    let list = d1
+        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1"))
+        .bind(&[id.into()])?
         .first::<List>(None)
         .await?
         .ok_or_else(|| Error::from("Not found"))?;
