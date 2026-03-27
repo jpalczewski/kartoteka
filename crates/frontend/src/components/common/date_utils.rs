@@ -130,13 +130,25 @@ pub fn is_overdue(item: &Item, today: &str) -> bool {
     if item.completed {
         return false;
     }
-    match item.due_date.as_deref() {
+    match item.deadline.as_deref() {
         None => false,
         Some(d) if d < today => true,
-        Some(d) if d == today => match item.due_time.as_deref() {
+        Some(d) if d == today => match item.deadline_time.as_deref() {
             Some(t) if !t.is_empty() => t < current_time_hhmm().as_str(),
             _ => false,
         },
+        _ => false,
+    }
+}
+
+/// Check overdue for a specific date field type (used in multi-date views)
+pub fn is_overdue_for_date_type(date_val: Option<&str>, completed: bool, today: &str) -> bool {
+    if completed {
+        return false;
+    }
+    match date_val {
+        None => false,
+        Some(d) if d < today => true,
         _ => false,
     }
 }
@@ -145,10 +157,62 @@ pub fn is_upcoming(item: &Item, today: &str) -> bool {
     !item.completed && !is_overdue(item, today)
 }
 
-pub fn sort_by_due_date(items: &mut [Item]) {
+/// A date badge descriptor for consistent rendering across components
+pub struct DateBadge {
+    pub css: &'static str,
+    pub label: String,
+    pub date_type: &'static str,
+}
+
+/// Build date badges for an item's dates. `skip` optionally excludes one date type.
+pub fn item_date_badges(item: &Item, skip: Option<&str>) -> Vec<DateBadge> {
+    let mut badges = Vec::new();
+    if skip != Some("start") {
+        if let Some(ref d) = item.start_date {
+            let time_part = item
+                .start_time
+                .as_ref()
+                .filter(|t| !t.is_empty())
+                .map(|t| format!(" {t}"))
+                .unwrap_or_default();
+            badges.push(DateBadge {
+                css: "badge badge-info badge-sm",
+                label: format!("\u{1F4C5} {}{}", format_date_short(d), time_part),
+                date_type: "start",
+            });
+        }
+    }
+    if skip != Some("deadline") {
+        if let Some(ref d) = item.deadline {
+            let time_part = item
+                .deadline_time
+                .as_ref()
+                .filter(|t| !t.is_empty())
+                .map(|t| format!(" {t}"))
+                .unwrap_or_default();
+            badges.push(DateBadge {
+                css: "badge badge-warning badge-sm",
+                label: format!("\u{23F0} {}{}", format_date_short(d), time_part),
+                date_type: "deadline",
+            });
+        }
+    }
+    if skip != Some("hard_deadline") {
+        if let Some(ref d) = item.hard_deadline {
+            badges.push(DateBadge {
+                css: "badge badge-error badge-sm",
+                label: format!("\u{1F6A8} {}", format_date_short(d)),
+                date_type: "hard_deadline",
+            });
+        }
+    }
+    badges
+}
+
+pub fn sort_by_deadline(items: &mut [Item]) {
     items.sort_by(|a, b| {
-        let da = a.due_date.as_deref().unwrap_or("9999-99-99");
-        let db = b.due_date.as_deref().unwrap_or("9999-99-99");
+        let da = a.deadline.as_deref().unwrap_or("9999-99-99");
+        let db = b.deadline.as_deref().unwrap_or("9999-99-99");
         da.cmp(db)
     });
 }

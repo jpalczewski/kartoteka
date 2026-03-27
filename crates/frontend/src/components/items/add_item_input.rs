@@ -1,3 +1,5 @@
+use crate::components::common::date_utils::format_date_short;
+use kartoteka_shared::CreateItemRequest;
 use leptos::prelude::*;
 
 /// Helper: get today's date as YYYY-MM-DD
@@ -26,7 +28,7 @@ fn tomorrow_str() -> String {
 /// Helper: get next Monday's date as YYYY-MM-DD
 fn next_monday_str() -> String {
     let d = js_sys::Date::new_0();
-    let dow = d.get_day(); // 0=Sun, 1=Mon, ...
+    let dow = d.get_day();
     let days_until_monday = if dow == 0 { 1 } else { (8 - dow) % 7 };
     let days_until_monday = if days_until_monday == 0 {
         7
@@ -42,29 +44,160 @@ fn next_monday_str() -> String {
     )
 }
 
+/// Expanded date section: quick date buttons + date picker + time stepper (if has_time)
+fn render_date_section(
+    border_color: &'static str,
+    date_signal: RwSignal<String>,
+    hour_signal: Option<RwSignal<Option<u32>>>,
+    min_signal: Option<RwSignal<Option<u32>>>,
+) -> impl IntoView {
+    let has_time = hour_signal.is_some() && min_signal.is_some();
+
+    view! {
+        <div class=format!("flex flex-col gap-1 pl-2 border-l-2 {border_color}")>
+            // Quick date buttons + date picker
+            <div class="flex gap-1 flex-wrap items-center">
+                <button type="button"
+                    class=move || if date_signal.get() == today_str() { "btn btn-xs btn-primary" } else { "btn btn-xs btn-outline" }
+                    on:click=move |_| date_signal.set(today_str())
+                >"Dzi\u{015B}"</button>
+                <button type="button"
+                    class=move || if date_signal.get() == tomorrow_str() { "btn btn-xs btn-primary" } else { "btn btn-xs btn-outline" }
+                    on:click=move |_| date_signal.set(tomorrow_str())
+                >"Jutro"</button>
+                <button type="button"
+                    class=move || if date_signal.get() == next_monday_str() { "btn btn-xs btn-primary" } else { "btn btn-xs btn-outline" }
+                    on:click=move |_| date_signal.set(next_monday_str())
+                >"Pn"</button>
+                <input
+                    type="date"
+                    class="input input-bordered input-xs w-36"
+                    prop:value=date_signal
+                    on:input=move |ev| date_signal.set(event_target_value(&ev))
+                />
+            </div>
+            // Time stepper — only after a date is selected, and only if this type has time
+            {move || {
+                if has_time && !date_signal.get().is_empty() {
+                    let hour = hour_signal.unwrap();
+                    let min = min_signal.unwrap();
+                    view! {
+                        <div class="flex gap-1 flex-wrap items-center">
+                            <button type="button"
+                                class=move || {
+                                    let h = hour.get();
+                                    if h == Some(9) { "btn btn-xs btn-primary" } else { "btn btn-xs btn-outline" }
+                                }
+                                on:click=move |_| { hour.set(Some(9)); min.set(Some(0)); }
+                            >"9:00"</button>
+                            <button type="button"
+                                class=move || {
+                                    let h = hour.get();
+                                    let m = min.get();
+                                    if h == Some(12) && m == Some(0) { "btn btn-xs btn-primary" } else { "btn btn-xs btn-outline" }
+                                }
+                                on:click=move |_| { hour.set(Some(12)); min.set(Some(0)); }
+                            >"12:00"</button>
+                            <button type="button"
+                                class=move || {
+                                    let h = hour.get();
+                                    if h == Some(15) { "btn btn-xs btn-primary" } else { "btn btn-xs btn-outline" }
+                                }
+                                on:click=move |_| { hour.set(Some(15)); min.set(Some(0)); }
+                            >"15:00"</button>
+                            <button type="button"
+                                class=move || {
+                                    let h = hour.get();
+                                    if h == Some(18) { "btn btn-xs btn-primary" } else { "btn btn-xs btn-outline" }
+                                }
+                                on:click=move |_| { hour.set(Some(18)); min.set(Some(0)); }
+                            >"18:00"</button>
+                            <span class="text-base-content/30">"|"</span>
+                            // Manual stepper
+                            <button type="button" class="btn btn-xs btn-ghost"
+                                on:click=move |_| {
+                                    let h = hour.get().unwrap_or(12);
+                                    hour.set(Some(if h == 0 { 23 } else { h - 1 }));
+                                }
+                            >"\u{2212}"</button>
+                            <span class="font-mono text-sm min-w-[2ch] text-center">
+                                {move || hour.get().map_or("--".to_string(), |h| format!("{:02}", h))}
+                            </span>
+                            <span class="font-mono text-sm">":"</span>
+                            <span class="font-mono text-sm min-w-[2ch] text-center">
+                                {move || min.get().map_or("--".to_string(), |m| format!("{:02}", m))}
+                            </span>
+                            <button type="button" class="btn btn-xs btn-ghost"
+                                on:click=move |_| {
+                                    let h = hour.get().unwrap_or(11);
+                                    hour.set(Some((h + 1) % 24));
+                                }
+                            >"+"</button>
+                            <button type="button" class="btn btn-xs btn-ghost"
+                                on:click=move |_| {
+                                    let m = min.get().unwrap_or(45);
+                                    min.set(Some((m + 15) % 60));
+                                }
+                            >"+15m"</button>
+                            {move || {
+                                if hour.get().is_some() || min.get().is_some() {
+                                    view! {
+                                        <button type="button" class="btn btn-xs btn-ghost opacity-50"
+                                            on:click=move |_| { hour.set(None); min.set(None); }
+                                        >"\u{2715}"</button>
+                                    }.into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }
+                            }}
+                        </div>
+                    }.into_any()
+                } else {
+                    view! {}.into_any()
+                }
+            }}
+        </div>
+    }
+}
+
 /// Form for adding a new list item.
-/// Calls `on_submit` with `(title, description, quantity, unit, due_date, due_time)`.
 #[component]
 pub fn AddItemInput(
-    on_submit: Callback<(
-        String,
-        Option<String>,
-        Option<i32>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    )>,
+    on_submit: Callback<CreateItemRequest>,
     #[prop(default = false)] has_quantity: bool,
-    #[prop(default = false)] has_due_date: bool,
+    #[prop(default = serde_json::Value::Null)] deadlines_config: serde_json::Value,
 ) -> impl IntoView {
+    let has_start_date = deadlines_config
+        .get("has_start_date")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let has_deadline = deadlines_config
+        .get("has_deadline")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let has_hard_deadline = deadlines_config
+        .get("has_hard_deadline")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let has_any_date = has_start_date || has_deadline || has_hard_deadline;
+
     let title = RwSignal::new(String::new());
     let desc = RwSignal::new(String::new());
     let show_desc = RwSignal::new(false);
     let quantity = RwSignal::new(String::new());
     let unit = RwSignal::new("szt.".to_string());
-    let due_date = RwSignal::new(String::new());
-    let due_hour = RwSignal::new(Option::<u32>::None);
-    let due_min = RwSignal::new(Option::<u32>::None);
+
+    let start_date = RwSignal::new(String::new());
+    let start_hour = RwSignal::new(Option::<u32>::None);
+    let start_min = RwSignal::new(Option::<u32>::None);
+    let deadline_date = RwSignal::new(String::new());
+    let deadline_hour = RwSignal::new(Option::<u32>::None);
+    let deadline_min = RwSignal::new(Option::<u32>::None);
+    let hard_deadline_date = RwSignal::new(String::new());
+
+    let start_expanded = RwSignal::new(false);
+    let deadline_expanded = RwSignal::new(false);
+    let hard_expanded = RwSignal::new(false);
 
     let submit = std::rc::Rc::new(move || {
         let t = title.get();
@@ -83,32 +216,83 @@ pub fn AddItemInput(
         } else {
             None
         };
-        let dd = {
-            let v = due_date.get();
-            if v.trim().is_empty() { None } else { Some(v) }
+
+        let to_opt = |s: String| {
+            if s.trim().is_empty() { None } else { Some(s) }
         };
-        let dt = match (due_hour.get(), due_min.get()) {
+        let time_opt = |h: Option<u32>, m: Option<u32>| match (h, m) {
             (Some(h), Some(m)) => Some(format!("{:02}:{:02}", h, m)),
             (Some(h), None) => Some(format!("{:02}:00", h)),
             _ => None,
         };
+
+        let req = CreateItemRequest {
+            title: t,
+            description: if d.trim().is_empty() { None } else { Some(d) },
+            quantity: q,
+            unit: u,
+            start_date: to_opt(start_date.get()),
+            start_time: time_opt(start_hour.get(), start_min.get()),
+            deadline: to_opt(deadline_date.get()),
+            deadline_time: time_opt(deadline_hour.get(), deadline_min.get()),
+            hard_deadline: to_opt(hard_deadline_date.get()),
+        };
+
         title.set(String::new());
         desc.set(String::new());
         show_desc.set(false);
         quantity.set(String::new());
         unit.set("szt.".to_string());
-        due_date.set(String::new());
-        due_hour.set(None);
-        due_min.set(None);
-        on_submit.run((
-            t,
-            if d.trim().is_empty() { None } else { Some(d) },
-            q,
-            u,
-            dd,
-            dt,
-        ));
+        start_date.set(String::new());
+        start_hour.set(None);
+        start_min.set(None);
+        deadline_date.set(String::new());
+        deadline_hour.set(None);
+        deadline_min.set(None);
+        hard_deadline_date.set(String::new());
+        start_expanded.set(false);
+        deadline_expanded.set(false);
+        hard_expanded.set(false);
+
+        on_submit.run(req);
     });
+
+    /// Render a date chip button
+    fn chip(
+        label_empty: &'static str,
+        icon: &'static str,
+        date_signal: RwSignal<String>,
+        hour_signal: Option<RwSignal<Option<u32>>>,
+        min_signal: Option<RwSignal<Option<u32>>>,
+        expanded: RwSignal<bool>,
+        active_class: &'static str,
+    ) -> impl IntoView {
+        let is_active = move || !date_signal.get().is_empty() || expanded.get();
+        view! {
+            <button type="button"
+                class=move || if is_active() { active_class } else { "btn btn-xs btn-outline btn-ghost" }
+                on:click=move |_| {
+                    if !date_signal.get().is_empty() {
+                        date_signal.set(String::new());
+                        if let Some(h) = hour_signal { h.set(None); }
+                        if let Some(m) = min_signal { m.set(None); }
+                        expanded.set(false);
+                    } else {
+                        expanded.update(|v| *v = !*v);
+                    }
+                }
+            >
+                {move || {
+                    let d = date_signal.get();
+                    if d.is_empty() {
+                        format!("{icon} {label_empty}")
+                    } else {
+                        format!("{icon} {} \u{2715}", format_date_short(&d))
+                    }
+                }}
+            </button>
+        }
+    }
 
     view! {
         <div class="flex gap-2 mb-4">
@@ -130,11 +314,10 @@ pub fn AddItemInput(
                         title="Dodaj opis"
                         on:click=move |_| show_desc.update(|v| *v = !*v)
                     >
-                        {move || if show_desc.get() { "▲" } else { "📝" }}
+                        {move || if show_desc.get() { "\u{25B2}" } else { "\u{1F4DD}" }}
                     </button>
                 </div>
 
-                // Description - collapsible
                 <div style:display=move || if show_desc.get() { "block" } else { "none" }>
                     <input
                         type="text"
@@ -148,7 +331,6 @@ pub fn AddItemInput(
                     />
                 </div>
 
-                // Quantity fields
                 {if has_quantity {
                     view! {
                         <div class="flex gap-1">
@@ -156,7 +338,7 @@ pub fn AddItemInput(
                                 type="number"
                                 min="1"
                                 class="input input-bordered input-sm w-24"
-                                placeholder="Ilość"
+                                placeholder="Ilo\u{015B}\u{0107}"
                                 prop:value=quantity
                                 on:input=move |ev| {
                                     let val = event_target_value(&ev);
@@ -188,77 +370,50 @@ pub fn AddItemInput(
                     view! {}.into_any()
                 }}
 
-                // Date fields with quick buttons
-                {if has_due_date {
+                // Date chips
+                {if has_any_date {
                     view! {
-                        <div class="flex flex-col gap-1">
-                            // Quick date buttons
+                        <div class="flex flex-col gap-1 mt-1">
                             <div class="flex gap-1 flex-wrap">
-                                <button type="button"
-                                    class=move || if due_date.get() == today_str() { "btn btn-xs btn-primary" } else { "btn btn-xs btn-outline" }
-                                    on:click=move |_| due_date.set(today_str())
-                                >"Dziś"</button>
-                                <button type="button"
-                                    class=move || if due_date.get() == tomorrow_str() { "btn btn-xs btn-primary" } else { "btn btn-xs btn-outline" }
-                                    on:click=move |_| due_date.set(tomorrow_str())
-                                >"Jutro"</button>
-                                <button type="button"
-                                    class=move || if due_date.get() == next_monday_str() { "btn btn-xs btn-primary" } else { "btn btn-xs btn-outline" }
-                                    on:click=move |_| due_date.set(next_monday_str())
-                                >"Poniedziałek"</button>
-                                <input
-                                    type="date"
-                                    class="input input-bordered input-xs w-36"
-                                    prop:value=due_date
-                                    on:input=move |ev| due_date.set(event_target_value(&ev))
-                                />
-                            </div>
-                            // Time stepper
-                            <div class="flex items-center gap-1">
-                                <span class="text-xs opacity-50">"Godzina:"</span>
-                                <button type="button" class="btn btn-xs btn-ghost"
-                                    on:click=move |_| {
-                                        let h = due_hour.get().unwrap_or(12);
-                                        due_hour.set(Some(if h == 0 { 23 } else { h - 1 }));
-                                    }
-                                >"−"</button>
-                                <span class="font-mono text-sm min-w-[2ch] text-center">
-                                    {move || due_hour.get().map_or("--".to_string(), |h| format!("{:02}", h))}
-                                </span>
-                                <button type="button" class="btn btn-xs btn-ghost"
-                                    on:click=move |_| {
-                                        let h = due_hour.get().unwrap_or(11);
-                                        due_hour.set(Some((h + 1) % 24));
-                                    }
-                                >"+"</button>
-                                <span class="font-mono text-sm">":"</span>
-                                <button type="button" class="btn btn-xs btn-ghost"
-                                    on:click=move |_| {
-                                        let m = due_min.get().unwrap_or(15);
-                                        due_min.set(Some(if m < 15 { 45 } else { m - 15 }));
-                                    }
-                                >"−"</button>
-                                <span class="font-mono text-sm min-w-[2ch] text-center">
-                                    {move || due_min.get().map_or("--".to_string(), |m| format!("{:02}", m))}
-                                </span>
-                                <button type="button" class="btn btn-xs btn-ghost"
-                                    on:click=move |_| {
-                                        let m = due_min.get().unwrap_or(45);
-                                        due_min.set(Some((m + 15) % 60));
-                                    }
-                                >"+"</button>
-                                {move || {
-                                    if due_hour.get().is_some() || due_min.get().is_some() {
-                                        view! {
-                                            <button type="button" class="btn btn-xs btn-ghost opacity-50"
-                                                on:click=move |_| { due_hour.set(None); due_min.set(None); }
-                                            >"✕"</button>
-                                        }.into_any()
-                                    } else {
-                                        view! {}.into_any()
-                                    }
+                                {if has_start_date {
+                                    chip("Start", "\u{1F4C5}", start_date, Some(start_hour), Some(start_min), start_expanded, "btn btn-xs btn-info").into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }}
+                                {if has_deadline {
+                                    chip("Termin", "\u{23F0}", deadline_date, Some(deadline_hour), Some(deadline_min), deadline_expanded, "btn btn-xs btn-warning").into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }}
+                                {if has_hard_deadline {
+                                    chip("Twardy", "\u{1F6A8}", hard_deadline_date, None, None, hard_expanded, "btn btn-xs btn-error").into_any()
+                                } else {
+                                    view! {}.into_any()
                                 }}
                             </div>
+
+                            // Expanded sections
+                            {move || {
+                                if has_start_date && start_expanded.get() {
+                                    render_date_section("border-info", start_date, Some(start_hour), Some(start_min)).into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }
+                            }}
+                            {move || {
+                                if has_deadline && deadline_expanded.get() {
+                                    render_date_section("border-warning", deadline_date, Some(deadline_hour), Some(deadline_min)).into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }
+                            }}
+                            {move || {
+                                if has_hard_deadline && hard_expanded.get() {
+                                    render_date_section("border-error", hard_deadline_date, None, None).into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }
+                            }}
                         </div>
                     }.into_any()
                 } else {

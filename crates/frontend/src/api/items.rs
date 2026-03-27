@@ -35,12 +35,17 @@ pub async fn move_item(item_id: &str, target_list_id: &str) -> Result<Item, Stri
     super::patch_json(&format!("{}/items/{item_id}/move", super::API_BASE), &body).await
 }
 
-pub async fn fetch_calendar_counts(from: &str, to: &str) -> Result<Vec<DaySummary>, String> {
+pub async fn fetch_calendar_counts(
+    from: &str,
+    to: &str,
+    date_field: &str,
+) -> Result<Vec<DaySummary>, String> {
     super::get(&format!(
-        "{}/items/calendar?from={}&to={}&detail=counts",
+        "{}/items/calendar?from={}&to={}&detail=counts&date_field={}",
         super::API_BASE,
         from,
-        to
+        to,
+        date_field
     ))
     .send()
     .await
@@ -50,12 +55,17 @@ pub async fn fetch_calendar_counts(from: &str, to: &str) -> Result<Vec<DaySummar
     .map_err(|e| e.to_string())
 }
 
-pub async fn fetch_calendar_full(from: &str, to: &str) -> Result<Vec<DayItems>, String> {
+pub async fn fetch_calendar_full(
+    from: &str,
+    to: &str,
+    date_field: &str,
+) -> Result<Vec<DayItems>, String> {
     super::get(&format!(
-        "{}/items/calendar?from={}&to={}&detail=full",
+        "{}/items/calendar?from={}&to={}&detail=full&date_field={}",
         super::API_BASE,
         from,
-        to
+        to,
+        date_field
     ))
     .send()
     .await
@@ -68,12 +78,14 @@ pub async fn fetch_calendar_full(from: &str, to: &str) -> Result<Vec<DayItems>, 
 pub async fn fetch_items_by_date(
     date: &str,
     include_overdue: bool,
+    date_field: &str,
 ) -> Result<Vec<DateItem>, String> {
     super::get(&format!(
-        "{}/items/by-date?date={}&include_overdue={}",
+        "{}/items/by-date?date={}&include_overdue={}&date_field={}",
         super::API_BASE,
         date,
-        include_overdue
+        include_overdue,
+        date_field
     ))
     .send()
     .await
