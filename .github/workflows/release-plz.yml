@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+  workflow_dispatch:
 
 # Compile-time env vars needed by cargo package --verify
 # (release-plz runs cargo package during version detection)
