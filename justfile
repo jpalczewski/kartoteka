@@ -87,7 +87,7 @@ migrate-gateway-local:
     curl -X POST http://localhost:8788/migrate -H "x-migrate-secret: dev-migrate-secret"
 
 migrate-gateway-dev:
-    curl -X POST ${GATEWAY_DEV_URL}/migrate -H "x-migrate-secret: ${MIGRATE_SECRET}"
+    curl -X POST ${GATEWAY_DEV_URL}/migrate -H "x-migrate-secret: ${MIGRATE_SECRET_DEV}"
 
 migrate-gateway-prod:
     curl -X POST https://kartoteka-gateway.jpalczewski.workers.dev/migrate -H "x-migrate-secret: ${MIGRATE_SECRET}"
