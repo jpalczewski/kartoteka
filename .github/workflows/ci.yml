@@ -8,7 +8,6 @@ on:
 
 env:
   API_BASE_URL: "/api"
-  HANKO_API_URL: "https://placeholder.hanko.io"
   CARGO_TERM_COLOR: always
 
 jobs:
