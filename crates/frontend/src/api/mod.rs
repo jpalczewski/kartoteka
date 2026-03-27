@@ -85,11 +85,17 @@ pub(crate) async fn patch_json<T: serde::de::DeserializeOwned>(
     resp.json().await.map_err(|e| e.to_string())
 }
 
-/// Auth base URL — same origin as the page (Trunk proxies /auth to Gateway)
+/// Auth base URL — derived from API_BASE_URL.
+/// Locally API_BASE_URL="/api" so Trunk proxy handles /auth/* via window origin.
+/// In prod/dev API_BASE_URL="https://gateway.../api" so strip "/api" to get gateway root.
 pub fn auth_base() -> String {
-    web_sys::window()
-        .and_then(|w| w.location().origin().ok())
-        .unwrap_or_default()
+    if API_BASE.starts_with("http") {
+        API_BASE.trim_end_matches("/api").to_string()
+    } else {
+        web_sys::window()
+            .and_then(|w| w.location().origin().ok())
+            .unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
