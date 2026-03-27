@@ -130,4 +130,8 @@ machete:
 test:
     API_BASE_URL="/api" cargo test --workspace
 
+# Uruchom testy e2e (wymaga działającego just dev)
+test-e2e:
+    cd tests && npm install && npx playwright test --reporter=list
+
 ci: fmt lint audit machete test
