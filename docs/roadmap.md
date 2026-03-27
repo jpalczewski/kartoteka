@@ -96,16 +96,17 @@ Z flat booleans na tabelę `list_features(list_id, feature_name, config TEXT/JSO
 
 ---
 
-## M5: Containers (foldery + projekty)
+## ~~M5: Containers (foldery + projekty)~~ ✅
 
 **Dostarcza:** Foldery i projekty jako unified Container.
 
-- Backend: tabela `containers`, `container_id TEXT` na listach (nullable FK)
-- Progress na projektach: computed server-side — `GET /api/containers/:id` zwraca `completed_items / total_items` across all list w kontenerze (nie stored, obliczany przy każdym request)
-- Endpointy: CRUD containers, przenoszenie list między kontenerami
-- Frontend: home page jako drzewiasta struktura, tworzenie folderów/projektów, status projektu z progress barem, breadcrumbs nawigacja
+- ✅ Backend: tabela `containers` + `container_id`, `pinned`, `last_opened_at` na listach (nullable FKs)
+- ✅ Progress na projektach: computed server-side — item-level (`completed_items / total_items`) + list-level (`completed_lists / total_lists`)
+- ✅ Endpointy: CRUD containers, przenoszenie list między kontenerami, pin/unpin, `/api/home`
+- ✅ Frontend: home page z sekcjami Przypięte / Ostatnio otwierane / Kontenery / Listy, tworzenie folderów/projektów, status projektu z progress barem, breadcrumbs nawigacja
+- ✅ Nowa strona `/containers/:id` z edytowalną nazwą/opisem, progress barem dla projektów, click-through nawigacja
 
-**Refaktor:** Home page z flat → tree. Wydzielenie nawigacji/breadcrumbs.
+**Refaktor:** ✅ Home page z flat → click-through. ✅ Wydzielenie `CreateEntityInput` do reużywalnego komponentu. ✅ `Breadcrumbs` shared component. ✅ `ContainerCard` component.
 
 ---
 
