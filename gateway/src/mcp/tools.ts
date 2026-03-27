@@ -34,6 +34,10 @@ export function registerTools(
     },
     async () => {
       const res = await apiCall(apiWorker, devApiUrl, "GET", "/api/lists", userId);
+      if (!res.ok) {
+        const text = await res.text();
+        return { isError: true, content: [{ type: "text" as const, text: `API error ${res.status}: ${text}` }] };
+      }
       const data = await res.json();
       return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
     }
@@ -55,6 +59,10 @@ export function registerTools(
         `/api/lists/${list_id}/items`,
         userId
       );
+      if (!res.ok) {
+        const text = await res.text();
+        return { isError: true, content: [{ type: "text" as const, text: `API error ${res.status}: ${text}` }] };
+      }
       const data = await res.json();
       return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
     }
@@ -72,6 +80,10 @@ export function registerTools(
       const res = await apiCall(apiWorker, devApiUrl, "POST", "/api/lists", userId, {
         name,
       });
+      if (!res.ok) {
+        const text = await res.text();
+        return { isError: true, content: [{ type: "text" as const, text: `API error ${res.status}: ${text}` }] };
+      }
       const data = await res.json();
       return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
     }
@@ -95,6 +107,10 @@ export function registerTools(
         userId,
         { title }
       );
+      if (!res.ok) {
+        const text = await res.text();
+        return { isError: true, content: [{ type: "text" as const, text: `API error ${res.status}: ${text}` }] };
+      }
       const data = await res.json();
       return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
     }
@@ -119,6 +135,10 @@ export function registerTools(
         userId,
         { completed }
       );
+      if (!res.ok) {
+        const text = await res.text();
+        return { isError: true, content: [{ type: "text" as const, text: `API error ${res.status}: ${text}` }] };
+      }
       const data = await res.json();
       return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
     }

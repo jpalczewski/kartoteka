@@ -8,6 +8,14 @@ import { authMiddleware } from "./middleware";
 import { proxy } from "./proxy";
 import { McpApiHandler } from "./mcp/server";
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 app.use("/api/*", (c, next) =>
@@ -56,7 +64,15 @@ app.all("/mcp/authorize", async (c) => {
   const request = c.req.raw;
 
   // Parse the OAuth request parameters
-  const oauthReqInfo = await env.OAUTH_PROVIDER.parseAuthRequest(request);
+  let oauthReqInfo;
+  try {
+    oauthReqInfo = await env.OAUTH_PROVIDER.parseAuthRequest(request);
+  } catch {
+    return c.html(
+      `<!DOCTYPE html><html><body><h1>Invalid authorization request</h1></body></html>`,
+      400
+    );
+  }
 
   // Check for an existing Better Auth session
   const auth = getAuth(env);
@@ -93,6 +109,12 @@ app.all("/mcp/authorize", async (c) => {
   }
 
   if (request.method === "POST") {
+    // CSRF protection: verify Origin matches our host
+    const origin = request.headers.get("origin");
+    const expectedOrigin = new URL(request.url).origin;
+    if (!origin || origin !== expectedOrigin) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
     // User approved — complete the authorization
     const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
       request: oauthReqInfo,
@@ -120,7 +142,7 @@ app.all("/mcp/authorize", async (c) => {
 </head>
 <body>
   <h1>Grant Kartoteka access to Claude</h1>
-  <p>Signed in as <strong>${session.user.email}</strong></p>
+  <p>Signed in as <strong>${escapeHtml(session.user.email)}</strong></p>
   <p>Claude is requesting access to your Kartoteka lists.</p>
   <form method="POST">
     <button type="submit">Approve</button>
