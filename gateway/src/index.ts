@@ -68,10 +68,10 @@ app.all("/auth/*", async (c) => {
   return auth.handler(c.req.raw);
 });
 
-// MCP OAuth consent screen
+// MCP OAuth consent screen — must NOT be under /mcp/ (OAuthProvider treats that as API route)
 // GET: show login form (if not authenticated) or consent screen (if authenticated)
 // POST: complete the OAuth authorization flow
-app.all("/mcp/authorize", async (c) => {
+app.all("/oauth/authorize", async (c) => {
   const env = c.env;
   const request = c.req.raw;
 
@@ -110,7 +110,7 @@ app.all("/mcp/authorize", async (c) => {
   <h1>Grant Kartoteka access to Claude</h1>
   <p>Sign in to your Kartoteka account to authorize Claude to access your lists.</p>
   <form method="POST" action="/auth/api/sign-in/email">
-    <input type="hidden" name="callbackURL" value="/mcp/authorize?${new URL(request.url).searchParams.toString()}">
+    <input type="hidden" name="callbackURL" value="/oauth/authorize?${new URL(request.url).searchParams.toString()}">
     <label>Email<input type="email" name="email" required></label>
     <label>Password<input type="password" name="password" required></label>
     <button type="submit">Sign in &amp; Authorize</button>
@@ -177,7 +177,7 @@ export default new OAuthProvider({
     fetch: (request: Request, env: unknown, ctx: ExecutionContext) =>
       app.fetch(request, env as Env, ctx),
   },
-  authorizeEndpoint: "/mcp/authorize",
+  authorizeEndpoint: "/oauth/authorize",
   tokenEndpoint: "/mcp/oauth/token",
   clientRegistrationEndpoint: "/mcp/oauth/register",
   scopesSupported: ["read", "write"],
