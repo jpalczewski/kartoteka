@@ -14,18 +14,20 @@ Kartoteka — aplikacja todo/listy na Cloudflare Workers (Rust API + TypeScript 
 
 ## Kluczowe konwencje
 
-### Env vars (compile-time)
-- `API_BASE_URL` — URL API workera (dev: `/api`, prod: pełny URL)
-- `BETTER_AUTH_SECRET` — sekret sesji Better Auth (gateway)
-- `BETTER_AUTH_URL` — publiczny URL Gateway workera
-- `MIGRATE_SECRET` — sekret do endpointu `/migrate` (gateway)
+### Env vars (compile-time / .env)
+- `GATEWAY_URL` — prod gateway URL (https://kartoteka-gateway.jpalczewski.workers.dev)
+- `GATEWAY_DEV_URL` — dev gateway URL (https://kartoteka-gateway-dev.jpalczewski.workers.dev)
+- `CLOUDFLARE_ACCOUNT_ID` — CF account ID
+- Gateway sekrety (wrangler secrets, nie w .env): `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `MIGRATE_SECRET`
 - Zarządzane przez `.env` + `set dotenv-load` w justfile
 
 ### Better Auth / Cookie auth
 - Frontend wysyła żądania z `credentials: "include"` — sesja via cookie (HttpOnly, set przez Gateway)
-- `API_BASE_URL="/api"` — frontend trafia do Trunk proxy → Gateway → API Worker
+- Lokalnie: `API_BASE_URL="/api"` — Trunk proxy → Gateway (8788) → API Worker (8787)
+- Prod/dev: `API_BASE_URL="${GATEWAY_URL}/api"` — frontend → Gateway → API Worker via service binding
 - Gateway Worker waliduje sesję i dodaje `X-User-Id` header do żądań do API Worker
-- `DEV_AUTH_USER_ID` env var (w `[env.local]` wrangler.toml) — bypass auth w dev
+- `DEV_AUTH_USER_ID` env var (w `[env.local]` wrangler.toml) — bypass auth w dev lokalnym
+- `/auth/api/get-session` zwraca fake sesję gdy `DEV_AUTH_USER_ID` jest ustawiony
 
 ### D1 / SQLite
 - D1 zwraca boolean jako float (`0.0`/`1.0`) — `Item.completed` ma custom deserializer `bool_from_number` w `shared/src/lib.rs`

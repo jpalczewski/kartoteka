@@ -115,12 +115,12 @@ deploy-gateway:
 
 deploy-frontend:
     cd crates/frontend && npm install
-    cd crates/frontend && API_BASE_URL="${API_BASE_URL}" trunk build --release
+    cd crates/frontend && API_BASE_URL="${GATEWAY_URL}/api" trunk build --release
     npx wrangler pages deploy crates/frontend/dist --project-name=kartoteka --branch=main --commit-dirty=true
 
 deploy-frontend-dev:
     cd crates/frontend && npm install
-    cd crates/frontend && API_BASE_URL="https://kartoteka-gateway.jpalczewski.workers.dev/api" trunk build --release
+    cd crates/frontend && API_BASE_URL="${GATEWAY_DEV_URL}/api" trunk build --release
     npx wrangler pages deploy crates/frontend/dist --project-name=kartoteka --branch=dev --commit-dirty=true
 
 # === QUALITY ===
