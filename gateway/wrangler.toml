@@ -1,0 +1,45 @@
+name = "kartoteka-gateway"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+account_id = "6b703fac2c4f8b359e430bf11b8dde7f"
+
+# Auth database (Better Auth tables: user, session, account, verification)
+[[d1_databases]]
+binding = "AUTH_DB"
+database_name = "kartoteka-auth"
+database_id = "TODO_CREATE_WITH_WRANGLER"
+migrations_dir = "./migrations"
+
+# OAuth token storage for MCP
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "TODO_CREATE_WITH_WRANGLER"
+
+# Service binding to Rust API Worker
+[[services]]
+binding = "API_WORKER"
+service = "kartoteka-api"
+
+# Local dev environment
+[env.local]
+name = "kartoteka-gateway-local"
+
+[env.local.vars]
+DEV_AUTH_USER_ID = "dev-user-00000000-0000-0000-0000-000000000001"
+BETTER_AUTH_SECRET = "dev-secret-not-for-production"
+BETTER_AUTH_URL = "http://localhost:8788"
+DEV_API_URL = "http://localhost:8787"
+
+[[env.local.d1_databases]]
+binding = "AUTH_DB"
+database_name = "kartoteka-gateway-local"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "./migrations"
+
+[[env.local.kv_namespaces]]
+binding = "OAUTH_KV"
+id = "00000000-0000-0000-0000-000000000000"
+
+[[env.local.services]]
+binding = "API_WORKER"
+service = "kartoteka-api"
