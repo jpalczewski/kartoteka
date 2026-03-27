@@ -3,6 +3,8 @@ import { cors } from "hono/cors";
 import { getMigrations } from "better-auth/db/migration";
 import type { Env, Variables } from "./types";
 import { getAuth } from "./auth";
+import { authMiddleware } from "./middleware";
+import { proxy } from "./proxy";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -43,5 +45,9 @@ app.all("/auth/*", async (c) => {
   const auth = getAuth(c.env);
   return auth.handler(c.req.raw);
 });
+
+// API routes — require auth, then proxy to Rust API Worker
+app.use("/api/*", authMiddleware);
+app.route("/api", proxy);
 
 export default app;
