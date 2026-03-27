@@ -27,6 +27,30 @@ service = "kartoteka-api"
 #   wrangler secret put GITHUB_CLIENT_ID      (optional)
 #   wrangler secret put GITHUB_CLIENT_SECRET   (optional)
 
+# Dev (remote) environment — deployed to Cloudflare
+# Secrets to set before first deploy:
+#   wrangler secret put BETTER_AUTH_SECRET --env dev
+#   wrangler secret put BETTER_AUTH_URL --env dev   (e.g. https://kartoteka-gateway-dev.<name>.workers.dev)
+#   wrangler secret put MIGRATE_SECRET --env dev
+[env.dev]
+name = "kartoteka-gateway-dev"
+
+[env.dev.vars]
+TRUSTED_ORIGINS = "https://kartoteka-dev.pages.dev"
+
+[[env.dev.d1_databases]]
+binding = "AUTH_DB"
+database_name = "kartoteka-auth-dev"
+database_id = "4691f730-db3d-407a-bf90-17ce018194b6"
+
+[[env.dev.kv_namespaces]]
+binding = "OAUTH_KV"
+id = "6917f81d01bb4f9b839990fe93ecc9a8"
+
+[[env.dev.services]]
+binding = "API_WORKER"
+service = "kartoteka-api-dev"
+
 # Local dev environment
 [env.local]
 name = "kartoteka-gateway-local"

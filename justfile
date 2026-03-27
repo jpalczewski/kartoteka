@@ -93,7 +93,10 @@ migrate-gateway-prod:
 
 deploy: deploy-migrate migrate-gateway-prod deploy-api deploy-gateway deploy-frontend
 
-deploy-dev: migrate-dev deploy-api-dev deploy-frontend-dev
+deploy-gateway-dev:
+    cd gateway && npx wrangler deploy --env dev
+
+deploy-dev: migrate-dev deploy-api-dev deploy-gateway-dev deploy-frontend-dev
 
 deploy-migrate:
     cd crates/api && npx wrangler d1 migrations apply kartoteka-db --remote
