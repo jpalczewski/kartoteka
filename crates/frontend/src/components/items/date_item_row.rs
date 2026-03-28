@@ -5,7 +5,7 @@ use crate::components::common::date_utils::{
     format_date_short, get_today_string, is_overdue, item_date_badges, relative_date,
 };
 use crate::components::common::inline_confirm_button::InlineConfirmButton;
-use crate::components::items::date_editor::DateEditor;
+use crate::components::items::inline_date_editor_section::InlineDateEditorSection;
 use crate::components::tags::tag_list::TagList;
 
 #[component]
@@ -21,6 +21,7 @@ pub fn DateItemRow(
     #[prop(optional)]
     on_date_save: Option<Callback<(String, String, String, Option<String>)>>,
 ) -> impl IntoView {
+    let item_for_editor = item.clone();
     let id_toggle = item.id.clone();
     let id_delete = item.id.clone();
     let id_for_editor = item.id.clone();
@@ -73,13 +74,6 @@ pub fn DateItemRow(
 
     // Date editing state
     let editing_date = RwSignal::new(Option::<String>::None);
-
-    // Store initial values for editor
-    let item_start_date = item.start_date.clone();
-    let item_start_time = item.start_time.clone();
-    let item_deadline = item.deadline.clone();
-    let item_deadline_time = item.deadline_time.clone();
-    let item_hard_deadline = item.hard_deadline.clone();
 
     // Primary date is clickable if on_date_save is available
     let primary_dt_str = primary_dt.to_string();
@@ -176,28 +170,15 @@ pub fn DateItemRow(
             {move || {
                 let dt = editing_date.get();
                 if let (Some(dt), Some(on_save)) = (dt, on_date_save) {
-                    let id_for_save = id_for_editor.clone();
-                    let dt_for_save = dt.clone();
-                    let (border, init_date, init_time, has_time) = match dt.as_str() {
-                        "start" => ("border-info", item_start_date.clone(), item_start_time.clone(), true),
-                        "hard_deadline" => ("border-error", item_hard_deadline.clone(), None, false),
-                        _ => ("border-warning", item_deadline.clone(), item_deadline_time.clone(), true),
-                    };
                     view! {
-                        <div class="pl-10 pb-2">
-                            <DateEditor
-                                border_color=border
-                                initial_date=init_date
-                                initial_time=init_time
-                                has_time=has_time
-                                on_change=Callback::new(move |(date, time): (String, Option<String>)| {
-                                    on_save.run((id_for_save.clone(), dt_for_save.clone(), date, time));
-                                })
-                            />
-                            <button type="button" class="btn btn-xs btn-ghost mt-1 opacity-50"
-                                on:click=move |_| editing_date.set(None)
-                            >"Zamknij"</button>
-                        </div>
+                        <InlineDateEditorSection
+                            date_type=dt
+                            item=item_for_editor.clone()
+                            item_id=id_for_editor.clone()
+                            on_save=on_save
+                            on_close=Callback::new(move |()| editing_date.set(None))
+                            wrapper_class="pl-10 pb-2".to_string()
+                        />
                     }.into_any()
                 } else {
                     view! {}.into_any()
