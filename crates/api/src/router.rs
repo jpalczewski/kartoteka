@@ -1,7 +1,7 @@
 use worker::*;
 
 use crate::auth;
-use crate::handlers::{containers, items, lists, tags};
+use crate::handlers::{containers, items, lists, settings, tags};
 
 pub async fn handle(req: Request, env: Env) -> Result<Response> {
     let path = req.path();
@@ -71,6 +71,10 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         // Tag link queries
         .get_async("/api/tag-links/items", tags::all_item_tag_links)
         .get_async("/api/tag-links/lists", tags::all_list_tag_links)
+        // Settings
+        .get_async("/api/settings", settings::list_all)
+        .put_async("/api/settings/:key", settings::upsert)
+        .delete_async("/api/settings/:key", settings::delete)
         .run(req, env)
         .await
 }
