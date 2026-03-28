@@ -1,4 +1,5 @@
 pub mod breadcrumbs;
+pub mod inline_confirm_button;
 pub mod confirm_delete_modal;
 pub mod date_utils;
 pub mod editable_color;

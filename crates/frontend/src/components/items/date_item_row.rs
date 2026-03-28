@@ -4,6 +4,7 @@ use leptos::prelude::*;
 use crate::components::common::date_utils::{
     format_date_short, get_today_string, is_overdue, item_date_badges, relative_date,
 };
+use crate::components::common::inline_confirm_button::InlineConfirmButton;
 use crate::components::items::date_editor::DateEditor;
 use crate::components::tags::tag_list::TagList;
 
@@ -134,26 +135,7 @@ pub fn DateItemRow(
                     }.into_any()
                 }}
 
-                {
-                    let confirming = RwSignal::new(false);
-                    view! {
-                        <button
-                            type="button"
-                            class=move || if confirming.get() { "btn btn-error btn-sm" } else { "btn btn-ghost btn-sm btn-square opacity-60 hover:opacity-100" }
-                            on:click=move |_| {
-                                if confirming.get() {
-                                    on_delete.run(id_delete.clone());
-                                    confirming.set(false);
-                                } else {
-                                    confirming.set(true);
-                                    set_timeout(move || confirming.set(false), std::time::Duration::from_millis(2500));
-                                }
-                            }
-                        >
-                            {move || if confirming.get() { "Na pewno?" } else { "\u{2715}" }}
-                        </button>
-                    }
-                }
+                <InlineConfirmButton on_confirm=Callback::new(move |()| on_delete.run(id_delete.clone())) />
             </div>
 
             // Row 2: tags + secondary date badges (clickable)
