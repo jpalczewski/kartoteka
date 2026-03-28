@@ -1,11 +1,13 @@
 mod containers;
 mod items;
 mod lists;
+mod settings;
 mod tags;
 
 pub use containers::*;
 pub use items::*;
 pub use lists::*;
+pub use settings::*;
 pub use tags::*;
 
 use gloo_net::http::{Headers, Request};
