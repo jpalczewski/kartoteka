@@ -5,6 +5,7 @@ use leptos::prelude::*;
 use crate::components::common::date_utils::item_date_badges;
 use crate::components::items::date_badge_chips::DateBadgeChips;
 use crate::components::items::inline_date_editor_section::InlineDateEditorSection;
+use crate::components::items::quantity_stepper::QuantityStepper;
 use crate::components::tags::tag_list::TagList;
 
 #[component]
@@ -54,7 +55,6 @@ pub fn ItemRow(
     // Quantity stepper state
     let show_stepper = has_quantity && item.quantity.is_some();
     let target_qty = item.quantity.unwrap_or(0);
-    let actual = RwSignal::new(item.actual_quantity.unwrap_or(0));
     let unit_label = item.unit.clone().unwrap_or_default();
     let id_for_stepper = id.clone();
 
@@ -113,37 +113,18 @@ pub fn ItemRow(
 
                 // Quantity stepper
                 {if show_stepper {
-                    let id_dec = id_for_stepper.clone();
-                    let id_inc = id_for_stepper.clone();
-                    let cb_dec = on_quantity_change;
-                    let cb_inc = on_quantity_change;
-                    let unit_str = unit_label.clone();
+                    let id_for_stepper_clone = id_for_stepper.clone();
                     view! {
-                        <div class="flex flex-col items-center gap-0.5">
-                            <div class="flex items-center gap-1">
-                                <button type="button" class="btn btn-xs btn-circle btn-ghost"
-                                    on:click=move |_| {
-                                        let new_val = (actual.get() - 1).max(0);
-                                        actual.set(new_val);
-                                        if let Some(cb) = cb_dec { cb.run((id_dec.clone(), new_val)); }
-                                    }
-                                >"\u{2212}"</button>
-                                <span class="text-sm font-mono">
-                                    {move || actual.get()} " / " {target_qty} " " {unit_str.clone()}
-                                </span>
-                                <button type="button" class="btn btn-xs btn-circle btn-ghost"
-                                    on:click=move |_| {
-                                        let new_val = actual.get() + 1;
-                                        actual.set(new_val);
-                                        if let Some(cb) = cb_inc { cb.run((id_inc.clone(), new_val)); }
-                                    }
-                                >"+"</button>
-                            </div>
-                            <progress class="progress progress-primary w-20 h-1"
-                                value=move || actual.get().to_string()
-                                max=target_qty.to_string()
-                            />
-                        </div>
+                        <QuantityStepper
+                            target=target_qty
+                            initial_actual=item.actual_quantity.unwrap_or(0)
+                            on_change=Callback::new(move |new_val: i32| {
+                                if let Some(cb) = on_quantity_change {
+                                    cb.run((id_for_stepper_clone.clone(), new_val));
+                                }
+                            })
+                            unit=unit_label.clone()
+                        />
                     }.into_any()
                 } else {
                     view! {}.into_any()
