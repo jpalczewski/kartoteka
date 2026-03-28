@@ -1,4 +1,4 @@
-use kartoteka_shared::{FEATURE_DEADLINES, FEATURE_QUANTITY, ListFeature};
+use kartoteka_shared::{FEATURE_DEADLINES, FEATURE_QUANTITY, ListFeature, parse_deadlines_config};
 use leptos::prelude::*;
 
 use crate::components::confirm_delete_modal::ConfirmDeleteModal;
@@ -28,18 +28,7 @@ pub fn ListHeader(
         .find(|f| f.name == FEATURE_DEADLINES)
         .map(|f| f.config.clone())
         .unwrap_or(serde_json::json!({}));
-    let cfg_has_start = deadlines_config
-        .get("has_start_date")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let cfg_has_deadline = deadlines_config
-        .get("has_deadline")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-    let cfg_has_hard = deadlines_config
-        .get("has_hard_deadline")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let (cfg_has_start, cfg_has_deadline, cfg_has_hard) = parse_deadlines_config(&deadlines_config);
 
     let start_checked = RwSignal::new(cfg_has_start);
     let deadline_checked = RwSignal::new(cfg_has_deadline);
