@@ -171,7 +171,7 @@ app.route("/api", proxy);
 export { McpApiHandler };
 
 export default new OAuthProvider({
-  apiRoute: "/mcp/",
+  apiRoute: "/mcp",
   apiHandler: McpApiHandler,
   defaultHandler: {
     fetch: (request: Request, env: unknown, ctx: ExecutionContext) =>
