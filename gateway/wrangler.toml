@@ -2,7 +2,6 @@ name = "kartoteka-gateway"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
-account_id = "6b703fac2c4f8b359e430bf11b8dde7f"
 
 [vars]
 TRUSTED_ORIGINS = "https://kartoteka.pages.dev"

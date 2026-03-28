@@ -1,4 +1,5 @@
 use crate::error::json_error;
+use crate::helpers::*;
 use kartoteka_shared::*;
 use wasm_bindgen::JsValue;
 use worker::*;
@@ -22,10 +23,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     let body: CreateTagRequest = req.json().await?;
     let id = uuid::Uuid::new_v4().to_string();
 
-    let parent_val: JsValue = match &body.parent_tag_id {
-        Some(p) => p.as_str().into(),
-        None => JsValue::NULL,
-    };
+    let parent_val = opt_str_to_js(&body.parent_tag_id);
 
     let d1 = ctx.env.d1("DB")?;
     d1.prepare(
@@ -33,7 +31,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     )
     .bind(&[
         id.clone().into(),
-        user_id.into(),
+        user_id.clone().into(),
         body.name.into(),
         body.color.into(),
         parent_val,
@@ -43,9 +41,9 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
     let tag = d1
         .prepare(
-            "SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE id = ?1",
+            "SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE id = ?1 AND user_id = ?2",
         )
-        .bind(&[id.into()])?
+        .bind(&[id.into(), user_id.into()])?
         .first::<Tag>(None)
         .await?
         .ok_or_else(|| Error::from("Failed to create tag"))?;
@@ -56,20 +54,11 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 /// PUT /api/tags/:id
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let body: UpdateTagRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify ownership
-    let existing = d1
-        .prepare("SELECT id FROM tags WHERE id = ?1 AND user_id = ?2")
-        .bind(&[id.clone().into(), user_id.clone().into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if existing.is_none() {
+    if !check_ownership(&d1, "tags", &id, &user_id).await? {
         return json_error("tag_not_found", 404);
     }
 
@@ -123,9 +112,9 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
     let tag = d1
         .prepare(
-            "SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE id = ?1",
+            "SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE id = ?1 AND user_id = ?2",
         )
-        .bind(&[id.into()])?
+        .bind(&[id.into(), user_id.into()])?
         .first::<Tag>(None)
         .await?
         .ok_or_else(|| Error::from("Not found"))?;
@@ -136,10 +125,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 /// DELETE /api/tags/:id
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let d1 = ctx.env.d1("DB")?;
     d1.prepare("DELETE FROM tags WHERE id = ?1 AND user_id = ?2")
         .bind(&[id.into(), user_id.into()])?
@@ -151,29 +137,16 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
 /// POST /api/tags/:id/merge
 pub async fn merge(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let source_id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let source_id = require_param(&ctx, "id")?;
     let body: kartoteka_shared::MergeTagRequest = req.json().await?;
     let target_id = body.target_tag_id;
     let d1 = ctx.env.d1("DB")?;
 
     // Verify both tags belong to user
-    let source = d1
-        .prepare("SELECT id FROM tags WHERE id = ?1 AND user_id = ?2")
-        .bind(&[source_id.clone().into(), user_id.clone().into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if source.is_none() {
+    if !check_ownership(&d1, "tags", &source_id, &user_id).await? {
         return json_error("tag_not_found", 404);
     }
-    let target = d1
-        .prepare("SELECT id FROM tags WHERE id = ?1 AND user_id = ?2")
-        .bind(&[target_id.clone().into(), user_id.clone().into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if target.is_none() {
+    if !check_ownership(&d1, "tags", &target_id, &user_id).await? {
         return json_error("tag_not_found", 404);
     }
 
@@ -204,9 +177,9 @@ pub async fn merge(mut req: Request, ctx: RouteContext<String>) -> Result<Respon
     // Return updated target
     let tag = d1
         .prepare(
-            "SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE id = ?1",
+            "SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE id = ?1 AND user_id = ?2",
         )
-        .bind(&[target_id.into()])?
+        .bind(&[target_id.into(), user_id.into()])?
         .first::<Tag>(None)
         .await?
         .ok_or_else(|| Error::from("Target not found after merge"))?;
@@ -217,34 +190,15 @@ pub async fn merge(mut req: Request, ctx: RouteContext<String>) -> Result<Respon
 /// POST /api/items/:item_id/tags
 pub async fn assign_to_item(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let item_id = ctx
-        .param("item_id")
-        .ok_or_else(|| Error::from("Missing item_id"))?
-        .to_string();
+    let item_id = require_param(&ctx, "item_id")?;
     let body: TagAssignment = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify item's list belongs to user
-    let item_check = d1
-        .prepare(
-            "SELECT items.id FROM items \
-             JOIN lists ON lists.id = items.list_id \
-             WHERE items.id = ?1 AND lists.user_id = ?2",
-        )
-        .bind(&[item_id.clone().into(), user_id.clone().into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if item_check.is_none() {
+    if !check_item_ownership(&d1, &item_id, &user_id).await? {
         return json_error("item_not_found", 404);
     }
 
-    // Verify tag belongs to user
-    let tag_check = d1
-        .prepare("SELECT id FROM tags WHERE id = ?1 AND user_id = ?2")
-        .bind(&[body.tag_id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if tag_check.is_none() {
+    if !check_ownership(&d1, "tags", &body.tag_id, &user_id).await? {
         return json_error("tag_not_found", 404);
     }
 
@@ -258,27 +212,11 @@ pub async fn assign_to_item(mut req: Request, ctx: RouteContext<String>) -> Resu
 /// DELETE /api/items/:item_id/tags/:tag_id
 pub async fn remove_from_item(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let item_id = ctx
-        .param("item_id")
-        .ok_or_else(|| Error::from("Missing item_id"))?
-        .to_string();
-    let tag_id = ctx
-        .param("tag_id")
-        .ok_or_else(|| Error::from("Missing tag_id"))?
-        .to_string();
+    let item_id = require_param(&ctx, "item_id")?;
+    let tag_id = require_param(&ctx, "tag_id")?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify item's list belongs to user
-    let item_check = d1
-        .prepare(
-            "SELECT items.id FROM items \
-             JOIN lists ON lists.id = items.list_id \
-             WHERE items.id = ?1 AND lists.user_id = ?2",
-        )
-        .bind(&[item_id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if item_check.is_none() {
+    if !check_item_ownership(&d1, &item_id, &user_id).await? {
         return json_error("item_not_found", 404);
     }
 
@@ -292,30 +230,15 @@ pub async fn remove_from_item(_req: Request, ctx: RouteContext<String>) -> Resul
 /// POST /api/lists/:list_id/tags
 pub async fn assign_to_list(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let list_id = ctx
-        .param("list_id")
-        .ok_or_else(|| Error::from("Missing list_id"))?
-        .to_string();
+    let list_id = require_param(&ctx, "list_id")?;
     let body: TagAssignment = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify list belongs to user
-    let list_check = d1
-        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
-        .bind(&[list_id.clone().into(), user_id.clone().into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if list_check.is_none() {
+    if !check_ownership(&d1, "lists", &list_id, &user_id).await? {
         return json_error("list_not_found", 404);
     }
 
-    // Verify tag belongs to user
-    let tag_check = d1
-        .prepare("SELECT id FROM tags WHERE id = ?1 AND user_id = ?2")
-        .bind(&[body.tag_id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if tag_check.is_none() {
+    if !check_ownership(&d1, "tags", &body.tag_id, &user_id).await? {
         return json_error("tag_not_found", 404);
     }
 
@@ -329,23 +252,11 @@ pub async fn assign_to_list(mut req: Request, ctx: RouteContext<String>) -> Resu
 /// DELETE /api/lists/:list_id/tags/:tag_id
 pub async fn remove_from_list(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let list_id = ctx
-        .param("list_id")
-        .ok_or_else(|| Error::from("Missing list_id"))?
-        .to_string();
-    let tag_id = ctx
-        .param("tag_id")
-        .ok_or_else(|| Error::from("Missing tag_id"))?
-        .to_string();
+    let list_id = require_param(&ctx, "list_id")?;
+    let tag_id = require_param(&ctx, "tag_id")?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify list belongs to user
-    let list_check = d1
-        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
-        .bind(&[list_id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if list_check.is_none() {
+    if !check_ownership(&d1, "lists", &list_id, &user_id).await? {
         return json_error("list_not_found", 404);
     }
 
@@ -359,19 +270,10 @@ pub async fn remove_from_list(_req: Request, ctx: RouteContext<String>) -> Resul
 /// GET /api/tags/:id/items
 pub async fn tag_items(req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let tag_id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let tag_id = require_param(&ctx, "id")?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify tag belongs to user
-    let tag_check = d1
-        .prepare("SELECT id FROM tags WHERE id = ?1 AND user_id = ?2")
-        .bind(&[tag_id.clone().into(), user_id.clone().into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if tag_check.is_none() {
+    if !check_ownership(&d1, "tags", &tag_id, &user_id).await? {
         return json_error("tag_not_found", 404);
     }
 
@@ -411,10 +313,10 @@ pub async fn tag_items(req: Request, ctx: RouteContext<String>) -> Result<Respon
              FROM items i \
              JOIN item_tags it ON it.item_id = i.id \
              JOIN lists l ON l.id = i.list_id \
-             WHERE it.tag_id = ?1 \
+             WHERE it.tag_id = ?1 AND l.user_id = ?2 \
              ORDER BY l.name, i.position",
         )
-        .bind(&[tag_id.into()])?
+        .bind(&[tag_id.into(), user_id.into()])?
         .all()
         .await?
         .results::<serde_json::Value>()?

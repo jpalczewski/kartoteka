@@ -63,7 +63,10 @@ struct ErrorBody {
     code: Option<String>,
 }
 
-pub(crate) const API_BASE: &str = env!("API_BASE_URL");
+pub(crate) const API_BASE: &str = match option_env!("API_BASE_URL") {
+    Some(v) => v,
+    None => "/api",
+};
 
 pub(crate) fn auth_headers() -> Headers {
     let headers = Headers::new();

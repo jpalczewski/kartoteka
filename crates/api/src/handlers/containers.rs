@@ -1,4 +1,5 @@
 use crate::error::json_error;
+use crate::helpers::*;
 use kartoteka_shared::{
     Container, ContainerDetail, CreateContainerRequest, List, MoveContainerRequest,
     UpdateContainerRequest,
@@ -61,29 +62,23 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         None => JsValue::NULL,
     };
 
-    let parent_val: JsValue = match &body.parent_container_id {
-        Some(p) => JsValue::from(p.as_str()),
-        None => JsValue::NULL,
-    };
+    let parent_val = opt_str_to_js(&body.parent_container_id);
 
     // Position: max + 1 among siblings
-    let max_pos = d1
-        .prepare(
-            "SELECT COALESCE(MAX(position), -1) as max_pos FROM containers WHERE user_id = ?1 AND parent_container_id IS ?2",
-        )
-        .bind(&[user_id.clone().into(), parent_val.clone()])?
-        .first::<serde_json::Value>(None)
-        .await?
-        .and_then(|v| v.get("max_pos")?.as_i64())
-        .unwrap_or(-1);
-    let position = (max_pos + 1) as i32;
+    let position = next_position(
+        &d1,
+        "containers",
+        "user_id = ?1 AND parent_container_id IS ?2",
+        &[user_id.clone().into(), parent_val.clone()],
+    )
+    .await?;
 
     d1.prepare(
         "INSERT INTO containers (id, user_id, name, status, parent_container_id, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )
     .bind(&[
         id.clone().into(),
-        user_id.into(),
+        user_id.clone().into(),
         body.name.clone().into(),
         status_val,
         parent_val,
@@ -93,8 +88,10 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     .await?;
 
     let container = d1
-        .prepare(format!("{CONTAINER_SELECT} WHERE c.id = ?1"))
-        .bind(&[id.into()])?
+        .prepare(format!(
+            "{CONTAINER_SELECT} WHERE c.id = ?1 AND c.user_id = ?2"
+        ))
+        .bind(&[id.into(), user_id.into()])?
         .first::<Container>(None)
         .await?
         .ok_or_else(|| Error::from("Failed to create container"))?;
@@ -106,10 +103,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
 pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let d1 = ctx.env.d1("DB")?;
 
     // Track last opened
@@ -193,20 +187,11 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
 
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let body: UpdateContainerRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify ownership
-    let existing = d1
-        .prepare("SELECT id FROM containers WHERE id = ?1 AND user_id = ?2")
-        .bind(&[id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if existing.is_none() {
+    if !check_ownership(&d1, "containers", &id, &user_id).await? {
         return json_error("container_not_found", 404);
     }
 
@@ -245,8 +230,10 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     }
 
     let container = d1
-        .prepare(format!("{CONTAINER_SELECT} WHERE c.id = ?1"))
-        .bind(&[id.into()])?
+        .prepare(format!(
+            "{CONTAINER_SELECT} WHERE c.id = ?1 AND c.user_id = ?2"
+        ))
+        .bind(&[id.into(), user_id.into()])?
         .first::<Container>(None)
         .await?
         .ok_or_else(|| Error::from("Not found"))?;
@@ -256,19 +243,10 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify ownership
-    let check = d1
-        .prepare("SELECT id FROM containers WHERE id = ?1 AND user_id = ?2")
-        .bind(&[id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if check.is_none() {
+    if !check_ownership(&d1, "containers", &id, &user_id).await? {
         return json_error("container_not_found", 404);
     }
 
@@ -282,19 +260,10 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
 
 pub async fn get_children(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify ownership
-    let check = d1
-        .prepare("SELECT id FROM containers WHERE id = ?1 AND user_id = ?2")
-        .bind(&[id.clone().into(), user_id.clone().into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if check.is_none() {
+    if !check_ownership(&d1, "containers", &id, &user_id).await? {
         return json_error("container_not_found", 404);
     }
 
@@ -329,20 +298,11 @@ pub async fn get_children(_req: Request, ctx: RouteContext<String>) -> Result<Re
 
 pub async fn move_container(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let body: MoveContainerRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify ownership
-    let check = d1
-        .prepare("SELECT id FROM containers WHERE id = ?1 AND user_id = ?2")
-        .bind(&[id.clone().into(), user_id.clone().into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if check.is_none() {
+    if !check_ownership(&d1, "containers", &id, &user_id).await? {
         return json_error("container_not_found", 404);
     }
 
@@ -353,7 +313,7 @@ pub async fn move_container(mut req: Request, ctx: RouteContext<String>) -> Resu
         }
         let parent = d1
             .prepare("SELECT status FROM containers WHERE id = ?1 AND user_id = ?2")
-            .bind(&[parent_id.clone().into(), user_id.into()])?
+            .bind(&[parent_id.clone().into(), user_id.clone().into()])?
             .first::<serde_json::Value>(None)
             .await?;
         match parent {
@@ -366,10 +326,7 @@ pub async fn move_container(mut req: Request, ctx: RouteContext<String>) -> Resu
         }
     }
 
-    let parent_val: JsValue = match &body.parent_container_id {
-        Some(p) => JsValue::from(p.as_str()),
-        None => JsValue::NULL,
-    };
+    let parent_val = opt_str_to_js(&body.parent_container_id);
 
     d1.prepare(
         "UPDATE containers SET parent_container_id = ?1, updated_at = datetime('now') WHERE id = ?2",
@@ -379,8 +336,10 @@ pub async fn move_container(mut req: Request, ctx: RouteContext<String>) -> Resu
     .await?;
 
     let container = d1
-        .prepare(format!("{CONTAINER_SELECT} WHERE c.id = ?1"))
-        .bind(&[id.into()])?
+        .prepare(format!(
+            "{CONTAINER_SELECT} WHERE c.id = ?1 AND c.user_id = ?2"
+        ))
+        .bind(&[id.into(), user_id.into()])?
         .first::<Container>(None)
         .await?
         .ok_or_else(|| Error::from("Not found"))?;
@@ -390,38 +349,21 @@ pub async fn move_container(mut req: Request, ctx: RouteContext<String>) -> Resu
 
 pub async fn toggle_pin(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let d1 = ctx.env.d1("DB")?;
 
-    let row = d1
-        .prepare("SELECT pinned FROM containers WHERE id = ?1 AND user_id = ?2")
-        .bind(&[id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-
-    if row.is_none() {
+    if toggle_bool_field(&d1, "containers", "pinned", &id, &user_id)
+        .await?
+        .is_none()
+    {
         return json_error("container_not_found", 404);
     }
 
-    let current = row
-        .as_ref()
-        .and_then(|r| r.get("pinned"))
-        .and_then(|v| v.as_f64())
-        .map(|f| f != 0.0)
-        .unwrap_or(false);
-
-    let new_val: i32 = if current { 0 } else { 1 };
-    d1.prepare("UPDATE containers SET pinned = ?1, updated_at = datetime('now') WHERE id = ?2")
-        .bind(&[new_val.into(), id.clone().into()])?
-        .run()
-        .await?;
-
     let container = d1
-        .prepare(format!("{CONTAINER_SELECT} WHERE c.id = ?1"))
-        .bind(&[id.into()])?
+        .prepare(format!(
+            "{CONTAINER_SELECT} WHERE c.id = ?1 AND c.user_id = ?2"
+        ))
+        .bind(&[id.into(), user_id.into()])?
         .first::<Container>(None)
         .await?
         .ok_or_else(|| Error::from("Not found"))?;
