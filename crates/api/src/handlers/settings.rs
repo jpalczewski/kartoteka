@@ -1,4 +1,4 @@
-use kartoteka_shared::UpsertSettingRequest;
+use kartoteka_shared::*;
 use std::collections::HashMap;
 use worker::*;
 
@@ -20,8 +20,9 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
             row.get("key").and_then(|v| v.as_str()).map(String::from),
             row.get("value").and_then(|v| v.as_str()),
         ) {
-            let parsed = serde_json::from_str(raw_value).unwrap_or(serde_json::Value::Null);
-            map.insert(key, parsed);
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(raw_value) {
+                map.insert(key, parsed);
+            }
         }
     }
     Response::from_json(&map)
