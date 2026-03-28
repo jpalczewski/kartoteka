@@ -3,6 +3,7 @@ use kartoteka_shared::Tag;
 use leptos::prelude::*;
 
 use crate::components::common::date_utils::item_date_badges;
+use crate::components::common::editable_description::EditableDescription;
 use crate::components::items::date_badge_chips::DateBadgeChips;
 use crate::components::items::inline_date_editor_section::InlineDateEditorSection;
 use crate::components::items::quantity_stepper::QuantityStepper;
@@ -204,20 +205,18 @@ pub fn ItemRow(
             // Description (expandable)
             {move || {
                 if expanded.get() {
-                    let id_blur = id_for_desc.clone();
+                    let id_desc = id_for_desc.clone();
                     view! {
                         <div class="pl-14 pb-2">
-                            <textarea
-                                class="textarea textarea-bordered w-full text-sm resize-none"
-                                rows="3"
-                                placeholder="Dodaj opis..."
-                                prop:value=move || description_text.get()
-                                on:input=move |ev| description_text.set(event_target_value(&ev))
-                                on:blur=move |_| {
+                            <EditableDescription
+                                value=Some(description_text.get())
+                                on_save=Callback::new(move |new_val: Option<String>| {
+                                    let text = new_val.clone().unwrap_or_default();
+                                    description_text.set(text);
                                     if let Some(cb) = on_description_save {
-                                        cb.run((id_blur.clone(), description_text.get()));
+                                        cb.run((id_desc.clone(), new_val.unwrap_or_default()));
                                     }
-                                }
+                                })
                             />
                         </div>
                     }.into_any()
