@@ -2,15 +2,16 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ApiContext } from "../api";
 import { apiCall, callTool, textResult, errorResult } from "../api";
+import { tr } from "../i18n";
 
-export function registerTagTools(server: McpServer, api: ApiContext): void {
+export function registerTagTools(server: McpServer, api: ApiContext, locale: string): void {
   server.registerTool("list_tags", {
-    description: "List all tags for the current user",
+    description: tr("tool-list-tags", locale),
     inputSchema: {},
   }, () => callTool(api, "GET", "/api/tags"));
 
   server.registerTool("create_tag", {
-    description: "Create a new tag",
+    description: tr("tool-create-tag", locale),
     inputSchema: {
       name: z.string().describe("Tag name"),
       color: z.string().optional().describe("Tag color (hex, e.g. '#ff0000')"),
@@ -20,7 +21,7 @@ export function registerTagTools(server: McpServer, api: ApiContext): void {
     callTool(api, "POST", "/api/tags", { name, color, parent_tag_id }));
 
   server.registerTool("assign_tag", {
-    description: "Assign a tag to an item or a list",
+    description: tr("tool-assign-tag", locale),
     inputSchema: {
       tag_id: z.string().describe("The tag ID"),
       item_id: z.string().optional().describe("Item ID (provide item_id or list_id)"),
@@ -39,7 +40,7 @@ export function registerTagTools(server: McpServer, api: ApiContext): void {
   });
 
   server.registerTool("remove_tag", {
-    description: "Remove a tag from an item or a list",
+    description: tr("tool-remove-tag", locale),
     inputSchema: {
       tag_id: z.string().describe("The tag ID"),
       item_id: z.string().optional().describe("Item ID (provide item_id or list_id)"),
@@ -58,7 +59,7 @@ export function registerTagTools(server: McpServer, api: ApiContext): void {
   });
 
   server.registerTool("get_tag_items", {
-    description: "Get all items tagged with a specific tag (optionally including child tags)",
+    description: tr("tool-get-tagged-items", locale),
     inputSchema: {
       tag_id: z.string().describe("The tag ID"),
       recursive: z.boolean().default(false).describe("Include items from child tags"),

@@ -20,6 +20,7 @@ mcp/dist/
 
 # Gateway (Node)
 gateway/node_modules/
+gateway/locales/
 
 # OS
 .DS_Store

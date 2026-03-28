@@ -2,15 +2,16 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ApiContext } from "../api";
 import { callTool } from "../api";
+import { tr } from "../i18n";
 
-export function registerListTools(server: McpServer, api: ApiContext): void {
+export function registerListTools(server: McpServer, api: ApiContext, locale: string): void {
   server.registerTool("list_lists", {
-    description: "List all lists (todo lists) for the current user",
+    description: tr("tool-list-lists", locale),
     inputSchema: {},
   }, () => callTool(api, "GET", "/api/lists"));
 
   server.registerTool("create_list", {
-    description: "Create a new list",
+    description: tr("tool-create-list", locale),
     inputSchema: {
       name: z.string().describe("The name for the new list"),
       list_type: z.enum(["checklist", "zakupy", "pakowanie", "terminarz", "custom"])
@@ -20,7 +21,7 @@ export function registerListTools(server: McpServer, api: ApiContext): void {
   }, ({ name, list_type }) => callTool(api, "POST", "/api/lists", { name, list_type }));
 
   server.registerTool("update_list", {
-    description: "Update a list's name, description, type, or archive status",
+    description: tr("tool-update-list", locale),
     inputSchema: {
       list_id: z.string().describe("The ID of the list to update"),
       name: z.string().optional().describe("New name"),
@@ -31,7 +32,7 @@ export function registerListTools(server: McpServer, api: ApiContext): void {
   }, ({ list_id, ...fields }) => callTool(api, "PUT", `/api/lists/${list_id}`, fields));
 
   server.registerTool("move_list_to_container", {
-    description: "Move a list into a container (folder/project) or remove from container",
+    description: tr("tool-move-list", locale),
     inputSchema: {
       list_id: z.string().describe("The list ID"),
       container_id: z.string().nullable().describe("Container ID (null to remove from container)"),

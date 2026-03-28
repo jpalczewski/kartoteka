@@ -2,15 +2,16 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ApiContext } from "../api";
 import { callTool } from "../api";
+import { tr } from "../i18n";
 
-export function registerContainerTools(server: McpServer, api: ApiContext): void {
+export function registerContainerTools(server: McpServer, api: ApiContext, locale: string): void {
   server.registerTool("list_containers", {
-    description: "List all containers (folders and projects) for the current user",
+    description: tr("tool-list-containers", locale),
     inputSchema: {},
   }, () => callTool(api, "GET", "/api/containers"));
 
   server.registerTool("create_container", {
-    description: "Create a new container (folder or project). Status null=folder, 'active'/'done'/'paused'=project.",
+    description: tr("tool-create-container", locale),
     inputSchema: {
       name: z.string().describe("Container name"),
       status: z.enum(["active", "done", "paused"]).nullable().default(null).describe("null=folder, active/done/paused=project"),
@@ -20,21 +21,21 @@ export function registerContainerTools(server: McpServer, api: ApiContext): void
     callTool(api, "POST", "/api/containers", { name, status, parent_container_id }));
 
   server.registerTool("get_container", {
-    description: "Get a container with progress metrics (completed items/lists counts)",
+    description: tr("tool-get-container", locale),
     inputSchema: {
       container_id: z.string().describe("The container ID"),
     },
   }, ({ container_id }) => callTool(api, "GET", `/api/containers/${container_id}`));
 
   server.registerTool("get_container_children", {
-    description: "Get sub-containers and lists inside a container",
+    description: tr("tool-get-container-children", locale),
     inputSchema: {
       container_id: z.string().describe("The container ID"),
     },
   }, ({ container_id }) => callTool(api, "GET", `/api/containers/${container_id}/children`));
 
   server.registerTool("get_home", {
-    description: "Get home dashboard: pinned items, recent items, root containers and lists",
+    description: tr("tool-get-home", locale),
     inputSchema: {},
   }, () => callTool(api, "GET", "/api/home"));
 }
