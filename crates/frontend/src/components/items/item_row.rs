@@ -31,6 +31,8 @@ pub fn ItemRow(
 ) -> impl IntoView {
     let item_for_editor = item.clone();
     let id = item.id.clone();
+    let item_list_id = item.list_id.clone();
+    let item_title = item.title.clone();
     let id_toggle = id.clone();
     let id_delete = id.clone();
     let id_move = id.clone();
@@ -101,7 +103,9 @@ pub fn ItemRow(
                 >
                     {move || if expanded.get() { "\u{25B2}" } else { "\u{25BC}" }}
                 </button>
-                <span class=title_class>{item.title}</span>
+                <a href=format!("/lists/{}/items/{}", item_list_id, id) class=format!("{title_class} hover:text-primary transition-colors no-underline")>
+                    {item_title.clone()}
+                </a>
 
                 // Date badges (clickable)
                 <DateBadgeChips
