@@ -1,6 +1,7 @@
 mod containers;
 mod items;
 mod lists;
+pub mod preferences;
 mod tags;
 
 pub use containers::*;
