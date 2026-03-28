@@ -153,11 +153,12 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     let body: UpdateItemRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
-    let list_id_for_features = check_item_ownership_with_list(&d1, &id, &user_id)
-        .await?
-        .ok_or_else(|| Error::from("item_not_found"))?;
+    let list_id_for_features =
+        match check_item_ownership_with_list(&d1, &id, &user_id).await? {
+            Some(lid) => lid,
+            None => return json_error("item_not_found", 404),
+        };
 
-    // Check if the error response needs to be returned (item_not_found is handled above via ok_or_else)
     let feature_names = get_list_features(&d1, &list_id_for_features).await?;
 
     let has_date_field = matches!(&body.start_date, Some(Some(_)))
