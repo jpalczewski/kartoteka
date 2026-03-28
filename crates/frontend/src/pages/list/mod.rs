@@ -2,6 +2,7 @@ mod date_view;
 mod normal_view;
 
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::api;
@@ -341,7 +342,7 @@ pub fn ListPage() -> impl IntoView {
 
             {move || {
                 if loading.get() {
-                    view! { <p>"Wczytywanie..."</p> }.into_any()
+                    view! { <p>{move_tr!("common-loading")}</p> }.into_any()
                 } else if let Some(e) = error.get() {
                     view! { <p style="color: red;">{format!("B\u{0142}\u{0105}d: {e}")}</p> }.into_any()
                 } else if items.read().is_empty() && sublists.read().is_empty() {

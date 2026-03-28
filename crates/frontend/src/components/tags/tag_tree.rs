@@ -154,7 +154,7 @@ pub fn TagTreeRow(
                     view! {
                         <button
                             class="btn btn-error btn-xs btn-square"
-                            title="Usuń"
+                            title=move_tr!("common-delete")
                             on:click=move |_| {
                                 tags.update(|t| t.retain(|tag| tag.id != tid));
                                 let tid = tid.clone();

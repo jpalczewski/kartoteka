@@ -3,6 +3,7 @@ use kartoteka_shared::{
     UpdateContainerRequest,
 };
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::hooks::use_params_map;
 
 use crate::api;
@@ -143,7 +144,7 @@ pub fn ContainerPage() -> impl IntoView {
 
             {move || {
                 if loading.get() {
-                    return view! { <p>"Wczytywanie..."</p> }.into_any();
+                    return view! { <p>{move_tr!("common-loading")}</p> }.into_any();
                 }
 
                 let det = detail.get();

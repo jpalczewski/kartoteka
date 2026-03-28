@@ -2,6 +2,7 @@ tags-title = Tagi
 tags-empty = Brak tagów. Dodaj pierwszy!
 tags-new-placeholder = Nowy tag...
 tags-color-aria = Kolor tagu
+tags-remove-aria = Usuń tag
 
 # Strona szczegółów tagu
 tags-back = ← Wszystkie tagi
