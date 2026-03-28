@@ -9,6 +9,16 @@ export function registerContainerTools(server: McpServer, api: ApiContext): void
     inputSchema: {},
   }, () => callTool(api, "GET", "/api/containers"));
 
+  server.registerTool("create_container", {
+    description: "Create a new container (folder or project). Status null=folder, 'active'/'done'/'paused'=project.",
+    inputSchema: {
+      name: z.string().describe("Container name"),
+      status: z.enum(["active", "done", "paused"]).nullable().default(null).describe("null=folder, active/done/paused=project"),
+      parent_container_id: z.string().optional().describe("Parent container ID (for nesting)"),
+    },
+  }, ({ name, status, parent_container_id }) =>
+    callTool(api, "POST", "/api/containers", { name, status, parent_container_id }));
+
   server.registerTool("get_container", {
     description: "Get a container with progress metrics (completed items/lists counts)",
     inputSchema: {
