@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos_fluent::{move_tr, tr};
 
 use crate::api;
 
@@ -37,26 +38,20 @@ pub fn ConfirmDeleteModal(
     view! {
         <dialog class="modal" open=true>
             <div class="modal-box">
-                <h3 class="font-bold text-lg">"Usuń listę"</h3>
+                <h3 class="font-bold text-lg">{move_tr!("lists-confirm-delete-title")}</h3>
 
                 {move || match count_state.get() {
                     CountState::Loading => view! {
-                        <p class="py-4">"Wczytywanie szczegółów…"</p>
+                        <p class="py-4">{move_tr!("lists-confirm-delete-loading")}</p>
                     }.into_any(),
                     CountState::Error => view! {
                         <p class="py-4">
-                            "Czy na pewno chcesz usunąć listę "
-                            <strong>{list_name.clone()}</strong>
-                            "? Operacja jest nieodwracalna."
+                            {tr!("lists-confirm-delete-message-unknown", { "name" => list_name.clone() })}
                         </p>
                     }.into_any(),
                     CountState::Loaded(n) => view! {
                         <p class="py-4">
-                            "Czy na pewno chcesz usunąć listę "
-                            <strong>{list_name.clone()}</strong>
-                            "? Zawiera "
-                            <strong>{n}</strong>
-                            " elementów. Operacja jest nieodwracalna."
+                            {tr!("lists-confirm-delete-message", { "name" => list_name.clone(), "count" => n })}
                         </p>
                     }.into_any(),
                 }}
@@ -67,7 +62,7 @@ pub fn ConfirmDeleteModal(
                         class="btn btn-ghost"
                         on:click=move |_| on_cancel.run(())
                     >
-                        "Anuluj"
+                        {move_tr!("common-cancel")}
                     </button>
                     <button
                         type="button"
@@ -78,7 +73,7 @@ pub fn ConfirmDeleteModal(
                             on_confirm.run(());
                         }
                     >
-                        "Usuń listę"
+                        {move_tr!("lists-confirm-delete-button")}
                     </button>
                 </div>
             </div>

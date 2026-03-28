@@ -2,6 +2,7 @@ pub mod detail;
 
 use crate::api;
 use crate::components::add_input::AddInput;
+use leptos_fluent::move_tr;
 use crate::components::tag_tree::{TagTreeRow, build_tag_tree};
 use kartoteka_shared::{CreateTagRequest, Tag};
 use leptos::prelude::*;
@@ -35,26 +36,26 @@ pub fn TagsPage() -> impl IntoView {
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            <h2 class="text-2xl font-bold mb-6">"Tagi"</h2>
+            <h2 class="text-2xl font-bold mb-6">{move_tr!("tags-title")}</h2>
 
             <div class="flex gap-2 items-center mb-4">
                 <input
                     type="color"
-                    aria-label="Kolor tagu"
+                    aria-label={move_tr!("tags-color-aria")}
                     class="w-8 h-8 rounded cursor-pointer border-0 p-0"
                     prop:value=move || new_color.get()
                     on:input=move |ev| set_new_color.set(event_target_value(&ev))
                 />
-                <AddInput placeholder="Nowy tag..." button_label="Dodaj" on_submit=on_create_root />
+                <AddInput placeholder=move_tr!("tags-new-placeholder") button_label=move_tr!("common-add") on_submit=on_create_root />
             </div>
 
             {move || {
                 if loading.get() {
-                    return view! { <p>"Wczytywanie..."</p> }.into_any();
+                    return view! { <p>{move_tr!("common-loading")}</p> }.into_any();
                 }
                 let all_tags = tags.get();
                 if all_tags.is_empty() {
-                    return view! { <p class="text-center text-base-content/50 py-12">"Brak tagów. Dodaj pierwszy!"</p> }.into_any();
+                    return view! { <p class="text-center text-base-content/50 py-12">{move_tr!("tags-empty")}</p> }.into_any();
                 }
 
                 let tree = build_tag_tree(&all_tags);

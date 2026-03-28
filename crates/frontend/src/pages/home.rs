@@ -2,6 +2,7 @@ use kartoteka_shared::{
     Container, CreateContainerRequest, CreateListRequest, List, ListTagLink, Tag,
 };
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 use crate::api;
 use crate::app::{ToastContext, ToastKind};
@@ -146,7 +147,7 @@ pub fn HomePage() -> impl IntoView {
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            <h2 class="text-2xl font-bold mb-4">"Kartoteka"</h2>
+            <h2 class="text-2xl font-bold mb-4">{move_tr!("home-title")}</h2>
 
             // Tag filter bar
             <Suspense fallback=|| view! {}>
@@ -211,7 +212,7 @@ pub fn HomePage() -> impl IntoView {
                                 pending_delete.set(None);
 
                                 match api::delete_list(&lid).await {
-                                    Ok(()) => toast.push("Lista usunięta".into(), ToastKind::Success),
+                                    Ok(()) => toast.push(move_tr!("home-list-deleted").get(), ToastKind::Success),
                                     Err(e) => {
                                         if let (Some(list), Some(idx)) = (removed, removed_idx) {
                                             root_lists.update(|ls| {
@@ -231,7 +232,7 @@ pub fn HomePage() -> impl IntoView {
 
             {move || {
                 if home_res.get().is_none() {
-                    return view! { <p>"Wczytywanie..."</p> }.into_any();
+                    return view! { <p>{move_tr!("common-loading")}</p> }.into_any();
                 }
 
                 let tags_data = tags_res.get();
@@ -268,7 +269,7 @@ pub fn HomePage() -> impl IntoView {
                             view! {
                                 <div class="collapse collapse-arrow bg-base-200 mb-4">
                                     <input type="checkbox" checked />
-                                    <div class="collapse-title font-semibold">"📌 Przypięte"</div>
+                                    <div class="collapse-title font-semibold">"📌 " {move_tr!("home-pinned")}</div>
                                     <div class="collapse-content">
                                         <div class="flex flex-col gap-3 pt-2">
                                             {pc.into_iter().map(|c| {
@@ -326,7 +327,7 @@ pub fn HomePage() -> impl IntoView {
                             view! {
                                 <div class="collapse collapse-arrow bg-base-200 mb-4">
                                     <input type="checkbox" checked />
-                                    <div class="collapse-title font-semibold">"🕐 Ostatnio otwierane"</div>
+                                    <div class="collapse-title font-semibold">"🕐 " {move_tr!("home-recent")}</div>
                                     <div class="collapse-content">
                                         <div class="flex flex-col gap-3 pt-2">
                                             {rc.into_iter().map(|c| {
@@ -370,7 +371,7 @@ pub fn HomePage() -> impl IntoView {
                             let rc_list = rc_list.clone();
                             view! {
                                 <div class="mb-4">
-                                    <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">"Foldery i projekty"</h3>
+                                    <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">{move_tr!("home-folders-and-projects")}</h3>
                                     <div class="flex flex-col gap-3">
                                         {rc_list.into_iter().map(|c| {
                                             let cid = c.id.clone();
@@ -384,7 +385,7 @@ pub fn HomePage() -> impl IntoView {
                                                             match api::delete_container(&cid).await {
                                                                 Ok(()) => {
                                                                     root_containers.update(|cs| cs.retain(|c| c.id != cid));
-                                                                    toast.push("Kontener usunięty".into(), ToastKind::Success);
+                                                                    toast.push(move_tr!("home-container-deleted").get(), ToastKind::Success);
                                                                 }
                                                                 Err(e) => toast.push(e, ToastKind::Error),
                                                             }
@@ -416,7 +417,7 @@ pub fn HomePage() -> impl IntoView {
 
                             if filtered.is_empty() && rc_list.is_empty() && pl.is_empty() && pc.is_empty() {
                                 view! {
-                                    <div class="text-center text-base-content/50 py-12">"Brak list i kontenerów. Utwórz pierwszy!"</div>
+                                    <div class="text-center text-base-content/50 py-12">{move_tr!("home-empty")}</div>
                                 }.into_any()
                             } else if filtered.is_empty() {
                                 view! {}.into_any()
@@ -427,7 +428,7 @@ pub fn HomePage() -> impl IntoView {
                                     <div>
                                         {if !rc_list.is_empty() {
                                             view! {
-                                                <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">"Listy"</h3>
+                                                <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">{move_tr!("home-lists")}</h3>
                                             }.into_any()
                                         } else { view! {}.into_any() }}
                                         <div class="flex flex-col gap-3">
@@ -469,11 +470,12 @@ pub fn HomePage() -> impl IntoView {
                 if archived.is_empty() {
                     view! {}.into_any()
                 } else {
+                    let archived_count = archived.len();
                     view! {
                         <div class="collapse collapse-arrow bg-base-200 mt-6">
                             <input type="checkbox" />
                             <div class="collapse-title font-semibold">
-                                {format!("\u{1F4E6} Archiwum ({})", archived.len())}
+                                "📦 " {move_tr!("home-archive", { "count" => archived_count })}
                             </div>
                             <div class="collapse-content">
                                 <div class="flex flex-col gap-2 pt-2">
@@ -495,14 +497,14 @@ pub fn HomePage() -> impl IntoView {
                                                                 Ok(_) => {
                                                                     archived_data.update(|ls| ls.retain(|l| l.id != lid));
                                                                     set_refresh.update(|n| *n += 1);
-                                                                    toast.push("Lista przywrócona".into(), ToastKind::Success);
+                                                                    toast.push(move_tr!("home-list-restored").get(), ToastKind::Success);
                                                                 }
                                                                 Err(e) => toast.push(e, ToastKind::Error),
                                                             }
                                                         });
                                                     }
                                                 >
-                                                    "\u{21A9}\u{FE0F} Przywróć"
+                                                    {move_tr!("home-restore-button")}
                                                 </button>
                                             </div>
                                         }

@@ -1,18 +1,10 @@
 use kartoteka_shared::{List, ListType, Tag};
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::hooks::use_navigate;
 
 use crate::components::tag_list::TagList;
 
-pub fn list_type_label(lt: &ListType) -> &'static str {
-    match lt {
-        ListType::Checklist => "Checklist",
-        ListType::Zakupy => "Zakupy",
-        ListType::Pakowanie => "Pakowanie",
-        ListType::Terminarz => "Terminarz",
-        ListType::Custom => "Custom",
-    }
-}
 
 pub fn list_type_icon(lt: &ListType) -> &'static str {
     match lt {
@@ -34,7 +26,13 @@ pub fn ListCard(
 ) -> impl IntoView {
     let href = format!("/lists/{}", list.id);
     let icon = list_type_icon(&list.list_type);
-    let label = list_type_label(&list.list_type);
+    let type_label = match &list.list_type {
+        ListType::Checklist => move_tr!("lists-type-checklist"),
+        ListType::Zakupy => move_tr!("lists-type-shopping"),
+        ListType::Pakowanie => move_tr!("lists-type-packing"),
+        ListType::Terminarz => move_tr!("lists-type-schedule"),
+        ListType::Custom => move_tr!("lists-type-custom"),
+    };
 
     let navigate = use_navigate();
     let href_clone = href.clone();
@@ -55,7 +53,7 @@ pub fn ListCard(
                 view! {
                     <button
                         type="button"
-                        aria-label="Usuń listę"
+                        aria-label={move_tr!("lists-delete-list-aria")}
                         class="btn btn-ghost btn-xs absolute top-2 right-2 opacity-40 hover:opacity-100"
                         on:click=move |ev| {
                             ev.stop_propagation();
@@ -69,7 +67,7 @@ pub fn ListCard(
 
             <div class="card-body p-4">
                 <h3 class="card-title text-base">{list.name.clone()}</h3>
-                <span class="text-sm text-base-content/60">{icon} " " {label}</span>
+                <span class="text-sm text-base-content/60">{icon} " " {type_label}</span>
                 {if has_tags {
                     view! {
                         <div

@@ -3,6 +3,7 @@ use crate::components::add_input::AddInput;
 use crate::components::tag_badge::TagBadge;
 use kartoteka_shared::{CreateTagRequest, Tag};
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::components::A;
 use std::collections::HashMap;
 
@@ -188,7 +189,7 @@ pub fn TagTreeRow(
                     let child_padding = format!("padding-left: {}rem;", (depth + 1) as f64 * 1.0);
                     view! {
                         <div class="flex gap-2 items-center py-1" style=child_padding>
-                            <AddInput placeholder="Nazwa podtagu..." button_label="Dodaj" on_submit=on_submit />
+                            <AddInput placeholder=move_tr!("tags-new-placeholder") button_label=move_tr!("common-add") on_submit=on_submit />
                             <button class="btn btn-ghost btn-xs" on:click=move |_| adding_child.set(false)>"\u{2715}"</button>
                         </div>
                     }.into_any()

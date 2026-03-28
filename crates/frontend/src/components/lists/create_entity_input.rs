@@ -3,9 +3,10 @@ use kartoteka_shared::{
     FEATURE_QUANTITY, ListFeature, ListType,
 };
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 use crate::components::items::add_input::AddInput;
-use crate::components::list_card::{list_type_icon, list_type_label};
+use crate::components::list_card::list_type_icon;
 
 #[derive(Clone, PartialEq)]
 pub enum EntityMode {
@@ -82,7 +83,7 @@ pub fn CreateEntityInput(
                     class=move || if mode.get() == EntityMode::List { "tab tab-active" } else { "tab" }
                     on:click=move |_| set_mode.set(EntityMode::List)
                 >
-                    "📝 Lista"
+                    "📝 " {move_tr!("lists-mode-list")}
                 </button>
                 {if show_container_options {
                     view! {
@@ -92,14 +93,14 @@ pub fn CreateEntityInput(
                                 class=move || if mode.get() == EntityMode::Folder { "tab tab-active" } else { "tab" }
                                 on:click=move |_| set_mode.set(EntityMode::Folder)
                             >
-                                "📁 Folder"
+                                "📁 " {move_tr!("lists-mode-folder")}
                             </button>
                             <button
                                 type="button"
                                 class=move || if mode.get() == EntityMode::Project { "tab tab-active" } else { "tab" }
                                 on:click=move |_| set_mode.set(EntityMode::Project)
                             >
-                                "🚀 Projekt"
+                                "🚀 " {move_tr!("lists-mode-project")}
                             </button>
                         </>
                     }.into_any()
@@ -119,7 +120,13 @@ pub fn CreateEntityInput(
                                     let lt_class = lt.clone();
                                     let lt_click = lt.clone();
                                     let icon = list_type_icon(&lt);
-                                    let label = list_type_label(&lt);
+                                    let type_label = match &lt {
+                                        ListType::Checklist => move_tr!("lists-type-checklist"),
+                                        ListType::Zakupy => move_tr!("lists-type-shopping"),
+                                        ListType::Pakowanie => move_tr!("lists-type-packing"),
+                                        ListType::Terminarz => move_tr!("lists-type-schedule"),
+                                        ListType::Custom => move_tr!("lists-type-custom"),
+                                    };
                                     view! {
                                         <button
                                             type="button"
@@ -131,7 +138,7 @@ pub fn CreateEntityInput(
                                                 set_feat_deadlines.set(defaults.iter().any(|f| f.name == FEATURE_DEADLINES));
                                             }
                                         >
-                                            {icon} " " {label}
+                                            {icon} " " {type_label}
                                         </button>
                                     }
                                 })
@@ -145,7 +152,7 @@ pub fn CreateEntityInput(
                                     prop:checked=feat_quantity
                                     on:change=move |ev| set_feat_quantity.set(event_target_checked(&ev))
                                 />
-                                <span class="label-text">"Ilości"</span>
+                                <span class="label-text">{move_tr!("lists-feature-quantities")}</span>
                             </label>
                             <label class="label cursor-pointer gap-2">
                                 <input
@@ -154,7 +161,7 @@ pub fn CreateEntityInput(
                                     prop:checked=feat_deadlines
                                     on:change=move |ev| set_feat_deadlines.set(event_target_checked(&ev))
                                 />
-                                <span class="label-text">"Terminy"</span>
+                                <span class="label-text">{move_tr!("lists-feature-deadlines")}</span>
                             </label>
                         </div>
                     </div>
@@ -165,16 +172,15 @@ pub fn CreateEntityInput(
 
             // Input
             <div class="flex gap-2">
-                {move || {
-                    let placeholder = match mode.get() {
-                        EntityMode::List => "Nazwa nowej listy...",
-                        EntityMode::Folder => "Nazwa nowego folderu...",
-                        EntityMode::Project => "Nazwa nowego projektu...",
-                    };
-                    view! {
-                        <AddInput placeholder=placeholder button_label="Dodaj" on_submit=on_submit />
-                    }
-                }}
+                <AddInput
+                    placeholder=Signal::derive(move || match mode.get() {
+                        EntityMode::List => move_tr!("lists-new-list-placeholder").get(),
+                        EntityMode::Folder => move_tr!("lists-new-folder-placeholder").get(),
+                        EntityMode::Project => move_tr!("lists-new-project-placeholder").get(),
+                    })
+                    button_label=move_tr!("common-add")
+                    on_submit=on_submit
+                />
             </div>
         </div>
     }

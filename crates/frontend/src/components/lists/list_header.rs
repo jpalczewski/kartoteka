@@ -1,5 +1,6 @@
 use kartoteka_shared::{FEATURE_DEADLINES, FEATURE_QUANTITY, ListFeature};
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 use crate::components::confirm_delete_modal::ConfirmDeleteModal;
 use crate::components::editable_title::EditableTitle;
@@ -72,7 +73,7 @@ pub fn ListHeader(
                         class="btn btn-ghost btn-sm opacity-60 hover:opacity-100"
                         on:click=move |_| show_settings.update(|v| *v = !*v)
                     >
-                        "\u{2699}\u{FE0F}"
+                        {move_tr!("lists-header-settings-button")}
                     </button>
                 })}
                 {on_reset.map(|cb| view! {
@@ -81,7 +82,7 @@ pub fn ListHeader(
                         class="btn btn-ghost btn-sm opacity-60 hover:opacity-100"
                         on:click=move |_| cb.run(())
                     >
-                        "\u{1F504} Reset"
+                        {move_tr!("lists-header-reset-button")}
                     </button>
                 })}
                 {on_archive.map(|cb| view! {
@@ -90,7 +91,7 @@ pub fn ListHeader(
                         class="btn btn-ghost btn-sm opacity-60 hover:opacity-100"
                         on:click=move |_| cb.run(())
                     >
-                        "\u{1F4E6} Archiwizuj"
+                        {move_tr!("lists-header-archive-button")}
                     </button>
                 })}
                 <button
@@ -98,7 +99,7 @@ pub fn ListHeader(
                     class="btn btn-ghost btn-sm opacity-60 hover:opacity-100"
                     on:click=move |_| show_delete.set(true)
                 >
-                    "\u{1F5D1} Usu\u{0144} list\u{0119}"
+                    {move_tr!("lists-header-delete-button")}
                 </button>
             </div>
         </div>
@@ -109,7 +110,7 @@ pub fn ListHeader(
                 on_feature_toggle.map(|on_toggle| view! {
                     <div class="bg-base-200 rounded-lg p-3 mb-4">
                         <div class="flex items-center gap-4">
-                            <span class="text-sm font-semibold">"Funkcje:"</span>
+                            <span class="text-sm font-semibold">{move_tr!("lists-features-label")}</span>
                             <label class="label cursor-pointer gap-2">
                                 <input
                                     type="checkbox"
@@ -119,7 +120,7 @@ pub fn ListHeader(
                                         on_toggle.run((FEATURE_QUANTITY.to_string(), event_target_checked(&ev)));
                                     }
                                 />
-                                <span class="label-text">"Ilo\u{015B}ci"</span>
+                                <span class="label-text">{move_tr!("lists-feature-quantities")}</span>
                             </label>
                             <label class="label cursor-pointer gap-2">
                                 <input
@@ -130,14 +131,14 @@ pub fn ListHeader(
                                         on_toggle.run((FEATURE_DEADLINES.to_string(), event_target_checked(&ev)));
                                     }
                                 />
-                                <span class="label-text">"Terminy"</span>
+                                <span class="label-text">{move_tr!("lists-feature-deadlines")}</span>
                             </label>
                         </div>
                         // Deadlines sub-config
                         {if has_deadlines {
                             view! {
                                 <div class="flex items-center gap-4 mt-2 ml-4 text-xs">
-                                    <span class="opacity-50">"Pola dat:"</span>
+                                    <span class="opacity-50">{move_tr!("lists-deadlines-dates-label")}</span>
                                     <label class="label cursor-pointer gap-1">
                                         <input
                                             type="checkbox"
@@ -148,7 +149,7 @@ pub fn ListHeader(
                                                 fire_config_change();
                                             }
                                         />
-                                        <span class="label-text text-xs">"Start"</span>
+                                        <span class="label-text text-xs">{move_tr!("lists-deadlines-start")}</span>
                                     </label>
                                     <label class="label cursor-pointer gap-1">
                                         <input
@@ -160,7 +161,7 @@ pub fn ListHeader(
                                                 fire_config_change();
                                             }
                                         />
-                                        <span class="label-text text-xs">"Termin"</span>
+                                        <span class="label-text text-xs">{move_tr!("lists-deadlines-deadline")}</span>
                                     </label>
                                     <label class="label cursor-pointer gap-1">
                                         <input
@@ -172,7 +173,7 @@ pub fn ListHeader(
                                                 fire_config_change();
                                             }
                                         />
-                                        <span class="label-text text-xs">"Twardy termin"</span>
+                                        <span class="label-text text-xs">{move_tr!("lists-deadlines-hard")}</span>
                                     </label>
                                 </div>
                             }.into_any()

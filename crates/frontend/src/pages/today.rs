@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::components::A;
 
 use crate::api;
@@ -48,13 +49,13 @@ pub fn TodayPage() -> impl IntoView {
     view! {
         <div class="container mx-auto max-w-2xl p-4">
             <div class="flex items-center justify-between mb-4">
-                <h1 class="text-2xl font-bold">"Dzi\u{015B}"</h1>
+                <h1 class="text-2xl font-bold">{move_tr!("today-title")}</h1>
                 <span class="text-base-content/50">{format_polish_date(&today_display)}</span>
             </div>
 
             {move || {
                 if loading.get() {
-                    return view! { <p>"Wczytywanie..."</p> }.into_any();
+                    return view! { <p>{move_tr!("common-loading")}</p> }.into_any();
                 }
 
                 let all_items = items.get();
@@ -65,7 +66,7 @@ pub fn TodayPage() -> impl IntoView {
                 if all_items.is_empty() {
                     return view! {
                         <p class="text-center text-base-content/50 py-12">
-                            "Brak zada\u{0144} na dzi\u{015B}"
+                            {move_tr!("today-empty")}
                         </p>
                     }.into_any();
                 }
@@ -150,7 +151,7 @@ pub fn TodayPage() -> impl IntoView {
                                 view! {
                                     <div class="mb-6">
                                         <h3 class="text-xs text-error uppercase tracking-wider font-semibold mb-2">
-                                            "Zaleg\u{0142}e"
+                                            {move_tr!("today-overdue")}
                                         </h3>
                                         {render_groups(overdue_groups, tags.clone(), links.clone(), items)}
                                     </div>
@@ -165,7 +166,7 @@ pub fn TodayPage() -> impl IntoView {
                                         {if has_overdue {
                                             view! {
                                                 <h3 class="text-xs text-base-content/50 uppercase tracking-wider font-semibold mb-2">
-                                                    "Dzi\u{015B}"
+                                                    {move_tr!("today-title")}
                                                 </h3>
                                             }.into_any()
                                         } else {

@@ -3,6 +3,7 @@ pub mod day;
 use std::collections::HashSet;
 
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 use crate::api;
 use crate::app::{ToastContext, ToastKind};
@@ -115,7 +116,7 @@ pub fn CalendarPage() -> impl IntoView {
 
             {move || {
                 if loading.get() {
-                    return view! { <p>"Wczytywanie..."</p> }.into_any();
+                    return view! { <p>{move_tr!("common-loading")}</p> }.into_any();
                 }
 
                 match view_mode.get() {
@@ -131,7 +132,7 @@ pub fn CalendarPage() -> impl IntoView {
                                 />
                             }.into_any()
                         } else {
-                            view! { <p>"Błąd parsowania daty"</p> }.into_any()
+                            view! { <p>{move_tr!("calendar-parse-error")}</p> }.into_any()
                         }
                     }
                     ViewMode::Week => {

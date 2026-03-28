@@ -1,5 +1,6 @@
 use kartoteka_shared::{Container, ContainerStatus};
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::hooks::use_navigate;
 
 pub fn container_icon(status: &Option<ContainerStatus>) -> &'static str {
@@ -11,13 +12,6 @@ pub fn container_icon(status: &Option<ContainerStatus>) -> &'static str {
     }
 }
 
-pub fn container_status_label(status: &ContainerStatus) -> &'static str {
-    match status {
-        ContainerStatus::Active => "aktywny",
-        ContainerStatus::Done => "ukończony",
-        ContainerStatus::Paused => "wstrzymany",
-    }
-}
 
 pub fn container_status_class(status: &ContainerStatus) -> &'static str {
     match status {
@@ -47,8 +41,12 @@ pub fn ContainerCard(
     let container_id_pin = container.id.clone();
 
     let status_badge = container.status.as_ref().map(|s| {
-        let label = container_status_label(s);
         let cls = container_status_class(s);
+        let label = match s {
+            ContainerStatus::Active => move_tr!("lists-container-status-active"),
+            ContainerStatus::Done => move_tr!("lists-container-status-done"),
+            ContainerStatus::Paused => move_tr!("lists-container-status-paused"),
+        };
         view! { <span class=cls>{label}</span> }
     });
 
@@ -63,7 +61,7 @@ pub fn ContainerCard(
         view! {
             <div class="mt-2">
                 <div class="flex justify-between text-xs text-base-content/60 mb-1">
-                    <span>{format!("{}/{} zadań", completed, total)}</span>
+                    <span>{move_tr!("lists-tasks-progress", { "completed" => completed, "total" => total })}</span>
                     <span>{format!("{}%", pct)}</span>
                 </div>
                 <progress class="progress progress-primary w-full" value=completed max=total></progress>
@@ -85,7 +83,7 @@ pub fn ContainerCard(
                 view! {
                     <button
                         type="button"
-                        aria-label="Przypnij"
+                        aria-label={move_tr!("lists-pin-container-aria")}
                         class="btn btn-ghost btn-xs absolute top-2 right-8 opacity-40 hover:opacity-100"
                         on:click=move |ev| {
                             ev.stop_propagation();
@@ -103,7 +101,7 @@ pub fn ContainerCard(
                 view! {
                     <button
                         type="button"
-                        aria-label="Usuń kontener"
+                        aria-label={move_tr!("lists-delete-container-aria")}
                         class="btn btn-ghost btn-xs absolute top-2 right-2 opacity-40 hover:opacity-100"
                         on:click=move |ev| {
                             ev.stop_propagation();
