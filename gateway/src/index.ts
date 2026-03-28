@@ -27,6 +27,9 @@ app.use("/api/*", (c, next) =>
 app.use("/auth/*", (c, next) =>
   cors({ origin: allowedOrigins(c.env), credentials: true })(c, next)
 );
+app.use("/oauth/*", (c, next) =>
+  cors({ origin: allowedOrigins(c.env), credentials: true })(c, next)
+);
 
 app.get("/health", (c) => c.text("ok"));
 
@@ -68,9 +71,22 @@ app.all("/auth/*", async (c) => {
   return auth.handler(c.req.raw);
 });
 
-// MCP OAuth consent screen — must NOT be under /mcp/ (OAuthProvider treats that as API route)
-// GET: show login form (if not authenticated) or consent screen (if authenticated)
-// POST: complete the OAuth authorization flow
+// Generate a one-time consent token (called by frontend via fetch)
+app.post("/oauth/consent-token", async (c) => {
+  const auth = getAuth(c.env);
+  const session = await auth.api.getSession({ headers: c.req.raw.headers });
+  if (!session) return c.json({ error: "Unauthorized" }, 401);
+
+  const token = crypto.randomUUID();
+  await c.env.OAUTH_KV.put(
+    `consent:${token}`,
+    JSON.stringify({ userId: session.user.id }),
+    { expirationTtl: 300 }
+  );
+  return c.json({ consent_token: token });
+});
+
+// MCP OAuth authorize — consent_token flow (no HTML rendered)
 app.all("/oauth/authorize", async (c) => {
   const env = c.env;
   const request = c.req.raw;
@@ -109,78 +125,9 @@ app.all("/oauth/authorize", async (c) => {
     return Response.redirect(redirectTo, 302);
   }
 
-  // First visit — check session (same domain = cookie works), generate consent token
-  const auth = getAuth(env);
-  const session = await auth.api.getSession({ headers: request.headers });
-
-  if (!session) {
-    // Not logged in — show login form on gateway (first-party cookie)
-    const callbackUrl = `/oauth/authorize?${url.searchParams.toString()}`;
-    return c.html(`<!DOCTYPE html>
-<html lang="pl"><head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kartoteka — Zaloguj się</title>
-  <style>
-    body { font-family: sans-serif; max-width: 400px; margin: 80px auto; padding: 0 16px; }
-    h1 { font-size: 1.4rem; }
-    label { display: block; margin-top: 12px; font-size: 0.9rem; }
-    input { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
-    button { margin-top: 20px; width: 100%; padding: 10px; background: #6366f1; color: white;
-             border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; }
-    .error { color: #ef4444; margin-top: 8px; }
-  </style>
-</head><body>
-  <h1>Zaloguj się do Kartoteki</h1>
-  <p>Zaloguj się, aby autoryzować Claude.</p>
-  <form id="loginForm">
-    <label>Email<input type="email" id="email" required></label>
-    <label>Hasło<input type="password" id="password" required></label>
-    <button type="submit">Zaloguj i autoryzuj</button>
-    <p class="error" id="error" style="display:none"></p>
-  </form>
-  <script>
-    document.getElementById('loginForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const err = document.getElementById('error');
-      err.style.display = 'none';
-      try {
-        const resp = await fetch('/auth/api/sign-in/email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            email: document.getElementById('email').value,
-            password: document.getElementById('password').value,
-          }),
-        });
-        if (resp.ok) {
-          window.location.href = ${JSON.stringify(callbackUrl)};
-        } else {
-          const data = await resp.json().catch(() => ({}));
-          err.textContent = data.message || 'Błąd logowania';
-          err.style.display = 'block';
-        }
-      } catch (ex) {
-        err.textContent = 'Błąd sieci';
-        err.style.display = 'block';
-      }
-    });
-  </script>
-</body></html>`);
-  }
-
-  // Generate one-time consent token, store in KV (5 min TTL)
-  const token = crypto.randomUUID();
-  await env.OAUTH_KV.put(`consent:${token}`, JSON.stringify({ userId: session.user.id }), {
-    expirationTtl: 300,
-  });
-
-  // Redirect to frontend consent page with token + original OAuth params
+  // No consent_token — redirect to frontend consent page (handles login + consent)
   const frontendOrigin = allowedOrigins(env)[0];
-  const originalParams = new URL(request.url).searchParams;
-  const consentParams = new URLSearchParams(originalParams);
-  consentParams.set("consent_token", token);
-  const consentUrl = `${frontendOrigin}/oauth/consent?${consentParams.toString()}`;
+  const consentUrl = `${frontendOrigin}/oauth/consent?${url.searchParams.toString()}`;
   return Response.redirect(consentUrl, 302);
 });
 
