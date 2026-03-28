@@ -21,3 +21,6 @@ console_error_panic_hook = "0.1"
 js-sys = "0.3"
 send_wrapper = "0.6"
 wasm-bindgen-futures = "0.4"
+
+[package.metadata.cargo-machete]
+ignored = ["wasm-bindgen"]
