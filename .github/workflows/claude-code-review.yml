@@ -35,7 +35,9 @@ jobs:
           settings: |
             {
               "permissions": {
-                "allow": ["Read", "Glob", "Grep"],
-                "deny": ["Edit", "Write", "Bash", "WebFetch", "WebSearch"]
+                "allow": ["Read", "Glob", "Grep", "Bash(cargo check:*)", "Bash(cargo clippy:*)", "Bash(cargo test:*)", "Bash(cargo fmt:*)", "Bash(npx tsc:*)"],
+                "deny": ["Edit", "Write", "WebFetch", "WebSearch"]
               }
             }
+          env: |
+            API_BASE_URL=/api
