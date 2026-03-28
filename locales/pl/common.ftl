@@ -1,0 +1,11 @@
+common-loading = Wczytywanie...
+common-cancel = Anuluj
+common-delete = Usuń
+common-save = Zapisz
+common-add = Dodaj
+common-edit = Edytuj
+common-close = Zamknij
+common-confirm = Potwierdź
+common-copied = Skopiowano!
+common-copy = Kopiuj
+common-or = lub

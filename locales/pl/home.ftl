@@ -1,0 +1,11 @@
+home-title = Kartoteka
+home-pinned = Przypięte
+home-recent = Ostatnio otwierane
+home-folders-and-projects = Foldery i projekty
+home-lists = Listy
+home-archive = Archiwum ({ $count })
+home-empty = Brak list i kontenerów. Utwórz pierwszy!
+home-list-deleted = Lista usunięta
+home-list-restored = Lista przywrócona
+home-container-deleted = Kontener usunięty
+home-restore-button = Przywróć
