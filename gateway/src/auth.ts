@@ -1,13 +1,13 @@
 import { betterAuth } from "better-auth";
 import type { Env } from "./types";
 
-const authCache = new WeakMap<object, ReturnType<typeof createAuth>>();
+let cachedAuth: ReturnType<typeof createAuth> | null = null;
 
 export function getAuth(env: Env): ReturnType<typeof createAuth> {
-  if (!authCache.has(env)) {
-    authCache.set(env, createAuth(env));
+  if (!cachedAuth) {
+    cachedAuth = createAuth(env);
   }
-  return authCache.get(env)!;
+  return cachedAuth;
 }
 
 export function createAuth(env: Env) {
@@ -20,7 +20,7 @@ export function createAuth(env: Env) {
       crossSubDomainCookies: { enabled: false },
       cookies: {
         session_token: {
-          attributes: { sameSite: "none", secure: true },
+          attributes: { sameSite: "none", secure: true, path: "/" },
         },
       },
     },

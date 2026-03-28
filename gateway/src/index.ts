@@ -86,82 +86,102 @@ app.all("/oauth/authorize", async (c) => {
     );
   }
 
-  // Check for an existing Better Auth session
+  const url = new URL(request.url);
+  const consentToken = url.searchParams.get("consent_token");
+
+  if (consentToken) {
+    // Returning from frontend consent — validate token and complete authorization
+    const stored = await env.OAUTH_KV.get(`consent:${consentToken}`, { type: "json" }) as {
+      userId: string;
+    } | null;
+    if (!stored) {
+      return c.json({ error: "Invalid or expired consent token" }, 400);
+    }
+    await env.OAUTH_KV.delete(`consent:${consentToken}`);
+
+    const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
+      request: oauthReqInfo,
+      userId: stored.userId,
+      metadata: { label: "Claude MCP access" },
+      scope: oauthReqInfo.scope ?? [],
+      props: { userId: stored.userId },
+    });
+    return Response.redirect(redirectTo, 302);
+  }
+
+  // First visit — check session (same domain = cookie works), generate consent token
   const auth = getAuth(env);
   const session = await auth.api.getSession({ headers: request.headers });
 
   if (!session) {
-    // No session — show a combined login + consent form
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kartoteka — Grant Access to Claude</title>
+    // Not logged in — show login form on gateway (first-party cookie)
+    const callbackUrl = `/oauth/authorize?${url.searchParams.toString()}`;
+    return c.html(`<!DOCTYPE html>
+<html lang="pl"><head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kartoteka — Zaloguj się</title>
   <style>
     body { font-family: sans-serif; max-width: 400px; margin: 80px auto; padding: 0 16px; }
     h1 { font-size: 1.4rem; }
     label { display: block; margin-top: 12px; font-size: 0.9rem; }
     input { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
-    button { margin-top: 20px; width: 100%; padding: 10px; background: #6366f1; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+    button { margin-top: 20px; width: 100%; padding: 10px; background: #6366f1; color: white;
+             border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+    .error { color: #ef4444; margin-top: 8px; }
   </style>
-</head>
-<body>
-  <h1>Grant Kartoteka access to Claude</h1>
-  <p>Sign in to your Kartoteka account to authorize Claude to access your lists.</p>
-  <form method="POST" action="/auth/api/sign-in/email">
-    <input type="hidden" name="callbackURL" value="/oauth/authorize?${new URL(request.url).searchParams.toString()}">
-    <label>Email<input type="email" name="email" required></label>
-    <label>Password<input type="password" name="password" required></label>
-    <button type="submit">Sign in &amp; Authorize</button>
+</head><body>
+  <h1>Zaloguj się do Kartoteki</h1>
+  <p>Zaloguj się, aby autoryzować Claude.</p>
+  <form id="loginForm">
+    <label>Email<input type="email" id="email" required></label>
+    <label>Hasło<input type="password" id="password" required></label>
+    <button type="submit">Zaloguj i autoryzuj</button>
+    <p class="error" id="error" style="display:none"></p>
   </form>
-</body>
-</html>`;
-    return c.html(html);
-  }
-
-  if (request.method === "POST") {
-    // CSRF protection: verify Origin matches our host
-    const origin = request.headers.get("origin");
-    const expectedOrigin = new URL(request.url).origin;
-    if (!origin || origin !== expectedOrigin) {
-      return c.json({ error: "Forbidden" }, 403);
-    }
-    // User approved — complete the authorization
-    const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
-      request: oauthReqInfo,
-      userId: session.user.id,
-      metadata: { label: "Claude MCP access" },
-      scope: oauthReqInfo.scope ?? [],
-      props: { userId: session.user.id },
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = document.getElementById('error');
+      err.style.display = 'none';
+      try {
+        const resp = await fetch('/auth/api/sign-in/email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            email: document.getElementById('email').value,
+            password: document.getElementById('password').value,
+          }),
+        });
+        if (resp.ok) {
+          window.location.href = ${JSON.stringify(callbackUrl)};
+        } else {
+          const data = await resp.json().catch(() => ({}));
+          err.textContent = data.message || 'Błąd logowania';
+          err.style.display = 'block';
+        }
+      } catch (ex) {
+        err.textContent = 'Błąd sieci';
+        err.style.display = 'block';
+      }
     });
-    return Response.redirect(redirectTo, 302);
+  </script>
+</body></html>`);
   }
 
-  // GET with valid session — show consent screen
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kartoteka — Grant Access to Claude</title>
-  <style>
-    body { font-family: sans-serif; max-width: 400px; margin: 80px auto; padding: 0 16px; }
-    h1 { font-size: 1.4rem; }
-    p { color: #555; }
-    button { margin-top: 20px; width: 100%; padding: 10px; background: #6366f1; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; }
-  </style>
-</head>
-<body>
-  <h1>Grant Kartoteka access to Claude</h1>
-  <p>Signed in as <strong>${escapeHtml(session.user.email)}</strong></p>
-  <p>Claude is requesting access to your Kartoteka lists.</p>
-  <form method="POST">
-    <button type="submit">Approve</button>
-  </form>
-</body>
-</html>`;
-  return c.html(html);
+  // Generate one-time consent token, store in KV (5 min TTL)
+  const token = crypto.randomUUID();
+  await env.OAUTH_KV.put(`consent:${token}`, JSON.stringify({ userId: session.user.id }), {
+    expirationTtl: 300,
+  });
+
+  // Redirect to frontend consent page with token + original OAuth params
+  const frontendOrigin = allowedOrigins(env)[0];
+  const originalParams = new URL(request.url).searchParams;
+  const consentParams = new URLSearchParams(originalParams);
+  consentParams.set("consent_token", token);
+  const consentUrl = `${frontendOrigin}/oauth/consent?${consentParams.toString()}`;
+  return Response.redirect(consentUrl, 302);
 });
 
 // API routes — require auth, then proxy to Rust API Worker

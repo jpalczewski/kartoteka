@@ -74,11 +74,13 @@ export function registerTools(
       description: "Create a new list",
       inputSchema: {
         name: z.string().describe("The name for the new list"),
+        list_type: z.enum(["checklist", "zakupy", "pakowanie", "terminarz", "custom"]).default("checklist").describe("Type of list: checklist (default), zakupy (shopping), pakowanie (packing), terminarz (schedule), custom"),
       },
     },
-    async ({ name }) => {
+    async ({ name, list_type }) => {
       const res = await apiCall(apiWorker, devApiUrl, "POST", "/api/lists", userId, {
         name,
+        list_type,
       });
       if (!res.ok) {
         const text = await res.text();
