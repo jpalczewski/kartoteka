@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ApiContext } from "../api";
-import { callTool, ensureFeatures } from "../api";
+import { callTool, apiCall, errorResult, jsonResult } from "../api";
 import { tr } from "../i18n";
 
 export function registerItemTools(server: McpServer, api: ApiContext, locale: string): void {
@@ -27,8 +27,9 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
       hard_deadline: z.string().optional().describe("Hard deadline YYYY-MM-DD"),
     },
   }, async ({ list_id, ...fields }) => {
-    await ensureFeatures(api, list_id, fields);
-    return callTool(api, "POST", `/api/lists/${list_id}/items`, fields);
+    return withAutoEnable(api, list_id, fields, (f) =>
+      apiCall(api, "POST", `/api/lists/${list_id}/items`, f)
+    );
   });
 
   server.registerTool("update_item", {
@@ -49,8 +50,9 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
       hard_deadline: z.string().nullable().optional().describe("Hard deadline YYYY-MM-DD (null to clear)"),
     },
   }, async ({ list_id, item_id, ...fields }) => {
-    await ensureFeatures(api, list_id, fields);
-    return callTool(api, "PUT", `/api/lists/${list_id}/items/${item_id}`, fields);
+    return withAutoEnable(api, list_id, fields, (f) =>
+      apiCall(api, "PUT", `/api/lists/${list_id}/items/${item_id}`, f)
+    );
   });
 
   server.registerTool("toggle_item", {
@@ -71,4 +73,56 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
     },
   }, ({ item_id, target_list_id }) =>
     callTool(api, "PATCH", `/api/items/${item_id}/move`, { list_id: target_list_id }));
+
+  async function withAutoEnable(
+    api: ApiContext,
+    listId: string,
+    fields: Record<string, unknown>,
+    apiFn: (f: Record<string, unknown>) => Promise<Response>
+  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+    const res = await apiFn(fields);
+    if (!res.ok) {
+      if (res.status === 422) {
+        let body: { error?: string; feature?: string; message?: string } = {};
+        try { body = await res.json(); } catch { /* ignore */ }
+
+        if (body.error === "feature_required" && body.feature) {
+          let autoEnable = false;
+          try {
+            const settings = await apiCall(api, "GET", "/api/settings").then(r => r.json()) as Record<string, unknown>;
+            autoEnable = settings["mcp_auto_enable_features"] === true;
+          } catch { /* default false */ }
+
+          if (autoEnable) {
+            const config = body.feature === "deadlines"
+              ? { has_start_date: false, has_deadline: true, has_hard_deadline: false }
+              : {};
+            const enableRes = await apiCall(api, "POST", `/api/lists/${listId}/features/${body.feature}`, { config });
+            if (!enableRes.ok) {
+              return errorResult(`Failed to auto-enable feature '${body.feature}': ${await enableRes.text()}`);
+            }
+            const retry = await apiFn(fields);
+            if (!retry.ok) {
+              return errorResult(`API error ${retry.status}: ${await retry.text()}`);
+            }
+            try {
+              return jsonResult(await retry.json());
+            } catch {
+              return errorResult("Failed to parse API response after auto-enabling feature.");
+            }
+          }
+
+          return errorResult(
+            `${body.message ?? "Feature not enabled."} Options: (1) use enable_list_feature tool to enable it, (2) retry without the field.`
+          );
+        }
+      }
+      return errorResult(`API error ${res.status}: ${await res.text()}`);
+    }
+    try {
+      return jsonResult(await res.json());
+    } catch {
+      return errorResult("Failed to parse API response.");
+    }
+  }
 }

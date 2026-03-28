@@ -17,13 +17,16 @@ pub async fn get_preferences(_req: Request, ctx: RouteContext<String>) -> Result
 
     let db = ctx.env.d1("DB")?;
     let result = db
-        .prepare("SELECT locale FROM user_preferences WHERE user_id = ?1")
+        .prepare("SELECT value FROM user_settings WHERE user_id = ?1 AND key = 'locale'")
         .bind(&[user_id.into()])?
         .first::<serde_json::Value>(None)
         .await?;
 
     let locale = result
-        .and_then(|row| row.get("locale").and_then(|v| v.as_str()).map(String::from))
+        .and_then(|row| {
+            let raw = row.get("value")?.as_str().map(String::from)?;
+            serde_json::from_str::<String>(&raw).ok()
+        })
         .unwrap_or_else(|| "en".to_string());
 
     Response::from_json(&PreferencesResponse { locale })
@@ -38,13 +41,14 @@ pub async fn put_preferences(mut req: Request, ctx: RouteContext<String>) -> Res
         return json_error("invalid_locale", 400);
     }
 
+    let value_json = serde_json::to_string(&body.locale).unwrap_or_default();
+
     let db = ctx.env.d1("DB")?;
     db.prepare(
-        "INSERT INTO user_preferences (user_id, locale, updated_at) \
-         VALUES (?1, ?2, datetime('now')) \
-         ON CONFLICT(user_id) DO UPDATE SET locale = ?2, updated_at = datetime('now')",
+        "INSERT OR REPLACE INTO user_settings (user_id, key, value, updated_at) \
+         VALUES (?1, 'locale', ?2, datetime('now'))",
     )
-    .bind(&[user_id.into(), body.locale.into()])?
+    .bind(&[user_id.into(), value_json.into()])?
     .run()
     .await?;
 

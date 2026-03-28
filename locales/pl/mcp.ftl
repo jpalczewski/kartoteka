@@ -28,3 +28,7 @@ tool-get-tagged-items = Pobierz wszystkie elementy z konkretnym tagiem
 # Kalendarz
 tool-get-calendar = Pobierz elementy z datami w zakresie dat
 tool-get-today = Pobierz wszystkie elementy na dziś, w tym zaległe
+
+# Funkcje list
+tool-enable-list-feature = Włącz funkcję na liście. Dla 'deadlines' opcjonalnie skonfiguruj dostępne pola dat. Dla 'quantity' opcjonalnie ustaw domyślną jednostkę. Wywołaj tylko po potwierdzeniu przez użytkownika (chyba że ustawienie mcp_auto_enable_features jest włączone).
+tool-disable-list-feature = Wyłącz funkcję na liście. Dane elementów (ilości, daty) są zachowane — ukryte w UI, ale nie usunięte.

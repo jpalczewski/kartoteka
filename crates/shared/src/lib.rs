@@ -103,6 +103,19 @@ pub struct HomeData {
 pub const FEATURE_QUANTITY: &str = "quantity";
 pub const FEATURE_DEADLINES: &str = "deadlines";
 
+pub const SETTING_MCP_AUTO_ENABLE_FEATURES: &str = "mcp_auto_enable_features";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserSetting {
+    pub key: String,
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpsertSettingRequest {
+    pub value: serde_json::Value,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ListFeature {
     pub name: String,

@@ -39,4 +39,36 @@ export function registerListTools(server: McpServer, api: ApiContext, locale: st
     },
   }, ({ list_id, container_id }) =>
     callTool(api, "PATCH", `/api/lists/${list_id}/container`, { container_id }));
+
+  server.registerTool("enable_list_feature", {
+    description: tr("tool-enable-list-feature", locale),
+    inputSchema: {
+      list_id: z.string().describe("The list ID"),
+      feature: z.enum(["quantity", "deadlines"]).describe("Feature to enable"),
+      has_start_date: z.boolean().optional().describe("Show start date field (default false)"),
+      has_deadline: z.boolean().optional().describe("Show deadline field (default true)"),
+      has_hard_deadline: z.boolean().optional().describe("Show hard deadline field (default false)"),
+      unit_default: z.string().optional().describe("Default unit label, e.g. 'szt', 'kg'"),
+    },
+  }, async ({ list_id, feature, has_start_date, has_deadline, has_hard_deadline, unit_default }) => {
+    const config = feature === "deadlines"
+      ? {
+          has_start_date: has_start_date ?? false,
+          has_deadline: has_deadline ?? true,
+          has_hard_deadline: has_hard_deadline ?? false,
+        }
+      : unit_default
+        ? { unit_default }
+        : {};
+    return callTool(api, "POST", `/api/lists/${list_id}/features/${feature}`, { config });
+  });
+
+  server.registerTool("disable_list_feature", {
+    description: tr("tool-disable-list-feature", locale),
+    inputSchema: {
+      list_id: z.string().describe("The list ID"),
+      feature: z.enum(["quantity", "deadlines"]).describe("Feature to disable"),
+    },
+  }, ({ list_id, feature }) =>
+    callTool(api, "DELETE", `/api/lists/${list_id}/features/${feature}`));
 }

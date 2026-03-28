@@ -1,7 +1,7 @@
 use worker::*;
 
 use crate::auth;
-use crate::handlers::{containers, items, lists, preferences, tags};
+use crate::handlers::{containers, items, lists, preferences, settings, tags};
 
 pub async fn handle(req: Request, env: Env) -> Result<Response> {
     let path = req.path();
@@ -59,6 +59,10 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         // Preferences
         .get_async("/api/preferences", preferences::get_preferences)
         .put_async("/api/preferences", preferences::put_preferences)
+        // Settings
+        .get_async("/api/settings", settings::list_all)
+        .put_async("/api/settings/:key", settings::upsert)
+        .delete_async("/api/settings/:key", settings::delete)
         // Tags CRUD
         .get_async("/api/tags", tags::list_all)
         .post_async("/api/tags", tags::create)

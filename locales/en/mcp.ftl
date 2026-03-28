@@ -28,3 +28,7 @@ tool-get-tagged-items = Get all items tagged with a specific tag
 # Calendar
 tool-get-calendar = Get items with dates in a date range
 tool-get-today = Get all items for today, including overdue
+
+# List features
+tool-enable-list-feature = Enable a feature on a list. For 'deadlines', optionally configure which date fields are available. For 'quantity', optionally set a default unit. Call only after confirming with the user (unless mcp_auto_enable_features is set).
+tool-disable-list-feature = Disable a feature on a list. Item data (quantities, dates) is preserved — data is hidden in UI but not deleted.
