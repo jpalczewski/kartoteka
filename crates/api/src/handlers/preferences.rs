@@ -1,3 +1,4 @@
+use crate::error::json_error;
 use serde::{Deserialize, Serialize};
 use worker::*;
 
@@ -38,7 +39,7 @@ pub async fn put_preferences(mut req: Request, ctx: RouteContext<String>) -> Res
     let body: UpdatePreferencesBody = req.json().await?;
 
     if !["en", "pl"].contains(&body.locale.as_str()) {
-        return Response::error("Invalid locale", 400);
+        return json_error("invalid_locale", 400);
     }
 
     let db = ctx.env.d1("DB")?;

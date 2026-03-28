@@ -1,3 +1,4 @@
+use crate::error::json_error;
 use kartoteka_shared::*;
 use wasm_bindgen::JsValue;
 use worker::*;
@@ -96,7 +97,7 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
 
     match list {
         Some(l) => Response::from_json(&l),
-        None => Response::error("Not found", 404),
+        None => json_error("list_not_found", 404),
     }
 }
 
@@ -116,7 +117,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         .first::<serde_json::Value>(None)
         .await?;
     if existing.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("list_not_found", 404);
     }
 
     if let Some(name) = &body.name {
@@ -192,7 +193,7 @@ pub async fn list_sublists(_req: Request, ctx: RouteContext<String>) -> Result<R
         .first::<serde_json::Value>(None)
         .await?;
     if parent.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("list_not_found", 404);
     }
 
     let result = d1
@@ -272,7 +273,7 @@ pub async fn reset(_req: Request, ctx: RouteContext<String>) -> Result<Response>
         .first::<serde_json::Value>(None)
         .await?;
     if check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("list_not_found", 404);
     }
 
     // Reset items in main list
@@ -317,7 +318,7 @@ pub async fn create_sublist(mut req: Request, ctx: RouteContext<String>) -> Resu
         .first::<serde_json::Value>(None)
         .await?;
     if parent.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("list_not_found", 404);
     }
 
     // Get next position
@@ -380,7 +381,7 @@ pub async fn add_feature(mut req: Request, ctx: RouteContext<String>) -> Result<
         .first::<serde_json::Value>(None)
         .await?;
     if existing.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("list_not_found", 404);
     }
 
     // Parse config from body (default to {})
@@ -390,7 +391,7 @@ pub async fn add_feature(mut req: Request, ctx: RouteContext<String>) -> Result<
 
     // Validate config is a valid JSON object
     if !body.config.is_object() && !body.config.is_null() {
-        return Response::error("Config must be a JSON object", 400);
+        return json_error("invalid_config", 400);
     }
 
     let config_str = body.config.to_string();
@@ -437,7 +438,7 @@ pub async fn remove_feature(_req: Request, ctx: RouteContext<String>) -> Result<
         .first::<serde_json::Value>(None)
         .await?;
     if existing.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("list_not_found", 404);
     }
 
     d1.prepare("DELETE FROM list_features WHERE list_id = ?1 AND feature_name = ?2")
@@ -474,7 +475,7 @@ pub async fn move_list(mut req: Request, ctx: RouteContext<String>) -> Result<Re
         .first::<serde_json::Value>(None)
         .await?;
     if check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("list_not_found", 404);
     }
 
     // If target container specified, verify ownership
@@ -485,7 +486,7 @@ pub async fn move_list(mut req: Request, ctx: RouteContext<String>) -> Result<Re
             .first::<serde_json::Value>(None)
             .await?;
         if ccheck.is_none() {
-            return Response::error("Container not found", 404);
+            return json_error("container_not_found", 404);
         }
     }
 
@@ -524,7 +525,7 @@ pub async fn toggle_pin(_req: Request, ctx: RouteContext<String>) -> Result<Resp
         .await?;
 
     if row.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("list_not_found", 404);
     }
 
     let current = row

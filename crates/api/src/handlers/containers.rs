@@ -1,3 +1,4 @@
+use crate::error::json_error;
 use kartoteka_shared::{
     Container, ContainerDetail, CreateContainerRequest, List, MoveContainerRequest,
     UpdateContainerRequest,
@@ -39,10 +40,10 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
             .first::<serde_json::Value>(None)
             .await?;
         match parent {
-            None => return Response::error("Parent container not found", 404),
+            None => return json_error("container_not_found", 404),
             Some(ref p) => {
                 if !p.get("status").map(|v| v.is_null()).unwrap_or(true) {
-                    return Response::error("Projects cannot contain sub-containers", 400);
+                    return json_error("invalid_container_hierarchy", 400);
                 }
             }
         }
@@ -130,7 +131,7 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
 
     let container = match container {
         Some(c) => c,
-        None => return Response::error("Not found", 404),
+        None => return json_error("container_not_found", 404),
     };
 
     // Compute progress (item-level + list-level)
@@ -206,7 +207,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         .first::<serde_json::Value>(None)
         .await?;
     if existing.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("container_not_found", 404);
     }
 
     if let Some(name) = &body.name {
@@ -268,7 +269,7 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
         .first::<serde_json::Value>(None)
         .await?;
     if check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("container_not_found", 404);
     }
 
     d1.prepare("DELETE FROM containers WHERE id = ?1")
@@ -294,7 +295,7 @@ pub async fn get_children(_req: Request, ctx: RouteContext<String>) -> Result<Re
         .first::<serde_json::Value>(None)
         .await?;
     if check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("container_not_found", 404);
     }
 
     // Get sub-containers
@@ -342,13 +343,13 @@ pub async fn move_container(mut req: Request, ctx: RouteContext<String>) -> Resu
         .first::<serde_json::Value>(None)
         .await?;
     if check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("container_not_found", 404);
     }
 
     // Validate new parent is not a project
     if let Some(ref parent_id) = body.parent_container_id {
         if parent_id == &id {
-            return Response::error("Cannot move container into itself", 400);
+            return json_error("invalid_container_move", 400);
         }
         let parent = d1
             .prepare("SELECT status FROM containers WHERE id = ?1 AND user_id = ?2")
@@ -356,10 +357,10 @@ pub async fn move_container(mut req: Request, ctx: RouteContext<String>) -> Resu
             .first::<serde_json::Value>(None)
             .await?;
         match parent {
-            None => return Response::error("Parent container not found", 404),
+            None => return json_error("container_not_found", 404),
             Some(ref p) => {
                 if !p.get("status").map(|v| v.is_null()).unwrap_or(true) {
-                    return Response::error("Projects cannot contain sub-containers", 400);
+                    return json_error("invalid_container_hierarchy", 400);
                 }
             }
         }
@@ -402,7 +403,7 @@ pub async fn toggle_pin(_req: Request, ctx: RouteContext<String>) -> Result<Resp
         .await?;
 
     if row.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("container_not_found", 404);
     }
 
     let current = row

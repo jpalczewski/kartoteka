@@ -1,3 +1,4 @@
+use crate::error::json_error;
 use kartoteka_shared::*;
 use wasm_bindgen::JsValue;
 use worker::*;
@@ -25,7 +26,7 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
         .first::<serde_json::Value>(None)
         .await?;
     if list_check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("list_not_found", 404);
     }
 
     let query = format!(
@@ -55,7 +56,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         .first::<serde_json::Value>(None)
         .await?;
     if list_check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("list_not_found", 404);
     }
 
     // Get next position
@@ -156,7 +157,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         .first::<serde_json::Value>(None)
         .await?;
     if item_check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("item_not_found", 404);
     }
 
     if let Some(title) = &body.title {
@@ -282,7 +283,7 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
         .first::<serde_json::Value>(None)
         .await?;
     if item_check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("item_not_found", 404);
     }
 
     d1.prepare("DELETE FROM items WHERE id = ?1")
@@ -317,7 +318,7 @@ pub async fn move_item(mut req: Request, ctx: RouteContext<String>) -> Result<Re
         .first::<serde_json::Value>(None)
         .await?;
     if item_check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("item_not_found", 404);
     }
 
     // Verify target list belongs to user
@@ -327,7 +328,7 @@ pub async fn move_item(mut req: Request, ctx: RouteContext<String>) -> Result<Re
         .first::<serde_json::Value>(None)
         .await?;
     if target_check.is_none() {
-        return Response::error("Target list not found", 404);
+        return json_error("list_not_found", 404);
     }
 
     // Get next position in target list

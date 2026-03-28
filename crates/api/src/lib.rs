@@ -1,6 +1,7 @@
 use worker::*;
 
 mod auth;
+pub mod error;
 mod handlers;
 pub(crate) mod helpers;
 mod router;
