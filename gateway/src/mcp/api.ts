@@ -71,27 +71,3 @@ export async function fetchUserLocale(userId: string, env: Env): Promise<string>
     return "en";
   }
 }
-
-export async function ensureFeatures(
-  api: ApiContext,
-  listId: string,
-  fields: Record<string, unknown>
-): Promise<void> {
-  const hasDateField =
-    fields.start_date !== undefined ||
-    fields.deadline !== undefined ||
-    fields.hard_deadline !== undefined ||
-    fields.start_time !== undefined ||
-    fields.deadline_time !== undefined;
-  const hasQuantity =
-    fields.quantity !== undefined ||
-    fields.actual_quantity !== undefined ||
-    fields.unit !== undefined;
-
-  if (hasDateField) {
-    await apiCall(api, "POST", `/api/lists/${listId}/features/deadlines`, { config: {} });
-  }
-  if (hasQuantity) {
-    await apiCall(api, "POST", `/api/lists/${listId}/features/quantity`, { config: {} });
-  }
-}
