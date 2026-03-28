@@ -210,6 +210,37 @@ impl List {
     }
 }
 
+/// Parse the deadlines feature config into (has_start_date, has_deadline, has_hard_deadline).
+/// Defaults: start=false, deadline=true, hard=false.
+pub fn parse_deadlines_config(config: &serde_json::Value) -> (bool, bool, bool) {
+    let has_start = config
+        .get("has_start_date")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let has_deadline = config
+        .get("has_deadline")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let has_hard = config
+        .get("has_hard_deadline")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    (has_start, has_deadline, has_hard)
+}
+
+pub const SETTING_MCP_AUTO_ENABLE_FEATURES: &str = "mcp_auto_enable_features";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserSetting {
+    pub key: String,
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpsertSettingRequest {
+    pub value: serde_json::Value,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
     pub id: String,
