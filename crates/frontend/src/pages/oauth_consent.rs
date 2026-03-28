@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use send_wrapper::SendWrapper;
 use wasm_bindgen_futures::spawn_local;
 
@@ -98,18 +99,19 @@ pub fn OAuthConsentPage() -> impl IntoView {
                                 view! {
                                     <div class="card bg-base-200 border border-base-300">
                                         <div class="card-body">
-                                            <h2 class="card-title text-xl">"Autoryzacja Claude"</h2>
+                                            <h2 class="card-title text-xl">{move_tr!("auth-consent-title")}</h2>
                                             <p class="text-base-content/70">
-                                                "Zalogowano jako "
+                                                {move_tr!("auth-consent-logged-in-as")}
+                                                " "
                                                 <strong>{info.user.email.clone()}</strong>
                                             </p>
                                             <p class="mt-2">
-                                                "Claude prosi o dostęp do Twoich list w Kartotece."
+                                                {move_tr!("auth-consent-request")}
                                             </p>
                                             <div class="card-actions justify-end mt-4 gap-2">
-                                                <a href={deny_url} class="btn btn-ghost">"Odmów"</a>
+                                                <a href={deny_url} class="btn btn-ghost">{move_tr!("auth-consent-deny")}</a>
                                                 <button class="btn btn-primary" on:click=on_approve.clone()>
-                                                    "Zezwól"
+                                                    {move_tr!("auth-consent-allow")}
                                                 </button>
                                             </div>
                                         </div>
@@ -121,9 +123,9 @@ pub fn OAuthConsentPage() -> impl IntoView {
                                 view! {
                                     <div class="card bg-base-200 border border-base-300">
                                         <div class="card-body">
-                                            <h2 class="card-title text-xl">"Autoryzacja Claude"</h2>
+                                            <h2 class="card-title text-xl">{move_tr!("auth-consent-title")}</h2>
                                             <p class="text-base-content/70 mb-2">
-                                                "Zaloguj się, aby autoryzować Claude."
+                                                {move_tr!("auth-consent-login-prompt")}
                                             </p>
 
                                             {move || login_error.get().map(|e| view! {
@@ -136,7 +138,7 @@ pub fn OAuthConsentPage() -> impl IntoView {
                                                 <label class="input input-bordered flex items-center gap-2 w-full">
                                                     <input
                                                         type="email"
-                                                        placeholder="Email"
+                                                        placeholder=move_tr!("auth-email-placeholder")
                                                         class="grow"
                                                         required=true
                                                         on:input=move |ev| email.set(event_target_value(&ev))
@@ -145,7 +147,7 @@ pub fn OAuthConsentPage() -> impl IntoView {
                                                 <label class="input input-bordered flex items-center gap-2 w-full">
                                                     <input
                                                         type="password"
-                                                        placeholder="Hasło"
+                                                        placeholder=move_tr!("auth-password-placeholder")
                                                         class="grow"
                                                         required=true
                                                         on:input=move |ev| password.set(event_target_value(&ev))
@@ -156,7 +158,11 @@ pub fn OAuthConsentPage() -> impl IntoView {
                                                     class="btn btn-primary w-full"
                                                     disabled=move || loading.get()
                                                 >
-                                                    {move || if loading.get() { "Logowanie..." } else { "Zaloguj i autoryzuj" }}
+                                                    {move || if loading.get() {
+                                                        move_tr!("auth-login-loading").get()
+                                                    } else {
+                                                        move_tr!("auth-consent-login-and-authorize").get()
+                                                    }}
                                                 </button>
                                             </form>
                                         </div>
