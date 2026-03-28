@@ -20,8 +20,7 @@ fn update_item_null_field_is_none() {
 
 #[test]
 fn update_item_value_field_is_some_some() {
-    let req: UpdateItemRequest =
-        serde_json::from_str(r#"{"deadline": "2024-12-31"}"#).unwrap();
+    let req: UpdateItemRequest = serde_json::from_str(r#"{"deadline": "2024-12-31"}"#).unwrap();
     assert!(matches!(req.deadline, Some(Some(ref d)) if d == "2024-12-31"));
 }
 
