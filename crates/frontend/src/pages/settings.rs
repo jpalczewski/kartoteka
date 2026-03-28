@@ -103,7 +103,7 @@ pub fn SettingsPage() -> impl IntoView {
 
             <div class="card bg-base-200 border border-base-300 mb-4">
                 <div class="card-body">
-                    <h3 class="card-title text-lg">"Zachowanie AI"</h3>
+                    <h3 class="card-title text-lg">{move_tr!("settings-ai-section-title")}</h3>
                     <label class="label cursor-pointer justify-start gap-4">
                         <input
                             type="checkbox"
@@ -122,10 +122,10 @@ pub fn SettingsPage() -> impl IntoView {
                         />
                         <div>
                             <div class="label-text font-medium">
-                                "Automatycznie włączaj funkcje list"
+                                {move_tr!("settings-ai-auto-enable-label")}
                             </div>
                             <div class="label-text text-xs text-base-content/60">
-                                "Gdy AI potrzebuje terminu lub ilości na liście bez tych funkcji, włączy je bez pytania."
+                                {move_tr!("settings-ai-auto-enable-description")}
                             </div>
                         </div>
                     </label>

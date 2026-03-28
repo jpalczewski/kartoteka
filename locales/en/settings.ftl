@@ -6,3 +6,6 @@ settings-mcp-copied = Copied!
 settings-account-section = Account settings
 settings-language-label = Language
 settings-language-section-title = Language
+settings-ai-section-title = AI behavior
+settings-ai-auto-enable-label = Automatically enable list features
+settings-ai-auto-enable-description = When AI needs deadlines or quantities on a list without those features, it will enable them without asking.

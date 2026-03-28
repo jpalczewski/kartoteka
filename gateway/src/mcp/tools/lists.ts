@@ -41,7 +41,7 @@ export function registerListTools(server: McpServer, api: ApiContext, locale: st
     callTool(api, "PATCH", `/api/lists/${list_id}/container`, { container_id }));
 
   server.registerTool("enable_list_feature", {
-    description: "Enable a feature on a list. For 'deadlines', optionally configure which date fields are available. For 'quantity', optionally set a default unit. Call only after confirming with the user (unless mcp_auto_enable_features is set).",
+    description: tr("tool-enable-list-feature", locale),
     inputSchema: {
       list_id: z.string().describe("The list ID"),
       feature: z.enum(["quantity", "deadlines"]).describe("Feature to enable"),
@@ -64,7 +64,7 @@ export function registerListTools(server: McpServer, api: ApiContext, locale: st
   });
 
   server.registerTool("disable_list_feature", {
-    description: "Disable a feature on a list. Item data (quantities, dates) is preserved — data is hidden in UI but not deleted.",
+    description: tr("tool-disable-list-feature", locale),
     inputSchema: {
       list_id: z.string().describe("The list ID"),
       feature: z.enum(["quantity", "deadlines"]).describe("Feature to disable"),

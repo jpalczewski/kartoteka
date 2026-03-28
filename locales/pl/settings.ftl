@@ -6,3 +6,6 @@ settings-mcp-copied = Skopiowano!
 settings-account-section = Ustawienia konta
 settings-language-label = Język
 settings-language-section-title = Język
+settings-ai-section-title = Zachowanie AI
+settings-ai-auto-enable-label = Automatycznie włączaj funkcje list
+settings-ai-auto-enable-description = Gdy AI potrzebuje terminu lub ilości na liście bez tych funkcji, włączy je bez pytania.

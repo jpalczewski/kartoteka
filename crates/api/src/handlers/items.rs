@@ -166,16 +166,24 @@ fn check_item_features(
     has_quantity_field: bool,
 ) -> worker::Result<Option<Response>> {
     if has_date_field && !feature_names.iter().any(|f| f == FEATURE_DEADLINES) {
-        return Ok(Some(Response::error(
-            r#"{"error":"feature_required","feature":"deadlines","message":"This list does not have the 'deadlines' feature enabled. Enable it in list settings or retry without date fields."}"#,
-            422,
-        )?));
+        return Ok(Some(
+            Response::from_json(&serde_json::json!({
+                "error": "feature_required",
+                "feature": "deadlines",
+                "message": "This list does not have the 'deadlines' feature enabled. Enable it in list settings or retry without date fields."
+            }))
+            .map(|r| r.with_status(422))?,
+        ));
     }
     if has_quantity_field && !feature_names.iter().any(|f| f == FEATURE_QUANTITY) {
-        return Ok(Some(Response::error(
-            r#"{"error":"feature_required","feature":"quantity","message":"This list does not have the 'quantity' feature enabled. Enable it in list settings or retry without quantity fields."}"#,
-            422,
-        )?));
+        return Ok(Some(
+            Response::from_json(&serde_json::json!({
+                "error": "feature_required",
+                "feature": "quantity",
+                "message": "This list does not have the 'quantity' feature enabled. Enable it in list settings or retry without quantity fields."
+            }))
+            .map(|r| r.with_status(422))?,
+        ));
     }
     Ok(None)
 }
