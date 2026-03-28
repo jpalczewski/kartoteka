@@ -6,6 +6,7 @@ use leptos_fluent::move_tr;
 
 use crate::api;
 use crate::app::{ToastContext, ToastKind};
+use crate::components::common::loading::LoadingSpinner;
 use crate::components::confirm_delete_modal::ConfirmDeleteModal;
 use crate::components::container_card::ContainerCard;
 use crate::components::create_entity_input::CreateEntityInput;
@@ -232,7 +233,7 @@ pub fn HomePage() -> impl IntoView {
 
             {move || {
                 if home_res.get().is_none() {
-                    return view! { <p>{move_tr!("common-loading")}</p> }.into_any();
+                    return view! { <LoadingSpinner/> }.into_any();
                 }
 
                 let tags_data = tags_res.get();

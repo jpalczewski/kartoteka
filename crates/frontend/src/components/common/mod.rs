@@ -1,4 +1,6 @@
 pub mod breadcrumbs;
+pub mod error_display;
+pub mod loading;
 pub mod confirm_delete_modal;
 pub mod date_utils;
 pub mod editable_color;

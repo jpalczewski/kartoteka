@@ -1,4 +1,5 @@
 use crate::api;
+use crate::components::common::loading::LoadingSpinner;
 use crate::components::editable_color::EditableColor;
 use crate::components::editable_title::EditableTitle;
 use crate::components::tag_tree::{
@@ -57,7 +58,7 @@ pub fn TagDetailPage() -> impl IntoView {
                 let navigate = navigate.clone();
                 move || {
                 if loading.get() {
-                    return view! { <p>{move_tr!("common-loading")}</p> }.into_any();
+                    return view! { <LoadingSpinner/> }.into_any();
                 }
                 let navigate = navigate.clone();
                 match tag.get() {

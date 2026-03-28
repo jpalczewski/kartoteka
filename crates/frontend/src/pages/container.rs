@@ -9,6 +9,7 @@ use leptos_router::hooks::use_params_map;
 use crate::api;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::breadcrumbs::Breadcrumbs;
+use crate::components::common::loading::LoadingSpinner;
 use crate::components::common::editable_description::EditableDescription;
 use crate::components::common::editable_title::EditableTitle;
 use crate::components::confirm_delete_modal::ConfirmDeleteModal;
@@ -144,7 +145,7 @@ pub fn ContainerPage() -> impl IntoView {
 
             {move || {
                 if loading.get() {
-                    return view! { <p>{move_tr!("common-loading")}</p> }.into_any();
+                    return view! { <LoadingSpinner/> }.into_any();
                 }
 
                 let det = detail.get();

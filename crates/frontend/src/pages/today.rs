@@ -9,6 +9,7 @@ use crate::app::{ToastContext, ToastKind};
 use crate::components::common::date_utils::{
     format_polish_date, get_today_string, is_overdue_for_date_type,
 };
+use crate::components::common::loading::LoadingSpinner;
 use crate::components::filters::filter_chips::FilterChips;
 use crate::components::items::date_item_row::DateItemRow;
 use kartoteka_shared::*;
@@ -55,7 +56,7 @@ pub fn TodayPage() -> impl IntoView {
 
             {move || {
                 if loading.get() {
-                    return view! { <p>{move_tr!("common-loading")}</p> }.into_any();
+                    return view! { <LoadingSpinner/> }.into_any();
                 }
 
                 let all_items = items.get();

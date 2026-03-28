@@ -2,6 +2,7 @@ pub mod detail;
 
 use crate::api;
 use crate::components::add_input::AddInput;
+use crate::components::common::loading::LoadingSpinner;
 use leptos_fluent::move_tr;
 use crate::components::tag_tree::{TagTreeRow, build_tag_tree};
 use kartoteka_shared::{CreateTagRequest, Tag};
@@ -51,7 +52,7 @@ pub fn TagsPage() -> impl IntoView {
 
             {move || {
                 if loading.get() {
-                    return view! { <p>{move_tr!("common-loading")}</p> }.into_any();
+                    return view! { <LoadingSpinner/> }.into_any();
                 }
                 let all_tags = tags.get();
                 if all_tags.is_empty() {

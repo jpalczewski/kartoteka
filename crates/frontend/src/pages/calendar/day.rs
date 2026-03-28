@@ -10,6 +10,7 @@ use crate::app::{ToastContext, ToastKind};
 use crate::components::common::date_utils::{
     add_days, day_of_week, format_polish_date, polish_day_of_week_full,
 };
+use crate::components::common::loading::LoadingSpinner;
 use crate::components::filters::filter_chips::FilterChips;
 use crate::components::items::date_item_row::DateItemRow;
 use kartoteka_shared::*;
@@ -74,7 +75,7 @@ pub fn CalendarDayPage() -> impl IntoView {
 
             {move || {
                 if loading.get() {
-                    return view! { <p>{move_tr!("common-loading")}</p> }.into_any();
+                    return view! { <LoadingSpinner/> }.into_any();
                 }
 
                 let all_items = items.get();
