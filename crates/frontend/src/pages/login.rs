@@ -102,7 +102,7 @@ pub fn LoginPage() -> impl IntoView {
                         </button>
                     </form>
 
-                    <div class="divider">"lub"</div>
+                    <div class="divider">{move_tr!("common-or")}</div>
                     <a href="/signup" class="link link-primary">{move_tr!("auth-login-create-account")}</a>
                 </div>
             </div>
