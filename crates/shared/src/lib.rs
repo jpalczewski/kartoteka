@@ -420,3 +420,6 @@ impl From<DateItem> for Item {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
