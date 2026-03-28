@@ -9,8 +9,8 @@ pub async fn fetch_settings() -> Result<serde_json::Value, String> {
 }
 
 pub async fn upsert_setting(key: &str, value: serde_json::Value) -> Result<(), String> {
-    let json = serde_json::to_string(&serde_json::json!({ "value": value }))
-        .map_err(|e| e.to_string())?;
+    let json =
+        serde_json::to_string(&serde_json::json!({ "value": value })).map_err(|e| e.to_string())?;
     let resp = gloo_net::http::Request::put(&format!("{}/settings/{key}", super::API_BASE))
         .headers(super::auth_headers())
         .credentials(web_sys::RequestCredentials::Include)
