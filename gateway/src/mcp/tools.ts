@@ -280,6 +280,80 @@ export function registerTools(
     }
   );
 
+  // === CONTAINERS ===
+
+  server.registerTool(
+    "list_containers",
+    {
+      description: "List all containers (folders and projects) for the current user",
+      inputSchema: {},
+    },
+    async () => {
+      const res = await apiCall(apiWorker, devApiUrl, "GET", "/api/containers", userId);
+      if (!res.ok) {
+        const text = await res.text();
+        return { isError: true, content: [{ type: "text" as const, text: `API error ${res.status}: ${text}` }] };
+      }
+      const data = await res.json();
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    "get_container",
+    {
+      description: "Get a container with progress metrics (completed items/lists counts)",
+      inputSchema: {
+        container_id: z.string().describe("The container ID"),
+      },
+    },
+    async ({ container_id }) => {
+      const res = await apiCall(apiWorker, devApiUrl, "GET", `/api/containers/${container_id}`, userId);
+      if (!res.ok) {
+        const text = await res.text();
+        return { isError: true, content: [{ type: "text" as const, text: `API error ${res.status}: ${text}` }] };
+      }
+      const data = await res.json();
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    "get_container_children",
+    {
+      description: "Get sub-containers and lists inside a container",
+      inputSchema: {
+        container_id: z.string().describe("The container ID"),
+      },
+    },
+    async ({ container_id }) => {
+      const res = await apiCall(apiWorker, devApiUrl, "GET", `/api/containers/${container_id}/children`, userId);
+      if (!res.ok) {
+        const text = await res.text();
+        return { isError: true, content: [{ type: "text" as const, text: `API error ${res.status}: ${text}` }] };
+      }
+      const data = await res.json();
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    "get_home",
+    {
+      description: "Get home dashboard: pinned items, recent items, root containers and lists",
+      inputSchema: {},
+    },
+    async () => {
+      const res = await apiCall(apiWorker, devApiUrl, "GET", "/api/home", userId);
+      if (!res.ok) {
+        const text = await res.text();
+        return { isError: true, content: [{ type: "text" as const, text: `API error ${res.status}: ${text}` }] };
+      }
+      const data = await res.json();
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    }
+  );
+
   // === TAGS ===
 
   server.registerTool(
