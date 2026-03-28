@@ -5,6 +5,7 @@ use crate::components::common::date_utils::{
     format_date_short, get_today_string, is_overdue, item_date_badges, relative_date,
 };
 use crate::components::common::inline_confirm_button::InlineConfirmButton;
+use crate::components::items::date_badge_chips::DateBadgeChips;
 use crate::components::items::inline_date_editor_section::InlineDateEditorSection;
 use crate::components::tags::tag_list::TagList;
 
@@ -141,25 +142,7 @@ pub fn DateItemRow(
                             selected_tag_ids=item_tag_ids.clone()
                             on_toggle=on_tag_toggle
                         />
-                        {secondary_badges.into_iter().map(|b| {
-                            if on_date_save.is_some() {
-                                let dt = b.date_type.to_string();
-                                view! {
-                                    <button type="button" class=format!("{} cursor-pointer", b.css)
-                                        on:click=move |_| {
-                                            let current = editing_date.get();
-                                            if current.as_deref() == Some(dt.as_str()) {
-                                                editing_date.set(None);
-                                            } else {
-                                                editing_date.set(Some(dt.clone()));
-                                            }
-                                        }
-                                    >{b.label}</button>
-                                }.into_any()
-                            } else {
-                                view! { <span class=b.css>{b.label}</span> }.into_any()
-                            }
-                        }).collect::<Vec<_>>()}
+                        <DateBadgeChips badges=secondary_badges editing_date=editing_date />
                     </div>
                 }.into_any()
             } else {

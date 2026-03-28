@@ -3,6 +3,7 @@ use kartoteka_shared::Tag;
 use leptos::prelude::*;
 
 use crate::components::common::date_utils::item_date_badges;
+use crate::components::items::date_badge_chips::DateBadgeChips;
 use crate::components::items::inline_date_editor_section::InlineDateEditorSection;
 use crate::components::tags::tag_list::TagList;
 
@@ -80,7 +81,6 @@ pub fn ItemRow(
     let ghost_start = cfg_start && item.start_date.is_none();
     let ghost_deadline = cfg_deadline && item.deadline.is_none();
     let ghost_hard = cfg_hard && item.hard_deadline.is_none();
-    let has_ghosts = ghost_start || ghost_deadline || ghost_hard;
 
     view! {
         <div class="border-b border-base-300 py-1">
@@ -103,53 +103,13 @@ pub fn ItemRow(
                 <span class=title_class>{item.title}</span>
 
                 // Date badges (clickable)
-                {
-                    if date_badges.is_empty() && !has_ghosts {
-                        view! {}.into_any()
-                    } else {
-                        view! {
-                            <div class="flex gap-1 flex-wrap shrink-0">
-                                {date_badges.into_iter().map(|b| {
-                                    let dt = b.date_type.to_string();
-                                    view! {
-                                        <button type="button" class=format!("{} cursor-pointer", b.css)
-                                            on:click=move |_| {
-                                                let current = editing_date.get();
-                                                if current.as_deref() == Some(dt.as_str()) {
-                                                    editing_date.set(None);
-                                                } else {
-                                                    editing_date.set(Some(dt.clone()));
-                                                }
-                                            }
-                                        >{b.label}</button>
-                                    }
-                                }).collect::<Vec<_>>()}
-                                // Ghost chips for missing date types
-                                {if ghost_start {
-                                    view! {
-                                        <button type="button" class="badge badge-ghost badge-sm opacity-40 cursor-pointer"
-                                            on:click=move |_| editing_date.set(Some("start".into()))
-                                        >"+\u{1F4C5}"</button>
-                                    }.into_any()
-                                } else { view! {}.into_any() }}
-                                {if ghost_deadline {
-                                    view! {
-                                        <button type="button" class="badge badge-ghost badge-sm opacity-40 cursor-pointer"
-                                            on:click=move |_| editing_date.set(Some("deadline".into()))
-                                        >"+\u{23F0}"</button>
-                                    }.into_any()
-                                } else { view! {}.into_any() }}
-                                {if ghost_hard {
-                                    view! {
-                                        <button type="button" class="badge badge-ghost badge-sm opacity-40 cursor-pointer"
-                                            on:click=move |_| editing_date.set(Some("hard_deadline".into()))
-                                        >"+\u{1F6A8}"</button>
-                                    }.into_any()
-                                } else { view! {}.into_any() }}
-                            </div>
-                        }.into_any()
-                    }
-                }
+                <DateBadgeChips
+                    badges=date_badges
+                    editing_date=editing_date
+                    ghost_start=ghost_start
+                    ghost_deadline=ghost_deadline
+                    ghost_hard=ghost_hard
+                />
 
                 // Quantity stepper
                 {if show_stepper {
