@@ -94,7 +94,7 @@ migrate-gateway-prod:
 
 # === DEPLOY ===
 
-deploy: deploy-migrate migrate-gateway-prod deploy-api deploy-gateway deploy-frontend
+deploy: deploy-migrate deploy-api deploy-gateway migrate-gateway-prod deploy-frontend
 
 deploy-gateway-dev:
     cd gateway && npx wrangler deploy --env dev
