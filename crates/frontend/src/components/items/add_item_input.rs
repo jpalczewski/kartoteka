@@ -1,5 +1,5 @@
 use crate::components::common::date_utils::format_date_short;
-use kartoteka_shared::CreateItemRequest;
+use kartoteka_shared::{CreateItemRequest, parse_deadlines_config};
 use leptos::prelude::*;
 
 /// Helper: get today's date as YYYY-MM-DD
@@ -167,18 +167,8 @@ pub fn AddItemInput(
     #[prop(default = false)] has_quantity: bool,
     #[prop(default = serde_json::Value::Null)] deadlines_config: serde_json::Value,
 ) -> impl IntoView {
-    let has_start_date = deadlines_config
-        .get("has_start_date")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let has_deadline = deadlines_config
-        .get("has_deadline")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let has_hard_deadline = deadlines_config
-        .get("has_hard_deadline")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let (has_start_date, has_deadline, has_hard_deadline) =
+        parse_deadlines_config(&deadlines_config);
     let has_any_date = has_start_date || has_deadline || has_hard_deadline;
 
     let title = RwSignal::new(String::new());

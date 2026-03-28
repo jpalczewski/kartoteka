@@ -58,6 +58,30 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         return Response::error("Not found", 404);
     }
 
+    // Fetch list features for validation
+    let feature_rows = d1
+        .prepare("SELECT feature_name FROM list_features WHERE list_id = ?1")
+        .bind(&[list_id.clone().into()])?
+        .all()
+        .await?
+        .results::<serde_json::Value>()?;
+    let feature_names: Vec<String> = feature_rows
+        .iter()
+        .filter_map(|r| r.get("feature_name")?.as_str().map(String::from))
+        .collect();
+
+    let has_date_field = body.start_date.is_some()
+        || body.deadline.is_some()
+        || body.hard_deadline.is_some()
+        || body.start_time.is_some()
+        || body.deadline_time.is_some();
+    let has_quantity_field = body.quantity.is_some() || body.unit.is_some();
+
+    if let Some(err_resp) = check_item_features(&feature_names, has_date_field, has_quantity_field)
+    {
+        return Ok(err_resp);
+    }
+
     // Get next position
     let max_pos = d1
         .prepare("SELECT COALESCE(MAX(position), -1) as max_pos FROM items WHERE list_id = ?1")
@@ -126,6 +150,29 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     Ok(resp)
 }
 
+/// Returns a 422 Response if the request uses feature-gated fields without
+/// the corresponding feature being enabled on the list.
+/// Returns None if validation passes.
+fn check_item_features(
+    feature_names: &[String],
+    has_date_field: bool,
+    has_quantity_field: bool,
+) -> Option<Response> {
+    if has_date_field && !feature_names.iter().any(|f| f == FEATURE_DEADLINES) {
+        return Response::error(
+            r#"{"error":"feature_required","feature":"deadlines","message":"This list does not have the 'deadlines' feature enabled. Enable it in list settings or retry without date fields."}"#,
+            422,
+        ).ok();
+    }
+    if has_quantity_field && !feature_names.iter().any(|f| f == FEATURE_QUANTITY) {
+        return Response::error(
+            r#"{"error":"feature_required","feature":"quantity","message":"This list does not have the 'quantity' feature enabled. Enable it in list settings or retry without quantity fields."}"#,
+            422,
+        ).ok();
+    }
+    None
+}
+
 /// Helper to handle Option<Option<String>> date fields in update:
 /// None = don't change, Some(None) = set NULL, Some(Some(v)) = set value
 fn update_nullable_str(outer: &Option<Option<String>>) -> Option<JsValue> {
@@ -148,7 +195,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     // Verify item belongs to user (via list ownership)
     let item_check = d1
         .prepare(
-            "SELECT items.id FROM items \
+            "SELECT items.id, items.list_id FROM items \
              JOIN lists ON lists.id = items.list_id \
              WHERE items.id = ?1 AND lists.user_id = ?2",
         )
@@ -157,6 +204,37 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         .await?;
     if item_check.is_none() {
         return Response::error("Not found", 404);
+    }
+
+    let list_id_for_features = item_check
+        .as_ref()
+        .and_then(|v| v.get("list_id")?.as_str().map(String::from))
+        .ok_or_else(|| Error::from("Missing list_id on item"))?;
+
+    // Fetch list features for validation
+    let feature_rows = d1
+        .prepare("SELECT feature_name FROM list_features WHERE list_id = ?1")
+        .bind(&[list_id_for_features.into()])?
+        .all()
+        .await?
+        .results::<serde_json::Value>()?;
+    let feature_names: Vec<String> = feature_rows
+        .iter()
+        .filter_map(|r| r.get("feature_name")?.as_str().map(String::from))
+        .collect();
+
+    // For update: date field = Some(Some(_)) only (not clear/no-change)
+    let has_date_field = matches!(&body.start_date, Some(Some(_)))
+        || matches!(&body.deadline, Some(Some(_)))
+        || matches!(&body.hard_deadline, Some(Some(_)))
+        || matches!(&body.start_time, Some(Some(_)))
+        || matches!(&body.deadline_time, Some(Some(_)));
+    let has_quantity_field =
+        body.quantity.is_some() || body.actual_quantity.is_some() || body.unit.is_some();
+
+    if let Some(err_resp) = check_item_features(&feature_names, has_date_field, has_quantity_field)
+    {
+        return Ok(err_resp);
     }
 
     if let Some(title) = &body.title {
