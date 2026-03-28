@@ -50,17 +50,33 @@ Kartoteka — aplikacja todo/listy na Cloudflare Workers (Rust API + TypeScript 
 
 ### Deploy
 - CF Pages wymaga `--branch=main` (production branch)
-- `CLOUDFLARE_ACCOUNT_ID` wymagany (dwa konta w systemie)
-- Account ID w `wrangler.toml` i jako env var w justfile
+- `CLOUDFLARE_ACCOUNT_ID` env var wymagany (wrangler bierze z env, nie z wrangler.toml)
+
+### API helpers (`crates/api/src/helpers.rs`)
+- `check_ownership(d1, table, id, user_id)` — weryfikacja własności zasobu
+- `check_item_ownership(d1, item_id, user_id)` — weryfikacja przez JOIN z lists
+- `toggle_bool_field(d1, table, column, id, user_id)` — toggle boolean (D1 0/1)
+- `next_position(d1, table, filter, params)` — MAX(position) + 1
+- `opt_str_to_js(opt)` — Option<String> → JsValue (Some → string, None → NULL)
+- `require_param(ctx, name)` — wyciągnij param z RouteContext lub Error
+- `get_list_features(d1, list_id)` — lista feature names dla listy
 
 ## Komendy
 
 ```bash
-just dev          # API + frontend lokalnie
-just dev-gateway  # Gateway lokalnie
+just dev          # API + Gateway + frontend + tunnel lokalnie
+just dev-api      # Tylko API worker
+just dev-gateway  # Tylko Gateway worker
+just dev-frontend # Tylko frontend (Trunk)
 just check        # Kompilacja workspace
-just deploy       # Deploy wszystkiego
+just build        # Build all (API + frontend + gateway)
+just test         # cargo test --workspace
+just test-e2e     # Playwright e2e (wymaga just dev)
 just lint         # Clippy + fmt check
+just fmt          # cargo fmt
+just ci           # fmt + lint + audit + machete + test
+just deploy       # Deploy prod (migrate + API + gateway + frontend)
+just deploy-dev   # Deploy dev environment
 ```
 
 ## Dokumentacja i aktualne wersje bibliotek
@@ -72,6 +88,14 @@ sqlx-d1 0.3+, DaisyUI 5). Przed pisaniem kodu sprawdzaj aktualne API przez conte
 - `mcp__context7__query-docs` — pobierz aktualną dokumentację
 
 Używaj tego proaktywnie, nie czekaj na błędy kompilacji.
+
+## Testy
+
+- **Unit testy** (`crates/shared/src/tests/`): deserializery D1, typy, serde — `cargo test -p kartoteka-shared`
+- **i18n testy** (`crates/i18n/tests/`): kompletność tłumaczeń PL/EN, parsowanie FTL, pokrycie MCP
+- **E2E** (`tests/e2e/`): Playwright, auth flow — `just test-e2e` (wymaga `just dev`)
+- **Brak testów**: `crates/api` (wymaga D1/Worker runtime), `crates/frontend` (WASM CSR)
+- CI: `cargo test --workspace` (shared + i18n)
 
 ## CI/CD
 
