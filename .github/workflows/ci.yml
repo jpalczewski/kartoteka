@@ -7,7 +7,6 @@ on:
     branches-ignore: [master]
 
 env:
-  API_BASE_URL: "/api"
   CARGO_TERM_COLOR: always
 
 jobs:

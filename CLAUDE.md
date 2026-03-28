@@ -23,8 +23,9 @@ Kartoteka — aplikacja todo/listy na Cloudflare Workers (Rust API + TypeScript 
 
 ### Better Auth / Cookie auth
 - Frontend wysyła żądania z `credentials: "include"` — sesja via cookie (HttpOnly, set przez Gateway)
-- Lokalnie: `API_BASE_URL="/api"` — Trunk proxy → Gateway (8788) → API Worker (8787)
-- Prod/dev: `API_BASE_URL="${GATEWAY_URL}/api"` — frontend → Gateway → API Worker via service binding
+- `API_BASE_URL` — opcjonalny compile-time env var, domyślnie `/api` (wystarczy do dev + testów)
+- Lokalnie: default `/api` — Trunk proxy → Gateway (8788) → API Worker (8787)
+- Prod/dev deploy: `API_BASE_URL="${GATEWAY_URL}/api"` — frontend → Gateway → API Worker via service binding
 - Gateway Worker waliduje sesję i dodaje `X-User-Id` header do żądań do API Worker
 - `DEV_AUTH_USER_ID` env var (w `[env.local]` wrangler.toml) — bypass auth w dev lokalnym
 - `/auth/api/get-session` zwraca fake sesję gdy `DEV_AUTH_USER_ID` jest ustawiony

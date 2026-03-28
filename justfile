@@ -28,7 +28,7 @@ dev-gateway:
 # Uruchom frontend (proxy config in Trunk.toml)
 dev-frontend:
     cd crates/frontend && npm install
-    cd crates/frontend && API_BASE_URL="/api" trunk serve
+    cd crates/frontend && trunk serve
 
 # Wystaw Gateway przez HTTPS via cloudflared tunnel
 dev-tunnel:
@@ -48,7 +48,7 @@ dev:
 
 # Sprawdź kompilację workspace
 check:
-    API_BASE_URL="/api" cargo check --workspace
+    cargo check --workspace
 
 build: build-api build-frontend build-gateway
 
@@ -57,7 +57,7 @@ build-api:
 
 build-frontend:
     cd crates/frontend && npm install
-    cd crates/frontend && API_BASE_URL="${API_BASE_URL}" trunk build --release
+    cd crates/frontend && trunk build --release
 
 build-gateway:
     cd gateway && npx wrangler deploy --dry-run
@@ -126,7 +126,7 @@ deploy-frontend-dev:
 # === QUALITY ===
 
 lint:
-    API_BASE_URL="/api" cargo clippy --workspace -- -D warnings
+    cargo clippy --workspace -- -D warnings
     cargo fmt --check --all
 
 fmt:
@@ -139,7 +139,7 @@ machete:
     cargo machete
 
 test:
-    API_BASE_URL="/api" cargo test --workspace
+    cargo test --workspace
 
 # Uruchom testy e2e (wymaga działającego just dev)
 test-e2e:
