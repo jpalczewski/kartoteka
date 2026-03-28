@@ -30,6 +30,25 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
     Response::from_json(&items)
 }
 
+pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let id = require_param(&ctx, "id")?;
+    let d1 = ctx.env.d1("DB")?;
+
+    if !check_item_ownership(&d1, &id, &user_id).await? {
+        return json_error("item_not_found", 404);
+    }
+
+    let query = format!("SELECT {} FROM items WHERE id = ?1", ITEM_COLS);
+    let item = d1
+        .prepare(&query)
+        .bind(&[id.into()])?
+        .first::<Item>(None)
+        .await?
+        .ok_or_else(|| Error::from("Not found"))?;
+    Response::from_json(&item)
+}
+
 pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let list_id = require_param(&ctx, "list_id")?;
