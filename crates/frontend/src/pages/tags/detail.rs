@@ -18,10 +18,6 @@ enum DetailAction {
 
 #[component]
 pub fn TagDetailPage() -> impl IntoView {
-    if !api::is_logged_in() {
-        return view! { <p><a href="/login">"Zaloguj sie"</a></p> }.into_any();
-    }
-
     let params = use_params_map();
     let tag_id = move || params.read().get("id").unwrap_or_default();
     let navigate = use_navigate();

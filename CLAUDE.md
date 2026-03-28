@@ -2,29 +2,32 @@
 
 ## Projekt
 
-Kartoteka — aplikacja todo/listy na Cloudflare Workers (Rust) + Leptos CSR frontend + Hanko auth.
+Kartoteka — aplikacja todo/listy na Cloudflare Workers (Rust API + TypeScript Gateway) + Leptos CSR frontend + Better Auth.
 
 ## Architektura
 
-- **Monorepo**: Cargo workspace (`crates/shared`, `crates/api`, `crates/frontend`) + `mcp/` (TypeScript)
+- **Monorepo**: Cargo workspace (`crates/shared`, `crates/api`, `crates/frontend`) + `gateway/` (TypeScript)
 - **API**: CF Worker z `worker` crate (0.7+), D1 database, `sqlx-d1` (0.3+)
 - **Frontend**: Leptos 0.7 CSR, kompilowany do WASM przez Trunk, serwowany z CF Pages
-- **Auth**: Hanko Cloud — `hanko-init.js` (generowany z template) bridge'uje JS SDK → localStorage → Rust/WASM
-- **MCP**: scaffold w `mcp/`, TypeScript, `@cloudflare/workers-oauth-provider` (nie zaimplementowany jeszcze)
+- **Auth**: Better Auth — cookie-based sessions, email+password, GitHub OAuth optional
+- **Gateway**: TypeScript Worker w `gateway/` — Hono + Better Auth + MCP server (5 tools), serwuje `/auth/*`, `/mcp/*`, proxy do API Worker via CF service binding
 
 ## Kluczowe konwencje
 
-### Env vars (compile-time)
-- `API_BASE_URL` — URL API workera (dev: `/api`, prod: pełny URL)
-- `HANKO_API_URL` — URL Hanko Cloud projektu
-- Oba wymagane do kompilacji frontendu i API
+### Env vars (compile-time / .env)
+- `GATEWAY_URL` — prod gateway URL (https://kartoteka-gateway.jpalczewski.workers.dev)
+- `GATEWAY_DEV_URL` — dev gateway URL (https://kartoteka-gateway-dev.jpalczewski.workers.dev)
+- `CLOUDFLARE_ACCOUNT_ID` — CF account ID
+- Gateway sekrety (wrangler secrets, nie w .env): `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `MIGRATE_SECRET`
 - Zarządzane przez `.env` + `set dotenv-load` w justfile
 
-### hanko-init.js
-- **Nie commitować** — generowany przez `just _gen-hanko` z `hanko-init.js.template`
-- Template w `crates/frontend/hanko-init.js.template`, placeholder: `__HANKO_API_URL__`
-- Bridge JS (Hanko SDK) ↔ Rust (localStorage): klucze `hanko_token`, `hanko_user_email`
-- Eksponuje `window.__hankoLogout` dla WASM
+### Better Auth / Cookie auth
+- Frontend wysyła żądania z `credentials: "include"` — sesja via cookie (HttpOnly, set przez Gateway)
+- Lokalnie: `API_BASE_URL="/api"` — Trunk proxy → Gateway (8788) → API Worker (8787)
+- Prod/dev: `API_BASE_URL="${GATEWAY_URL}/api"` — frontend → Gateway → API Worker via service binding
+- Gateway Worker waliduje sesję i dodaje `X-User-Id` header do żądań do API Worker
+- `DEV_AUTH_USER_ID` env var (w `[env.local]` wrangler.toml) — bypass auth w dev lokalnym
+- `/auth/api/get-session` zwraca fake sesję gdy `DEV_AUTH_USER_ID` jest ustawiony
 
 ### D1 / SQLite
 - D1 zwraca boolean jako float (`0.0`/`1.0`) — `Item.completed` ma custom deserializer `bool_from_number` w `shared/src/lib.rs`
@@ -53,6 +56,7 @@ Kartoteka — aplikacja todo/listy na Cloudflare Workers (Rust) + Leptos CSR fro
 
 ```bash
 just dev          # API + frontend lokalnie
+just dev-gateway  # Gateway lokalnie
 just check        # Kompilacja workspace
 just deploy       # Deploy wszystkiego
 just lint         # Clippy + fmt check
@@ -79,6 +83,5 @@ Używaj tego proaktywnie, nie czekaj na błędy kompilacji.
 ## Pliki do NIE commitowania
 
 - `.env` — sekrety i konfiguracja
-- `crates/frontend/hanko-init.js` — generowany z template
 - `crates/frontend/dist/` — build output
 - `.wrangler/`, `build/` — wrangler cache

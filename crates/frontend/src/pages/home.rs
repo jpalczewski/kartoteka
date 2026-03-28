@@ -12,12 +12,6 @@ use crate::components::list_card::{ListCard, list_type_icon};
 
 #[component]
 pub fn HomePage() -> impl IntoView {
-    if !api::is_logged_in() {
-        if let Some(w) = web_sys::window() {
-            let _ = w.location().set_href("/login");
-        }
-    }
-
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
 
     let (refresh, set_refresh) = signal(0u32);

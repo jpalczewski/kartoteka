@@ -3,6 +3,8 @@ pub mod container;
 pub mod home;
 pub mod list;
 pub mod login;
+pub mod oauth_consent;
 pub mod settings;
+pub mod signup;
 pub mod tags;
 pub mod today;

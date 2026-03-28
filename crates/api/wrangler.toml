@@ -2,6 +2,7 @@ name = "kartoteka-api"
 main = "build/worker/shim.mjs"
 compatibility_date = "2025-01-01"
 account_id = "6b703fac2c4f8b359e430bf11b8dde7f"
+workers_dev = false
 
 [build]
 command = "cargo install -q worker-build && worker-build --release"
@@ -29,6 +30,7 @@ migrations_dir = "./migrations"
 # === DEV ===
 [env.dev]
 name = "kartoteka-api-dev"
+workers_dev = false
 
 [[env.dev.d1_databases]]
 binding = "DB"

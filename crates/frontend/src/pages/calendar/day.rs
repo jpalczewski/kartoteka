@@ -15,10 +15,6 @@ use kartoteka_shared::*;
 
 #[component]
 pub fn CalendarDayPage() -> impl IntoView {
-    if !api::is_logged_in() {
-        return view! { <p><a href="/login">"Zaloguj się"</a></p> }.into_any();
-    }
-
     let params = use_params_map();
     let date = move || params.read().get("date").unwrap_or_default();
 

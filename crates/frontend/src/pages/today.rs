@@ -14,10 +14,6 @@ use kartoteka_shared::*;
 
 #[component]
 pub fn TodayPage() -> impl IntoView {
-    if !api::is_logged_in() {
-        return view! { <p><a href="/login">"Zaloguj się"</a></p> }.into_any();
-    }
-
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let today = get_today_string();
     let items = RwSignal::new(Vec::<DateItem>::new());
