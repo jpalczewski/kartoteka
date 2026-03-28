@@ -1,6 +1,7 @@
 pub mod calendar;
 pub mod container;
 pub mod home;
+pub mod item_detail;
 pub mod list;
 pub mod login;
 pub mod oauth_consent;

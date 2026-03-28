@@ -284,7 +284,7 @@ pub struct CreateItemRequest {
     pub hard_deadline: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UpdateItemRequest {
     pub title: Option<String>,
     pub description: Option<String>,
