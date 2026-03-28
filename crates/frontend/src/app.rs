@@ -7,8 +7,8 @@ use crate::components::toast_container::ToastContainer;
 use crate::pages::{
     calendar::CalendarPage, calendar::day::CalendarDayPage, container::ContainerPage,
     home::HomePage, list::ListPage, login::LoginPage, oauth_consent::OAuthConsentPage,
-    settings::McpRedirect, settings::SettingsPage, signup::SignupPage,
-    tags::TagsPage, tags::detail::TagDetailPage, today::TodayPage,
+    settings::McpRedirect, settings::SettingsPage, signup::SignupPage, tags::TagsPage,
+    tags::detail::TagDetailPage, today::TodayPage,
 };
 
 #[derive(Clone, Debug, PartialEq)]
