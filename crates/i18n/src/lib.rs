@@ -4,9 +4,10 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 /// Supported locales for the application.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Locale {
+    #[default]
     En,
     Pl,
 }
@@ -40,11 +41,6 @@ impl fmt::Display for Locale {
     }
 }
 
-impl Default for Locale {
-    fn default() -> Self {
-        Locale::En
-    }
-}
 
 #[cfg(test)]
 mod tests {
