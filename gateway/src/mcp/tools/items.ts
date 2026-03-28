@@ -110,7 +110,11 @@ export function registerItemTools(server: McpServer, api: ApiContext): void {
             if (!retry.ok) {
               return errorResult(`API error ${retry.status}: ${await retry.text()}`);
             }
-            return jsonResult(await retry.json());
+            try {
+              return jsonResult(await retry.json());
+            } catch {
+              return errorResult("Failed to parse API response after auto-enabling feature.");
+            }
           }
 
           return errorResult(
@@ -120,6 +124,10 @@ export function registerItemTools(server: McpServer, api: ApiContext): void {
       }
       return errorResult(`API error ${res.status}: ${await res.text()}`);
     }
-    return jsonResult(await res.json());
+    try {
+      return jsonResult(await res.json());
+    } catch {
+      return errorResult("Failed to parse API response.");
+    }
   }
 }
