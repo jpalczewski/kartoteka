@@ -127,3 +127,19 @@ Hanko Cloud — passkeys (Face ID / Touch ID) + email OTP as fallback. The `<han
 
 Hanko Cloud dashboard configuration:
 - Authorized origins: `http://localhost:8080`, `https://your-frontend.pages.dev`
+
+## Trivia
+
+### The Great Cloudflare Workers CPU Crisis
+
+The MCP server uses OAuth 2.1 with PKCE for Claude Code authentication. On Cloudflare Workers,
+`@cloudflare/workers-oauth-provider` performs 6 `crypto.subtle` operations per OAuth flow
+(AES-256-GCM key generation, encryption, HMAC, AES-KW key wrapping) to encrypt token props.
+Combined with Better Auth's pure-JS scrypt password hashing (~2000ms CPU), this comfortably
+exceeds the free tier's 10ms CPU limit — and even struggles on the paid tier.
+
+The irony: Cloudflare's own OAuth library doesn't fit on Cloudflare's own free plan.
+
+This led to the decision to migrate off Cloudflare entirely to a single Rust binary on a
+[Mikrus Frog](https://mikr.us/) VPS (256MB RAM, 3GB disk, free forever for 5 PLN activation).
+See `docs/superpowers/specs/2026-03-28-cloudflare-exit-rewrite-design.md` for the full design.
