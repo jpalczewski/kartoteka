@@ -1,6 +1,7 @@
 mod containers;
 mod items;
 mod lists;
+pub mod preferences;
 mod tags;
 
 pub use containers::*;
@@ -9,6 +10,56 @@ pub use lists::*;
 pub use tags::*;
 
 use gloo_net::http::{Headers, Request};
+use serde::Deserialize;
+
+/// Structured API error type for i18n-aware error display.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub enum ApiError {
+    Network(String),
+    Http { status: u16, code: Option<String> },
+    Parse(String),
+}
+
+impl ApiError {
+    #[allow(dead_code)]
+    pub fn to_i18n_key(&self) -> &'static str {
+        match self {
+            ApiError::Network(_) => "error-network",
+            ApiError::Http { code, .. } => match code.as_deref() {
+                Some("list_not_found") => "error-list-not-found",
+                Some("item_not_found") => "error-item-not-found",
+                Some("container_not_found") => "error-container-not-found",
+                Some("tag_not_found") => "error-tag-not-found",
+                Some("unauthorized") => "error-unauthorized",
+                _ => "error-http",
+            },
+            ApiError::Parse(_) => "error-unknown",
+        }
+    }
+}
+
+impl std::fmt::Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ApiError::Network(e) => write!(f, "Network error: {e}"),
+            ApiError::Http { status, code } => {
+                if let Some(c) = code {
+                    write!(f, "HTTP {status}: {c}")
+                } else {
+                    write!(f, "HTTP error {status}")
+                }
+            }
+            ApiError::Parse(e) => write!(f, "Parse error: {e}"),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[allow(dead_code)]
+struct ErrorBody {
+    code: Option<String>,
+}
 
 pub(crate) const API_BASE: &str = env!("API_BASE_URL");
 

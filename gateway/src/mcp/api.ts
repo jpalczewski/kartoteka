@@ -1,3 +1,5 @@
+import type { Env } from "../types";
+
 export interface ApiContext {
   apiWorker: Fetcher | undefined;
   devApiUrl: string | undefined;
@@ -51,6 +53,23 @@ export function textResult(text: string): ToolResult {
 
 export function errorResult(text: string): ToolResult {
   return { isError: true, content: [{ type: "text", text }] };
+}
+
+export async function fetchUserLocale(userId: string, env: Env): Promise<string> {
+  try {
+    const response = await env.API_WORKER.fetch(
+      new Request("https://internal/api/preferences", {
+        headers: {
+          "X-User-Id": userId,
+        },
+      })
+    );
+    if (!response.ok) return "en";
+    const data = await response.json<{ locale: string }>();
+    return data.locale ?? "en";
+  } catch {
+    return "en";
+  }
 }
 
 export async function ensureFeatures(

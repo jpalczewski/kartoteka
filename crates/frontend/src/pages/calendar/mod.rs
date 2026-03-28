@@ -3,6 +3,7 @@ pub mod day;
 use std::collections::HashSet;
 
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 use crate::api;
 use crate::app::{ToastContext, ToastKind};
@@ -13,6 +14,7 @@ use crate::components::calendar::week_view::WeekView;
 use crate::components::common::date_utils::{
     add_days, get_today_string, month_grid_range, next_month, parse_date, prev_month, week_range,
 };
+use crate::components::common::loading::LoadingSpinner;
 use crate::components::filters::filter_chips::FilterChips;
 use kartoteka_shared::*;
 
@@ -115,7 +117,7 @@ pub fn CalendarPage() -> impl IntoView {
 
             {move || {
                 if loading.get() {
-                    return view! { <p>"Wczytywanie..."</p> }.into_any();
+                    return view! { <LoadingSpinner/> }.into_any();
                 }
 
                 match view_mode.get() {
@@ -131,7 +133,7 @@ pub fn CalendarPage() -> impl IntoView {
                                 />
                             }.into_any()
                         } else {
-                            view! { <p>"Błąd parsowania daty"</p> }.into_any()
+                            view! { <p>{move_tr!("calendar-parse-error")}</p> }.into_any()
                         }
                     }
                     ViewMode::Week => {

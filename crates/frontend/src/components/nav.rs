@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use send_wrapper::SendWrapper;
 
 use crate::api;
@@ -17,7 +18,7 @@ pub fn Nav() -> impl IntoView {
         <nav class="navbar bg-base-200 border-b border-base-300 px-4">
             <div class="navbar-start">
                 <a href="/" style="text-decoration: none;">
-                    <span class="text-xl font-bold text-primary">"Kartoteka"</span>
+                    <span class="text-xl font-bold text-primary">{move_tr!("app-title")}</span>
                 </a>
             </div>
 
@@ -29,8 +30,8 @@ pub fn Nav() -> impl IntoView {
                                 Some(session) => {
                                     let email_display = session.user.email.clone();
                                     view! {
-                                        <a href="/today" class="btn btn-ghost btn-sm">"Dziś"</a>
-                                        <a href="/calendar" class="btn btn-ghost btn-sm">"Kalendarz"</a>
+                                        <a href="/today" class="btn btn-ghost btn-sm">{move_tr!("nav-today")}</a>
+                                        <a href="/calendar" class="btn btn-ghost btn-sm">{move_tr!("nav-calendar")}</a>
                                         <div class="relative">
                                             <button
                                                 class="btn btn-ghost btn-sm"
@@ -42,15 +43,15 @@ pub fn Nav() -> impl IntoView {
                                                 class="menu bg-base-200 rounded-box border border-base-300 shadow-lg z-50 min-w-40 absolute right-0 top-full mt-1"
                                                 style:display=move || if menu_open.get() { "block" } else { "none" }
                                             >
-                                                <li><a href="/tags">"Tagi"</a></li>
-                                                <li><a href="/settings">"Ustawienia"</a></li>
-                                                <li><button type="button" on:click=on_logout>"Wyloguj"</button></li>
+                                                <li><a href="/tags">{move_tr!("nav-tags")}</a></li>
+                                                <li><a href="/settings">{move_tr!("nav-settings")}</a></li>
+                                                <li><button type="button" on:click=on_logout>{move_tr!("nav-logout")}</button></li>
                                             </ul>
                                         </div>
                                     }.into_any()
                                 }
                                 None => view! {
-                                    <a href="/login" class="btn btn-primary btn-sm">"Zaloguj"</a>
+                                    <a href="/login" class="btn btn-primary btn-sm">{move_tr!("nav-login")}</a>
                                 }.into_any(),
                             }
                         })

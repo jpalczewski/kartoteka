@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 use super::ViewMode;
 use crate::components::common::date_utils::{
@@ -46,7 +47,7 @@ pub fn CalendarNav(
                     class="btn btn-sm btn-outline"
                     on:click=move |_| current_date.set(get_today_string())
                 >
-                    "Dziś"
+                    {move_tr!("nav-today")}
                 </button>
                 <div class="join">
                     <button

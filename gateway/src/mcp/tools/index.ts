@@ -6,10 +6,10 @@ import { registerContainerTools } from "./containers";
 import { registerTagTools } from "./tags";
 import { registerCalendarTools } from "./calendar";
 
-export function registerTools(server: McpServer, api: ApiContext): void {
-  registerListTools(server, api);
-  registerItemTools(server, api);
-  registerContainerTools(server, api);
-  registerTagTools(server, api);
-  registerCalendarTools(server, api);
+export function registerTools(server: McpServer, api: ApiContext, locale: string): void {
+  registerListTools(server, api, locale);
+  registerItemTools(server, api, locale);
+  registerContainerTools(server, api, locale);
+  registerTagTools(server, api, locale);
+  registerCalendarTools(server, api, locale);
 }

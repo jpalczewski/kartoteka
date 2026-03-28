@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 
@@ -9,6 +10,7 @@ use crate::app::{ToastContext, ToastKind};
 use crate::components::common::date_utils::{
     add_days, day_of_week, format_polish_date, polish_day_of_week_full,
 };
+use crate::components::common::loading::LoadingSpinner;
 use crate::components::filters::filter_chips::FilterChips;
 use crate::components::items::date_item_row::DateItemRow;
 use kartoteka_shared::*;
@@ -66,14 +68,14 @@ pub fn CalendarDayPage() -> impl IntoView {
                         <A href=format!("/calendar/{next}") attr:class="btn btn-sm btn-ghost">"›"</A>
                     </div>
                     <div class="text-center mb-4">
-                        <A href="/calendar" attr:class="btn btn-sm btn-outline btn-ghost">"← Kalendarz"</A>
+                        <A href="/calendar" attr:class="btn btn-sm btn-outline btn-ghost">{move_tr!("calendar-back-to-calendar")}</A>
                     </div>
                 }
             }}
 
             {move || {
                 if loading.get() {
-                    return view! { <p>"Wczytywanie..."</p> }.into_any();
+                    return view! { <LoadingSpinner/> }.into_any();
                 }
 
                 let all_items = items.get();
@@ -83,7 +85,7 @@ pub fn CalendarDayPage() -> impl IntoView {
                 if all_items.is_empty() {
                     return view! {
                         <p class="text-center text-base-content/50 py-12">
-                            "Brak zadań na ten dzień"
+                            {move_tr!("calendar-empty-day")}
                         </p>
                     }.into_any();
                 }

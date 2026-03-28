@@ -3,12 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "prebuild": "cp -r ../locales ./locales",
+    "predev": "cp -r ../locales ./locales",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^0.3.1",
+    "@fluent/bundle": "^0.18.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "better-auth": "^1.5.0",
     "hono": "^4.0.0"

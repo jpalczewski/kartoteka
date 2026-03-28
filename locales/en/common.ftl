@@ -1,0 +1,11 @@
+common-loading = Loading...
+common-cancel = Cancel
+common-delete = Delete
+common-save = Save
+common-add = Add
+common-edit = Edit
+common-close = Close
+common-confirm = Confirm
+common-copied = Copied!
+common-copy = Copy
+common-or = or

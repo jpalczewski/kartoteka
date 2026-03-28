@@ -1,3 +1,4 @@
+use crate::error::json_error;
 use kartoteka_shared::*;
 use wasm_bindgen::JsValue;
 use worker::*;
@@ -69,7 +70,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         .first::<serde_json::Value>(None)
         .await?;
     if existing.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("tag_not_found", 404);
     }
 
     if let Some(name) = &body.name {
@@ -88,7 +89,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         if let Some(new_parent_id) = parent {
             // Self-reference check first (no DB call needed)
             if new_parent_id == &id {
-                return Response::error("Cannot set parent: tag cannot be its own parent", 400);
+                return json_error("tag_self_parent", 400);
             }
             // Cycle prevention: check if new parent is a descendant of this tag
             let cycle_check = d1
@@ -106,7 +107,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
                 .first::<serde_json::Value>(None)
                 .await?;
             if cycle_check.is_some() {
-                return Response::error("Cannot set parent: would create a cycle", 400);
+                return json_error("tag_cycle", 400);
             }
         }
 
@@ -165,7 +166,7 @@ pub async fn merge(mut req: Request, ctx: RouteContext<String>) -> Result<Respon
         .first::<serde_json::Value>(None)
         .await?;
     if source.is_none() {
-        return Response::error("Source tag not found", 404);
+        return json_error("tag_not_found", 404);
     }
     let target = d1
         .prepare("SELECT id FROM tags WHERE id = ?1 AND user_id = ?2")
@@ -173,7 +174,7 @@ pub async fn merge(mut req: Request, ctx: RouteContext<String>) -> Result<Respon
         .first::<serde_json::Value>(None)
         .await?;
     if target.is_none() {
-        return Response::error("Target tag not found", 404);
+        return json_error("tag_not_found", 404);
     }
 
     // Move item_tags from source to target (skip duplicates)
@@ -234,7 +235,7 @@ pub async fn assign_to_item(mut req: Request, ctx: RouteContext<String>) -> Resu
         .first::<serde_json::Value>(None)
         .await?;
     if item_check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("item_not_found", 404);
     }
 
     // Verify tag belongs to user
@@ -244,7 +245,7 @@ pub async fn assign_to_item(mut req: Request, ctx: RouteContext<String>) -> Resu
         .first::<serde_json::Value>(None)
         .await?;
     if tag_check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("tag_not_found", 404);
     }
 
     d1.prepare("INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?1, ?2)")
@@ -278,7 +279,7 @@ pub async fn remove_from_item(_req: Request, ctx: RouteContext<String>) -> Resul
         .first::<serde_json::Value>(None)
         .await?;
     if item_check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("item_not_found", 404);
     }
 
     d1.prepare("DELETE FROM item_tags WHERE item_id = ?1 AND tag_id = ?2")
@@ -305,7 +306,7 @@ pub async fn assign_to_list(mut req: Request, ctx: RouteContext<String>) -> Resu
         .first::<serde_json::Value>(None)
         .await?;
     if list_check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("list_not_found", 404);
     }
 
     // Verify tag belongs to user
@@ -315,7 +316,7 @@ pub async fn assign_to_list(mut req: Request, ctx: RouteContext<String>) -> Resu
         .first::<serde_json::Value>(None)
         .await?;
     if tag_check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("tag_not_found", 404);
     }
 
     d1.prepare("INSERT OR IGNORE INTO list_tags (list_id, tag_id) VALUES (?1, ?2)")
@@ -345,7 +346,7 @@ pub async fn remove_from_list(_req: Request, ctx: RouteContext<String>) -> Resul
         .first::<serde_json::Value>(None)
         .await?;
     if list_check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("list_not_found", 404);
     }
 
     d1.prepare("DELETE FROM list_tags WHERE list_id = ?1 AND tag_id = ?2")
@@ -371,7 +372,7 @@ pub async fn tag_items(req: Request, ctx: RouteContext<String>) -> Result<Respon
         .first::<serde_json::Value>(None)
         .await?;
     if tag_check.is_none() {
-        return Response::error("Not found", 404);
+        return json_error("tag_not_found", 404);
     }
 
     // Check recursive param (default: true)

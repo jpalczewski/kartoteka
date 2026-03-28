@@ -10,6 +10,7 @@ use crate::app::{ToastContext, ToastKind};
 use crate::components::common::breadcrumbs::Breadcrumbs;
 use crate::components::common::editable_description::EditableDescription;
 use crate::components::common::editable_title::EditableTitle;
+use crate::components::common::loading::LoadingSpinner;
 use crate::components::confirm_delete_modal::ConfirmDeleteModal;
 use crate::components::container_card::ContainerCard;
 use crate::components::create_entity_input::CreateEntityInput;
@@ -143,7 +144,7 @@ pub fn ContainerPage() -> impl IntoView {
 
             {move || {
                 if loading.get() {
-                    return view! { <p>"Wczytywanie..."</p> }.into_any();
+                    return view! { <LoadingSpinner/> }.into_any();
                 }
 
                 let det = detail.get();

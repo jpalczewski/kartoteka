@@ -1,6 +1,7 @@
 use crate::components::tag_tree::build_breadcrumb;
 use kartoteka_shared::Tag;
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::components::A;
 use std::time::Duration;
 
@@ -74,7 +75,7 @@ pub fn TagBadge(
                     <button
                         type="button"
                         class="tag-remove"
-                        aria-label="Usuń tag"
+                        aria-label=move_tr!("tags-remove-aria")
                         on:click=handle_remove_click
                     >
                         "×"

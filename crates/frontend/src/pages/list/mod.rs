@@ -8,6 +8,7 @@ use crate::api;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::breadcrumbs::Breadcrumbs;
 use crate::components::common::editable_description::EditableDescription;
+use crate::components::common::loading::LoadingSpinner;
 use crate::components::items::add_item_input::AddItemInput;
 use crate::components::items::item_actions::create_item_actions;
 use crate::components::lists::add_group_input::AddGroupInput;
@@ -341,7 +342,7 @@ pub fn ListPage() -> impl IntoView {
 
             {move || {
                 if loading.get() {
-                    view! { <p>"Wczytywanie..."</p> }.into_any()
+                    view! { <LoadingSpinner/> }.into_any()
                 } else if let Some(e) = error.get() {
                     view! { <p style="color: red;">{format!("B\u{0142}\u{0105}d: {e}")}</p> }.into_any()
                 } else if items.read().is_empty() && sublists.read().is_empty() {

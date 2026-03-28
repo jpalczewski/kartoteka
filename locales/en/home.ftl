@@ -1,0 +1,11 @@
+home-title = Kartoteka
+home-pinned = Pinned
+home-recent = Recently opened
+home-folders-and-projects = Folders and projects
+home-lists = Lists
+home-archive = Archive ({ $count })
+home-empty = No lists or containers. Create your first one!
+home-list-deleted = List deleted
+home-list-restored = List restored
+home-container-deleted = Container deleted
+home-restore-button = Restore

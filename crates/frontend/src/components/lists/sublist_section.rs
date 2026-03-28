@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 use crate::api;
 use crate::components::items::add_item_input::AddItemInput;
@@ -92,14 +93,14 @@ pub fn SublistSection(
                 <span class="text-sm text-base-content/60 ml-auto mr-4">
                     {move || {
                         let (done, total) = progress();
-                        format!("{done}/{total} \u{2713}")
+                        move_tr!("lists-progress", { "done" => done, "total" => total }).get()
                     }}
                 </span>
             </div>
             <div class="collapse-content">
                 {move || {
                     if loading.get() {
-                        view! { <p class="text-sm text-base-content/50">"Wczytywanie..."</p> }.into_any()
+                        view! { <p class="text-sm text-base-content/50">{move_tr!("common-loading")}</p> }.into_any()
                     } else {
                         let all_tags_clone = all_tags.clone();
                         let item_tag_links_clone = item_tag_links.clone();

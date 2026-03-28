@@ -4,6 +4,7 @@ pub mod filters;
 pub mod items;
 pub mod lists;
 pub mod nav;
+pub mod sync_locale;
 pub mod tags;
 
 // Re-exports for backward compatibility with existing imports

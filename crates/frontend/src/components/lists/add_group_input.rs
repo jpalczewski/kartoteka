@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 #[component]
 pub fn AddGroupInput(on_submit: Callback<String>) -> impl IntoView {
@@ -25,7 +26,7 @@ pub fn AddGroupInput(on_submit: Callback<String>) -> impl IntoView {
                             <input
                                 type="text"
                                 class="input input-bordered flex-1"
-                                placeholder="Nazwa grupy..."
+                                placeholder=move_tr!("lists-add-group-placeholder")
                                 prop:value=name
                                 on:input=move |ev| name.set(event_target_value(&ev))
                                 on:keydown=move |ev: web_sys::KeyboardEvent| {
@@ -44,7 +45,7 @@ pub fn AddGroupInput(on_submit: Callback<String>) -> impl IntoView {
                                     submit_btn();
                                 }
                             >
-                                "Dodaj"
+                                {move_tr!("common-add")}
                             </button>
                             <button
                                 type="button"
@@ -54,7 +55,7 @@ pub fn AddGroupInput(on_submit: Callback<String>) -> impl IntoView {
                                     name.set(String::new());
                                 }
                             >
-                                "Anuluj"
+                                {move_tr!("common-cancel")}
                             </button>
                         </div>
                     }.into_any()
@@ -65,7 +66,7 @@ pub fn AddGroupInput(on_submit: Callback<String>) -> impl IntoView {
                             class="btn btn-ghost btn-sm"
                             on:click=move |_| adding.set(true)
                         >
-                            "+ Dodaj grupę"
+                            {move_tr!("lists-add-group-button")}
                         </button>
                     }.into_any()
                 }

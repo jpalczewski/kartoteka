@@ -1,0 +1,11 @@
+error-network = Błąd sieci: { $detail }
+error-login-failed = Błąd logowania ({ $status })
+error-unauthorized = Brak dostępu
+error-not-found = Nie znaleziono
+error-list-not-found = Nie znaleziono listy
+error-item-not-found = Nie znaleziono elementu
+error-container-not-found = Nie znaleziono kontenera
+error-tag-not-found = Nie znaleziono taga
+error-validation = Błąd walidacji: { $detail }
+error-unknown = Wystąpił nieoczekiwany błąd
+error-http = Błąd HTTP { $status }

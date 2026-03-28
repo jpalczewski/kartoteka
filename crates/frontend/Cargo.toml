@@ -9,8 +9,10 @@ workspace = true
 
 [dependencies]
 kartoteka-shared = { path = "../shared", version = "0.1.1" }
+kartoteka-i18n = { path = "../i18n", version = "0.1.1" }
 leptos = { version = "0.7", features = ["csr"] }
 leptos_router = "0.7"
+leptos-fluent = "0.2"
 gloo-net = { version = "0.6", features = ["http"] }
 gloo-timers = { version = "0.3", features = ["futures"] }
 serde = { version = "1", features = ["derive"] }

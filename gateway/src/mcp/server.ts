@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { registerTools } from "./tools/index";
 import type { ApiContext } from "./api";
+import { fetchUserLocale } from "./api";
 import type { Env } from "../types";
 
 interface McpProps {
@@ -19,7 +20,8 @@ export class McpApiHandler extends WorkerEntrypoint<Env> {
       devApiUrl: this.env.DEV_API_URL,
       userId,
     };
-    registerTools(server, api);
+    const locale = await fetchUserLocale(userId, this.env);
+    registerTools(server, api, locale);
 
     // Stateless mode: sessionIdGenerator: undefined — each request is independent.
     // This is correct for Cloudflare Workers where there is no persistent in-memory state.

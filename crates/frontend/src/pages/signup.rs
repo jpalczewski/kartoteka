@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 #[component]
 pub fn SignupPage() -> impl IntoView {
@@ -63,7 +64,7 @@ pub fn SignupPage() -> impl IntoView {
         <div class="flex flex-col items-center justify-center min-h-[60vh] p-4">
             <div class="card bg-base-200 border border-base-300 w-full max-w-sm">
                 <div class="card-body items-center">
-                    <h2 class="card-title text-2xl mb-4">"Utwórz konto"</h2>
+                    <h2 class="card-title text-2xl mb-4">{move_tr!("auth-signup-title")}</h2>
 
                     {move || error.get().map(|e| view! {
                         <div class="alert alert-error mb-4">
@@ -75,7 +76,7 @@ pub fn SignupPage() -> impl IntoView {
                         <label class="input input-bordered flex items-center gap-2 w-full">
                             <input
                                 type="text"
-                                placeholder="Imię"
+                                placeholder=move_tr!("auth-name-placeholder")
                                 class="grow"
                                 required=true
                                 on:input=move |ev| name.set(event_target_value(&ev))
@@ -84,7 +85,7 @@ pub fn SignupPage() -> impl IntoView {
                         <label class="input input-bordered flex items-center gap-2 w-full">
                             <input
                                 type="email"
-                                placeholder="Email"
+                                placeholder=move_tr!("auth-email-placeholder")
                                 class="grow"
                                 required=true
                                 on:input=move |ev| email.set(event_target_value(&ev))
@@ -93,7 +94,7 @@ pub fn SignupPage() -> impl IntoView {
                         <label class="input input-bordered flex items-center gap-2 w-full">
                             <input
                                 type="password"
-                                placeholder="Hasło"
+                                placeholder=move_tr!("auth-password-placeholder")
                                 class="grow"
                                 required=true
                                 on:input=move |ev| password.set(event_target_value(&ev))
@@ -104,12 +105,16 @@ pub fn SignupPage() -> impl IntoView {
                             class="btn btn-primary w-full"
                             disabled=move || loading.get()
                         >
-                            {move || if loading.get() { "Tworzenie konta..." } else { "Utwórz konto" }}
+                            {move || if loading.get() {
+                                move_tr!("auth-signup-loading").get()
+                            } else {
+                                move_tr!("auth-signup-button").get()
+                            }}
                         </button>
                     </form>
 
-                    <div class="divider">"lub"</div>
-                    <a href="/login" class="link link-primary">"Masz już konto? Zaloguj się"</a>
+                    <div class="divider">{move_tr!("common-or")}</div>
+                    <a href="/login" class="link link-primary">{move_tr!("auth-signup-have-account")}</a>
                 </div>
             </div>
         </div>

@@ -2,10 +2,11 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ApiContext } from "../api";
 import { callTool } from "../api";
+import { tr } from "../i18n";
 
-export function registerCalendarTools(server: McpServer, api: ApiContext): void {
+export function registerCalendarTools(server: McpServer, api: ApiContext, locale: string): void {
   server.registerTool("get_calendar", {
-    description: "Get items with dates in a date range (calendar view)",
+    description: tr("tool-get-calendar", locale),
     inputSchema: {
       from: z.string().describe("Start date YYYY-MM-DD"),
       to: z.string().describe("End date YYYY-MM-DD"),
@@ -19,7 +20,7 @@ export function registerCalendarTools(server: McpServer, api: ApiContext): void 
   });
 
   server.registerTool("get_items_by_date", {
-    description: "Get all items for a specific date across all lists (today view). Includes overdue items by default.",
+    description: tr("tool-get-today", locale),
     inputSchema: {
       date: z.string().describe("Date YYYY-MM-DD"),
       field: z.enum(["start_date", "deadline", "hard_deadline"]).optional().describe("Filter by date field (default: all)"),

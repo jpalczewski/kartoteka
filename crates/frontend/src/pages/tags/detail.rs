@@ -1,4 +1,5 @@
 use crate::api;
+use crate::components::common::loading::LoadingSpinner;
 use crate::components::editable_color::EditableColor;
 use crate::components::editable_title::EditableTitle;
 use crate::components::tag_tree::{
@@ -6,6 +7,7 @@ use crate::components::tag_tree::{
 };
 use kartoteka_shared::{Tag, UpdateTagRequest};
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use std::collections::BTreeMap;
@@ -49,18 +51,18 @@ pub fn TagDetailPage() -> impl IntoView {
         <div class="container mx-auto max-w-2xl p-4">
             // Back button
             <A href="/tags" attr:class="text-sm text-base-content/50 hover:text-primary mb-2 inline-block">
-                "\u{2190} Wszystkie tagi"
+                {move_tr!("tags-back")}
             </A>
 
             {
                 let navigate = navigate.clone();
                 move || {
                 if loading.get() {
-                    return view! { <p>"Wczytywanie..."</p> }.into_any();
+                    return view! { <LoadingSpinner/> }.into_any();
                 }
                 let navigate = navigate.clone();
                 match tag.get() {
-                    None => view! { <p>"Nie znaleziono tagu"</p> }.into_any(),
+                    None => view! { <p>{move_tr!("tags-not-found")}</p> }.into_any(),
                     Some(t) => {
                         let color = t.color.clone();
                         let tags_for_breadcrumb = all_tags.get();
@@ -68,11 +70,12 @@ pub fn TagDetailPage() -> impl IntoView {
                         let all_items = items.get();
 
                         // Group items by list_name
+                        let no_list_label = move_tr!("tags-no-list").get();
                         let mut groups: BTreeMap<(String, String), Vec<serde_json::Value>> = BTreeMap::new();
                         for item in all_items {
                             let list_name = item.get("list_name")
                                 .and_then(|v| v.as_str())
-                                .unwrap_or("(bez listy)")
+                                .unwrap_or(&no_list_label)
                                 .to_string();
                             let list_id = item.get("list_id")
                                 .and_then(|v| v.as_str())
@@ -175,7 +178,7 @@ pub fn TagDetailPage() -> impl IntoView {
                                                 active_action.set(Some(DetailAction::Move));
                                             }
                                         }
-                                    >"\u{2195} Przenieś"</button>
+                                    >{move_tr!("tags-move-button")}</button>
                                     <button
                                         class="btn btn-ghost btn-xs"
                                         on:click=move |_| {
@@ -186,7 +189,7 @@ pub fn TagDetailPage() -> impl IntoView {
                                                 active_action.set(Some(DetailAction::Merge));
                                             }
                                         }
-                                    >"\u{2295} Scal"</button>
+                                    >{move_tr!("tags-merge-button")}</button>
                                     <button
                                         class="btn btn-error btn-xs"
                                         on:click={
@@ -201,7 +204,7 @@ pub fn TagDetailPage() -> impl IntoView {
                                                 });
                                             }
                                         }
-                                    >"\u{1F5D1} Usuń"</button>
+                                    >{move_tr!("tags-delete-button")}</button>
                                 </div>
 
                                 // Action forms
@@ -241,7 +244,7 @@ pub fn TagDetailPage() -> impl IntoView {
                                                             }
                                                         }
                                                     >
-                                                        <option value="" selected=true>"\u{2014} Brak rodzica \u{2014}"</option>
+                                                        <option value="" selected=true>{move_tr!("tags-no-parent-option")}</option>
                                                         {available.into_iter().map(|(id, name)| {
                                                             view! { <option value=id>{name}</option> }
                                                         }).collect_view()}
@@ -279,7 +282,7 @@ pub fn TagDetailPage() -> impl IntoView {
                                                             }
                                                         }
                                                     >
-                                                        <option value="" selected=true>"\u{2014} Wybierz tag docelowy \u{2014}"</option>
+                                                        <option value="" selected=true>{move_tr!("tags-merge-select-option")}</option>
                                                         {available.into_iter().map(|(id, name)| {
                                                             view! { <option value=id>{name}</option> }
                                                         }).collect_view()}
@@ -300,14 +303,14 @@ pub fn TagDetailPage() -> impl IntoView {
                                         prop:checked=move || recursive.get()
                                         on:change=move |_| set_recursive.update(|v| *v = !*v)
                                     />
-                                    <span class="text-sm">"Uwzględnij podtagi"</span>
+                                    <span class="text-sm">{move_tr!("tags-include-subtags")}</span>
                                 </label>
 
                                 // Subtree section
                                 {if !subtree.is_empty() {
                                     view! {
                                         <div class="mb-6">
-                                            <h3 class="text-xs text-base-content/50 uppercase tracking-wider mb-2">"Poddrzewo"</h3>
+                                            <h3 class="text-xs text-base-content/50 uppercase tracking-wider mb-2">{move_tr!("tags-subtree-title")}</h3>
                                             {subtree.into_iter().map(|node| {
                                                 view! {
                                                     <TagTreeRow
@@ -328,7 +331,7 @@ pub fn TagDetailPage() -> impl IntoView {
                                 {if groups.is_empty() {
                                     view! {
                                         <p class="text-center text-base-content/50 py-12">
-                                            "Brak elementów z tym tagiem"
+                                            {move_tr!("tags-no-items")}
                                         </p>
                                     }.into_any()
                                 } else {

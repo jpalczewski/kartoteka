@@ -2,17 +2,18 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ApiContext } from "../api";
 import { callTool, ensureFeatures } from "../api";
+import { tr } from "../i18n";
 
-export function registerItemTools(server: McpServer, api: ApiContext): void {
+export function registerItemTools(server: McpServer, api: ApiContext, locale: string): void {
   server.registerTool("get_list_items", {
-    description: "Get all items in a specific list",
+    description: tr("tool-get-items", locale),
     inputSchema: {
       list_id: z.string().describe("The list ID"),
     },
   }, ({ list_id }) => callTool(api, "GET", `/api/lists/${list_id}/items`));
 
   server.registerTool("add_item", {
-    description: "Add a new item to a list. Auto-enables date/quantity features on the list if needed.",
+    description: tr("tool-add-item", locale),
     inputSchema: {
       list_id: z.string().describe("The list ID"),
       title: z.string().describe("Item title"),
@@ -31,7 +32,7 @@ export function registerItemTools(server: McpServer, api: ApiContext): void {
   });
 
   server.registerTool("update_item", {
-    description: "Update an item. Auto-enables date/quantity features on the list if needed.",
+    description: tr("tool-update-item", locale),
     inputSchema: {
       list_id: z.string().describe("The list ID"),
       item_id: z.string().describe("The item ID"),
@@ -53,7 +54,7 @@ export function registerItemTools(server: McpServer, api: ApiContext): void {
   });
 
   server.registerTool("toggle_item", {
-    description: "Toggle the completed state of an item",
+    description: tr("tool-toggle-item", locale),
     inputSchema: {
       list_id: z.string().describe("The list ID"),
       item_id: z.string().describe("The item ID"),
@@ -63,7 +64,7 @@ export function registerItemTools(server: McpServer, api: ApiContext): void {
     callTool(api, "PUT", `/api/lists/${list_id}/items/${item_id}`, { completed }));
 
   server.registerTool("move_item", {
-    description: "Move an item to a different list",
+    description: tr("tool-move-item", locale),
     inputSchema: {
       item_id: z.string().describe("The item ID"),
       target_list_id: z.string().describe("Target list ID"),
