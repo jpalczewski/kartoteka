@@ -10,6 +10,19 @@ pub async fn fetch_items(list_id: &str) -> Result<Vec<Item>, String> {
         .map_err(|e| e.to_string())
 }
 
+pub async fn fetch_item(list_id: &str, item_id: &str) -> Result<Item, String> {
+    super::get(&format!(
+        "{}/lists/{list_id}/items/{item_id}",
+        super::API_BASE
+    ))
+    .send()
+    .await
+    .map_err(|e| e.to_string())?
+    .json()
+    .await
+    .map_err(|e| e.to_string())
+}
+
 pub async fn create_item(list_id: &str, req: &CreateItemRequest) -> Result<Item, String> {
     super::post_json(&format!("{}/lists/{list_id}/items", super::API_BASE), req).await
 }
