@@ -1,6 +1,6 @@
 use crate::error::json_error;
+use crate::helpers::*;
 use kartoteka_shared::*;
-use wasm_bindgen::JsValue;
 use worker::*;
 
 pub const LIST_SELECT: &str = "\
@@ -63,8 +63,8 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     }
 
     let list = d1
-        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1"))
-        .bind(&[id.into()])?
+        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1 AND l.user_id = ?2"))
+        .bind(&[id.into(), user_id.into()])?
         .first::<List>(None)
         .await?
         .ok_or_else(|| Error::from("Failed to create list"))?;
@@ -76,10 +76,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
 pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let d1 = ctx.env.d1("DB")?;
 
     // Track last opened
@@ -103,20 +100,11 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
 
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let body: UpdateListRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify ownership first
-    let existing = d1
-        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
-        .bind(&[id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if existing.is_none() {
+    if !check_ownership(&d1, "lists", &id, &user_id).await? {
         return json_error("list_not_found", 404);
     }
 
@@ -155,8 +143,8 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     }
 
     let list = d1
-        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1"))
-        .bind(&[id.into()])?
+        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1 AND l.user_id = ?2"))
+        .bind(&[id.into(), user_id.into()])?
         .first::<List>(None)
         .await?
         .ok_or_else(|| Error::from("Not found"))?;
@@ -166,10 +154,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let d1 = ctx.env.d1("DB")?;
     d1.prepare("DELETE FROM lists WHERE id = ?1 AND user_id = ?2")
         .bind(&[id.into(), user_id.into()])?
@@ -180,19 +165,10 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
 
 pub async fn list_sublists(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let parent_id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let parent_id = require_param(&ctx, "id")?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify parent belongs to user
-    let parent = d1
-        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
-        .bind(&[parent_id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if parent.is_none() {
+    if !check_ownership(&d1, "lists", &parent_id, &user_id).await? {
         return json_error("list_not_found", 404);
     }
 
@@ -223,34 +199,19 @@ pub async fn list_archived(_req: Request, ctx: RouteContext<String>) -> Result<R
 
 pub async fn toggle_archive(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Get current archived state
-    let row = d1
-        .prepare("SELECT archived FROM lists WHERE id = ?1 AND user_id = ?2")
-        .bind(&[id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    let current = row
-        .as_ref()
-        .and_then(|r| r.get("archived"))
-        .and_then(|v| v.as_f64())
-        .map(|f| f != 0.0)
-        .unwrap_or(false);
-
-    let new_val: i32 = if current { 0 } else { 1 };
-    d1.prepare("UPDATE lists SET archived = ?1, updated_at = datetime('now') WHERE id = ?2")
-        .bind(&[new_val.into(), id.clone().into()])?
-        .run()
-        .await?;
+    if toggle_bool_field(&d1, "lists", "archived", &id, &user_id)
+        .await?
+        .is_none()
+    {
+        return json_error("list_not_found", 404);
+    }
 
     let list = d1
-        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1"))
-        .bind(&[id.into()])?
+        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1 AND l.user_id = ?2"))
+        .bind(&[id.into(), user_id.into()])?
         .first::<List>(None)
         .await?
         .ok_or_else(|| Error::from("Not found"))?;
@@ -260,19 +221,10 @@ pub async fn toggle_archive(_req: Request, ctx: RouteContext<String>) -> Result<
 
 pub async fn reset(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify ownership
-    let check = d1
-        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
-        .bind(&[id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if check.is_none() {
+    if !check_ownership(&d1, "lists", &id, &user_id).await? {
         return json_error("list_not_found", 404);
     }
 
@@ -298,10 +250,7 @@ pub async fn reset(_req: Request, ctx: RouteContext<String>) -> Result<Response>
 
 pub async fn create_sublist(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let parent_id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let parent_id = require_param(&ctx, "id")?;
     let body: serde_json::Value = req.json().await?;
     let name = body
         .get("name")
@@ -321,24 +270,20 @@ pub async fn create_sublist(mut req: Request, ctx: RouteContext<String>) -> Resu
         return json_error("list_not_found", 404);
     }
 
-    // Get next position
-    let max_pos = d1
-        .prepare(
-            "SELECT COALESCE(MAX(position), -1) as max_pos FROM lists WHERE parent_list_id = ?1",
-        )
-        .bind(&[parent_id.clone().into()])?
-        .first::<serde_json::Value>(None)
-        .await?
-        .and_then(|v| v.get("max_pos")?.as_i64())
-        .unwrap_or(-1);
-    let position = (max_pos + 1) as i32;
+    let position = next_position(
+        &d1,
+        "lists",
+        "parent_list_id = ?1",
+        &[parent_id.clone().into()],
+    )
+    .await?;
 
     d1.prepare(
         "INSERT INTO lists (id, user_id, name, list_type, parent_list_id, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )
     .bind(&[
         id.clone().into(),
-        user_id.into(),
+        user_id.clone().into(),
         name.into(),
         "custom".into(),
         parent_id.into(),
@@ -348,8 +293,8 @@ pub async fn create_sublist(mut req: Request, ctx: RouteContext<String>) -> Resu
     .await?;
 
     let sublist = d1
-        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1"))
-        .bind(&[id.into()])?
+        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1 AND l.user_id = ?2"))
+        .bind(&[id.into(), user_id.into()])?
         .first::<List>(None)
         .await?
         .ok_or_else(|| Error::from("Failed to create sublist"))?;
@@ -363,24 +308,12 @@ pub async fn create_sublist(mut req: Request, ctx: RouteContext<String>) -> Resu
 
 pub async fn add_feature(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let list_id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
-    let feature_name = ctx
-        .param("name")
-        .ok_or_else(|| Error::from("Missing feature name"))?
-        .to_string();
+    let list_id = require_param(&ctx, "id")?;
+    let feature_name = require_param(&ctx, "name")?;
 
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify ownership
-    let existing = d1
-        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
-        .bind(&[list_id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if existing.is_none() {
+    if !check_ownership(&d1, "lists", &list_id, &user_id).await? {
         return json_error("list_not_found", 404);
     }
 
@@ -409,8 +342,8 @@ pub async fn add_feature(mut req: Request, ctx: RouteContext<String>) -> Result<
 
     // Return updated list
     let list = d1
-        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1"))
-        .bind(&[list_id.into()])?
+        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1 AND l.user_id = ?2"))
+        .bind(&[list_id.into(), user_id.into()])?
         .first::<List>(None)
         .await?
         .ok_or_else(|| Error::from("Not found"))?;
@@ -420,24 +353,12 @@ pub async fn add_feature(mut req: Request, ctx: RouteContext<String>) -> Result<
 
 pub async fn remove_feature(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let list_id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
-    let feature_name = ctx
-        .param("name")
-        .ok_or_else(|| Error::from("Missing feature name"))?
-        .to_string();
+    let list_id = require_param(&ctx, "id")?;
+    let feature_name = require_param(&ctx, "name")?;
 
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify ownership
-    let existing = d1
-        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
-        .bind(&[list_id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if existing.is_none() {
+    if !check_ownership(&d1, "lists", &list_id, &user_id).await? {
         return json_error("list_not_found", 404);
     }
 
@@ -448,8 +369,8 @@ pub async fn remove_feature(_req: Request, ctx: RouteContext<String>) -> Result<
 
     // Return updated list
     let list = d1
-        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1"))
-        .bind(&[list_id.into()])?
+        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1 AND l.user_id = ?2"))
+        .bind(&[list_id.into(), user_id.into()])?
         .first::<List>(None)
         .await?
         .ok_or_else(|| Error::from("Not found"))?;
@@ -461,39 +382,22 @@ pub async fn remove_feature(_req: Request, ctx: RouteContext<String>) -> Result<
 
 pub async fn move_list(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let body: MoveListRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify list ownership
-    let check = d1
-        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
-        .bind(&[id.clone().into(), user_id.clone().into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if check.is_none() {
+    if !check_ownership(&d1, "lists", &id, &user_id).await? {
         return json_error("list_not_found", 404);
     }
 
     // If target container specified, verify ownership
     if let Some(ref cid) = body.container_id {
-        let ccheck = d1
-            .prepare("SELECT id FROM containers WHERE id = ?1 AND user_id = ?2")
-            .bind(&[cid.clone().into(), user_id.into()])?
-            .first::<serde_json::Value>(None)
-            .await?;
-        if ccheck.is_none() {
+        if !check_ownership(&d1, "containers", cid, &user_id).await? {
             return json_error("container_not_found", 404);
         }
     }
 
-    let cid_val: JsValue = match &body.container_id {
-        Some(cid) => JsValue::from(cid.as_str()),
-        None => JsValue::NULL,
-    };
+    let cid_val = opt_str_to_js(&body.container_id);
 
     d1.prepare("UPDATE lists SET container_id = ?1, updated_at = datetime('now') WHERE id = ?2")
         .bind(&[cid_val, id.clone().into()])?
@@ -501,8 +405,8 @@ pub async fn move_list(mut req: Request, ctx: RouteContext<String>) -> Result<Re
         .await?;
 
     let list = d1
-        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1"))
-        .bind(&[id.into()])?
+        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1 AND l.user_id = ?2"))
+        .bind(&[id.into(), user_id.into()])?
         .first::<List>(None)
         .await?
         .ok_or_else(|| Error::from("Not found"))?;
@@ -512,38 +416,19 @@ pub async fn move_list(mut req: Request, ctx: RouteContext<String>) -> Result<Re
 
 pub async fn toggle_pin(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let d1 = ctx.env.d1("DB")?;
 
-    let row = d1
-        .prepare("SELECT pinned FROM lists WHERE id = ?1 AND user_id = ?2")
-        .bind(&[id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-
-    if row.is_none() {
+    if toggle_bool_field(&d1, "lists", "pinned", &id, &user_id)
+        .await?
+        .is_none()
+    {
         return json_error("list_not_found", 404);
     }
 
-    let current = row
-        .as_ref()
-        .and_then(|r| r.get("pinned"))
-        .and_then(|v| v.as_f64())
-        .map(|f| f != 0.0)
-        .unwrap_or(false);
-
-    let new_val: i32 = if current { 0 } else { 1 };
-    d1.prepare("UPDATE lists SET pinned = ?1, updated_at = datetime('now') WHERE id = ?2")
-        .bind(&[new_val.into(), id.clone().into()])?
-        .run()
-        .await?;
-
     let list = d1
-        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1"))
-        .bind(&[id.into()])?
+        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1 AND l.user_id = ?2"))
+        .bind(&[id.into(), user_id.into()])?
         .first::<List>(None)
         .await?
         .ok_or_else(|| Error::from("Not found"))?;

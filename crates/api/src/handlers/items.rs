@@ -1,4 +1,5 @@
 use crate::error::json_error;
+use crate::helpers::*;
 use kartoteka_shared::*;
 use wasm_bindgen::JsValue;
 use worker::*;
@@ -13,19 +14,10 @@ const DATE_ITEM_COLS: &str = "i.id, i.list_id, i.title, i.description, i.complet
 
 pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let list_id = ctx
-        .param("list_id")
-        .ok_or_else(|| Error::from("Missing list_id"))?
-        .to_string();
+    let list_id = require_param(&ctx, "list_id")?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify list belongs to user
-    let list_check = d1
-        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
-        .bind(&[list_id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if list_check.is_none() {
+    if !check_ownership(&d1, "lists", &list_id, &user_id).await? {
         return json_error("list_not_found", 404);
     }
 
@@ -40,45 +32,19 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
 
 pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let list_id = ctx
-        .param("list_id")
-        .ok_or_else(|| Error::from("Missing list_id"))?
-        .to_string();
+    let list_id = require_param(&ctx, "list_id")?;
     let body: CreateItemRequest = req.json().await?;
     let id = uuid::Uuid::new_v4().to_string();
 
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify list belongs to user
-    let list_check = d1
-        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
-        .bind(&[list_id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if list_check.is_none() {
+    if !check_ownership(&d1, "lists", &list_id, &user_id).await? {
         return json_error("list_not_found", 404);
     }
 
-    // Get next position
-    let max_pos = d1
-        .prepare("SELECT COALESCE(MAX(position), -1) as max_pos FROM items WHERE list_id = ?1")
-        .bind(&[list_id.clone().into()])?
-        .first::<serde_json::Value>(None)
-        .await?
-        .and_then(|v| v.get("max_pos")?.as_i64())
-        .unwrap_or(-1);
-    let position = (max_pos + 1) as i32;
+    let position = next_position(&d1, "items", "list_id = ?1", &[list_id.clone().into()]).await?;
 
-    let feature_rows = d1
-        .prepare("SELECT feature_name FROM list_features WHERE list_id = ?1")
-        .bind(&[list_id.clone().into()])?
-        .all()
-        .await?
-        .results::<serde_json::Value>()?;
-    let feature_names: Vec<String> = feature_rows
-        .iter()
-        .filter_map(|r| r.get("feature_name")?.as_str().map(String::from))
-        .collect();
+    let feature_names = get_list_features(&d1, &list_id).await?;
 
     let has_date_field = body.start_date.is_some()
         || body.deadline.is_some()
@@ -92,14 +58,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         return Ok(err_resp);
     }
 
-    let opt_str = |v: &Option<String>| -> JsValue {
-        match v {
-            Some(s) => JsValue::from(s.as_str()),
-            None => JsValue::NULL,
-        }
-    };
-
-    let desc_val = opt_str(&body.description);
+    let desc_val = opt_str_to_js(&body.description);
     let quantity_val: JsValue = match body.quantity {
         Some(q) => q.into(),
         None => JsValue::NULL,
@@ -108,12 +67,12 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         Some(_) => 0i32.into(),
         None => JsValue::NULL,
     };
-    let unit_val = opt_str(&body.unit);
-    let start_date_val = opt_str(&body.start_date);
-    let start_time_val = opt_str(&body.start_time);
-    let deadline_val = opt_str(&body.deadline);
-    let deadline_time_val = opt_str(&body.deadline_time);
-    let hard_deadline_val = opt_str(&body.hard_deadline);
+    let unit_val = opt_str_to_js(&body.unit);
+    let start_date_val = opt_str_to_js(&body.start_date);
+    let start_time_val = opt_str_to_js(&body.start_time);
+    let deadline_val = opt_str_to_js(&body.deadline);
+    let deadline_time_val = opt_str_to_js(&body.deadline_time);
+    let hard_deadline_val = opt_str_to_js(&body.hard_deadline);
 
     d1.prepare(
         "INSERT INTO items (id, list_id, title, description, position, quantity, actual_quantity, unit, start_date, start_time, deadline, deadline_time, hard_deadline) \
@@ -190,42 +149,16 @@ fn check_item_features(
 
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let body: UpdateItemRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify item belongs to user (via list ownership)
-    let item_check = d1
-        .prepare(
-            "SELECT items.id, items.list_id FROM items \
-             JOIN lists ON lists.id = items.list_id \
-             WHERE items.id = ?1 AND lists.user_id = ?2",
-        )
-        .bind(&[id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if item_check.is_none() {
-        return json_error("item_not_found", 404);
-    }
-
-    let list_id_for_features = item_check
-        .as_ref()
-        .and_then(|v| v.get("list_id")?.as_str().map(String::from))
-        .ok_or_else(|| Error::from("Missing list_id on item"))?;
-
-    let feature_rows = d1
-        .prepare("SELECT feature_name FROM list_features WHERE list_id = ?1")
-        .bind(&[list_id_for_features.into()])?
-        .all()
+    let list_id_for_features = check_item_ownership_with_list(&d1, &id, &user_id)
         .await?
-        .results::<serde_json::Value>()?;
-    let feature_names: Vec<String> = feature_rows
-        .iter()
-        .filter_map(|r| r.get("feature_name")?.as_str().map(String::from))
-        .collect();
+        .ok_or_else(|| Error::from("item_not_found"))?;
+
+    // Check if the error response needs to be returned (item_not_found is handled above via ok_or_else)
+    let feature_names = get_list_features(&d1, &list_id_for_features).await?;
 
     let has_date_field = matches!(&body.start_date, Some(Some(_)))
         || matches!(&body.deadline, Some(Some(_)))
@@ -346,23 +279,10 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify item belongs to user (via list ownership)
-    let item_check = d1
-        .prepare(
-            "SELECT items.id FROM items \
-             JOIN lists ON lists.id = items.list_id \
-             WHERE items.id = ?1 AND lists.user_id = ?2",
-        )
-        .bind(&[id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if item_check.is_none() {
+    if !check_item_ownership(&d1, &id, &user_id).await? {
         return json_error("item_not_found", 404);
     }
 
@@ -375,10 +295,7 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
 
 pub async fn move_item(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| Error::from("Missing id"))?
-        .to_string();
+    let id = require_param(&ctx, "id")?;
     let body: serde_json::Value = req.json().await?;
     let target_list_id = body
         .get("target_list_id")
@@ -387,39 +304,21 @@ pub async fn move_item(mut req: Request, ctx: RouteContext<String>) -> Result<Re
         .to_string();
     let d1 = ctx.env.d1("DB")?;
 
-    // Verify item belongs to user
-    let item_check = d1
-        .prepare(
-            "SELECT items.id FROM items \
-             JOIN lists ON lists.id = items.list_id \
-             WHERE items.id = ?1 AND lists.user_id = ?2",
-        )
-        .bind(&[id.clone().into(), user_id.clone().into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if item_check.is_none() {
+    if !check_item_ownership(&d1, &id, &user_id).await? {
         return json_error("item_not_found", 404);
     }
 
-    // Verify target list belongs to user
-    let target_check = d1
-        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2")
-        .bind(&[target_list_id.clone().into(), user_id.into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if target_check.is_none() {
+    if !check_ownership(&d1, "lists", &target_list_id, &user_id).await? {
         return json_error("list_not_found", 404);
     }
 
-    // Get next position in target list
-    let max_pos = d1
-        .prepare("SELECT COALESCE(MAX(position), -1) as max_pos FROM items WHERE list_id = ?1")
-        .bind(&[target_list_id.clone().into()])?
-        .first::<serde_json::Value>(None)
-        .await?
-        .and_then(|v| v.get("max_pos")?.as_i64())
-        .unwrap_or(-1);
-    let position = (max_pos + 1) as i32;
+    let position = next_position(
+        &d1,
+        "items",
+        "list_id = ?1",
+        &[target_list_id.clone().into()],
+    )
+    .await?;
 
     d1.prepare(
         "UPDATE items SET list_id = ?1, position = ?2, updated_at = datetime('now') WHERE id = ?3",

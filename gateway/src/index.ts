@@ -21,15 +21,13 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const allowedOrigins = (env: Env) =>
   env.TRUSTED_ORIGINS ? env.TRUSTED_ORIGINS.split(",") : [env.BETTER_AUTH_URL];
 
-app.use("/api/*", (c, next) =>
-  cors({ origin: allowedOrigins(c.env), credentials: true })(c, next)
-);
-app.use("/auth/*", (c, next) =>
-  cors({ origin: allowedOrigins(c.env), credentials: true })(c, next)
-);
-app.use("/oauth/*", (c, next) =>
-  cors({ origin: allowedOrigins(c.env), credentials: true })(c, next)
-);
+app.use("*", async (c, next) => {
+  const corsMiddleware = cors({
+    origin: allowedOrigins(c.env),
+    credentials: true,
+  });
+  return corsMiddleware(c, next);
+});
 
 app.get("/health", (c) => c.text("ok"));
 

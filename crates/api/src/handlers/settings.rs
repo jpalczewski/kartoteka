@@ -1,3 +1,4 @@
+use crate::helpers::require_param;
 use kartoteka_shared::*;
 use std::collections::HashMap;
 use worker::*;
@@ -29,10 +30,7 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
 
 pub async fn upsert(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let key = ctx
-        .param("key")
-        .ok_or_else(|| Error::from("Missing key"))?
-        .to_string();
+    let key = require_param(&ctx, "key")?;
     let body: UpsertSettingRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
@@ -50,10 +48,7 @@ pub async fn upsert(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let key = ctx
-        .param("key")
-        .ok_or_else(|| Error::from("Missing key"))?
-        .to_string();
+    let key = require_param(&ctx, "key")?;
     let d1 = ctx.env.d1("DB")?;
 
     d1.prepare("DELETE FROM user_settings WHERE user_id = ?1 AND key = ?2")
