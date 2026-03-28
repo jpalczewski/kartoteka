@@ -77,7 +77,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         || body.deadline_time.is_some();
     let has_quantity_field = body.quantity.is_some() || body.unit.is_some();
 
-    if let Some(err_resp) = check_item_features(&feature_names, has_date_field, has_quantity_field)
+    if let Some(err_resp) = check_item_features(&feature_names, has_date_field, has_quantity_field)?
     {
         return Ok(err_resp);
     }
@@ -152,25 +152,25 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
 /// Returns a 422 Response if the request uses feature-gated fields without
 /// the corresponding feature being enabled on the list.
-/// Returns None if validation passes.
+/// Returns Ok(None) if validation passes.
 fn check_item_features(
     feature_names: &[String],
     has_date_field: bool,
     has_quantity_field: bool,
-) -> Option<Response> {
+) -> worker::Result<Option<Response>> {
     if has_date_field && !feature_names.iter().any(|f| f == FEATURE_DEADLINES) {
-        return Response::error(
+        return Ok(Some(Response::error(
             r#"{"error":"feature_required","feature":"deadlines","message":"This list does not have the 'deadlines' feature enabled. Enable it in list settings or retry without date fields."}"#,
             422,
-        ).ok();
+        )?));
     }
     if has_quantity_field && !feature_names.iter().any(|f| f == FEATURE_QUANTITY) {
-        return Response::error(
+        return Ok(Some(Response::error(
             r#"{"error":"feature_required","feature":"quantity","message":"This list does not have the 'quantity' feature enabled. Enable it in list settings or retry without quantity fields."}"#,
             422,
-        ).ok();
+        )?));
     }
-    None
+    Ok(None)
 }
 
 /// Helper to handle Option<Option<String>> date fields in update:
@@ -232,7 +232,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     let has_quantity_field =
         body.quantity.is_some() || body.actual_quantity.is_some() || body.unit.is_some();
 
-    if let Some(err_resp) = check_item_features(&feature_names, has_date_field, has_quantity_field)
+    if let Some(err_resp) = check_item_features(&feature_names, has_date_field, has_quantity_field)?
     {
         return Ok(err_resp);
     }
