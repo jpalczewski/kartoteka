@@ -3,15 +3,14 @@ use kartoteka_shared::{
     UpdateContainerRequest,
 };
 use leptos::prelude::*;
-use leptos_fluent::move_tr;
 use leptos_router::hooks::use_params_map;
 
 use crate::api;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::breadcrumbs::Breadcrumbs;
-use crate::components::common::loading::LoadingSpinner;
 use crate::components::common::editable_description::EditableDescription;
 use crate::components::common::editable_title::EditableTitle;
+use crate::components::common::loading::LoadingSpinner;
 use crate::components::confirm_delete_modal::ConfirmDeleteModal;
 use crate::components::container_card::ContainerCard;
 use crate::components::create_entity_input::CreateEntityInput;

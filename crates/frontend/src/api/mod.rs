@@ -14,6 +14,7 @@ use serde::Deserialize;
 
 /// Structured API error type for i18n-aware error display.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum ApiError {
     Network(String),
     Http { status: u16, code: Option<String> },
@@ -21,6 +22,7 @@ pub enum ApiError {
 }
 
 impl ApiError {
+    #[allow(dead_code)]
     pub fn to_i18n_key(&self) -> &'static str {
         match self {
             ApiError::Network(_) => "error-network",

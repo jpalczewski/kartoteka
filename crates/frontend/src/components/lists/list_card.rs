@@ -5,7 +5,6 @@ use leptos_router::hooks::use_navigate;
 
 use crate::components::tag_list::TagList;
 
-
 pub fn list_type_icon(lt: &ListType) -> &'static str {
     match lt {
         ListType::Checklist => "✅",

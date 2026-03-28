@@ -2,6 +2,7 @@ use leptos::prelude::*;
 
 /// Displays an error message.
 /// Accepts a pre-resolved error message string (caller converts ApiError to i18n message).
+#[allow(dead_code)]
 #[component]
 pub fn ErrorDisplay(
     /// Pre-resolved error message string to display

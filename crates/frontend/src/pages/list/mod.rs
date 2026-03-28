@@ -2,14 +2,13 @@ mod date_view;
 mod normal_view;
 
 use leptos::prelude::*;
-use leptos_fluent::move_tr;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::api;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::breadcrumbs::Breadcrumbs;
-use crate::components::common::loading::LoadingSpinner;
 use crate::components::common::editable_description::EditableDescription;
+use crate::components::common::loading::LoadingSpinner;
 use crate::components::items::add_item_input::AddItemInput;
 use crate::components::items::item_actions::create_item_actions;
 use crate::components::lists::add_group_input::AddGroupInput;

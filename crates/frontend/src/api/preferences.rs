@@ -1,7 +1,7 @@
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 
-use super::{auth_headers, API_BASE};
+use super::{API_BASE, auth_headers};
 
 #[derive(Deserialize)]
 pub struct PreferencesResponse {
@@ -15,10 +15,7 @@ pub struct UpdatePreferencesBody {
 
 pub async fn get_preferences() -> Result<PreferencesResponse, String> {
     let url = format!("{API_BASE}/preferences");
-    let resp = super::get(&url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let resp = super::get(&url).send().await.map_err(|e| e.to_string())?;
 
     if resp.status() == 401 {
         return Err("unauthorized".to_string());

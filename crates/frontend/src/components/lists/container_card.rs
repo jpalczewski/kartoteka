@@ -12,7 +12,6 @@ pub fn container_icon(status: &Option<ContainerStatus>) -> &'static str {
     }
 }
 
-
 pub fn container_status_class(status: &ContainerStatus) -> &'static str {
     match status {
         ContainerStatus::Active => "badge badge-success badge-sm",

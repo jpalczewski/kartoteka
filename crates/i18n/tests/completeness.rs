@@ -27,7 +27,11 @@ fn ftl_files_in(dir: &Path) -> Vec<String> {
         .filter_map(|e| {
             let e = e.unwrap();
             let name = e.file_name().to_string_lossy().to_string();
-            if name.ends_with(".ftl") { Some(name) } else { None }
+            if name.ends_with(".ftl") {
+                Some(name)
+            } else {
+                None
+            }
         })
         .collect();
     files.sort();
@@ -39,7 +43,10 @@ fn en_and_pl_have_same_ftl_files() {
     let locales = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../locales");
     let en_files = ftl_files_in(&locales.join("en"));
     let pl_files = ftl_files_in(&locales.join("pl"));
-    assert_eq!(en_files, pl_files, "en/ and pl/ must have the same .ftl files");
+    assert_eq!(
+        en_files, pl_files,
+        "en/ and pl/ must have the same .ftl files"
+    );
 }
 
 #[test]

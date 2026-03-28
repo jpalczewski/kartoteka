@@ -33,8 +33,8 @@ fn keys_in_mcp_ftl(locale: &str) -> HashSet<String> {
         .join("../../locales")
         .join(locale)
         .join("mcp.ftl");
-    let content = fs::read_to_string(&path)
-        .unwrap_or_else(|_| panic!("cannot read {}", path.display()));
+    let content =
+        fs::read_to_string(&path).unwrap_or_else(|_| panic!("cannot read {}", path.display()));
     let resource = match fluent_syntax::parser::parse(content.as_str()) {
         Ok(r) => r,
         Err((r, _)) => r,

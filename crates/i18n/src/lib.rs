@@ -41,7 +41,6 @@ impl fmt::Display for Locale {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

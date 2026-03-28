@@ -3,10 +3,10 @@ pub mod detail;
 use crate::api;
 use crate::components::add_input::AddInput;
 use crate::components::common::loading::LoadingSpinner;
-use leptos_fluent::move_tr;
 use crate::components::tag_tree::{TagTreeRow, build_tag_tree};
 use kartoteka_shared::{CreateTagRequest, Tag};
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 #[component]
 pub fn TagsPage() -> impl IntoView {

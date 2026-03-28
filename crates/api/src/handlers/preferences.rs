@@ -23,11 +23,7 @@ pub async fn get_preferences(_req: Request, ctx: RouteContext<String>) -> Result
         .await?;
 
     let locale = result
-        .and_then(|row| {
-            row.get("locale")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        })
+        .and_then(|row| row.get("locale").and_then(|v| v.as_str()).map(String::from))
         .unwrap_or_else(|| "en".to_string());
 
     Response::from_json(&PreferencesResponse { locale })
