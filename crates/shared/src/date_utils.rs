@@ -69,12 +69,20 @@ pub fn month_grid_range(year: i32, month: u32) -> (String, String) {
 
 /// Previous month (year, month)
 pub fn prev_month(year: i32, month: u32) -> (i32, u32) {
-    if month == 1 { (year - 1, 12) } else { (year, month - 1) }
+    if month == 1 {
+        (year - 1, 12)
+    } else {
+        (year, month - 1)
+    }
 }
 
 /// Next month (year, month)
 pub fn next_month(year: i32, month: u32) -> (i32, u32) {
-    if month == 12 { (year + 1, 1) } else { (year, month + 1) }
+    if month == 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    }
 }
 
 /// Check if an item's deadline is overdue
@@ -112,13 +120,11 @@ pub fn is_upcoming(item: &crate::Item, today: &str, now_time: &str) -> bool {
 
 /// Sort items by deadline (earliest first, items without deadline last)
 pub fn sort_by_deadline(items: &mut [crate::Item]) {
-    items.sort_by(|a, b| {
-        match (&a.deadline, &b.deadline) {
-            (Some(da), Some(db)) => da.cmp(db),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
-        }
+    items.sort_by(|a, b| match (&a.deadline, &b.deadline) {
+        (Some(da), Some(db)) => da.cmp(db),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
     });
 }
 
@@ -128,7 +134,10 @@ mod tests {
 
     #[test]
     fn test_parse_date() {
-        assert_eq!(parse_date("2026-03-29"), Some(NaiveDate::from_ymd_opt(2026, 3, 29).unwrap()));
+        assert_eq!(
+            parse_date("2026-03-29"),
+            Some(NaiveDate::from_ymd_opt(2026, 3, 29).unwrap())
+        );
         assert_eq!(parse_date("invalid"), None);
         assert_eq!(parse_date(""), None);
     }
@@ -196,13 +205,22 @@ mod tests {
     #[test]
     fn test_is_overdue_past_deadline() {
         let item = crate::Item {
-            id: "1".into(), list_id: "l1".into(), title: "t".into(),
-            description: None, completed: false, position: 0,
-            quantity: None, actual_quantity: None, unit: None,
-            start_date: None, start_time: None,
-            deadline: Some("2026-03-28".into()), deadline_time: None,
+            id: "1".into(),
+            list_id: "l1".into(),
+            title: "t".into(),
+            description: None,
+            completed: false,
+            position: 0,
+            quantity: None,
+            actual_quantity: None,
+            unit: None,
+            start_date: None,
+            start_time: None,
+            deadline: Some("2026-03-28".into()),
+            deadline_time: None,
             hard_deadline: None,
-            created_at: "2026-03-01".into(), updated_at: "2026-03-01".into(),
+            created_at: "2026-03-01".into(),
+            updated_at: "2026-03-01".into(),
         };
         assert!(is_overdue(&item, "2026-03-29", "12:00"));
     }
@@ -210,13 +228,22 @@ mod tests {
     #[test]
     fn test_is_overdue_same_day_with_time() {
         let item = crate::Item {
-            id: "1".into(), list_id: "l1".into(), title: "t".into(),
-            description: None, completed: false, position: 0,
-            quantity: None, actual_quantity: None, unit: None,
-            start_date: None, start_time: None,
-            deadline: Some("2026-03-29".into()), deadline_time: Some("10:00".into()),
+            id: "1".into(),
+            list_id: "l1".into(),
+            title: "t".into(),
+            description: None,
+            completed: false,
+            position: 0,
+            quantity: None,
+            actual_quantity: None,
+            unit: None,
+            start_date: None,
+            start_time: None,
+            deadline: Some("2026-03-29".into()),
+            deadline_time: Some("10:00".into()),
             hard_deadline: None,
-            created_at: "2026-03-01".into(), updated_at: "2026-03-01".into(),
+            created_at: "2026-03-01".into(),
+            updated_at: "2026-03-01".into(),
         };
         assert!(is_overdue(&item, "2026-03-29", "12:00"));
         assert!(!is_overdue(&item, "2026-03-29", "09:00"));
@@ -225,35 +252,65 @@ mod tests {
     #[test]
     fn test_is_overdue_completed_not_overdue() {
         let item = crate::Item {
-            id: "1".into(), list_id: "l1".into(), title: "t".into(),
-            description: None, completed: true, position: 0,
-            quantity: None, actual_quantity: None, unit: None,
-            start_date: None, start_time: None,
-            deadline: Some("2026-03-28".into()), deadline_time: None,
+            id: "1".into(),
+            list_id: "l1".into(),
+            title: "t".into(),
+            description: None,
+            completed: true,
+            position: 0,
+            quantity: None,
+            actual_quantity: None,
+            unit: None,
+            start_date: None,
+            start_time: None,
+            deadline: Some("2026-03-28".into()),
+            deadline_time: None,
             hard_deadline: None,
-            created_at: "2026-03-01".into(), updated_at: "2026-03-01".into(),
+            created_at: "2026-03-01".into(),
+            updated_at: "2026-03-01".into(),
         };
         assert!(!is_overdue(&item, "2026-03-29", "12:00"));
     }
 
     #[test]
     fn test_is_overdue_for_date_type() {
-        assert!(is_overdue_for_date_type(Some("2026-03-28"), false, "2026-03-29"));
-        assert!(!is_overdue_for_date_type(Some("2026-03-28"), true, "2026-03-29")); // completed
-        assert!(!is_overdue_for_date_type(Some("2026-03-30"), false, "2026-03-29")); // future
+        assert!(is_overdue_for_date_type(
+            Some("2026-03-28"),
+            false,
+            "2026-03-29"
+        ));
+        assert!(!is_overdue_for_date_type(
+            Some("2026-03-28"),
+            true,
+            "2026-03-29"
+        )); // completed
+        assert!(!is_overdue_for_date_type(
+            Some("2026-03-30"),
+            false,
+            "2026-03-29"
+        )); // future
         assert!(!is_overdue_for_date_type(None, false, "2026-03-29")); // no date
     }
 
     #[test]
     fn test_is_upcoming() {
         let item = crate::Item {
-            id: "1".into(), list_id: "l1".into(), title: "t".into(),
-            description: None, completed: false, position: 0,
-            quantity: None, actual_quantity: None, unit: None,
-            start_date: None, start_time: None,
-            deadline: Some("2026-03-30".into()), deadline_time: None,
+            id: "1".into(),
+            list_id: "l1".into(),
+            title: "t".into(),
+            description: None,
+            completed: false,
+            position: 0,
+            quantity: None,
+            actual_quantity: None,
+            unit: None,
+            start_date: None,
+            start_time: None,
+            deadline: Some("2026-03-30".into()),
+            deadline_time: None,
             hard_deadline: None,
-            created_at: "2026-03-01".into(), updated_at: "2026-03-01".into(),
+            created_at: "2026-03-01".into(),
+            updated_at: "2026-03-01".into(),
         };
         assert!(is_upcoming(&item, "2026-03-29", "12:00"));
     }
@@ -262,28 +319,58 @@ mod tests {
     fn test_sort_by_deadline() {
         let mut items = vec![
             crate::Item {
-                id: "1".into(), list_id: "l".into(), title: "no deadline".into(),
-                description: None, completed: false, position: 0,
-                quantity: None, actual_quantity: None, unit: None,
-                start_date: None, start_time: None,
-                deadline: None, deadline_time: None, hard_deadline: None,
-                created_at: "".into(), updated_at: "".into(),
+                id: "1".into(),
+                list_id: "l".into(),
+                title: "no deadline".into(),
+                description: None,
+                completed: false,
+                position: 0,
+                quantity: None,
+                actual_quantity: None,
+                unit: None,
+                start_date: None,
+                start_time: None,
+                deadline: None,
+                deadline_time: None,
+                hard_deadline: None,
+                created_at: "".into(),
+                updated_at: "".into(),
             },
             crate::Item {
-                id: "2".into(), list_id: "l".into(), title: "early".into(),
-                description: None, completed: false, position: 0,
-                quantity: None, actual_quantity: None, unit: None,
-                start_date: None, start_time: None,
-                deadline: Some("2026-03-01".into()), deadline_time: None, hard_deadline: None,
-                created_at: "".into(), updated_at: "".into(),
+                id: "2".into(),
+                list_id: "l".into(),
+                title: "early".into(),
+                description: None,
+                completed: false,
+                position: 0,
+                quantity: None,
+                actual_quantity: None,
+                unit: None,
+                start_date: None,
+                start_time: None,
+                deadline: Some("2026-03-01".into()),
+                deadline_time: None,
+                hard_deadline: None,
+                created_at: "".into(),
+                updated_at: "".into(),
             },
             crate::Item {
-                id: "3".into(), list_id: "l".into(), title: "late".into(),
-                description: None, completed: false, position: 0,
-                quantity: None, actual_quantity: None, unit: None,
-                start_date: None, start_time: None,
-                deadline: Some("2026-03-15".into()), deadline_time: None, hard_deadline: None,
-                created_at: "".into(), updated_at: "".into(),
+                id: "3".into(),
+                list_id: "l".into(),
+                title: "late".into(),
+                description: None,
+                completed: false,
+                position: 0,
+                quantity: None,
+                actual_quantity: None,
+                unit: None,
+                start_date: None,
+                start_time: None,
+                deadline: Some("2026-03-15".into()),
+                deadline_time: None,
+                hard_deadline: None,
+                created_at: "".into(),
+                updated_at: "".into(),
             },
         ];
         sort_by_deadline(&mut items);

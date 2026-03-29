@@ -43,7 +43,11 @@ pub async fn fetch_container_children(
     client: &impl super::HttpClient,
     id: &str,
 ) -> Result<ContainerChildrenResponse, super::ApiError> {
-    super::api_get(client, &format!("{}/containers/{id}/children", super::API_BASE)).await
+    super::api_get(
+        client,
+        &format!("{}/containers/{id}/children", super::API_BASE),
+    )
+    .await
 }
 
 pub async fn toggle_container_pin(

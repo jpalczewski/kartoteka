@@ -47,7 +47,9 @@ pub fn create_item_actions(
         let previous = items.get_untracked();
         let (new_items, new_completed) =
             crate::state::transforms::with_item_toggled(&previous, &item_id);
-        let Some(new_completed) = new_completed else { return }; // item not found — skip
+        let Some(new_completed) = new_completed else {
+            return;
+        }; // item not found — skip
         items.set(new_items);
 
         let lid = lid_toggle.clone();
@@ -57,7 +59,10 @@ pub fn create_item_actions(
                 completed: Some(new_completed),
                 ..Default::default()
             };
-            if api::update_item(&client, &lid, &item_id, &body).await.is_err() {
+            if api::update_item(&client, &lid, &item_id, &body)
+                .await
+                .is_err()
+            {
                 items.set(previous); // rollback
             }
         });
@@ -84,7 +89,11 @@ pub fn create_item_actions(
         let previous = items.get_untracked();
         items.update(|list| {
             if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
-                item.description = if new_desc.is_empty() { None } else { Some(new_desc.clone()) };
+                item.description = if new_desc.is_empty() {
+                    None
+                } else {
+                    Some(new_desc.clone())
+                };
             }
         });
         let lid = lid_desc.clone();
@@ -94,7 +103,10 @@ pub fn create_item_actions(
                 description: Some(new_desc), // empty string = clear (sentinel)
                 ..Default::default()
             };
-            if api::update_item(&client, &lid, &item_id, &req).await.is_err() {
+            if api::update_item(&client, &lid, &item_id, &req)
+                .await
+                .is_err()
+            {
                 items.set(previous); // rollback
             }
         });

@@ -19,10 +19,7 @@ pub async fn update_tag(
     super::api_put(client, &format!("{}/tags/{id}", super::API_BASE), req).await
 }
 
-pub async fn delete_tag(
-    client: &impl super::HttpClient,
-    id: &str,
-) -> Result<(), super::ApiError> {
+pub async fn delete_tag(client: &impl super::HttpClient, id: &str) -> Result<(), super::ApiError> {
     super::api_delete(client, &format!("{}/tags/{id}", super::API_BASE)).await
 }
 
@@ -41,7 +38,10 @@ pub async fn fetch_tag_items(
     tag_id: &str,
     recursive: bool,
 ) -> Result<Vec<serde_json::Value>, super::ApiError> {
-    let url = format!("{}/tags/{tag_id}/items?recursive={recursive}", super::API_BASE);
+    let url = format!(
+        "{}/tags/{tag_id}/items?recursive={recursive}",
+        super::API_BASE
+    );
     super::api_get(client, &url).await
 }
 
@@ -50,7 +50,9 @@ pub async fn assign_tag_to_item(
     item_id: &str,
     tag_id: &str,
 ) -> Result<(), super::ApiError> {
-    let body = TagAssignment { tag_id: tag_id.to_string() };
+    let body = TagAssignment {
+        tag_id: tag_id.to_string(),
+    };
     super::api_post_empty(
         client,
         &format!("{}/items/{item_id}/tags", super::API_BASE),
@@ -76,7 +78,9 @@ pub async fn assign_tag_to_list(
     list_id: &str,
     tag_id: &str,
 ) -> Result<(), super::ApiError> {
-    let body = TagAssignment { tag_id: tag_id.to_string() };
+    let body = TagAssignment {
+        tag_id: tag_id.to_string(),
+    };
     super::api_post_empty(
         client,
         &format!("{}/lists/{list_id}/tags", super::API_BASE),

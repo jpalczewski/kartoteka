@@ -25,10 +25,7 @@ pub async fn archive_list(
     .await
 }
 
-pub async fn reset_list(
-    client: &impl super::HttpClient,
-    id: &str,
-) -> Result<(), super::ApiError> {
+pub async fn reset_list(client: &impl super::HttpClient, id: &str) -> Result<(), super::ApiError> {
     super::api_post_empty(
         client,
         &format!("{}/lists/{id}/reset", super::API_BASE),
@@ -52,10 +49,7 @@ pub async fn update_list(
     super::api_put(client, &format!("{}/lists/{id}", super::API_BASE), req).await
 }
 
-pub async fn delete_list(
-    client: &impl super::HttpClient,
-    id: &str,
-) -> Result<(), super::ApiError> {
+pub async fn delete_list(client: &impl super::HttpClient, id: &str) -> Result<(), super::ApiError> {
     super::api_delete(client, &format!("{}/lists/{id}", super::API_BASE)).await
 }
 
@@ -63,7 +57,11 @@ pub async fn fetch_sublists(
     client: &impl super::HttpClient,
     parent_id: &str,
 ) -> Result<Vec<List>, super::ApiError> {
-    super::api_get(client, &format!("{}/lists/{parent_id}/sublists", super::API_BASE)).await
+    super::api_get(
+        client,
+        &format!("{}/lists/{parent_id}/sublists", super::API_BASE),
+    )
+    .await
 }
 
 pub async fn create_sublist(

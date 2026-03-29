@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use crate::models::{ContainerStatus, ListType, ListFeature};
 use crate::deserializers::default_config;
+use crate::models::{ContainerStatus, ListFeature, ListType};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateContainerRequest {

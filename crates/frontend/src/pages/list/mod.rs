@@ -510,7 +510,10 @@ fn make_list_tag_toggle(
     })
 }
 
-fn make_move_callback(client: GlooClient, items: RwSignal<Vec<Item>>) -> Callback<(String, String)> {
+fn make_move_callback(
+    client: GlooClient,
+    items: RwSignal<Vec<Item>>,
+) -> Callback<(String, String)> {
     Callback::new(move |(item_id, target_list_id): (String, String)| {
         items.update(|list| list.retain(|i| i.id != item_id));
         let client = client.clone();

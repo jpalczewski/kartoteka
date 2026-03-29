@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use crate::deserializers::{bool_from_number, u32_from_number};
 use super::list::ListType;
+use crate::deserializers::{bool_from_number, u32_from_number};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {

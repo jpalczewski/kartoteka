@@ -1,5 +1,5 @@
+use crate::models::{Container, Item, List, ListFeature};
 use serde::{Deserialize, Serialize};
-use crate::models::{Item, ListFeature, Container, List};
 
 /// Response from GET /api/lists/:list_id/items/:id
 #[derive(Debug, Clone, Serialize, Deserialize)]

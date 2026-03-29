@@ -4,7 +4,11 @@ pub async fn fetch_items(
     client: &impl super::HttpClient,
     list_id: &str,
 ) -> Result<Vec<Item>, super::ApiError> {
-    super::api_get(client, &format!("{}/lists/{list_id}/items", super::API_BASE)).await
+    super::api_get(
+        client,
+        &format!("{}/lists/{list_id}/items", super::API_BASE),
+    )
+    .await
 }
 
 pub async fn fetch_item_detail(
@@ -24,7 +28,12 @@ pub async fn create_item(
     list_id: &str,
     req: &CreateItemRequest,
 ) -> Result<Item, super::ApiError> {
-    super::api_post(client, &format!("{}/lists/{list_id}/items", super::API_BASE), req).await
+    super::api_post(
+        client,
+        &format!("{}/lists/{list_id}/items", super::API_BASE),
+        req,
+    )
+    .await
 }
 
 pub async fn update_item(
@@ -46,7 +55,11 @@ pub async fn delete_item(
     list_id: &str,
     id: &str,
 ) -> Result<(), super::ApiError> {
-    super::api_delete(client, &format!("{}/lists/{list_id}/items/{id}", super::API_BASE)).await
+    super::api_delete(
+        client,
+        &format!("{}/lists/{list_id}/items/{id}", super::API_BASE),
+    )
+    .await
 }
 
 pub async fn move_item(
@@ -55,7 +68,12 @@ pub async fn move_item(
     target_list_id: &str,
 ) -> Result<Item, super::ApiError> {
     let body = serde_json::json!({ "target_list_id": target_list_id });
-    super::api_patch(client, &format!("{}/items/{item_id}/move", super::API_BASE), &body).await
+    super::api_patch(
+        client,
+        &format!("{}/items/{item_id}/move", super::API_BASE),
+        &body,
+    )
+    .await
 }
 
 pub async fn fetch_calendar_counts(

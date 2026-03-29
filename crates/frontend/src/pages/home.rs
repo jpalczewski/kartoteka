@@ -98,8 +98,9 @@ pub fn HomePage() -> impl IntoView {
                 .iter()
                 .any(|l| l.list_id == list_id && l.tag_id == tag_id);
             if has_tag {
-                list_tag_links
-                    .update(|links| links.retain(|l| !(l.list_id == list_id && l.tag_id == tag_id)));
+                list_tag_links.update(|links| {
+                    links.retain(|l| !(l.list_id == list_id && l.tag_id == tag_id))
+                });
                 let client = client.clone();
                 leptos::task::spawn_local(async move {
                     let _ = api::remove_tag_from_list(&client, &list_id, &tag_id).await;

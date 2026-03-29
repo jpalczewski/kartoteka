@@ -10,7 +10,10 @@ pub fn with_item_toggled(items: &[Item], item_id: &str) -> (Vec<Item>, Option<bo
             if item.id == item_id {
                 let toggled = !item.completed;
                 new_completed = Some(toggled);
-                Item { completed: toggled, ..item.clone() }
+                Item {
+                    completed: toggled,
+                    ..item.clone()
+                }
             } else {
                 item.clone()
             }

@@ -79,7 +79,10 @@ pub(crate) fn parse_response<T: serde::de::DeserializeOwned>(
         let code = serde_json::from_str::<kartoteka_shared::ErrorResponse>(&resp.body)
             .ok()
             .and_then(|e| e.code);
-        return Err(ApiError::Http { status: resp.status, code });
+        return Err(ApiError::Http {
+            status: resp.status,
+            code,
+        });
     }
     serde_json::from_str(&resp.body).map_err(|e| ApiError::Parse(e.to_string()))
 }
@@ -90,7 +93,10 @@ pub(crate) fn parse_empty_response(resp: &HttpResponse) -> Result<(), ApiError> 
         let code = serde_json::from_str::<kartoteka_shared::ErrorResponse>(&resp.body)
             .ok()
             .and_then(|e| e.code);
-        return Err(ApiError::Http { status: resp.status, code });
+        return Err(ApiError::Http {
+            status: resp.status,
+            code,
+        });
     }
     Ok(())
 }
@@ -99,7 +105,10 @@ pub(crate) async fn api_get<T: serde::de::DeserializeOwned>(
     client: &impl HttpClient,
     url: &str,
 ) -> Result<T, ApiError> {
-    let resp = client.request(Method::Get, url, None).await.map_err(ApiError::Network)?;
+    let resp = client
+        .request(Method::Get, url, None)
+        .await
+        .map_err(ApiError::Network)?;
     parse_response(&resp)
 }
 
@@ -109,7 +118,10 @@ pub(crate) async fn api_post<T: serde::de::DeserializeOwned>(
     body: &impl serde::Serialize,
 ) -> Result<T, ApiError> {
     let json = serde_json::to_string(body).map_err(|e| ApiError::Parse(e.to_string()))?;
-    let resp = client.request(Method::Post, url, Some(&json)).await.map_err(ApiError::Network)?;
+    let resp = client
+        .request(Method::Post, url, Some(&json))
+        .await
+        .map_err(ApiError::Network)?;
     parse_response(&resp)
 }
 
@@ -119,7 +131,10 @@ pub(crate) async fn api_post_empty(
     body: &impl serde::Serialize,
 ) -> Result<(), ApiError> {
     let json = serde_json::to_string(body).map_err(|e| ApiError::Parse(e.to_string()))?;
-    let resp = client.request(Method::Post, url, Some(&json)).await.map_err(ApiError::Network)?;
+    let resp = client
+        .request(Method::Post, url, Some(&json))
+        .await
+        .map_err(ApiError::Network)?;
     parse_empty_response(&resp)
 }
 
@@ -129,7 +144,10 @@ pub(crate) async fn api_put<T: serde::de::DeserializeOwned>(
     body: &impl serde::Serialize,
 ) -> Result<T, ApiError> {
     let json = serde_json::to_string(body).map_err(|e| ApiError::Parse(e.to_string()))?;
-    let resp = client.request(Method::Put, url, Some(&json)).await.map_err(ApiError::Network)?;
+    let resp = client
+        .request(Method::Put, url, Some(&json))
+        .await
+        .map_err(ApiError::Network)?;
     parse_response(&resp)
 }
 
@@ -139,7 +157,10 @@ pub(crate) async fn api_put_empty(
     body: &impl serde::Serialize,
 ) -> Result<(), ApiError> {
     let json = serde_json::to_string(body).map_err(|e| ApiError::Parse(e.to_string()))?;
-    let resp = client.request(Method::Put, url, Some(&json)).await.map_err(ApiError::Network)?;
+    let resp = client
+        .request(Method::Put, url, Some(&json))
+        .await
+        .map_err(ApiError::Network)?;
     parse_empty_response(&resp)
 }
 
@@ -149,15 +170,18 @@ pub(crate) async fn api_patch<T: serde::de::DeserializeOwned>(
     body: &impl serde::Serialize,
 ) -> Result<T, ApiError> {
     let json = serde_json::to_string(body).map_err(|e| ApiError::Parse(e.to_string()))?;
-    let resp = client.request(Method::Patch, url, Some(&json)).await.map_err(ApiError::Network)?;
+    let resp = client
+        .request(Method::Patch, url, Some(&json))
+        .await
+        .map_err(ApiError::Network)?;
     parse_response(&resp)
 }
 
-pub(crate) async fn api_delete(
-    client: &impl HttpClient,
-    url: &str,
-) -> Result<(), ApiError> {
-    let resp = client.request(Method::Delete, url, None).await.map_err(ApiError::Network)?;
+pub(crate) async fn api_delete(client: &impl HttpClient, url: &str) -> Result<(), ApiError> {
+    let resp = client
+        .request(Method::Delete, url, None)
+        .await
+        .map_err(ApiError::Network)?;
     parse_empty_response(&resp)
 }
 
@@ -243,7 +267,10 @@ mod tests {
 
     impl MockClient {
         fn ok(body: &str) -> Self {
-            Self { status: 200, body: body.to_string() }
+            Self {
+                status: 200,
+                body: body.to_string(),
+            }
         }
         fn error(status: u16, code: &str) -> Self {
             Self {
@@ -252,7 +279,10 @@ mod tests {
             }
         }
         fn no_content() -> Self {
-            Self { status: 204, body: String::new() }
+            Self {
+                status: 204,
+                body: String::new(),
+            }
         }
     }
 
@@ -263,13 +293,19 @@ mod tests {
             _url: &str,
             _body: Option<&str>,
         ) -> Result<HttpResponse, String> {
-            Ok(HttpResponse { status: self.status, body: self.body.clone() })
+            Ok(HttpResponse {
+                status: self.status,
+                body: self.body.clone(),
+            })
         }
     }
 
     #[tokio::test]
     async fn test_parse_response_success() {
-        let resp = HttpResponse { status: 200, body: r#"[1, 2, 3]"#.to_string() };
+        let resp = HttpResponse {
+            status: 200,
+            body: r#"[1, 2, 3]"#.to_string(),
+        };
         let result: Result<Vec<i32>, ApiError> = parse_response(&resp);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), vec![1, 2, 3]);

@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use crate::constants::{FEATURE_QUANTITY, FEATURE_DEADLINES};
+use crate::constants::{FEATURE_DEADLINES, FEATURE_QUANTITY};
 use crate::deserializers::{bool_from_number, features_from_json};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ListFeature {
