@@ -24,6 +24,29 @@ fn update_item_value_field_is_some_some() {
     assert!(matches!(req.deadline, Some(Some(ref d)) if d == "2024-12-31"));
 }
 
+// --- UpdateItemRequest description sentinel convention ---
+
+#[test]
+fn update_item_description_absent_is_none() {
+    // None = don't touch description
+    let req: UpdateItemRequest = serde_json::from_str(r#"{}"#).unwrap();
+    assert!(req.description.is_none());
+}
+
+#[test]
+fn update_item_description_empty_string_is_clear_sentinel() {
+    // Some("") = clear description (set NULL in DB). Empty string is the sentinel
+    // because serde cannot distinguish Option<Option<T>> null from absent.
+    let req: UpdateItemRequest = serde_json::from_str(r#"{"description": ""}"#).unwrap();
+    assert!(matches!(req.description, Some(ref d) if d.is_empty()));
+}
+
+#[test]
+fn update_item_description_value_is_some_string() {
+    let req: UpdateItemRequest = serde_json::from_str(r#"{"description": "hello"}"#).unwrap();
+    assert!(matches!(req.description, Some(ref d) if d == "hello"));
+}
+
 // --- DateItem -> Item conversion ---
 
 #[test]

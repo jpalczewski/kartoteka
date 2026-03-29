@@ -1,4 +1,4 @@
-CREATE TABLE user_settings (
+CREATE TABLE IF NOT EXISTS user_settings (
     user_id TEXT NOT NULL,
     key TEXT NOT NULL,
     value TEXT NOT NULL,
@@ -6,9 +6,10 @@ CREATE TABLE user_settings (
     PRIMARY KEY (user_id, key)
 );
 
--- Migrate locale data from old table
-INSERT INTO user_settings (user_id, key, value, updated_at)
+-- Migrate locale data from old table (if it exists and hasn't been migrated yet)
+INSERT OR IGNORE INTO user_settings (user_id, key, value, updated_at)
 SELECT user_id, 'locale', '"' || locale || '"', updated_at
-FROM user_preferences;
+FROM user_preferences
+WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_preferences');
 
-DROP TABLE user_preferences;
+DROP TABLE IF EXISTS user_preferences;

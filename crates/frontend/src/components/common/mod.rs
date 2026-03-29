@@ -5,5 +5,6 @@ pub mod editable_color;
 pub mod editable_description;
 pub mod editable_title;
 pub mod error_display;
+pub mod inline_confirm_button;
 pub mod loading;
 pub mod toast_container;

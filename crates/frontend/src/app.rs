@@ -8,9 +8,9 @@ use crate::components::sync_locale::SyncLocale;
 use crate::components::toast_container::ToastContainer;
 use crate::pages::{
     calendar::CalendarPage, calendar::day::CalendarDayPage, container::ContainerPage,
-    home::HomePage, list::ListPage, login::LoginPage, oauth_consent::OAuthConsentPage,
-    settings::McpRedirect, settings::SettingsPage, signup::SignupPage, tags::TagsPage,
-    tags::detail::TagDetailPage, today::TodayPage,
+    home::HomePage, item_detail::ItemDetailPage, list::ListPage, login::LoginPage,
+    oauth_consent::OAuthConsentPage, settings::McpRedirect, settings::SettingsPage,
+    signup::SignupPage, tags::TagsPage, tags::detail::TagDetailPage, today::TodayPage,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -102,6 +102,7 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/calendar/:date") view=CalendarDayPage/>
                         <Route path=path!("/tags") view=TagsPage/>
                         <Route path=path!("/tags/:id") view=TagDetailPage/>
+                        <Route path=path!("/lists/:list_id/items/:id") view=ItemDetailPage/>
                         <Route path=path!("/lists/:id") view=ListPage/>
                         <Route path=path!("/containers/:id") view=ContainerPage/>
                     </Routes>
