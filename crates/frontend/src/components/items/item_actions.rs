@@ -47,6 +47,7 @@ pub fn create_item_actions(
         let previous = items.get_untracked();
         let (new_items, new_completed) =
             crate::state::transforms::with_item_toggled(&previous, &item_id);
+        let Some(new_completed) = new_completed else { return }; // item not found — skip
         items.set(new_items);
 
         let lid = lid_toggle.clone();
@@ -80,39 +81,29 @@ pub fn create_item_actions(
     let lid_desc = list_id.clone();
     let client_desc = client.clone();
     let on_description_save = Callback::new(move |(item_id, new_desc): (String, String)| {
+        let previous = items.get_untracked();
         items.update(|list| {
             if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
-                item.description = if new_desc.is_empty() {
-                    None
-                } else {
-                    Some(new_desc.clone())
-                };
+                item.description = if new_desc.is_empty() { None } else { Some(new_desc.clone()) };
             }
         });
         let lid = lid_desc.clone();
         let client = client_desc.clone();
         leptos::task::spawn_local(async move {
             let req = UpdateItemRequest {
-                title: None,
                 description: Some(new_desc), // empty string = clear (sentinel)
-                completed: None,
-                position: None,
-                quantity: None,
-                actual_quantity: None,
-                unit: None,
-                start_date: None,
-                start_time: None,
-                deadline: None,
-                deadline_time: None,
-                hard_deadline: None,
+                ..Default::default()
             };
-            let _ = api::update_item(&client, &lid, &item_id, &req).await;
+            if api::update_item(&client, &lid, &item_id, &req).await.is_err() {
+                items.set(previous); // rollback
+            }
         });
     });
 
     let lid_qty = list_id.clone();
     let client_qty = client.clone();
     let on_quantity_change = Callback::new(move |(item_id, new_actual): (String, i32)| {
+        let previous = items.get_untracked();
         items.update(|list| {
             if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
                 item.actual_quantity = Some(new_actual);
@@ -127,20 +118,12 @@ pub fn create_item_actions(
         let client = client_qty.clone();
         leptos::task::spawn_local(async move {
             let req = UpdateItemRequest {
-                title: None,
-                description: None,
-                completed: None,
-                position: None,
-                quantity: None,
                 actual_quantity: Some(new_actual),
-                unit: None,
-                start_date: None,
-                start_time: None,
-                deadline: None,
-                deadline_time: None,
-                hard_deadline: None,
+                ..Default::default()
             };
-            let _ = api::update_item(&client, &lid, &iid, &req).await;
+            if api::update_item(&client, &lid, &iid, &req).await.is_err() {
+                items.set(previous); // rollback
+            }
         });
     });
 
@@ -164,6 +147,7 @@ pub fn create_item_actions(
                 time_val.clone().map(Some) // Some(Some("HH:MM")) or None (don't change)
             };
 
+            let previous = items.get_untracked();
             // Optimistic update
             items.update(|list| {
                 if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
@@ -194,20 +178,7 @@ pub fn create_item_actions(
             let dt = date_type.clone();
             let client = client_date.clone();
             leptos::task::spawn_local(async move {
-                let mut req = UpdateItemRequest {
-                    title: None,
-                    description: None,
-                    completed: None,
-                    position: None,
-                    quantity: None,
-                    actual_quantity: None,
-                    unit: None,
-                    start_date: None,
-                    start_time: None,
-                    deadline: None,
-                    deadline_time: None,
-                    hard_deadline: None,
-                };
+                let mut req = UpdateItemRequest::default();
                 match dt.as_str() {
                     "start" => {
                         req.start_date = date_opt;
@@ -222,7 +193,9 @@ pub fn create_item_actions(
                     }
                     _ => {}
                 }
-                let _ = api::update_item(&client, &lid, &iid, &req).await;
+                if api::update_item(&client, &lid, &iid, &req).await.is_err() {
+                    items.set(previous); // rollback
+                }
             });
         },
     );

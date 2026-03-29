@@ -1,15 +1,15 @@
 use kartoteka_shared::Item;
 
-/// Toggle an item's completed status. Returns (new list, new completed value).
-/// If item_id not found, returns unchanged list and false.
-pub fn with_item_toggled(items: &[Item], item_id: &str) -> (Vec<Item>, bool) {
-    let mut new_completed = false;
+/// Toggle an item's completed status.
+/// Returns (new list, Some(new_completed)) if the item was found, or (unchanged list, None) if not.
+pub fn with_item_toggled(items: &[Item], item_id: &str) -> (Vec<Item>, Option<bool>) {
+    let mut new_completed: Option<bool> = None;
     let result = items
         .iter()
         .map(|item| {
             if item.id == item_id {
                 let toggled = !item.completed;
-                new_completed = toggled;
+                new_completed = Some(toggled);
                 Item { completed: toggled, ..item.clone() }
             } else {
                 item.clone()
@@ -54,7 +54,7 @@ mod tests {
     fn test_toggle_item() {
         let items = vec![make_item("1", false), make_item("2", true)];
         let (result, new_val) = with_item_toggled(&items, "1");
-        assert!(new_val); // was false, now true
+        assert_eq!(new_val, Some(true)); // was false, now true
         assert!(result[0].completed);
         assert!(result[1].completed); // unchanged
     }
@@ -63,7 +63,7 @@ mod tests {
     fn test_toggle_item_true_to_false() {
         let items = vec![make_item("1", true)];
         let (result, new_val) = with_item_toggled(&items, "1");
-        assert!(!new_val); // was true, now false
+        assert_eq!(new_val, Some(false)); // was true, now false
         assert!(!result[0].completed);
     }
 
@@ -79,8 +79,8 @@ mod tests {
     fn test_toggle_missing_id() {
         let items = vec![make_item("1", false)];
         let (result, new_val) = with_item_toggled(&items, "nonexistent");
-        assert!(!new_val); // default false
-        assert_eq!(result[0].completed, false); // unchanged
+        assert_eq!(new_val, None); // item not found — no API call should be made
+        assert!(!result[0].completed); // unchanged
     }
 
     #[test]
