@@ -147,8 +147,10 @@ pub fn sorted_by_position<T: HasPosition>(items: &[T]) -> Vec<T> { ... }
 ```rust
 let on_toggle = move |item_id: String| {
     let previous = items.get_untracked();
-    items.set(with_item_toggled(&previous, &item_id));
+    let (new_items, new_completed) = with_item_toggled(&previous, &item_id);
+    items.set(new_items);
     spawn_local(async move {
+        let body = UpdateItemRequest { completed: Some(new_completed), ..Default::default() };
         if api::update_item(&client, &item_id, &body).await.is_err() {
             items.set(previous); // rollback = restore old snapshot
         }
