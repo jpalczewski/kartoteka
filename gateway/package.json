@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "prebuild": "cp -r ../locales ./locales",
-    "predev": "cp -r ../locales ./locales",
+    "prebuild": "cp -r ../locales ./locales && cp ../locales/en/mcp.ftl ./locales/en/mcp.txt && cp ../locales/pl/mcp.ftl ./locales/pl/mcp.txt",
+    "predev": "cp -r ../locales ./locales && cp ../locales/en/mcp.ftl ./locales/en/mcp.txt && cp ../locales/pl/mcp.ftl ./locales/pl/mcp.txt",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit"

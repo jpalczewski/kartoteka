@@ -1,39 +1,17 @@
-name: Release Please
+name: Deploy Dev
 
 on:
   push:
     branches:
-      - main
-  workflow_dispatch:
+      - develop
 
 jobs:
-  release-please:
-    name: Release Please
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    concurrency:
-      group: release-please-${{ github.ref }}
-      cancel-in-progress: false
-    outputs:
-      releases_created: ${{ steps.release.outputs.releases_created }}
-    steps:
-      - id: release
-        uses: googleapis/release-please-action@v4
-        with:
-          release-type: simple
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-
-  deploy-prod:
-    name: Deploy Production
-    needs: release-please
-    if: needs.release-please.outputs.releases_created == 'true'
+  deploy-dev:
+    name: Deploy Dev Environment
     runs-on: ubuntu-latest
     concurrency:
-      group: deploy-prod
-      cancel-in-progress: false
+      group: deploy-dev
+      cancel-in-progress: true
     env:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -47,22 +25,22 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
 
-      - name: Run D1 migrations (API)
+      - name: Run D1 migrations (API dev)
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           workingDirectory: crates/api
-          command: d1 migrations apply kartoteka-db --remote
+          command: d1 migrations apply kartoteka-dev --env dev --remote
 
       - name: Install worker-build
         run: cargo install worker-build
 
-      - name: Deploy API Worker
+      - name: Deploy API Worker (dev)
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           workingDirectory: crates/api
-          command: deploy
+          command: deploy --env dev
 
       # --- Gateway Worker (TypeScript) ---
       - name: Setup Node.js
@@ -81,19 +59,20 @@ jobs:
       - name: Install gateway deps
         run: cd gateway && npm ci
 
-      - name: Deploy Gateway Worker
+      - name: Deploy Gateway Worker (dev)
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           workingDirectory: gateway
-          command: deploy
+          command: deploy --env dev
 
-      - name: Run Gateway auth migrations
+      - name: Run Gateway auth migrations (dev)
         env:
-          MIGRATE_SECRET: ${{ secrets.MIGRATE_SECRET }}
+          GATEWAY_DEV_URL: https://kartoteka-gateway-dev.jpalczewski.workers.dev
+          MIGRATE_SECRET_DEV: ${{ secrets.MIGRATE_SECRET_DEV }}
         run: |
-          curl -sf -X POST https://kartoteka-gateway.jpalczewski.workers.dev/migrate \
-            -H "x-migrate-secret: $MIGRATE_SECRET"
+          curl -sf -X POST "$GATEWAY_DEV_URL/migrate" \
+            -H "x-migrate-secret: $MIGRATE_SECRET_DEV"
 
       # --- Frontend (Leptos CSR → CF Pages) ---
       - name: Install trunk
@@ -102,13 +81,13 @@ jobs:
       - name: Install frontend deps
         run: cd crates/frontend && npm install
 
-      - name: Build frontend
+      - name: Build frontend (dev)
         env:
-          API_BASE_URL: https://kartoteka-gateway.jpalczewski.workers.dev/api
+          API_BASE_URL: https://kartoteka-gateway-dev.jpalczewski.workers.dev/api
         run: cd crates/frontend && trunk build --release
 
-      - name: Deploy frontend to CF Pages
+      - name: Deploy frontend to CF Pages (dev branch)
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: pages deploy crates/frontend/dist --project-name=kartoteka --branch=main --commit-dirty=true
+          command: pages deploy crates/frontend/dist --project-name=kartoteka --branch=dev --commit-dirty=true

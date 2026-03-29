@@ -23,6 +23,9 @@ dev-api:
 
 # Uruchom Gateway worker lokalnie
 dev-gateway:
+    cp -r locales gateway/locales
+    cp locales/en/mcp.ftl gateway/locales/en/mcp.txt
+    cp locales/pl/mcp.ftl gateway/locales/pl/mcp.txt
     cd gateway && npx wrangler dev --env local --local --port 8788
 
 # Uruchom frontend (proxy config in Trunk.toml)
@@ -98,6 +101,8 @@ deploy: deploy-migrate deploy-api deploy-gateway migrate-gateway-prod deploy-fro
 
 deploy-gateway-dev:
     cp -r locales gateway/locales
+    cp locales/en/mcp.ftl gateway/locales/en/mcp.txt
+    cp locales/pl/mcp.ftl gateway/locales/pl/mcp.txt
     cd gateway && npx wrangler deploy --env dev
 
 deploy-dev: migrate-dev deploy-api-dev deploy-gateway-dev migrate-gateway-dev deploy-frontend-dev
@@ -113,6 +118,8 @@ deploy-api-dev:
 
 deploy-gateway:
     cp -r locales gateway/locales
+    cp locales/en/mcp.ftl gateway/locales/en/mcp.txt
+    cp locales/pl/mcp.ftl gateway/locales/pl/mcp.txt
     cd gateway && npx wrangler deploy
 
 deploy-frontend:
