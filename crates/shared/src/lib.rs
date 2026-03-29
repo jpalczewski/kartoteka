@@ -292,7 +292,7 @@ pub struct CreateItemRequest {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UpdateItemRequest {
     pub title: Option<String>,
-    pub description: Option<Option<String>>,
+    pub description: Option<String>,
     pub completed: Option<bool>,
     pub position: Option<i32>,
     pub quantity: Option<i32>,

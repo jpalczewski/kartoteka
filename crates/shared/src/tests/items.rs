@@ -24,31 +24,27 @@ fn update_item_value_field_is_some_some() {
     assert!(matches!(req.deadline, Some(Some(ref d)) if d == "2024-12-31"));
 }
 
-// --- UpdateItemRequest description (Option<Option<String>>) ---
+// --- UpdateItemRequest description sentinel convention ---
 
 #[test]
 fn update_item_description_absent_is_none() {
+    // None = don't touch description
     let req: UpdateItemRequest = serde_json::from_str(r#"{}"#).unwrap();
-    assert!(req.description.is_none(), "absent = don't touch");
+    assert!(req.description.is_none());
 }
 
 #[test]
-fn update_item_description_null_is_none() {
-    // serde collapses Option<Option<String>>: null == absent == None (outer).
-    // This means sending {"description": null} CANNOT clear the description —
-    // the backend sees None and skips the update entirely.
-    // Actual clearing requires a custom deserializer or a sentinel value.
-    let req: UpdateItemRequest = serde_json::from_str(r#"{"description": null}"#).unwrap();
-    assert!(
-        req.description.is_none(),
-        "null also becomes None — cannot clear via null JSON"
-    );
+fn update_item_description_empty_string_is_clear_sentinel() {
+    // Some("") = clear description (set NULL in DB). Empty string is the sentinel
+    // because serde cannot distinguish Option<Option<T>> null from absent.
+    let req: UpdateItemRequest = serde_json::from_str(r#"{"description": ""}"#).unwrap();
+    assert!(matches!(req.description, Some(ref d) if d.is_empty()));
 }
 
 #[test]
-fn update_item_description_value_is_some_some() {
+fn update_item_description_value_is_some_string() {
     let req: UpdateItemRequest = serde_json::from_str(r#"{"description": "hello"}"#).unwrap();
-    assert!(matches!(req.description, Some(Some(ref d)) if d == "hello"));
+    assert!(matches!(req.description, Some(ref d) if d == "hello"));
 }
 
 // --- DateItem -> Item conversion ---

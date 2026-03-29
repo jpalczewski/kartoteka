@@ -133,7 +133,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                 />
                             </div>
 
-                            // Description (None from EditableDescription means "clear")
+                            // Description — empty string is the sentinel for "clear"
                             <EditableDescription
                                 value=item.description.clone()
                                 on_save=Callback::new(move |new_desc: Option<String>| {
@@ -142,7 +142,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                         item_id(),
                                         toast.clone(),
                                         UpdateItemRequest {
-                                            description: Some(new_desc),
+                                            description: Some(new_desc.unwrap_or_default()),
                                             ..Default::default()
                                         },
                                     );

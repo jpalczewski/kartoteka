@@ -227,9 +227,11 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     }
 
     if let Some(description) = &body.description {
-        let desc_val: JsValue = match description {
-            Some(s) => s.clone().into(),
-            None => JsValue::NULL,
+        // Empty string is the sentinel for "clear description" (set NULL in DB).
+        let desc_val: JsValue = if description.is_empty() {
+            JsValue::NULL
+        } else {
+            description.clone().into()
         };
         d1.prepare("UPDATE items SET description = ?1, updated_at = datetime('now') WHERE id = ?2")
             .bind(&[desc_val, id.clone().into()])?

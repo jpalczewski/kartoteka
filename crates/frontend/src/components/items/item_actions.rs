@@ -98,11 +98,7 @@ pub fn create_item_actions(
         leptos::task::spawn_local(async move {
             let req = UpdateItemRequest {
                 title: None,
-                description: Some(if new_desc.is_empty() {
-                    None
-                } else {
-                    Some(new_desc)
-                }),
+                description: Some(new_desc), // empty string = clear (sentinel)
                 completed: None,
                 position: None,
                 quantity: None,
