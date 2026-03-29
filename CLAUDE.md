@@ -8,7 +8,7 @@ Kartoteka — aplikacja todo/listy na Cloudflare Workers (Rust API + TypeScript 
 
 - **Monorepo**: Cargo workspace (`crates/shared`, `crates/api`, `crates/frontend`) + `gateway/` (TypeScript)
 - **API**: CF Worker z `worker` crate (0.7+), D1 database, `sqlx-d1` (0.3+)
-- **Frontend**: Leptos 0.7 CSR, kompilowany do WASM przez Trunk, serwowany z CF Pages
+- **Frontend**: Leptos 0.8 CSR, kompilowany do WASM przez Trunk, serwowany z CF Pages
 - **Auth**: Better Auth — cookie-based sessions, email+password, GitHub OAuth optional
 - **Gateway**: TypeScript Worker w `gateway/` — Hono + Better Auth + MCP server (5 tools), serwuje `/auth/*`, `/mcp/*`, proxy do API Worker via CF service binding
 
@@ -31,15 +31,24 @@ Kartoteka — aplikacja todo/listy na Cloudflare Workers (Rust API + TypeScript 
 - `/auth/api/get-session` zwraca fake sesję gdy `DEV_AUTH_USER_ID` jest ustawiony
 
 ### D1 / SQLite
-- D1 zwraca boolean jako float (`0.0`/`1.0`) — `Item.completed` ma custom deserializer `bool_from_number` w `shared/src/lib.rs`
+- D1 zwraca boolean jako float (`0.0`/`1.0`) — `Item.completed` ma custom deserializer `bool_from_number` w `shared/src/deserializers.rs`
 - IDs jako UUID v4 (TEXT), timestampy jako TEXT (`datetime('now')`)
 - Migracje w `crates/api/migrations/`, zarządzane przez `wrangler d1 migrations`
 
 ### Frontend
 - `LocalResource` zamiast `Resource` — futures z `gloo-net` nie są `Send` (WASM)
-- `LocalResource` wrappuje w `SendWrapper` — dereferencja przez `&*result` w match
-- Optymistyczne update'y w list page (toggle/delete aktualizują lokalny `RwSignal`, API call w tle)
-- `gloo-net` 0.6: `Request::get()` zwraca `RequestBuilder`, `.body()` zwraca `Result<Request>`
+- Leptos 0.8: `LocalResource::get()` zwraca `Option<T>` bezpośrednio — pattern: `if let Some(Ok(data)) = resource.get()`
+- Brak `SendWrapper` — usunięty w Leptos 0.8, `LocalResource` nie wymaga wrappowania
+- HTTP: `HttpClient` trait w `crates/frontend/src/api/client.rs` — `GlooClient` (WASM) podawany przez `provide_context(GlooClient)` w `app.rs`, pobierany przez `use_context::<GlooClient>()`
+- Optymistyczne update'y ze snapshot+rollback: `let previous = signal.get_untracked()` → optymistyczna zmiana → `signal.set(previous)` przy błędzie
+- State transforms w `crates/frontend/src/state/transforms.rs` — `with_item_toggled`, `without_item` (pure functions, testowalne natywnie)
+
+### Shared crate (`crates/shared/`)
+- Struktura modułów: `models/` (Container, List, Item, Tag, Settings), `dto/` (requests.rs, responses.rs), `deserializers.rs` (pub(crate)), `constants.rs`, `date_utils.rs`
+- `lib.rs` reeksportuje wszystko flat (`pub use models::*; pub use dto::*; pub use date_utils::*`) — importy w `crates/api` działają bez zmian
+- `date_utils.rs` — 14 pub funkcji oparte na `chrono` (parse_date, add_days, week_range, month_grid_range, is_overdue, sort_by_deadline, itd.)
+- `chrono = { version = "0.4.44", default-features = false, features = ["alloc"] }` — WASM-safe, bez std::time clock
+- `HomeData`, `ContainerChildrenResponse`, `ErrorResponse` itp. w `dto/responses.rs`
 
 ### Workers API
 - `worker` crate 0.7+ wymagany przez `worker-build`
@@ -81,7 +90,7 @@ just deploy-dev   # Deploy dev environment
 
 ## Dokumentacja i aktualne wersje bibliotek
 
-Projekt używa szybko ewoluujących bibliotek (Leptos 0.7, gloo-net 0.6, worker 0.7+,
+Projekt używa szybko ewoluujących bibliotek (Leptos 0.8, gloo-net 0.7, worker 0.7+,
 sqlx-d1 0.3+, DaisyUI 5). Przed pisaniem kodu sprawdzaj aktualne API przez context7 MCP:
 
 - `mcp__context7__resolve-library-id` — znajdź ID biblioteki (np. "leptos", "gloo-net")
@@ -91,11 +100,12 @@ Używaj tego proaktywnie, nie czekaj na błędy kompilacji.
 
 ## Testy
 
-- **Unit testy** (`crates/shared/src/tests/`): deserializery D1, typy, serde — `cargo test -p kartoteka-shared`
+- **Unit testy** (`crates/shared/src/tests/`, `crates/shared/src/date_utils.rs`): deserializery D1, typy, serde, date_utils — `cargo test -p kartoteka-shared`
+- **Frontend testy** (`crates/frontend/src/`): API helpers (MockClient + tokio::test), state transforms — `cargo test -p kartoteka-frontend --lib`; `[[bin]] test = false` w Cargo.toml (zapobiega kompilacji WASM binary na native target)
 - **i18n testy** (`crates/i18n/tests/`): kompletność tłumaczeń PL/EN, parsowanie FTL, pokrycie MCP
 - **E2E** (`tests/e2e/`): Playwright, auth flow — `just test-e2e` (wymaga `just dev`)
-- **Brak testów**: `crates/api` (wymaga D1/Worker runtime), `crates/frontend` (WASM CSR)
-- CI: `cargo test --workspace` (shared + i18n)
+- **Brak testów**: `crates/api` (wymaga D1/Worker runtime)
+- CI: `cargo test --workspace` (shared + frontend + i18n)
 
 ## CI/CD
 
