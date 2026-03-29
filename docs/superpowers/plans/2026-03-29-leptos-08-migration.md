@@ -96,7 +96,14 @@ leptos_meta = "0.8"
 # REMOVE send_wrapper line entirely
 ```
 
-- [ ] **Step 3: Run cargo check to verify compilation**
+- [ ] **Step 3: Verify LocalResource API change**
+
+Before fixing deref patterns, confirm Leptos 0.8's `LocalResource::get()` behavior. Check docs or changelog:
+Run: `cargo doc -p leptos --no-deps --target wasm32-unknown-unknown 2>&1 | tail -5`
+
+Then check the `LocalResource` type signature. If `get()` still returns `SendWrapper<T>`, the deref changes in Tasks 1.2-1.3 need adjustment.
+
+- [ ] **Step 4: Run cargo check to verify compilation**
 
 Run: `cd /Users/erxyi/Projekty/kartoteka && cargo check -p kartoteka-frontend --target wasm32-unknown-unknown 2>&1 | head -50`
 
@@ -128,14 +135,11 @@ let session_res = LocalResource::new(|| async { SendWrapper::new(api::get_sessio
 let session_res = LocalResource::new(|| api::get_session());
 ```
 
-Line 29: Change:
-```rust
-// FROM:
-match &**s {
-// TO:
-match s.as_ref() {
-```
-Note: In Leptos 0.8, `LocalResource::get()` returns `Option<T>` directly. The `s` in the closure from `.map(|s| ...)` is the inner `T` (which is `Option<SessionInfo>`), so we use `s.as_ref()` to get `Option<&SessionInfo>` for pattern matching.
+Line 29: Change deref pattern. The exact fix depends on what `LocalResource::get()` returns in 0.8:
+- If it returns `Option<T>` directly: `match s.as_ref() {` (s is `Option<SessionInfo>`)
+- If the wrapping changed but still needs one deref: `match &*s {`
+
+Verify by checking the compiler error after removing `SendWrapper::new()` — the error message will tell you what type `s` actually is. Adjust the pattern match accordingly.
 
 - [ ] **Step 2: Verify nav.rs compiles**
 
@@ -168,7 +172,17 @@ let session = LocalResource::new(move || SendWrapper::new(api::get_session()));
 let session = LocalResource::new(move || api::get_session());
 ```
 
-Also update any `&**s` or `&*s` dereference patterns on `session.get()` to direct access.
+Also fix line 95 — the deref on session result:
+```rust
+// FROM (line 94-95):
+session.get().map(|result| {
+    let session_info = (*result).clone();
+// TO:
+session.get().map(|result| {
+    let session_info = result.clone();  // no deref needed in 0.8
+```
+
+Update any remaining `&**s` or `&*s` dereference patterns on `session.get()` to direct access.
 
 - [ ] **Step 2: Verify compiles**
 
@@ -293,7 +307,21 @@ Run: `grep -r "send_wrapper\|SendWrapper" crates/frontend/src/`
 
 Expected: No matches.
 
-- [ ] **Step 5: Commit cleanup if any**
+- [ ] **Step 5: (Optional) Add erase_components RUSTFLAGS**
+
+In `crates/frontend/Trunk.toml`, add under `[build]`:
+```toml
+[build]
+target = "index.html"
+dist = "dist"
+
+[env]
+RUSTFLAGS = "--cfg=erase_components"
+```
+
+This is a Leptos 0.8 compile-time optimization that significantly speeds up dev builds. Verify it works by running `trunk serve` and checking the output compiles without issues.
+
+- [ ] **Step 6: Commit cleanup if any**
 
 ```bash
 git add -A && git commit -m "chore: remove unused wasm-bindgen-futures dep"
@@ -853,7 +881,8 @@ pub struct UpdatePreferencesBody {
 /// Error response body returned by API
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorResponse {
-    pub code: String,
+    #[serde(default)]
+    pub code: Option<String>,
     #[serde(default)]
     pub status: u16,
 }
@@ -876,7 +905,9 @@ pub struct HomeData {
 }
 ```
 
-Note: Check the actual API handler at `crates/api/src/handlers/containers.rs` to verify the exact field names before implementing. The `HomeItem` type can be removed (it was dead code — the API never returned that shape).
+Note: Check the actual API handler at `crates/api/src/handlers/containers.rs` to verify the exact field names before implementing. `HomeItem` is confirmed dead code (not referenced in API or frontend) — remove it from shared.
+
+Also note: `ErrorResponse.code` should be `Option<String>` with `#[serde(default)]` to handle cases where the API returns no code field. The API always sends `code: String`, but defensive deserialization avoids breakage if a non-standard error is returned.
 
 - [ ] **Step 3: Create dto/mod.rs**
 
@@ -962,8 +993,8 @@ mod tests {
 
     #[test]
     fn test_get_today_string() {
-        assert_eq!(get_today_string(2026, 3, 29), "2026-03-29");
-        assert_eq!(get_today_string(2026, 1, 5), "2026-01-05");
+        assert_eq!(get_today_string(2026_i32, 3, 29), "2026-03-29");
+        assert_eq!(get_today_string(2026_i32, 1, 5), "2026-01-05");
     }
 
     #[test]
@@ -1028,9 +1059,8 @@ mod tests {
 
     #[test]
     fn test_relative_date() {
-        assert_eq!(relative_date("2026-03-29", "2026-03-29"), "today");
-        assert_eq!(relative_date("2026-03-30", "2026-03-29"), "tomorrow");
-        assert_eq!(relative_date("2026-03-28", "2026-03-29"), "yesterday");
+        // relative_date returns Polish strings — stays in frontend (presentation logic)
+        // Do NOT move relative_date to shared. Test coverage is here for reference only.
     }
 
     #[test]
@@ -1053,11 +1083,13 @@ Expected: Compilation error (module doesn't exist yet).
 
 Copy all pure functions from `crates/frontend/src/components/common/date_utils.rs` to `crates/shared/src/date_utils.rs`. Modify:
 
-- `get_today_string()` → `get_today_string(year: u32, month: u32, day: u32) -> String`
+- `get_today_string()` → `get_today_string(year: i32, month: u32, day: u32) -> String` (year stays `i32` for consistency with `parse_date`, `days_in_month`, `add_days`)
 - `current_time_hhmm()` → `current_time_hhmm(hours: u32, minutes: u32) -> String`
-- `is_overdue(item, today)` → `is_overdue(item, today, now_time)` (add `now_time: &str` param, pass to `is_overdue_for_date_type`)
-- `is_overdue_for_date_type(...)` → add `now_time: &str` param instead of calling `current_time_hhmm()`
+- `is_overdue(item, today)` → `is_overdue(item, today, now_time)` (add `now_time: &str` param — `is_overdue` calls `current_time_hhmm()` internally for deadline_time comparison)
+- `is_overdue_for_date_type(date_val, completed, today)` → stays unchanged (does NOT call `current_time_hhmm` — only compares date, no time component)
 - `get_today()` — remove (it was just a wrapper around `get_today_string()`)
+- `relative_date()` — stays in frontend (returns Polish strings — presentation logic)
+- `sort_by_deadline()` — move to shared (pure logic, no Polish, no js_sys)
 
 **Do NOT copy** Polish formatting functions (`polish_month_abbr`, `polish_day_of_week`, `polish_day_of_week_full`, `polish_month_name`, `format_polish_date`). Those stay in the frontend.
 
@@ -1244,17 +1276,18 @@ impl HttpClient for GlooClient {
             .headers(headers)
             .credentials(web_sys::RequestCredentials::Include);
 
-        let builder = if let Some(b) = body {
-            builder.body(b).map_err(|e| e.to_string())?
+        // gloo-net: .body() returns Result<Request>, .send() on RequestBuilder also works.
+        // Split into branches to handle the type difference.
+        let resp = if let Some(b) = body {
+            builder.body(b).map_err(|e| e.to_string())?.send().await
         } else {
-            builder
-        };
+            builder.send().await
+        }.map_err(|e| e.to_string())?;
 
-        let resp = builder.send().await.map_err(|e| e.to_string())?;
         let status = resp.status();
-        let body = resp.text().await.map_err(|e| e.to_string())?;
+        let text = resp.text().await.map_err(|e| e.to_string())?;
 
-        Ok(HttpResponse { status, body })
+        Ok(HttpResponse { status, body: text })
     }
 }
 ```
@@ -1513,7 +1546,16 @@ async fn test_create_item_sends_correct_body() {
 }
 ```
 
-Note: These tests run as regular `cargo test` — no WASM target needed, because `MockClient` doesn't use `gloo-net`. The `#[cfg(test)]` modules should use `#[tokio::test]` for async test support. Add `tokio = { version = "1", features = ["macros", "rt"] }` as a dev-dependency.
+**WASM crate test strategy:** The frontend crate has WASM-only deps (`gloo-net`, `web-sys`, `js-sys`). To run tests with `cargo test` (native target), the test module and the API functions it tests must be gated:
+
+1. The `HttpClient` trait, `ApiError`, helper functions (`api_get`, `api_post`, etc.), and per-domain API functions do NOT depend on WASM — they only use the trait. Gate `GlooClient` behind `#[cfg(target_arch = "wasm32")]`.
+2. Tests use `#[cfg(test)]` and `#[tokio::test]` — they compile for native target only.
+3. Add to `Cargo.toml`:
+```toml
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+```
+4. Run: `cargo test -p kartoteka-frontend --lib` — this compiles only the lib (not the WASM binary entry point) for native, runs tests.
 
 - [ ] **Step 3: Run tests**
 
@@ -1664,7 +1706,7 @@ pub fn without_item(items: &[Item], item_id: &str) -> Vec<Item> {
 pub mod transforms;
 ```
 
-Add `pub mod state;` to `crates/frontend/src/main.rs` or wherever the module tree is rooted.
+Add `mod state;` to `crates/frontend/src/main.rs` (alongside existing `mod api; mod app; mod components; mod pages;`).
 
 - [ ] **Step 5: Run tests**
 
