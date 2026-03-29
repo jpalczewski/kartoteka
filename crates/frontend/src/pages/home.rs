@@ -51,10 +51,8 @@ pub fn HomePage() -> impl IntoView {
     });
     let archived_data = RwSignal::new(Vec::<List>::new());
     Effect::new(move |_| {
-        if let Some(data) = archived_res.get() {
-            if let Ok(lists) = data.as_deref() {
-                archived_data.set(lists.to_vec());
-            }
+        if let Some(Ok(lists)) = archived_res.get() {
+            archived_data.set(lists);
         }
     });
 
@@ -65,10 +63,8 @@ pub fn HomePage() -> impl IntoView {
     });
     let list_tag_links = RwSignal::new(Vec::<ListTagLink>::new());
     Effect::new(move |_| {
-        if let Some(data) = links_res.get() {
-            if let Some(links) = data.as_deref().ok().map(|s| s.to_vec()) {
-                list_tag_links.set(links);
-            }
+        if let Some(Ok(links)) = links_res.get() {
+            list_tag_links.set(links);
         }
     });
 
@@ -204,11 +200,9 @@ pub fn HomePage() -> impl IntoView {
                     return view! { <LoadingSpinner/> }.into_any();
                 }
 
-                let tags_data = tags_res.get();
-                let all_tags: Vec<Tag> = tags_data
-                    .as_ref()
-                    .and_then(|r| r.as_deref().ok())
-                    .map(|s| s.to_vec())
+                let all_tags: Vec<Tag> = tags_res
+                    .get()
+                    .and_then(|r| r.ok())
                     .unwrap_or_default();
                 let all_links = list_tag_links.get();
                 let filter = active_tag_filter.get();
