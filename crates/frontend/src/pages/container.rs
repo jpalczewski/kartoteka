@@ -79,18 +79,8 @@ pub fn ContainerPage() -> impl IntoView {
                 detail.set(Some(det));
             }
             if let Ok(children) = api::fetch_container_children(&cid).await {
-                if let Some(sc) = children
-                    .get("containers")
-                    .and_then(|v| serde_json::from_value::<Vec<Container>>(v.clone()).ok())
-                {
-                    sub_containers.set(sc);
-                }
-                if let Some(sl) = children
-                    .get("lists")
-                    .and_then(|v| serde_json::from_value::<Vec<List>>(v.clone()).ok())
-                {
-                    sub_lists.set(sl);
-                }
+                sub_containers.set(children.containers);
+                sub_lists.set(children.lists);
             }
             if let Ok(all) = api::fetch_containers().await {
                 let crumbs = build_breadcrumbs(&cid, &all).await;

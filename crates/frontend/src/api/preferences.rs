@@ -1,17 +1,7 @@
 use gloo_net::http::Request;
-use serde::{Deserialize, Serialize};
+use kartoteka_shared::{PreferencesResponse, UpdatePreferencesBody};
 
 use super::{API_BASE, auth_headers};
-
-#[derive(Deserialize)]
-pub struct PreferencesResponse {
-    pub locale: String,
-}
-
-#[derive(Serialize)]
-pub struct UpdatePreferencesBody {
-    pub locale: String,
-}
 
 pub async fn get_preferences() -> Result<PreferencesResponse, String> {
     let url = format!("{API_BASE}/preferences");

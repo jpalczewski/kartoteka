@@ -34,45 +34,13 @@ pub fn HomePage() -> impl IntoView {
     let root_lists = RwSignal::new(Vec::<List>::new());
 
     Effect::new(move |_| {
-        if let Some(data) = home_res.get() {
-            if let Ok(v) = &*data {
-                if let Some(pl) = v
-                    .get("pinned_lists")
-                    .and_then(|x| serde_json::from_value::<Vec<List>>(x.clone()).ok())
-                {
-                    pinned_lists.set(pl);
-                }
-                if let Some(pc) = v
-                    .get("pinned_containers")
-                    .and_then(|x| serde_json::from_value::<Vec<Container>>(x.clone()).ok())
-                {
-                    pinned_containers.set(pc);
-                }
-                if let Some(rl) = v
-                    .get("recent_lists")
-                    .and_then(|x| serde_json::from_value::<Vec<List>>(x.clone()).ok())
-                {
-                    recent_lists.set(rl);
-                }
-                if let Some(rc) = v
-                    .get("recent_containers")
-                    .and_then(|x| serde_json::from_value::<Vec<Container>>(x.clone()).ok())
-                {
-                    recent_containers.set(rc);
-                }
-                if let Some(rcc) = v
-                    .get("root_containers")
-                    .and_then(|x| serde_json::from_value::<Vec<Container>>(x.clone()).ok())
-                {
-                    root_containers.set(rcc);
-                }
-                if let Some(rll) = v
-                    .get("root_lists")
-                    .and_then(|x| serde_json::from_value::<Vec<List>>(x.clone()).ok())
-                {
-                    root_lists.set(rll);
-                }
-            }
+        if let Some(Ok(data)) = home_res.get() {
+            pinned_lists.set(data.pinned_lists);
+            pinned_containers.set(data.pinned_containers);
+            recent_lists.set(data.recent_lists);
+            recent_containers.set(data.recent_containers);
+            root_containers.set(data.root_containers);
+            root_lists.set(data.root_lists);
         }
     });
 
@@ -153,7 +121,7 @@ pub fn HomePage() -> impl IntoView {
             // Tag filter bar
             <Suspense fallback=|| view! {}>
                 {move || tags_res.get().map(|result| {
-                    match &*result {
+                    match result.as_ref() {
                         Ok(tags) if !tags.is_empty() => {
                             let tags = tags.clone();
                             view! {

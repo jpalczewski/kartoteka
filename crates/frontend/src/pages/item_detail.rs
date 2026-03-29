@@ -39,7 +39,7 @@ pub fn ItemDetailPage() -> impl IntoView {
     view! {
         <Suspense fallback=move || view! { <LoadingSpinner /> }>
             {move || {
-                let result = detail_resource.get().map(|r| (*r).clone());
+                let result = detail_resource.get();
 
                 match result {
                     Some(Ok(detail)) => {

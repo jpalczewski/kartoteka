@@ -1,6 +1,6 @@
 use kartoteka_shared::*;
 
-pub async fn fetch_home() -> Result<serde_json::Value, String> {
+pub async fn fetch_home() -> Result<HomeData, String> {
     super::get(&format!("{}/home", super::API_BASE))
         .send()
         .await
@@ -50,7 +50,7 @@ pub async fn delete_container(id: &str) -> Result<(), String> {
     }
 }
 
-pub async fn fetch_container_children(id: &str) -> Result<serde_json::Value, String> {
+pub async fn fetch_container_children(id: &str) -> Result<ContainerChildrenResponse, String> {
     super::get(&format!("{}/containers/{id}/children", super::API_BASE))
         .send()
         .await
