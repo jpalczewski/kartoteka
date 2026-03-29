@@ -25,7 +25,7 @@ pub fn OAuthConsentPage() -> impl IntoView {
         .unwrap_or_default();
     let deny_url = format!("{}?error=access_denied&state={}", redirect_uri, state);
 
-    let session = LocalResource::new(move || api::get_session());
+    let session = LocalResource::new(api::get_session);
     let login_error = RwSignal::new(Option::<String>::None);
     let loading = RwSignal::new(false);
     let email = RwSignal::new(String::new());

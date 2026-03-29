@@ -56,7 +56,7 @@ pub fn SettingsPage() -> impl IntoView {
         move |ev: web_sys::Event| {
             let value = event_target_value(&ev);
             let langs = i18n.languages;
-            if let Some(lang) = langs.iter().find(|l| l.id.to_string() == value) {
+            if let Some(lang) = langs.iter().find(|l| l.id == value) {
                 i18n.language.set(lang);
                 let value_clone = value.clone();
                 let client = client.clone();

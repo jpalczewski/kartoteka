@@ -13,11 +13,7 @@ pub fn SyncLocale() -> impl IntoView {
     spawn_local(async move {
         match api::preferences::get_preferences(&client).await {
             Ok(prefs) => {
-                if let Some(lang) = i18n
-                    .languages
-                    .iter()
-                    .find(|l| l.id.to_string() == prefs.locale)
-                {
+                if let Some(lang) = i18n.languages.iter().find(|l| l.id == prefs.locale) {
                     i18n.language.set(lang);
                 }
             }

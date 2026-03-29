@@ -11,12 +11,8 @@ pub use kartoteka_shared::date_utils::{
 pub fn get_today_string() -> String {
     let d = js_sys::Date::new_0();
     kartoteka_shared::date_utils::format_date(
-        &NaiveDate::from_ymd_opt(
-            d.get_full_year() as i32,
-            d.get_month() as u32 + 1,
-            d.get_date() as u32,
-        )
-        .unwrap_or_default(),
+        &NaiveDate::from_ymd_opt(d.get_full_year() as i32, d.get_month() + 1, d.get_date())
+            .unwrap_or_default(),
     )
 }
 

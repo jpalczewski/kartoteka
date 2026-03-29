@@ -7,7 +7,7 @@ use crate::api;
 pub fn Nav() -> impl IntoView {
     let (menu_open, set_menu_open) = signal(false);
 
-    let session_res = LocalResource::new(|| api::get_session());
+    let session_res = LocalResource::new(api::get_session);
 
     let on_logout = move |_| {
         api::logout();
