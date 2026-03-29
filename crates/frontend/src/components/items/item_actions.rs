@@ -44,50 +44,36 @@ pub fn create_item_actions(
     let lid_toggle = list_id.clone();
     let client_toggle = client.clone();
     let on_toggle = Callback::new(move |item_id: String| {
-        items.update(|list| {
-            if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
-                item.completed = !item.completed;
-            }
-        });
+        let previous = items.get_untracked();
+        let (new_items, new_completed) =
+            crate::state::transforms::with_item_toggled(&previous, &item_id);
+        items.set(new_items);
 
         let lid = lid_toggle.clone();
-        let completed = items
-            .read()
-            .iter()
-            .find(|i| i.id == item_id)
-            .map(|i| i.completed);
-
-        if let Some(completed) = completed {
-            let client = client_toggle.clone();
-            leptos::task::spawn_local(async move {
-                let req = UpdateItemRequest {
-                    title: None,
-                    description: None,
-                    completed: Some(completed),
-                    position: None,
-                    quantity: None,
-                    actual_quantity: None,
-                    unit: None,
-                    start_date: None,
-                    start_time: None,
-                    deadline: None,
-                    deadline_time: None,
-                    hard_deadline: None,
-                };
-                let _ = api::update_item(&client, &lid, &item_id, &req).await;
-            });
-        }
+        let client = client_toggle.clone();
+        leptos::task::spawn_local(async move {
+            let body = UpdateItemRequest {
+                completed: Some(new_completed),
+                ..Default::default()
+            };
+            if api::update_item(&client, &lid, &item_id, &body).await.is_err() {
+                items.set(previous); // rollback
+            }
+        });
     });
 
     let lid_delete = list_id.clone();
     let client_delete = client.clone();
     let on_delete = Callback::new(move |item_id: String| {
-        items.update(|list| list.retain(|i| i.id != item_id));
+        let previous = items.get_untracked();
+        items.set(crate::state::transforms::without_item(&previous, &item_id));
 
         let lid = lid_delete.clone();
         let client = client_delete.clone();
         leptos::task::spawn_local(async move {
-            let _ = api::delete_item(&client, &lid, &item_id).await;
+            if api::delete_item(&client, &lid, &item_id).await.is_err() {
+                items.set(previous); // rollback
+            }
         });
     });
 
