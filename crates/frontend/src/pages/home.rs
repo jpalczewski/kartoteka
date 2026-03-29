@@ -151,40 +151,40 @@ pub fn HomePage() -> impl IntoView {
 
             // Tag filter bar
             <Suspense fallback=|| view! {}>
-                {move || tags_res.get().map(|result| {
-                    match result.as_ref() {
-                        Ok(tags) if !tags.is_empty() => {
-                            let tags = tags.clone();
-                            view! {
-                                <div class="tag-filter-bar">
-                                    {tags.into_iter().map(|tag| {
-                                        let tid = tag.id.clone();
-                                        let tid2 = tag.id.clone();
-                                        let tid3 = tag.id.clone();
-                                        let color = tag.color.clone();
-                                        let name = tag.name.clone();
-                                        view! {
-                                            <span
-                                                class=move || if active_tag_filter.get().as_deref() == Some(tid.as_str()) { "tag-badge active" } else { "tag-badge" }
-                                                style=format!("background: {}; color: white; cursor: pointer;", color)
-                                                on:click=move |_| {
-                                                    if active_tag_filter.get().as_deref() == Some(tid2.as_str()) {
-                                                        set_active_tag_filter.set(None);
-                                                    } else {
-                                                        set_active_tag_filter.set(Some(tid3.clone()));
-                                                    }
+                {move || if let Some(Ok(tags)) = tags_res.get() {
+                    if !tags.is_empty() {
+                        view! {
+                            <div class="tag-filter-bar">
+                                {tags.into_iter().map(|tag| {
+                                    let tid = tag.id.clone();
+                                    let tid2 = tag.id.clone();
+                                    let tid3 = tag.id.clone();
+                                    let color = tag.color.clone();
+                                    let name = tag.name.clone();
+                                    view! {
+                                        <span
+                                            class=move || if active_tag_filter.get().as_deref() == Some(tid.as_str()) { "tag-badge active" } else { "tag-badge" }
+                                            style=format!("background: {}; color: white; cursor: pointer;", color)
+                                            on:click=move |_| {
+                                                if active_tag_filter.get().as_deref() == Some(tid2.as_str()) {
+                                                    set_active_tag_filter.set(None);
+                                                } else {
+                                                    set_active_tag_filter.set(Some(tid3.clone()));
                                                 }
-                                            >
-                                                {name}
-                                            </span>
-                                        }
-                                    }).collect::<Vec<_>>()}
-                                </div>
-                            }.into_any()
-                        }
-                        _ => view! {}.into_any()
+                                            }
+                                        >
+                                            {name}
+                                        </span>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </div>
+                        }.into_any()
+                    } else {
+                        view! {}.into_any()
                     }
-                })}
+                } else {
+                    view! {}.into_any()
+                }}
             </Suspense>
 
             // Create form
