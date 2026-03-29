@@ -1117,7 +1117,7 @@ use kartoteka_shared::date_utils as shared_dates;
 pub fn get_today_string() -> String {
     let d = js_sys::Date::new_0();
     shared_dates::get_today_string(
-        d.get_full_year() as u32,
+        d.get_full_year() as i32,
         d.get_month() as u32 + 1,
         d.get_date() as u32,
     )
