@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use leptos_fluent::move_tr;
 
 use crate::api;
+use crate::api::client::GlooClient;
 use crate::components::items::add_item_input::AddItemInput;
 use crate::components::items::item_actions::create_item_actions;
 use crate::components::items::item_row::ItemRow;
@@ -20,6 +21,7 @@ pub fn SublistSection(
     #[prop(optional)]
     on_item_moved_out: Option<Callback<(Item, String)>>,
 ) -> impl IntoView {
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
     let expanded = RwSignal::new(true);
     let items = RwSignal::new(Vec::<Item>::new());
     let (loading, set_loading) = signal(true);
@@ -30,15 +32,16 @@ pub fn SublistSection(
     // Fetch items on mount
     {
         let sid = sublist_id.clone();
+        let client_fetch = client.clone();
         leptos::task::spawn_local(async move {
-            if let Ok(fetched) = api::fetch_items(&sid).await {
+            if let Ok(fetched) = api::fetch_items(&client_fetch, &sid).await {
                 items.set(fetched);
             }
             set_loading.set(false);
         });
     }
 
-    let actions = create_item_actions(items, sublist_id.clone(), None);
+    let actions = create_item_actions(client.clone(), items, sublist_id.clone(), None);
     let on_add = actions.on_add;
     let on_toggle = actions.on_toggle;
     let on_delete = actions.on_delete;
@@ -58,8 +61,9 @@ pub fn SublistSection(
                 cb.run((item, target_list_id.clone()));
             }
         }
+        let client_move = client.clone();
         leptos::task::spawn_local(async move {
-            let _ = api::move_item(&item_id, &target_list_id).await;
+            let _ = api::move_item(&client_move, &item_id, &target_list_id).await;
         });
     });
 

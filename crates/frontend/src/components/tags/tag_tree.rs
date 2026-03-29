@@ -1,4 +1,5 @@
 use crate::api;
+use crate::api::client::GlooClient;
 use crate::components::add_input::AddInput;
 use crate::components::tag_badge::TagBadge;
 use kartoteka_shared::{CreateTagRequest, Tag};
@@ -126,6 +127,7 @@ pub fn TagTreeRow(
     #[prop(default = true)] show_add_child: bool,
     #[prop(default = true)] show_delete: bool,
 ) -> impl IntoView {
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
     let tag = node.tag;
     let children = node.children;
     let tid_link = tag.id.clone();
@@ -151,6 +153,7 @@ pub fn TagTreeRow(
                 })}
                 {show_delete.then(|| {
                     let tid = tid_delete.clone();
+                    let client_del = client.clone();
                     view! {
                         <button
                             class="btn btn-error btn-xs btn-square"
@@ -158,8 +161,9 @@ pub fn TagTreeRow(
                             on:click=move |_| {
                                 tags.update(|t| t.retain(|tag| tag.id != tid));
                                 let tid = tid.clone();
+                                let client_del = client_del.clone();
                                 leptos::task::spawn_local(async move {
-                                    let _ = api::delete_tag(&tid).await;
+                                    let _ = api::delete_tag(&client_del, &tid).await;
                                 });
                             }
                         >"\u{2715}"</button>
@@ -171,16 +175,18 @@ pub fn TagTreeRow(
             {move || {
                 if adding_child.get() {
                     let tid_create = tid_add.clone();
+                    let client_create = client.clone();
                     let on_submit = Callback::new(move |name: String| {
                         let color = new_color.get_untracked();
                         let parent_id = tid_create.clone();
+                        let client_c = client_create.clone();
                         leptos::task::spawn_local(async move {
                             let req = CreateTagRequest {
                                 name,
                                 color,
                                 parent_tag_id: Some(parent_id),
                             };
-                            if let Ok(tag) = api::create_tag(&req).await {
+                            if let Ok(tag) = api::create_tag(&client_c, &req).await {
                                 tags.update(|t| t.push(tag));
                             }
                             adding_child.set(false);

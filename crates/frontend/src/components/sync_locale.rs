@@ -2,14 +2,16 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_fluent::I18n;
 
-use crate::api::preferences::get_preferences;
+use crate::api;
+use crate::api::client::GlooClient;
 
 #[component]
 pub fn SyncLocale() -> impl IntoView {
     let i18n = expect_context::<I18n>();
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
 
     spawn_local(async move {
-        match get_preferences().await {
+        match api::preferences::get_preferences(&client).await {
             Ok(prefs) => {
                 if let Some(lang) = i18n
                     .languages
@@ -19,7 +21,7 @@ pub fn SyncLocale() -> impl IntoView {
                     i18n.language.set(lang);
                 }
             }
-            Err(ref e) if e == "unauthorized" => {
+            Err(api::ApiError::Http { status: 401, .. }) => {
                 // Unauthenticated page (login/signup) — do nothing
             }
             Err(_) => {

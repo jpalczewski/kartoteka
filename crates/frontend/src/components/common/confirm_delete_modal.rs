@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use leptos_fluent::{move_tr, tr};
 
 use crate::api;
+use crate::api::client::GlooClient;
 
 #[derive(Clone)]
 enum CountState {
@@ -27,8 +28,9 @@ pub fn ConfirmDeleteModal(
     // Fetch item count on mount if not provided
     if item_count.is_none() {
         let lid = list_id.clone();
+        let client = use_context::<GlooClient>().expect("GlooClient not provided");
         leptos::task::spawn_local(async move {
-            match api::fetch_items(&lid).await {
+            match api::fetch_items(&client, &lid).await {
                 Ok(items) => count_state.set(CountState::Loaded(items.len())),
                 Err(_) => count_state.set(CountState::Error),
             }

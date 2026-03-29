@@ -7,6 +7,7 @@ use leptos::prelude::*;
 use leptos_fluent::move_tr;
 
 use crate::api;
+use crate::api::client::GlooClient;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::calendar::ViewMode;
 use crate::components::calendar::calendar_nav::CalendarNav;
@@ -22,6 +23,7 @@ use kartoteka_shared::*;
 #[component]
 pub fn CalendarPage() -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
     let today = get_today_string();
 
     let view_mode = RwSignal::new(ViewMode::Month);
@@ -40,40 +42,44 @@ pub fn CalendarPage() -> impl IntoView {
     let show_completed = RwSignal::new(true);
 
     // Fetch data when current_date or view_mode changes
-    let _resource = LocalResource::new(move || {
-        let date = current_date.get();
-        let mode = view_mode.get();
-        async move {
-            set_loading.set(true);
+    let _resource = {
+        let client = client.clone();
+        LocalResource::new(move || {
+            let date = current_date.get();
+            let mode = view_mode.get();
+            let client = client.clone();
+            async move {
+                set_loading.set(true);
 
-            match mode {
-                ViewMode::Month => {
-                    if let Some(d) = parse_date(&date) {
-                        let (from, to) = month_grid_range(d.year(), d.month());
-                        match api::fetch_calendar_counts(&from, &to, "all").await {
-                            Ok(counts) => month_counts.set(counts),
+                match mode {
+                    ViewMode::Month => {
+                        if let Some(d) = parse_date(&date) {
+                            let (from, to) = month_grid_range(d.year(), d.month());
+                            match api::fetch_calendar_counts(&client, &from, &to, "all").await {
+                                Ok(counts) => month_counts.set(counts),
+                                Err(e) => toast.push(format!("Błąd: {e}"), ToastKind::Error),
+                            }
+                        }
+                    }
+                    ViewMode::Week => {
+                        let (from, to) = week_range(&date);
+                        match api::fetch_calendar_full(&client, &from, &to, "all").await {
+                            Ok(days) => week_data.set(days),
                             Err(e) => toast.push(format!("Błąd: {e}"), ToastKind::Error),
+                        }
+                        if let Ok(tags) = api::fetch_tags(&client).await {
+                            all_tags.set(tags);
+                        }
+                        if let Ok(links) = api::fetch_item_tag_links(&client).await {
+                            item_tag_links.set(links);
                         }
                     }
                 }
-                ViewMode::Week => {
-                    let (from, to) = week_range(&date);
-                    match api::fetch_calendar_full(&from, &to, "all").await {
-                        Ok(days) => week_data.set(days),
-                        Err(e) => toast.push(format!("Błąd: {e}"), ToastKind::Error),
-                    }
-                    if let Ok(tags) = api::fetch_tags().await {
-                        all_tags.set(tags);
-                    }
-                    if let Ok(links) = api::fetch_item_tag_links().await {
-                        item_tag_links.set(links);
-                    }
-                }
-            }
 
-            set_loading.set(false);
-        }
-    });
+                set_loading.set(false);
+            }
+        })
+    };
 
     let on_prev = Callback::new(move |_: ()| {
         let date = current_date.get();

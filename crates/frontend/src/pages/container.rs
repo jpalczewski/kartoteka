@@ -6,6 +6,7 @@ use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
 use crate::api;
+use crate::api::client::GlooClient;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::breadcrumbs::Breadcrumbs;
 use crate::components::common::editable_description::EditableDescription;
@@ -52,6 +53,7 @@ pub fn ContainerPage() -> impl IntoView {
     let params = use_params_map();
     let container_id = move || params.read().get("id").unwrap_or_default();
 
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
 
     let (refresh, set_refresh) = signal(0u32);
@@ -64,30 +66,34 @@ pub fn ContainerPage() -> impl IntoView {
 
     // Reactive effect: re-runs whenever container_id or refresh changes.
     // This ensures navigating folder→folder (same route, different :id) re-fetches data.
-    Effect::new(move |_| {
-        let cid = container_id();
-        let _r = refresh.get(); // track refresh signal too
+    Effect::new({
+        let client = client.clone();
+        move |_| {
+            let cid = container_id();
+            let _r = refresh.get(); // track refresh signal too
 
-        detail.set(None);
-        sub_containers.set(vec![]);
-        sub_lists.set(vec![]);
-        breadcrumbs.set(vec![]);
-        set_loading.set(true);
+            detail.set(None);
+            sub_containers.set(vec![]);
+            sub_lists.set(vec![]);
+            breadcrumbs.set(vec![]);
+            set_loading.set(true);
 
-        leptos::task::spawn_local(async move {
-            if let Ok(det) = api::fetch_container(&cid).await {
-                detail.set(Some(det));
-            }
-            if let Ok(children) = api::fetch_container_children(&cid).await {
-                sub_containers.set(children.containers);
-                sub_lists.set(children.lists);
-            }
-            if let Ok(all) = api::fetch_containers().await {
-                let crumbs = build_breadcrumbs(&cid, &all).await;
-                breadcrumbs.set(crumbs);
-            }
-            set_loading.set(false);
-        });
+            let client = client.clone();
+            leptos::task::spawn_local(async move {
+                if let Ok(det) = api::fetch_container(&client, &cid).await {
+                    detail.set(Some(det));
+                }
+                if let Ok(children) = api::fetch_container_children(&client, &cid).await {
+                    sub_containers.set(children.containers);
+                    sub_lists.set(children.lists);
+                }
+                if let Ok(all) = api::fetch_containers(&client).await {
+                    let crumbs = build_breadcrumbs(&cid, &all).await;
+                    breadcrumbs.set(crumbs);
+                }
+                set_loading.set(false);
+            });
+        }
     });
 
     let is_project = move || {
@@ -97,29 +103,37 @@ pub fn ContainerPage() -> impl IntoView {
             .unwrap_or(false)
     };
 
-    let on_create_list = Callback::new(move |req: CreateListRequest| {
-        let cid = container_id();
-        leptos::task::spawn_local(async move {
-            match api::create_list(&req).await {
-                Ok(mut list) => {
-                    // Move new list into this container
-                    let _ = api::move_list_to_container(&list.id, Some(&cid)).await;
-                    list.container_id = Some(cid);
-                    sub_lists.update(|ls| ls.push(list));
+    let on_create_list = {
+        let client = client.clone();
+        Callback::new(move |req: CreateListRequest| {
+            let cid = container_id();
+            let client = client.clone();
+            leptos::task::spawn_local(async move {
+                match api::create_list(&client, &req).await {
+                    Ok(mut list) => {
+                        // Move new list into this container
+                        let _ = api::move_list_to_container(&client, &list.id, Some(&cid)).await;
+                        list.container_id = Some(cid);
+                        sub_lists.update(|ls| ls.push(list));
+                    }
+                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
                 }
-                Err(e) => toast.push(e, ToastKind::Error),
-            }
-        });
-    });
+            });
+        })
+    };
 
-    let on_create_container = Callback::new(move |req: CreateContainerRequest| {
-        leptos::task::spawn_local(async move {
-            match api::create_container(&req).await {
-                Ok(c) => sub_containers.update(|cs| cs.push(c)),
-                Err(e) => toast.push(e, ToastKind::Error),
-            }
-        });
-    });
+    let on_create_container = {
+        let client = client.clone();
+        Callback::new(move |req: CreateContainerRequest| {
+            let client = client.clone();
+            leptos::task::spawn_local(async move {
+                match api::create_container(&client, &req).await {
+                    Ok(c) => sub_containers.update(|cs| cs.push(c)),
+                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                }
+            });
+        })
+    };
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
@@ -153,6 +167,8 @@ pub fn ContainerPage() -> impl IntoView {
                 let completed_lists = det.completed_lists;
                 let total_lists_count = det.total_lists;
 
+                let client_inner = use_context::<GlooClient>().expect("GlooClient not provided");
+
                 view! {
                     <div>
                         // Header
@@ -165,19 +181,20 @@ pub fn ContainerPage() -> impl IntoView {
                                     value=container.name.clone()
                                     on_save=Callback::new(move |name: String| {
                                         let cid = cid_name.clone();
+                                        let client = use_context::<GlooClient>().expect("GlooClient not provided");
                                         leptos::task::spawn_local(async move {
                                             let req = UpdateContainerRequest {
                                                 name: Some(name),
                                                 description: None,
                                                 status: None,
                                             };
-                                            match api::update_container(&cid, &req).await {
+                                            match api::update_container(&client, &cid, &req).await {
                                                 Ok(c) => detail.update(|d| {
                                                     if let Some(det) = d {
                                                         det.container.name = c.name;
                                                     }
                                                 }),
-                                                Err(e) => toast.push(e, ToastKind::Error),
+                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                             }
                                         });
                                     })
@@ -188,13 +205,14 @@ pub fn ContainerPage() -> impl IntoView {
                                 value=container.description.clone()
                                 on_save=Callback::new(move |desc: Option<String>| {
                                     let cid = cid_desc.clone();
+                                    let client = use_context::<GlooClient>().expect("GlooClient not provided");
                                     leptos::task::spawn_local(async move {
                                         let req = UpdateContainerRequest {
                                             name: None,
                                             description: desc,
                                             status: None,
                                         };
-                                        let _ = api::update_container(&cid, &req).await;
+                                        let _ = api::update_container(&client, &cid, &req).await;
                                     });
                                 })
                             />
@@ -228,19 +246,20 @@ pub fn ContainerPage() -> impl IntoView {
                                                     _ => None,
                                                 };
                                                 let cid = cid_status.clone();
+                                                let client = use_context::<GlooClient>().expect("GlooClient not provided");
                                                 leptos::task::spawn_local(async move {
                                                     let req = UpdateContainerRequest {
                                                         name: None,
                                                         description: None,
                                                         status: Some(new_status),
                                                     };
-                                                    match api::update_container(&cid, &req).await {
+                                                    match api::update_container(&client, &cid, &req).await {
                                                         Ok(c) => detail.update(|d| {
                                                             if let Some(det) = d {
                                                                 det.container.status = c.status;
                                                             }
                                                         }),
-                                                        Err(e) => toast.push(e, ToastKind::Error),
+                                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                                     }
                                                 });
                                             }
@@ -284,24 +303,27 @@ pub fn ContainerPage() -> impl IntoView {
                             if scs.is_empty() {
                                 view! {}.into_any()
                             } else {
+                                let client_sc = client_inner.clone();
                                 view! {
                                     <div class="mb-4">
                                         <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">"Kontenery"</h3>
                                         <div class="flex flex-col gap-3">
                                             {scs.into_iter().map(|c| {
                                                 let cid_del = c.id.clone();
+                                                let client_del = client_sc.clone();
                                                 view! {
                                                     <ContainerCard
                                                         container=c
                                                         on_delete=Callback::new(move |_: String| {
                                                             let cid = cid_del.clone();
+                                                            let client_d = client_del.clone();
                                                             leptos::task::spawn_local(async move {
-                                                                match api::delete_container(&cid).await {
+                                                                match api::delete_container(&client_d, &cid).await {
                                                                     Ok(()) => {
                                                                         sub_containers.update(|cs| cs.retain(|c| c.id != cid));
                                                                         toast.push("Kontener usunięty".into(), ToastKind::Success);
                                                                     }
-                                                                    Err(e) => toast.push(e, ToastKind::Error),
+                                                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                                                 }
                                                             });
                                                         })
@@ -345,20 +367,22 @@ pub fn ContainerPage() -> impl IntoView {
                         // Delete list modal
                         {move || pending_delete_list.get().map(|(lid, lname)| {
                             let lid_confirm = lid.clone();
+                            let client_modal = use_context::<GlooClient>().expect("GlooClient not provided");
                             view! {
                                 <ConfirmDeleteModal
                                     list_id=lid
                                     list_name=lname
                                     on_confirm=Callback::new(move |_| {
                                         let lid = lid_confirm.clone();
+                                        let client_m = client_modal.clone();
                                         leptos::task::spawn_local(async move {
                                             sub_lists.update(|ls| ls.retain(|l| l.id != lid));
                                             pending_delete_list.set(None);
-                                            match api::delete_list(&lid).await {
+                                            match api::delete_list(&client_m, &lid).await {
                                                 Ok(()) => toast.push("Lista usunięta".into(), ToastKind::Success),
                                                 Err(e) => {
                                                     set_refresh.update(|n| *n += 1);
-                                                    toast.push(e, ToastKind::Error);
+                                                    toast.push(e.to_string(), ToastKind::Error);
                                                 }
                                             }
                                         });

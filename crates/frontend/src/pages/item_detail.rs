@@ -1,4 +1,5 @@
-use crate::api::{delete_item, fetch_item_detail, update_item};
+use crate::api;
+use crate::api::client::GlooClient;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::editable_description::EditableDescription;
 use crate::components::common::editable_title::EditableTitle;
@@ -11,9 +12,15 @@ use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
 /// Helper: spawn an update_item call with toast feedback.
-fn spawn_save(list_id: String, item_id: String, toast: ToastContext, req: UpdateItemRequest) {
+fn spawn_save(
+    client: GlooClient,
+    list_id: String,
+    item_id: String,
+    toast: ToastContext,
+    req: UpdateItemRequest,
+) {
     leptos::task::spawn_local(async move {
-        match update_item(&list_id, &item_id, &req).await {
+        match api::update_item(&client, &list_id, &item_id, &req).await {
             Ok(_) => toast.push("Zapisano".into(), ToastKind::Success),
             Err(e) => toast.push(format!("Błąd: {e}"), ToastKind::Error),
         }
@@ -24,17 +31,22 @@ fn spawn_save(list_id: String, item_id: String, toast: ToastContext, req: Update
 pub fn ItemDetailPage() -> impl IntoView {
     let params = use_params_map();
     let toast = expect_context::<ToastContext>();
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
     let navigate = leptos_router::hooks::use_navigate();
 
     let list_id = move || params.with(|p| p.get("list_id").unwrap_or_default().to_string());
     let item_id = move || params.with(|p| p.get("id").unwrap_or_default().to_string());
 
     // Single call returns item + list context
-    let detail_resource = LocalResource::new(move || {
-        let lid = list_id();
-        let iid = item_id();
-        async move { fetch_item_detail(&lid, &iid).await }
-    });
+    let detail_resource = {
+        let client = client.clone();
+        LocalResource::new(move || {
+            let lid = list_id();
+            let iid = item_id();
+            let client = client.clone();
+            async move { api::fetch_item_detail(&client, &lid, &iid).await }
+        })
+    };
 
     view! {
         <Suspense fallback=move || view! { <LoadingSpinner /> }>
@@ -81,6 +93,16 @@ pub fn ItemDetailPage() -> impl IntoView {
                         let iid_for_delete = item_id();
                         let toast_del = toast.clone();
                         let nav = navigate.clone();
+                        let client_del = client.clone();
+
+                        // Pre-clone client for each closure
+                        let client_toggle = client.clone();
+                        let client_title = client.clone();
+                        let client_desc = client.clone();
+                        let client_start = client.clone();
+                        let client_deadline = client.clone();
+                        let client_hard = client.clone();
+                        let client_qty = client.clone();
 
                         view! {
                             // Breadcrumbs with item title as non-linked final crumb
@@ -107,6 +129,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                         let new_val = !completed.get();
                                         completed.set(new_val);
                                         spawn_save(
+                                            client_toggle.clone(),
                                             list_id(),
                                             item_id(),
                                             toast.clone(),
@@ -121,6 +144,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                     value=item.title.clone()
                                     on_save=Callback::new(move |new_title: String| {
                                         spawn_save(
+                                            client_title.clone(),
                                             list_id(),
                                             item_id(),
                                             toast.clone(),
@@ -138,6 +162,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                 value=item.description.clone()
                                 on_save=Callback::new(move |new_desc: Option<String>| {
                                     spawn_save(
+                                        client_desc.clone(),
                                         list_id(),
                                         item_id(),
                                         toast.clone(),
@@ -169,6 +194,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                                         (Some(Some(date)), time.map(Some))
                                                     };
                                                     spawn_save(
+                                                        client_start.clone(),
                                                         list_id(),
                                                         item_id(),
                                                         toast.clone(),
@@ -205,6 +231,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                                         (Some(Some(date)), time.map(Some))
                                                     };
                                                     spawn_save(
+                                                        client_deadline.clone(),
                                                         list_id(),
                                                         item_id(),
                                                         toast.clone(),
@@ -242,6 +269,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                                         Some(Some(date))
                                                     };
                                                     spawn_save(
+                                                        client_hard.clone(),
                                                         list_id(),
                                                         item_id(),
                                                         toast.clone(),
@@ -273,6 +301,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                             unit=unit
                                             on_change=Callback::new(move |new_val: i32| {
                                                 spawn_save(
+                                                    client_qty.clone(),
                                                     list_id(),
                                                     item_id(),
                                                     toast.clone(),
@@ -298,8 +327,9 @@ pub fn ItemDetailPage() -> impl IntoView {
                                         let iid = iid_for_delete.clone();
                                         let toast = toast_del.clone();
                                         let nav = nav.clone();
+                                        let client = client_del.clone();
                                         leptos::task::spawn_local(async move {
-                                            match delete_item(&lid, &iid).await {
+                                            match api::delete_item(&client, &lid, &iid).await {
                                                 Ok(_) => {
                                                     toast.push("Usunięto".into(), ToastKind::Success);
                                                     nav(&format!("/lists/{lid}"), Default::default());

@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 
 use crate::api;
+use crate::api::client::GlooClient;
 use crate::components::common::date_utils::{
     add_days, format_date_short, polish_day_of_week, week_range,
 };
@@ -16,6 +17,7 @@ pub fn WeekView(
     items_signal: RwSignal<Vec<DayItems>>,
     start_date: String,
 ) -> impl IntoView {
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
     let (monday, _sunday) = week_range(&start_date);
 
     // Build 7 days starting from monday
@@ -64,10 +66,12 @@ pub fn WeekView(
                                 let toggle_list_id = item_list_id.clone();
                                 let toggle_item_id = item_id.clone();
                                 let target_date = date.clone();
+                                let client_toggle = client.clone();
                                 let on_toggle = Callback::new(move |_id: String| {
                                     let lid = toggle_list_id.clone();
                                     let iid = toggle_item_id.clone();
                                     let td = target_date.clone();
+                                    let client_t = client_toggle.clone();
                                     // Optimistic update in nested signal
                                     items_signal.update(|days| {
                                         if let Some(day) = days.iter_mut().find(|d| d.date == td) {
@@ -97,24 +101,26 @@ pub fn WeekView(
                                             deadline_time: None,
                                             hard_deadline: None,
                                         };
-                                        let _ = api::update_item(&lid, &iid, &req).await;
+                                        let _ = api::update_item(&client_t, &lid, &iid, &req).await;
                                     });
                                 });
 
                                 let delete_list_id = item_list_id.clone();
                                 let delete_item_id = item_id.clone();
                                 let delete_date = date.clone();
+                                let client_delete = client.clone();
                                 let on_delete = Callback::new(move |_id: String| {
                                     let lid = delete_list_id.clone();
                                     let iid = delete_item_id.clone();
                                     let dd = delete_date.clone();
+                                    let client_d = client_delete.clone();
                                     items_signal.update(|days| {
                                         if let Some(day) = days.iter_mut().find(|d| d.date == dd) {
                                             day.items.retain(|i| i.id != iid);
                                         }
                                     });
                                     leptos::task::spawn_local(async move {
-                                        let _ = api::delete_item(&lid, &iid).await;
+                                        let _ = api::delete_item(&client_d, &lid, &iid).await;
                                     });
                                 });
 

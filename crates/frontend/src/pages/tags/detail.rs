@@ -1,4 +1,5 @@
 use crate::api;
+use crate::api::client::GlooClient;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::editable_color::EditableColor;
 use crate::components::editable_title::EditableTitle;
@@ -23,6 +24,7 @@ pub fn TagDetailPage() -> impl IntoView {
     let params = use_params_map();
     let tag_id = move || params.read().get("id").unwrap_or_default();
     let navigate = use_navigate();
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
 
     let all_tags = RwSignal::new(Vec::<Tag>::new());
     let tag = RwSignal::new(Option::<Tag>::None);
@@ -32,20 +34,24 @@ pub fn TagDetailPage() -> impl IntoView {
     let active_action = RwSignal::new(Option::<DetailAction>::None);
     let (new_color, _set_new_color) = signal("#e94560".to_string());
 
-    let _resource = LocalResource::new(move || {
-        let tid = tag_id();
-        let rec = recursive.get();
-        async move {
-            if let Ok(tags) = api::fetch_tags().await {
-                tag.set(tags.iter().find(|t| t.id == tid).cloned());
-                all_tags.set(tags);
+    let _resource = {
+        let client = client.clone();
+        LocalResource::new(move || {
+            let tid = tag_id();
+            let rec = recursive.get();
+            let client = client.clone();
+            async move {
+                if let Ok(tags) = api::fetch_tags(&client).await {
+                    tag.set(tags.iter().find(|t| t.id == tid).cloned());
+                    all_tags.set(tags);
+                }
+                if let Ok(fetched) = api::fetch_tag_items(&client, &tid, rec).await {
+                    items.set(fetched);
+                }
+                set_loading.set(false);
             }
-            if let Ok(fetched) = api::fetch_tag_items(&tid, rec).await {
-                items.set(fetched);
-            }
-            set_loading.set(false);
-        }
-    });
+        })
+    };
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
@@ -61,6 +67,7 @@ pub fn TagDetailPage() -> impl IntoView {
                     return view! { <LoadingSpinner/> }.into_any();
                 }
                 let navigate = navigate.clone();
+                let client = use_context::<GlooClient>().expect("GlooClient not provided");
                 match tag.get() {
                     None => view! { <p>{move_tr!("tags-not-found")}</p> }.into_any(),
                     Some(t) => {
@@ -122,6 +129,7 @@ pub fn TagDetailPage() -> impl IntoView {
                                 <div class="flex items-center gap-2 mb-4">
                                     {
                                         let tag_id_color = t.id.clone();
+                                        let client_color = client.clone();
                                         view! {
                                             <EditableColor
                                                 color=color.clone()
@@ -130,13 +138,14 @@ pub fn TagDetailPage() -> impl IntoView {
                                                         if let Some(t) = t { t.color = new_color.clone(); }
                                                     });
                                                     let tid = tag_id_color.clone();
+                                                    let client = client_color.clone();
                                                     leptos::task::spawn_local(async move {
                                                         let req = UpdateTagRequest {
                                                             name: None,
                                                             color: Some(new_color),
                                                             parent_tag_id: None,
                                                         };
-                                                        let _ = api::update_tag(&tid, &req).await;
+                                                        let _ = api::update_tag(&client, &tid, &req).await;
                                                     });
                                                 })
                                             />
@@ -144,6 +153,7 @@ pub fn TagDetailPage() -> impl IntoView {
                                     }
                                     {
                                         let tag_id_name = t.id.clone();
+                                        let client_name = client.clone();
                                         view! {
                                             <EditableTitle
                                                 value=t.name.clone()
@@ -152,13 +162,14 @@ pub fn TagDetailPage() -> impl IntoView {
                                                         if let Some(t) = t { t.name = new_name.clone(); }
                                                     });
                                                     let tid = tag_id_name.clone();
+                                                    let client = client_name.clone();
                                                     leptos::task::spawn_local(async move {
                                                         let req = UpdateTagRequest {
                                                             name: Some(new_name),
                                                             color: None,
                                                             parent_tag_id: None,
                                                         };
-                                                        let _ = api::update_tag(&tid, &req).await;
+                                                        let _ = api::update_tag(&client, &tid, &req).await;
                                                     });
                                                 })
                                             />
@@ -195,11 +206,13 @@ pub fn TagDetailPage() -> impl IntoView {
                                         on:click={
                                             let nav = navigate.clone();
                                             let tid = tag_id_for_delete.clone();
+                                            let client_del = client.clone();
                                             move |_| {
                                                 let tid = tid.clone();
                                                 let nav = nav.clone();
+                                                let client = client_del.clone();
                                                 leptos::task::spawn_local(async move {
-                                                    let _ = api::delete_tag(&tid).await;
+                                                    let _ = api::delete_tag(&client, &tid).await;
                                                     nav("/tags", Default::default());
                                                 });
                                             }
@@ -225,18 +238,20 @@ pub fn TagDetailPage() -> impl IntoView {
                                                         class="select select-bordered select-sm"
                                                         on:change={
                                                             let tid = tid.clone();
+                                                            let client_move = client.clone();
                                                             move |ev| {
                                                                 let value = event_target_value(&ev);
                                                                 let new_parent = if value.is_empty() { None } else { Some(value) };
                                                                 let tid = tid.clone();
+                                                                let client = client_move.clone();
                                                                 leptos::task::spawn_local(async move {
                                                                     let req = UpdateTagRequest {
                                                                         name: None,
                                                                         color: None,
                                                                         parent_tag_id: Some(new_parent),
                                                                     };
-                                                                    let _ = api::update_tag(&tid, &req).await;
-                                                                    if let Ok(fetched) = api::fetch_tags().await {
+                                                                    let _ = api::update_tag(&client, &tid, &req).await;
+                                                                    if let Ok(fetched) = api::fetch_tags(&client).await {
                                                                         all_tags.set(fetched);
                                                                     }
                                                                     active_action.set(None);
@@ -269,14 +284,16 @@ pub fn TagDetailPage() -> impl IntoView {
                                                         on:change={
                                                             let tid = tid.clone();
                                                             let nav = nav.clone();
+                                                            let client_merge = client.clone();
                                                             move |ev| {
                                                                 let value = event_target_value(&ev);
                                                                 if value.is_empty() { return; }
                                                                 let tid = tid.clone();
                                                                 let target = value.clone();
                                                                 let nav = nav.clone();
+                                                                let client = client_merge.clone();
                                                                 leptos::task::spawn_local(async move {
-                                                                    let _ = api::merge_tag(&tid, &target).await;
+                                                                    let _ = api::merge_tag(&client, &tid, &target).await;
                                                                     nav(&format!("/tags/{target}"), Default::default());
                                                                 });
                                                             }

@@ -1,6 +1,7 @@
 pub mod detail;
 
 use crate::api;
+use crate::api::client::GlooClient;
 use crate::components::add_input::AddInput;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::tag_tree::{TagTreeRow, build_tag_tree};
@@ -10,30 +11,38 @@ use leptos_fluent::move_tr;
 
 #[component]
 pub fn TagsPage() -> impl IntoView {
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
     let tags = RwSignal::new(Vec::<Tag>::new());
     let (loading, set_loading) = signal(true);
     let (new_color, set_new_color) = signal("#e94560".to_string());
 
-    leptos::task::spawn_local(async move {
-        if let Ok(fetched) = api::fetch_tags().await {
-            tags.set(fetched);
-        }
-        set_loading.set(false);
-    });
-
-    let on_create_root = Callback::new(move |name: String| {
-        let color = new_color.get_untracked();
+    {
+        let client = client.clone();
         leptos::task::spawn_local(async move {
-            let req = CreateTagRequest {
-                name,
-                color,
-                parent_tag_id: None,
-            };
-            if let Ok(tag) = api::create_tag(&req).await {
-                tags.update(|t| t.push(tag));
+            if let Ok(fetched) = api::fetch_tags(&client).await {
+                tags.set(fetched);
             }
+            set_loading.set(false);
         });
-    });
+    }
+
+    let on_create_root = {
+        let client = client.clone();
+        Callback::new(move |name: String| {
+            let color = new_color.get_untracked();
+            let client = client.clone();
+            leptos::task::spawn_local(async move {
+                let req = CreateTagRequest {
+                    name,
+                    color,
+                    parent_tag_id: None,
+                };
+                if let Ok(tag) = api::create_tag(&client, &req).await {
+                    tags.update(|t| t.push(tag));
+                }
+            });
+        })
+    };
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">

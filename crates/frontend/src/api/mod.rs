@@ -14,8 +14,6 @@ pub use tags::*;
 
 pub(crate) use client::{HttpClient, HttpResponse, Method};
 
-use gloo_net::http::{Headers, Request};
-
 /// Structured API error type for i18n-aware error display.
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -64,8 +62,11 @@ pub(crate) const API_BASE: &str = match option_env!("API_BASE_URL") {
     None => "/api",
 };
 
-pub(crate) fn auth_headers() -> Headers {
-    let headers = Headers::new();
+/// Build auth headers (Content-Type: application/json).
+/// Only available on wasm32.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn auth_headers() -> gloo_net::http::Headers {
+    let headers = gloo_net::http::Headers::new();
     headers.set("Content-Type", "application/json");
     headers
 }
@@ -163,6 +164,7 @@ pub(crate) async fn api_delete(
 /// Auth base URL — derived from API_BASE_URL.
 /// Locally API_BASE_URL="/api" so Trunk proxy handles /auth/* via window origin.
 /// In prod/dev API_BASE_URL="https://gateway.../api" so strip "/api" to get gateway root.
+#[cfg(target_arch = "wasm32")]
 pub fn auth_base() -> String {
     if API_BASE.starts_with("http") {
         API_BASE.trim_end_matches("/api").to_string()
@@ -187,7 +189,9 @@ pub struct SessionUser {
 }
 
 /// Check current session. Returns Some(SessionInfo) if logged in.
+#[cfg(target_arch = "wasm32")]
 pub async fn get_session() -> Option<SessionInfo> {
+    use gloo_net::http::Request;
     let url = format!("{}/auth/api/get-session", auth_base());
     let resp = Request::get(&url)
         .credentials(web_sys::RequestCredentials::Include)
@@ -202,7 +206,9 @@ pub async fn get_session() -> Option<SessionInfo> {
 }
 
 /// Sign out and redirect to /login
+#[cfg(target_arch = "wasm32")]
 pub fn logout() {
+    use gloo_net::http::Request;
     leptos::task::spawn_local(async {
         let url = format!("{}/auth/api/sign-out", auth_base());
         let _ = Request::post(&url)

@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 
 use crate::api;
+use crate::api::client::GlooClient;
 use kartoteka_shared::{CreateItemRequest, Item, UpdateItemRequest};
 
 /// All item-level callbacks for a list or sublist.
@@ -18,19 +19,22 @@ pub struct ItemActions {
 
 /// Create item callbacks bound to a specific list/sublist.
 pub fn create_item_actions(
+    client: GlooClient,
     items: RwSignal<Vec<Item>>,
     list_id: String,
     on_error: Option<WriteSignal<Option<String>>>,
 ) -> ItemActions {
     let lid_add = list_id.clone();
+    let client_add = client.clone();
     let on_add = Callback::new(move |req: CreateItemRequest| {
         let lid = lid_add.clone();
+        let client = client_add.clone();
         leptos::task::spawn_local(async move {
-            match api::create_item(&lid, &req).await {
+            match api::create_item(&client, &lid, &req).await {
                 Ok(item) => items.update(|list| list.push(item)),
                 Err(e) => {
                     if let Some(set_err) = on_error {
-                        set_err.set(Some(e));
+                        set_err.set(Some(e.to_string()));
                     }
                 }
             }
@@ -38,6 +42,7 @@ pub fn create_item_actions(
     });
 
     let lid_toggle = list_id.clone();
+    let client_toggle = client.clone();
     let on_toggle = Callback::new(move |item_id: String| {
         items.update(|list| {
             if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
@@ -53,6 +58,7 @@ pub fn create_item_actions(
             .map(|i| i.completed);
 
         if let Some(completed) = completed {
+            let client = client_toggle.clone();
             leptos::task::spawn_local(async move {
                 let req = UpdateItemRequest {
                     title: None,
@@ -68,22 +74,25 @@ pub fn create_item_actions(
                     deadline_time: None,
                     hard_deadline: None,
                 };
-                let _ = api::update_item(&lid, &item_id, &req).await;
+                let _ = api::update_item(&client, &lid, &item_id, &req).await;
             });
         }
     });
 
     let lid_delete = list_id.clone();
+    let client_delete = client.clone();
     let on_delete = Callback::new(move |item_id: String| {
         items.update(|list| list.retain(|i| i.id != item_id));
 
         let lid = lid_delete.clone();
+        let client = client_delete.clone();
         leptos::task::spawn_local(async move {
-            let _ = api::delete_item(&lid, &item_id).await;
+            let _ = api::delete_item(&client, &lid, &item_id).await;
         });
     });
 
     let lid_desc = list_id.clone();
+    let client_desc = client.clone();
     let on_description_save = Callback::new(move |(item_id, new_desc): (String, String)| {
         items.update(|list| {
             if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
@@ -95,6 +104,7 @@ pub fn create_item_actions(
             }
         });
         let lid = lid_desc.clone();
+        let client = client_desc.clone();
         leptos::task::spawn_local(async move {
             let req = UpdateItemRequest {
                 title: None,
@@ -110,11 +120,12 @@ pub fn create_item_actions(
                 deadline_time: None,
                 hard_deadline: None,
             };
-            let _ = api::update_item(&lid, &item_id, &req).await;
+            let _ = api::update_item(&client, &lid, &item_id, &req).await;
         });
     });
 
     let lid_qty = list_id.clone();
+    let client_qty = client.clone();
     let on_quantity_change = Callback::new(move |(item_id, new_actual): (String, i32)| {
         items.update(|list| {
             if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
@@ -127,6 +138,7 @@ pub fn create_item_actions(
 
         let lid = lid_qty.clone();
         let iid = item_id.clone();
+        let client = client_qty.clone();
         leptos::task::spawn_local(async move {
             let req = UpdateItemRequest {
                 title: None,
@@ -142,11 +154,12 @@ pub fn create_item_actions(
                 deadline_time: None,
                 hard_deadline: None,
             };
-            let _ = api::update_item(&lid, &iid, &req).await;
+            let _ = api::update_item(&client, &lid, &iid, &req).await;
         });
     });
 
     let lid_date = list_id.clone();
+    let client_date = client.clone();
     let on_date_save = Callback::new(
         move |(item_id, date_type, date_val, time_val): (
             String,
@@ -193,6 +206,7 @@ pub fn create_item_actions(
             let lid = lid_date.clone();
             let iid = item_id.clone();
             let dt = date_type.clone();
+            let client = client_date.clone();
             leptos::task::spawn_local(async move {
                 let mut req = UpdateItemRequest {
                     title: None,
@@ -222,7 +236,7 @@ pub fn create_item_actions(
                     }
                     _ => {}
                 }
-                let _ = api::update_item(&lid, &iid, &req).await;
+                let _ = api::update_item(&client, &lid, &iid, &req).await;
             });
         },
     );
