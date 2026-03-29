@@ -58,14 +58,14 @@ crates/shared/src/
     responses.rs    -- ItemDetailResponse, ContainerChildrenResponse,
                        PreferencesResponse, ErrorResponse, HomeData (deduplicated)
   deserializers.rs  -- bool_from_number, u32_from_number, features_from_json
-  date_utils.rs     -- moved from frontend, js_sys replaced with `now` parameter
+  date_utils.rs     -- rewritten with chrono::NaiveDate, replaces ~350 lines of hand-rolled date math
   constants.rs      -- FEATURE_*, DATE_TYPE_*, SETTING_*
 ```
 
 ### Key decisions
 - **Re-exports from `lib.rs`** — `pub use models::*; pub use dto::*;` etc. so existing imports in `crates/api` continue to work without changes. Flat re-export avoids churn in API crate.
 - **`HomeData` fix** — current `HomeData` struct in shared has `pinned: Vec<HomeItem>` and `recent: Vec<HomeItem>`, but the actual API response returns 6 separate fields: `pinned_lists`, `pinned_containers`, `recent_lists`, `recent_containers`, `root_containers`, `root_lists`. Fix: rewrite `HomeData` to match the actual API response shape. Move to `dto/responses.rs` (it's a response DTO, not a domain model). Make frontend use the typed struct instead of `serde_json::Value`.
-- **`date_utils` migration** — move pure date math and business logic to shared. Functions using `js_sys::Date` (`get_today_string`, `current_time_hhmm`) get refactored to accept parameters: `get_today_string(year: u32, month: u32, day: u32)` and `current_time_hhmm(hours: u32, minutes: u32)`. `is_overdue` and `is_overdue_for_date_type` also need `today: &str` and `now_time: &str` parameters (they call `current_time_hhmm` internally). Frontend thin wrappers read `js_sys::Date` and pass values. Polish-specific formatting functions (`polish_month_abbr`, `format_polish_date`, etc.) stay in the frontend crate — they are presentation logic, not business logic.
+- **`date_utils` migration** — rewrite date math using `chrono::NaiveDate` instead of moving ~350 lines of hand-rolled logic. The current frontend `date_utils.rs` reimplements standard date operations (days_in_month, day_of_week, add_days, date_to_days, week_range, month_grid_range) that `chrono` handles natively. Add `chrono = { version = "0.4", default-features = false }` to shared (no-std compatible, works in WASM). Functions that need "now" (`get_today_string`, `current_time_hhmm`) accept `chrono::NaiveDate`/`NaiveTime` or raw params. `is_overdue(item, today, now_time)` uses `NaiveDate`/`NaiveTime` for comparison. `is_overdue_for_date_type` stays unchanged (date-only comparison). Frontend thin wrappers read `js_sys::Date` and convert to `NaiveDate`. Polish-specific formatting functions stay in the frontend crate — presentation logic. `relative_date` stays in frontend — returns Polish strings.
 - **New shared types from deduplication:**
   - `PreferencesResponse { locale: String }` — currently duplicated in API and frontend
   - `ErrorResponse { code: String, status: u16 }` — API defines `ErrorResponse`, frontend defines `ErrorBody`; unify

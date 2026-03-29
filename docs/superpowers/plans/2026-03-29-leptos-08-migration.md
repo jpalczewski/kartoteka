@@ -974,50 +974,111 @@ git add crates/shared/src/lib.rs
 git commit -m "refactor: rewrite shared lib.rs as module re-exports"
 ```
 
-### Task 2.5: Migrate date_utils to shared
+### Task 2.5: Rewrite date_utils with chrono in shared
+
+The current frontend `date_utils.rs` has ~350 lines of hand-rolled date math (days_in_month, day_of_week, add_days, date_to_days, week_range, month_grid_range, etc.). All of this is standard `chrono::NaiveDate` functionality. Instead of moving the hand-rolled code, rewrite it with chrono.
 
 **Files:**
+- Modify: `crates/shared/Cargo.toml` — add chrono dependency
 - Create: `crates/shared/src/date_utils.rs`
-- Modify: `crates/frontend/src/components/common/date_utils.rs`
+- Modify: `crates/shared/src/lib.rs` — add module
+- Modify: `crates/frontend/src/components/common/date_utils.rs` — thin wrappers + Polish formatting
 
-- [ ] **Step 1: Write failing tests for date_utils in shared**
+- [ ] **Step 1: Add chrono to shared crate**
 
-Create test file first. Key functions to test: `get_today_string`, `parse_date`, `days_in_month`, `date_to_days`, `relative_date`, `is_overdue`, `day_of_week`, `add_days`, `week_range`, `month_grid_range`.
+In `crates/shared/Cargo.toml`:
+```toml
+[dependencies]
+chrono = { version = "0.4.44", default-features = false }
+# existing deps...
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+```
 
-Add tests in `crates/shared/src/date_utils.rs` (inline `#[cfg(test)] mod tests`):
+`default-features = false` avoids pulling in `std::time` clock features — keeps it WASM-safe and no-std compatible.
+
+- [ ] **Step 2: Write failing tests for chrono-based date_utils**
 
 ```rust
+// crates/shared/src/date_utils.rs
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_get_today_string() {
-        assert_eq!(get_today_string(2026_i32, 3, 29), "2026-03-29");
-        assert_eq!(get_today_string(2026_i32, 1, 5), "2026-01-05");
-    }
-
-    #[test]
-    fn test_current_time_hhmm() {
-        assert_eq!(current_time_hhmm(14, 5), "14:05");
-        assert_eq!(current_time_hhmm(0, 0), "00:00");
-    }
-
-    #[test]
     fn test_parse_date() {
-        assert_eq!(parse_date("2026-03-29"), Some((2026, 3, 29)));
+        assert_eq!(parse_date("2026-03-29"), Some(NaiveDate::from_ymd_opt(2026, 3, 29).unwrap()));
         assert_eq!(parse_date("invalid"), None);
+        assert_eq!(parse_date(""), None);
     }
 
     #[test]
-    fn test_days_in_month() {
-        assert_eq!(days_in_month(2026, 2), 28);
-        assert_eq!(days_in_month(2024, 2), 29); // leap year
-        assert_eq!(days_in_month(2026, 1), 31);
+    fn test_format_date() {
+        let d = NaiveDate::from_ymd_opt(2026, 3, 5).unwrap();
+        assert_eq!(format_date(&d), "2026-03-05");
     }
 
     #[test]
-    fn test_is_overdue_deadline_past() {
+    fn test_add_days() {
+        assert_eq!(add_days("2026-03-29", 1), "2026-03-30");
+        assert_eq!(add_days("2026-03-31", 1), "2026-04-01");
+        assert_eq!(add_days("2026-01-01", -1), "2025-12-31");
+        assert_eq!(add_days("2026-02-28", 1), "2026-03-01");
+    }
+
+    #[test]
+    fn test_add_days_leap_year() {
+        assert_eq!(add_days("2024-02-28", 1), "2024-02-29");
+        assert_eq!(add_days("2024-02-29", 1), "2024-03-01");
+    }
+
+    #[test]
+    fn test_day_of_week() {
+        // chrono: Mon=0 ... Sun=6 (Weekday::num_days_from_monday)
+        // current code: Sun=0 ... Sat=6
+        // Keep the current convention (Sun=0) for calendar grid compatibility
+        assert_eq!(day_of_week("2026-03-29"), 0); // Sunday
+        assert_eq!(day_of_week("2026-03-23"), 1); // Monday
+        assert_eq!(day_of_week("2026-03-28"), 6); // Saturday
+    }
+
+    #[test]
+    fn test_days_between() {
+        assert_eq!(days_between("2026-03-29", "2026-03-29"), Some(0));
+        assert_eq!(days_between("2026-03-29", "2026-03-30"), Some(1));
+        assert_eq!(days_between("2026-03-30", "2026-03-29"), Some(-1));
+    }
+
+    #[test]
+    fn test_week_range() {
+        // 2026-03-29 is Sunday, week should be Mon 2026-03-23 to Sun 2026-03-29
+        let (start, end) = week_range("2026-03-29");
+        assert_eq!(start, "2026-03-23");
+        assert_eq!(end, "2026-03-29");
+    }
+
+    #[test]
+    fn test_week_range_monday() {
+        let (start, end) = week_range("2026-03-23");
+        assert_eq!(start, "2026-03-23");
+        assert_eq!(end, "2026-03-29");
+    }
+
+    #[test]
+    fn test_month_grid_range() {
+        // March 2026: starts on Sunday, so grid starts Mon Feb 23
+        let (start, end) = month_grid_range(2026, 3);
+        // First day of month is Sun Mar 1 -> grid starts Mon Feb 23
+        // Last day is Tue Mar 31 -> grid ends Sun Apr 5
+        let start_date = parse_date(&start).unwrap();
+        let end_date = parse_date(&end).unwrap();
+        assert_eq!(start_date.weekday(), chrono::Weekday::Mon);
+        assert_eq!(end_date.weekday(), chrono::Weekday::Sun);
+    }
+
+    #[test]
+    fn test_is_overdue_past_deadline() {
         let item = crate::Item {
             id: "1".into(), list_id: "l1".into(), title: "t".into(),
             description: None, completed: false, position: 0,
@@ -1028,6 +1089,21 @@ mod tests {
             created_at: "2026-03-01".into(), updated_at: "2026-03-01".into(),
         };
         assert!(is_overdue(&item, "2026-03-29", "12:00"));
+    }
+
+    #[test]
+    fn test_is_overdue_same_day_with_time() {
+        let item = crate::Item {
+            id: "1".into(), list_id: "l1".into(), title: "t".into(),
+            description: None, completed: false, position: 0,
+            quantity: None, actual_quantity: None, unit: None,
+            start_date: None, start_time: None,
+            deadline: Some("2026-03-29".into()), deadline_time: Some("10:00".into()),
+            hard_deadline: None,
+            created_at: "2026-03-01".into(), updated_at: "2026-03-01".into(),
+        };
+        assert!(is_overdue(&item, "2026-03-29", "12:00"));   // past deadline time
+        assert!(!is_overdue(&item, "2026-03-29", "09:00"));  // before deadline time
     }
 
     #[test]
@@ -1045,110 +1121,277 @@ mod tests {
     }
 
     #[test]
-    fn test_add_days() {
-        assert_eq!(add_days("2026-03-29", 1), "2026-03-30");
-        assert_eq!(add_days("2026-03-31", 1), "2026-04-01");
-        assert_eq!(add_days("2026-01-01", -1), "2025-12-31");
+    fn test_is_overdue_for_date_type() {
+        assert!(is_overdue_for_date_type(Some("2026-03-28"), false, "2026-03-29"));
+        assert!(!is_overdue_for_date_type(Some("2026-03-28"), true, "2026-03-29")); // completed
+        assert!(!is_overdue_for_date_type(Some("2026-03-30"), false, "2026-03-29")); // future
+        assert!(!is_overdue_for_date_type(None, false, "2026-03-29")); // no date
     }
 
     #[test]
-    fn test_day_of_week() {
-        // 2026-03-29 is a Sunday = 0
-        assert_eq!(day_of_week("2026-03-29"), 0);
+    fn test_is_upcoming() {
+        let item = crate::Item {
+            id: "1".into(), list_id: "l1".into(), title: "t".into(),
+            description: None, completed: false, position: 0,
+            quantity: None, actual_quantity: None, unit: None,
+            start_date: None, start_time: None,
+            deadline: Some("2026-03-30".into()), deadline_time: None,
+            hard_deadline: None,
+            created_at: "2026-03-01".into(), updated_at: "2026-03-01".into(),
+        };
+        assert!(is_upcoming(&item, "2026-03-29", "12:00"));
     }
 
     #[test]
-    fn test_relative_date() {
-        // relative_date returns Polish strings — stays in frontend (presentation logic)
-        // Do NOT move relative_date to shared. Test coverage is here for reference only.
+    fn test_sort_by_deadline() {
+        let mut items = vec![
+            crate::Item {
+                id: "1".into(), list_id: "l".into(), title: "no deadline".into(),
+                description: None, completed: false, position: 0,
+                quantity: None, actual_quantity: None, unit: None,
+                start_date: None, start_time: None,
+                deadline: None, deadline_time: None, hard_deadline: None,
+                created_at: "".into(), updated_at: "".into(),
+            },
+            crate::Item {
+                id: "2".into(), list_id: "l".into(), title: "early".into(),
+                description: None, completed: false, position: 0,
+                quantity: None, actual_quantity: None, unit: None,
+                start_date: None, start_time: None,
+                deadline: Some("2026-03-01".into()), deadline_time: None, hard_deadline: None,
+                created_at: "".into(), updated_at: "".into(),
+            },
+            crate::Item {
+                id: "3".into(), list_id: "l".into(), title: "late".into(),
+                description: None, completed: false, position: 0,
+                quantity: None, actual_quantity: None, unit: None,
+                start_date: None, start_time: None,
+                deadline: Some("2026-03-15".into()), deadline_time: None, hard_deadline: None,
+                created_at: "".into(), updated_at: "".into(),
+            },
+        ];
+        sort_by_deadline(&mut items);
+        assert_eq!(items[0].id, "2"); // earliest deadline first
+        assert_eq!(items[1].id, "3");
+        assert_eq!(items[2].id, "1"); // no deadline last
     }
 
     #[test]
-    fn test_week_range() {
-        let (start, end) = week_range("2026-03-29"); // Sunday
-        // Week should be Mon-Sun
-        assert_eq!(start, "2026-03-23");
-        assert_eq!(end, "2026-03-29");
+    fn test_prev_next_month() {
+        assert_eq!(prev_month(2026, 3), (2026, 2));
+        assert_eq!(prev_month(2026, 1), (2025, 12));
+        assert_eq!(next_month(2026, 12), (2027, 1));
+        assert_eq!(next_month(2026, 3), (2026, 4));
     }
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 3: Run tests to verify they fail**
 
 Run: `cargo test -p kartoteka-shared -- date_utils 2>&1 | head -20`
 
 Expected: Compilation error (module doesn't exist yet).
 
-- [ ] **Step 3: Create shared date_utils.rs**
+- [ ] **Step 4: Implement chrono-based date_utils**
 
-Copy all pure functions from `crates/frontend/src/components/common/date_utils.rs` to `crates/shared/src/date_utils.rs`. Modify:
+```rust
+// crates/shared/src/date_utils.rs
+use chrono::{Datelike, Duration, NaiveDate, Weekday};
 
-- `get_today_string()` → `get_today_string(year: i32, month: u32, day: u32) -> String` (year stays `i32` for consistency with `parse_date`, `days_in_month`, `add_days`)
-- `current_time_hhmm()` → `current_time_hhmm(hours: u32, minutes: u32) -> String`
-- `is_overdue(item, today)` → `is_overdue(item, today, now_time)` (add `now_time: &str` param — `is_overdue` calls `current_time_hhmm()` internally for deadline_time comparison)
-- `is_overdue_for_date_type(date_val, completed, today)` → stays unchanged (does NOT call `current_time_hhmm` — only compares date, no time component)
-- `get_today()` — remove (it was just a wrapper around `get_today_string()`)
-- `relative_date()` — stays in frontend (returns Polish strings — presentation logic)
-- `sort_by_deadline()` — move to shared (pure logic, no Polish, no js_sys)
+/// Parse "YYYY-MM-DD" string into NaiveDate
+pub fn parse_date(date_str: &str) -> Option<NaiveDate> {
+    NaiveDate::parse_from_str(date_str, "%Y-%m-%d").ok()
+}
 
-**Do NOT copy** Polish formatting functions (`polish_month_abbr`, `polish_day_of_week`, `polish_day_of_week_full`, `polish_month_name`, `format_polish_date`). Those stay in the frontend.
+/// Format NaiveDate as "YYYY-MM-DD"
+pub fn format_date(date: &NaiveDate) -> String {
+    date.format("%Y-%m-%d").to_string()
+}
 
-Also do NOT copy: `DateBadge` struct and `item_date_badges` — these are presentation logic (badge colors, labels), stay in frontend.
+/// Add/subtract days from a date string
+pub fn add_days(date_str: &str, n: i64) -> String {
+    parse_date(date_str)
+        .map(|d| format_date(&(d + Duration::days(n))))
+        .unwrap_or_default()
+}
 
-Import `crate::Item` for the `is_overdue`/`is_upcoming` signatures.
+/// Day of week: Sun=0, Mon=1, ..., Sat=6 (JS convention for calendar grids)
+pub fn day_of_week(date_str: &str) -> u32 {
+    parse_date(date_str)
+        .map(|d| d.weekday().num_days_from_sunday())
+        .unwrap_or(0)
+}
 
-Add `pub mod date_utils;` to `lib.rs` and `pub use date_utils::*;` for re-export.
+/// Signed difference in days between two date strings
+pub fn days_between(a: &str, b: &str) -> Option<i64> {
+    let da = parse_date(a)?;
+    let db = parse_date(b)?;
+    Some((db - da).num_days())
+}
 
-- [ ] **Step 4: Run tests**
+/// Days in a given month
+pub fn days_in_month(year: i32, month: u32) -> u32 {
+    if month == 12 {
+        NaiveDate::from_ymd_opt(year + 1, 1, 1)
+    } else {
+        NaiveDate::from_ymd_opt(year, month + 1, 1)
+    }
+    .and_then(|d| d.pred_opt())
+    .map(|d| d.day())
+    .unwrap_or(30)
+}
+
+/// Mon-Sun week range containing the given date
+pub fn week_range(date_str: &str) -> (String, String) {
+    let date = parse_date(date_str).unwrap_or_default();
+    let days_since_monday = date.weekday().num_days_from_monday();
+    let monday = date - Duration::days(days_since_monday as i64);
+    let sunday = monday + Duration::days(6);
+    (format_date(&monday), format_date(&sunday))
+}
+
+/// Grid range for a month calendar (starts Monday, ends Sunday, covers full weeks)
+pub fn month_grid_range(year: i32, month: u32) -> (String, String) {
+    let first = NaiveDate::from_ymd_opt(year, month, 1).unwrap_or_default();
+    let last_day = days_in_month(year, month);
+    let last = NaiveDate::from_ymd_opt(year, month, last_day).unwrap_or_default();
+
+    let start_offset = first.weekday().num_days_from_monday();
+    let grid_start = first - Duration::days(start_offset as i64);
+
+    let end_offset = 6 - last.weekday().num_days_from_monday();
+    let grid_end = last + Duration::days(end_offset as i64);
+
+    (format_date(&grid_start), format_date(&grid_end))
+}
+
+/// Previous month (year, month)
+pub fn prev_month(year: i32, month: u32) -> (i32, u32) {
+    if month == 1 { (year - 1, 12) } else { (year, month - 1) }
+}
+
+/// Next month (year, month)
+pub fn next_month(year: i32, month: u32) -> (i32, u32) {
+    if month == 12 { (year + 1, 1) } else { (year, month + 1) }
+}
+
+/// Check if an item's deadline is overdue
+pub fn is_overdue(item: &crate::Item, today: &str, now_time: &str) -> bool {
+    if item.completed {
+        return false;
+    }
+    match item.deadline.as_deref() {
+        None => false,
+        Some(d) if d < today => true,
+        Some(d) if d == today => match item.deadline_time.as_deref() {
+            Some(t) if !t.is_empty() => t < now_time,
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Check overdue for a specific date field (date-only, no time)
+pub fn is_overdue_for_date_type(date_val: Option<&str>, completed: bool, today: &str) -> bool {
+    if completed {
+        return false;
+    }
+    match date_val {
+        None => false,
+        Some(d) if d < today => true,
+        _ => false,
+    }
+}
+
+/// Check if item is upcoming (not completed, not overdue)
+pub fn is_upcoming(item: &crate::Item, today: &str, now_time: &str) -> bool {
+    !item.completed && !is_overdue(item, today, now_time)
+}
+
+/// Sort items by deadline (earliest first, items without deadline last)
+pub fn sort_by_deadline(items: &mut [crate::Item]) {
+    items.sort_by(|a, b| {
+        match (&a.deadline, &b.deadline) {
+            (Some(da), Some(db)) => da.cmp(db),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        }
+    });
+}
+
+// Tests: see #[cfg(test)] mod tests at the end of this file
+```
+
+- [ ] **Step 5: Add module to lib.rs**
+
+Add `pub mod date_utils;` and `pub use date_utils::*;` to `crates/shared/src/lib.rs`.
+
+- [ ] **Step 6: Run tests**
 
 Run: `cargo test -p kartoteka-shared -- date_utils -v`
 
 Expected: All tests pass.
 
-- [ ] **Step 5: Update frontend date_utils.rs to use shared**
+- [ ] **Step 7: Update frontend date_utils.rs**
 
 In `crates/frontend/src/components/common/date_utils.rs`:
-- Remove all functions that were moved to shared
-- Add thin wrappers for `js_sys` functions:
+- Remove all functions that now live in shared (parse_date, add_days, day_of_week, days_in_month, date_to_days, week_range, month_grid_range, is_overdue, is_overdue_for_date_type, is_upcoming, sort_by_deadline, prev_month, next_month)
+- Keep: `get_today_string()`, `current_time_hhmm()` (thin js_sys wrappers), `get_today()`
+- Keep: Polish formatting (`polish_month_abbr`, `polish_day_of_week`, `polish_day_of_week_full`, `polish_month_name`, `format_polish_date`, `format_date_short`)
+- Keep: `relative_date()` (Polish strings)
+- Keep: `DateBadge` struct and `item_date_badges()` (presentation logic)
+- Re-export shared functions for backward compat:
 
 ```rust
-use kartoteka_shared::date_utils as shared_dates;
+// Re-export shared date_utils for backward compatibility
+pub use kartoteka_shared::date_utils::{
+    parse_date, add_days, day_of_week, days_between, days_in_month,
+    week_range, month_grid_range, is_overdue, is_overdue_for_date_type,
+    is_upcoming, sort_by_deadline, prev_month, next_month, format_date,
+};
 
+/// Current date from browser — thin wrapper over shared
 pub fn get_today_string() -> String {
     let d = js_sys::Date::new_0();
-    shared_dates::get_today_string(
-        d.get_full_year() as i32,
-        d.get_month() as u32 + 1,
-        d.get_date() as u32,
+    kartoteka_shared::date_utils::format_date(
+        &chrono::NaiveDate::from_ymd_opt(
+            d.get_full_year() as i32,
+            d.get_month() as u32 + 1,
+            d.get_date() as u32,
+        ).unwrap_or_default()
     )
 }
 
+/// Current time from browser
 pub fn current_time_hhmm() -> String {
     let d = js_sys::Date::new_0();
-    shared_dates::current_time_hhmm(d.get_hours() as u32, d.get_minutes() as u32)
+    format!("{:02}:{:02}", d.get_hours(), d.get_minutes())
 }
 
-// Re-export everything from shared for backward compatibility
-pub use kartoteka_shared::date_utils::*;
-
 // Polish formatting functions stay here (presentation logic)
-pub fn polish_month_abbr(month: u32) -> &'static str { /* stays */ }
-// ... etc
+// ...
 ```
 
-- [ ] **Step 6: Verify frontend compiles**
+Note: `current_time_hhmm` stays in frontend (it's just formatting, not worth putting in shared). The old `date_to_days` is replaced by `days_between`. Callers of `date_to_days` should be updated to use `days_between` or direct `parse_date` + chrono arithmetic.
+
+- [ ] **Step 8: Update callers of removed/renamed functions**
+
+Search for `date_to_days` in frontend — replace with `days_between` or `parse_date` as appropriate. The `date_to_days` function returned days-since-epoch for a single date (used for comparison); `days_between` is a cleaner API for the same use case.
+
+- [ ] **Step 9: Verify frontend compiles**
 
 Run: `cargo check -p kartoteka-frontend --target wasm32-unknown-unknown 2>&1 | tail -10`
 
-- [ ] **Step 7: Run all tests**
+- [ ] **Step 10: Run all tests**
 
 Run: `cargo test --workspace`
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
-git add crates/shared/src/date_utils.rs crates/shared/src/lib.rs crates/frontend/src/components/common/date_utils.rs
-git commit -m "feat: migrate date_utils business logic to shared crate with full test coverage"
+git add crates/shared/Cargo.toml crates/shared/src/date_utils.rs crates/shared/src/lib.rs crates/frontend/src/components/common/date_utils.rs
+git commit -m "feat: rewrite date_utils with chrono, move business logic to shared crate"
 ```
 
 ### Task 2.6: Update frontend to use shared response types
