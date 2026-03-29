@@ -104,3 +104,14 @@ pub struct TagAssignment {
 pub struct UpsertSettingRequest {
     pub value: serde_json::Value,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateInvitationCodeRequest {
+    pub expires_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidateInviteRequest {
+    pub code: String,
+    pub email: String,
+}

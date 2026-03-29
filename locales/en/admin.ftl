@@ -1,0 +1,15 @@
+admin-panel = Admin
+instance-settings = Instance Settings
+registration-mode = Registration Mode
+registration-open = Open
+registration-invite = Invite Only
+registration-closed = Closed
+registration-closed-message = Registration is currently unavailable.
+invitation-codes = Invitation Codes
+invite-code = Invite Code
+invite-code-required = Invite code required
+invite-code-invalid = Invalid or expired invite code
+invite-code-in-use = This code is currently being used, try again shortly
+generate-code = Generate code
+code-active = Active
+code-used = Used

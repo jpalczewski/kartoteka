@@ -6,6 +6,7 @@ export const authMiddleware = createMiddleware<{ Bindings: Env; Variables: Varia
   async (c, next) => {
     if (c.env.DEV_AUTH_USER_ID) {
       c.set("userId", c.env.DEV_AUTH_USER_ID);
+      c.set("userEmail", "dev@local");
       return next();
     }
 
@@ -17,6 +18,7 @@ export const authMiddleware = createMiddleware<{ Bindings: Env; Variables: Varia
     }
 
     c.set("userId", session.user.id);
+    c.set("userEmail", session.user.email ?? "");
     return next();
   }
 );

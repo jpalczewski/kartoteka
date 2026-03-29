@@ -1,6 +1,9 @@
+pub mod admin;
 pub mod containers;
 pub mod items;
 pub mod lists;
+pub mod me;
 pub mod preferences;
+pub mod public;
 pub mod settings;
 pub mod tags;

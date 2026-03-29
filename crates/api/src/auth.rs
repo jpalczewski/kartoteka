@@ -17,3 +17,13 @@ pub fn user_id_from_gateway(req: &Request) -> Result<String> {
         .get("X-User-Id")?
         .ok_or_else(|| Error::from("Missing X-User-Id header"))
 }
+
+/// Extracts user email from X-User-Email header set by Gateway Worker.
+/// Returns None if header is absent (e.g. in dev bypass mode).
+pub fn user_email_from_gateway(req: &Request) -> Option<String> {
+    req.headers()
+        .get("X-User-Email")
+        .ok()
+        .flatten()
+        .filter(|s| !s.is_empty())
+}

@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod client;
 mod containers;
 mod items;

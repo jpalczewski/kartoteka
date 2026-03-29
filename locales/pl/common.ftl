@@ -9,3 +9,5 @@ common-confirm = Potwierdź
 common-copied = Skopiowano!
 common-copy = Kopiuj
 common-or = lub
+common-status = Status
+common-created = Utworzono

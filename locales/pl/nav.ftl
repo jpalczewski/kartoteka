@@ -5,3 +5,4 @@ nav-tags = Tagi
 nav-settings = Ustawienia
 nav-logout = Wyloguj
 nav-login = Zaloguj
+nav-admin = Admin

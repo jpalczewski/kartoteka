@@ -10,11 +10,13 @@ use crate::components::nav::Nav;
 use crate::components::sync_locale::SyncLocale;
 use crate::components::toast_container::ToastContainer;
 use crate::pages::{
-    calendar::CalendarPage, calendar::day::CalendarDayPage, container::ContainerPage,
-    home::HomePage, item_detail::ItemDetailPage, list::ListPage, login::LoginPage,
-    oauth_consent::OAuthConsentPage, settings::McpRedirect, settings::SettingsPage,
-    signup::SignupPage, tags::TagsPage, tags::detail::TagDetailPage, today::TodayPage,
+    admin::AdminPage, calendar::CalendarPage, calendar::day::CalendarDayPage,
+    container::ContainerPage, home::HomePage, item_detail::ItemDetailPage, list::ListPage,
+    login::LoginPage, oauth_consent::OAuthConsentPage, settings::McpRedirect,
+    settings::SettingsPage, signup::SignupPage, tags::TagsPage, tags::detail::TagDetailPage,
+    today::TodayPage,
 };
+use crate::state::AdminContext;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToastKind {
@@ -86,8 +88,25 @@ pub fn App() -> impl IntoView {
     let toast_ctx = ToastContext::new();
     provide_context(toast_ctx);
 
+    let admin_ctx = AdminContext::new();
+    provide_context(admin_ctx);
+
     #[cfg(target_arch = "wasm32")]
     provide_context(GlooClient);
+
+    // Fetch /api/me after session check to populate is_admin signal
+    #[cfg(target_arch = "wasm32")]
+    {
+        let client = GlooClient;
+        leptos::task::spawn_local(async move {
+            if let Some(session) = crate::api::get_session().await {
+                let _ = session; // session is valid
+                if let Ok(me) = crate::api::admin::get_me(&client, None).await {
+                    admin_ctx.is_admin.set(me.is_admin);
+                }
+            }
+        });
+    }
 
     view! {
         <I18nProvider>
@@ -111,6 +130,7 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/lists/:list_id/items/:id") view=ItemDetailPage/>
                         <Route path=path!("/lists/:id") view=ListPage/>
                         <Route path=path!("/containers/:id") view=ContainerPage/>
+                        <Route path=path!("/admin") view=AdminPage/>
                     </Routes>
                 </main>
             </Router>

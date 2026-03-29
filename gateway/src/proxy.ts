@@ -5,8 +5,10 @@ const proxy = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 proxy.all("/*", async (c) => {
   const userId = c.get("userId");
+  const userEmail = c.get("userEmail");
   const headers = new Headers(c.req.raw.headers);
   headers.set("X-User-Id", userId);
+  if (userEmail) headers.set("X-User-Email", userEmail);
 
   if (c.env.DEV_API_URL) {
     // Local dev: rewrite URL to DEV_API_URL

@@ -9,3 +9,5 @@ common-confirm = Confirm
 common-copied = Copied!
 common-copy = Copy
 common-or = or
+common-status = Status
+common-created = Created

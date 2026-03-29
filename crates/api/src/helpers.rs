@@ -1,6 +1,63 @@
 use wasm_bindgen::JsValue;
 use worker::*;
 
+/// Ensure a user row exists in the `users` table. Creates one if absent.
+/// If `initial_admin_email` is non-empty and matches the user's email,
+/// promotes the user to admin on first creation.
+/// Returns `is_admin` flag.
+pub async fn ensure_user_exists(
+    d1: &D1Database,
+    user_id: &str,
+    email: &str,
+    initial_admin_email: &str,
+) -> Result<bool> {
+    d1.prepare(
+        "INSERT OR IGNORE INTO users (id, email, is_admin) VALUES (?1, ?2, 0)",
+    )
+    .bind(&[user_id.into(), email.into()])?
+    .run()
+    .await?;
+
+    if !initial_admin_email.is_empty() && email == initial_admin_email {
+        d1.prepare("UPDATE users SET is_admin = 1 WHERE id = ?1 AND is_admin = 0")
+            .bind(&[user_id.into()])?
+            .run()
+            .await?;
+    }
+
+    let row = d1
+        .prepare("SELECT is_admin FROM users WHERE id = ?1")
+        .bind(&[user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+
+    Ok(row
+        .and_then(|v| v.get("is_admin")?.as_f64())
+        .map(|f| f != 0.0)
+        .unwrap_or(false))
+}
+
+/// Returns a 403 Forbidden response if the user is not an admin.
+/// Call at the top of admin handlers.
+pub async fn require_admin(d1: &D1Database, user_id: &str) -> Result<Option<Response>> {
+    let row = d1
+        .prepare("SELECT is_admin FROM users WHERE id = ?1")
+        .bind(&[user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+
+    let is_admin = row
+        .and_then(|v| v.get("is_admin")?.as_f64())
+        .map(|f| f != 0.0)
+        .unwrap_or(false);
+
+    if !is_admin {
+        Ok(Some(Response::error("Forbidden", 403)?))
+    } else {
+        Ok(None)
+    }
+}
+
 /// Check if a resource belongs to the user. Returns `true` if owned.
 pub async fn check_ownership(
     d1: &D1Database,
