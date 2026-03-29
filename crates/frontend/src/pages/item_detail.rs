@@ -1,4 +1,4 @@
-use crate::api::{delete_item, fetch_item, fetch_list, update_item};
+use crate::api::{delete_item, fetch_item_detail, update_item};
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::editable_description::EditableDescription;
 use crate::components::common::editable_title::EditableTitle;
@@ -29,30 +29,24 @@ pub fn ItemDetailPage() -> impl IntoView {
     let list_id = move || params.with(|p| p.get("list_id").unwrap_or_default().to_string());
     let item_id = move || params.with(|p| p.get("id").unwrap_or_default().to_string());
 
-    // Fetch item
-    let item_resource = LocalResource::new(move || {
+    // Single call returns item + list context
+    let detail_resource = LocalResource::new(move || {
         let lid = list_id();
         let iid = item_id();
-        async move { fetch_item(&lid, &iid).await }
-    });
-
-    // Fetch list (for name in breadcrumbs + features)
-    let list_resource = LocalResource::new(move || {
-        let lid = list_id();
-        async move { fetch_list(&lid).await }
+        async move { fetch_item_detail(&lid, &iid).await }
     });
 
     view! {
         <Suspense fallback=move || view! { <LoadingSpinner /> }>
             {move || {
-                let item_result = item_resource.get().map(|r| (*r).clone());
-                let list_result = list_resource.get().map(|r| (*r).clone());
+                let result = detail_resource.get().map(|r| (*r).clone());
 
-                match (item_result, list_result) {
-                    (Some(Ok(item)), Some(Ok(list))) => {
-                        let lid = list.id.clone();
-                        let list_name = list.name.clone();
-                        let features = list.features.clone();
+                match result {
+                    Some(Ok(detail)) => {
+                        let item = detail.item;
+                        let lid = list_id();
+                        let list_name = detail.list_name;
+                        let features = detail.list_features;
 
                         // Deadlines config
                         let deadlines_config = features
@@ -62,17 +56,21 @@ pub fn ItemDetailPage() -> impl IntoView {
                             .unwrap_or(serde_json::Value::Null);
                         let has_quantity = features.iter().any(|f| f.name == FEATURE_QUANTITY);
 
-                        let cfg_start = deadlines_config.get("has_start_date")
-                            .and_then(|v| v.as_bool()).unwrap_or(false);
-                        let cfg_deadline = deadlines_config.get("has_deadline")
-                            .and_then(|v| v.as_bool()).unwrap_or(false);
-                        let cfg_hard = deadlines_config.get("has_hard_deadline")
-                            .and_then(|v| v.as_bool()).unwrap_or(false);
+                        let cfg_start = deadlines_config
+                            .get("has_start_date")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let cfg_deadline = deadlines_config
+                            .get("has_deadline")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let cfg_hard = deadlines_config
+                            .get("has_hard_deadline")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
 
                         // Breadcrumbs (list name as link, item title as plain text)
-                        let crumbs = vec![
-                            (list_name, format!("/lists/{lid}")),
-                        ];
+                        let crumbs = vec![(list_name, format!("/lists/{lid}"))];
                         let item_title_for_crumb = item.title.clone();
 
                         // Completed toggle
@@ -89,9 +87,12 @@ pub fn ItemDetailPage() -> impl IntoView {
                             <div class="breadcrumbs text-sm mb-4">
                                 <ul>
                                     <li><a href="/">"Home"</a></li>
-                                    {crumbs.into_iter().map(|(label, href)| {
-                                        view! { <li><a href=href>{label}</a></li> }
-                                    }).collect::<Vec<_>>()}
+                                    {crumbs
+                                        .into_iter()
+                                        .map(|(label, href)| {
+                                            view! { <li><a href=href>{label}</a></li> }
+                                        })
+                                        .collect::<Vec<_>>()}
                                     <li>{item_title_for_crumb}</li>
                                 </ul>
                             </div>
@@ -105,31 +106,46 @@ pub fn ItemDetailPage() -> impl IntoView {
                                     on:change=move |_| {
                                         let new_val = !completed.get();
                                         completed.set(new_val);
-                                        spawn_save(list_id(), item_id(), toast.clone(), UpdateItemRequest {
-                                            completed: Some(new_val),
-                                            ..Default::default()
-                                        });
+                                        spawn_save(
+                                            list_id(),
+                                            item_id(),
+                                            toast.clone(),
+                                            UpdateItemRequest {
+                                                completed: Some(new_val),
+                                                ..Default::default()
+                                            },
+                                        );
                                     }
                                 />
                                 <EditableTitle
                                     value=item.title.clone()
                                     on_save=Callback::new(move |new_title: String| {
-                                        spawn_save(list_id(), item_id(), toast.clone(), UpdateItemRequest {
-                                            title: Some(new_title),
-                                            ..Default::default()
-                                        });
+                                        spawn_save(
+                                            list_id(),
+                                            item_id(),
+                                            toast.clone(),
+                                            UpdateItemRequest {
+                                                title: Some(new_title),
+                                                ..Default::default()
+                                            },
+                                        );
                                     })
                                 />
                             </div>
 
-                            // Description
+                            // Description (None from EditableDescription means "clear")
                             <EditableDescription
                                 value=item.description.clone()
                                 on_save=Callback::new(move |new_desc: Option<String>| {
-                                    spawn_save(list_id(), item_id(), toast.clone(), UpdateItemRequest {
-                                        description: new_desc,
-                                        ..Default::default()
-                                    });
+                                    spawn_save(
+                                        list_id(),
+                                        item_id(),
+                                        toast.clone(),
+                                        UpdateItemRequest {
+                                            description: Some(new_desc),
+                                            ..Default::default()
+                                        },
+                                    );
                                 })
                             />
 
@@ -137,28 +153,40 @@ pub fn ItemDetailPage() -> impl IntoView {
                             {if cfg_start {
                                 view! {
                                     <div class="mb-4">
-                                        <label class="label text-sm font-medium">"Data rozpoczęcia"</label>
+                                        <label class="label text-sm font-medium">
+                                            "Data rozpoczęcia"
+                                        </label>
                                         <DateEditor
                                             border_color="border-info"
                                             initial_date=item.start_date.clone()
                                             initial_time=item.start_time.clone()
                                             has_time=true
-                                            on_change=Callback::new(move |(date, time): (String, Option<String>)| {
-                                                let (d, t) = if date.is_empty() {
-                                                    (Some(None), Some(None))
-                                                } else {
-                                                    (Some(Some(date)), time.map(Some))
-                                                };
-                                                spawn_save(list_id(), item_id(), toast.clone(), UpdateItemRequest {
-                                                    start_date: d,
-                                                    start_time: t,
-                                                    ..Default::default()
-                                                });
-                                            })
+                                            on_change=Callback::new(
+                                                move |(date, time): (String, Option<String>)| {
+                                                    let (d, t) = if date.is_empty() {
+                                                        (Some(None), Some(None))
+                                                    } else {
+                                                        (Some(Some(date)), time.map(Some))
+                                                    };
+                                                    spawn_save(
+                                                        list_id(),
+                                                        item_id(),
+                                                        toast.clone(),
+                                                        UpdateItemRequest {
+                                                            start_date: d,
+                                                            start_time: t,
+                                                            ..Default::default()
+                                                        },
+                                                    );
+                                                },
+                                            )
                                         />
                                     </div>
-                                }.into_any()
-                            } else { view! {}.into_any() }}
+                                }
+                                    .into_any()
+                            } else {
+                                view! {}.into_any()
+                            }}
 
                             {if cfg_deadline {
                                 view! {
@@ -169,22 +197,32 @@ pub fn ItemDetailPage() -> impl IntoView {
                                             initial_date=item.deadline.clone()
                                             initial_time=item.deadline_time.clone()
                                             has_time=true
-                                            on_change=Callback::new(move |(date, time): (String, Option<String>)| {
-                                                let (d, t) = if date.is_empty() {
-                                                    (Some(None), Some(None))
-                                                } else {
-                                                    (Some(Some(date)), time.map(Some))
-                                                };
-                                                spawn_save(list_id(), item_id(), toast.clone(), UpdateItemRequest {
-                                                    deadline: d,
-                                                    deadline_time: t,
-                                                    ..Default::default()
-                                                });
-                                            })
+                                            on_change=Callback::new(
+                                                move |(date, time): (String, Option<String>)| {
+                                                    let (d, t) = if date.is_empty() {
+                                                        (Some(None), Some(None))
+                                                    } else {
+                                                        (Some(Some(date)), time.map(Some))
+                                                    };
+                                                    spawn_save(
+                                                        list_id(),
+                                                        item_id(),
+                                                        toast.clone(),
+                                                        UpdateItemRequest {
+                                                            deadline: d,
+                                                            deadline_time: t,
+                                                            ..Default::default()
+                                                        },
+                                                    );
+                                                },
+                                            )
                                         />
                                     </div>
-                                }.into_any()
-                            } else { view! {}.into_any() }}
+                                }
+                                    .into_any()
+                            } else {
+                                view! {}.into_any()
+                            }}
 
                             {if cfg_hard {
                                 let no_time: Option<String> = None;
@@ -196,21 +234,31 @@ pub fn ItemDetailPage() -> impl IntoView {
                                             initial_date=item.hard_deadline.clone()
                                             initial_time=no_time
                                             has_time=false
-                                            on_change=Callback::new(move |(date, _time): (String, Option<String>)| {
-                                                let d = if date.is_empty() {
-                                                    Some(None)
-                                                } else {
-                                                    Some(Some(date))
-                                                };
-                                                spawn_save(list_id(), item_id(), toast.clone(), UpdateItemRequest {
-                                                    hard_deadline: d,
-                                                    ..Default::default()
-                                                });
-                                            })
+                                            on_change=Callback::new(
+                                                move |(date, _time): (String, Option<String>)| {
+                                                    let d = if date.is_empty() {
+                                                        Some(None)
+                                                    } else {
+                                                        Some(Some(date))
+                                                    };
+                                                    spawn_save(
+                                                        list_id(),
+                                                        item_id(),
+                                                        toast.clone(),
+                                                        UpdateItemRequest {
+                                                            hard_deadline: d,
+                                                            ..Default::default()
+                                                        },
+                                                    );
+                                                },
+                                            )
                                         />
                                     </div>
-                                }.into_any()
-                            } else { view! {}.into_any() }}
+                                }
+                                    .into_any()
+                            } else {
+                                view! {}.into_any()
+                            }}
 
                             // Quantity section
                             {if has_quantity {
@@ -224,15 +272,23 @@ pub fn ItemDetailPage() -> impl IntoView {
                                             initial_actual=item.actual_quantity.unwrap_or(0)
                                             unit=unit
                                             on_change=Callback::new(move |new_val: i32| {
-                                                spawn_save(list_id(), item_id(), toast.clone(), UpdateItemRequest {
-                                                    actual_quantity: Some(new_val),
-                                                    ..Default::default()
-                                                });
+                                                spawn_save(
+                                                    list_id(),
+                                                    item_id(),
+                                                    toast.clone(),
+                                                    UpdateItemRequest {
+                                                        actual_quantity: Some(new_val),
+                                                        ..Default::default()
+                                                    },
+                                                );
                                             })
                                         />
                                     </div>
-                                }.into_any()
-                            } else { view! {}.into_any() }}
+                                }
+                                    .into_any()
+                            } else {
+                                view! {}.into_any()
+                            }}
 
                             // Delete button
                             <div class="mt-8 pt-4 border-t border-base-300">
@@ -248,7 +304,12 @@ pub fn ItemDetailPage() -> impl IntoView {
                                                     toast.push("Usunięto".into(), ToastKind::Success);
                                                     nav(&format!("/lists/{lid}"), Default::default());
                                                 }
-                                                Err(e) => toast.push(format!("Błąd: {e}"), ToastKind::Error),
+                                                Err(e) => {
+                                                    toast.push(
+                                                        format!("Błąd: {e}"),
+                                                        ToastKind::Error,
+                                                    )
+                                                }
                                             }
                                         });
                                     })
@@ -258,12 +319,13 @@ pub fn ItemDetailPage() -> impl IntoView {
                                     confirm_class="btn btn-error btn-sm".to_string()
                                 />
                             </div>
-                        }.into_any()
+                        }
+                            .into_any()
                     }
-                    (Some(Err(e)), _) | (_, Some(Err(e))) => {
+                    Some(Err(e)) => {
                         view! { <p class="text-error">{format!("Błąd: {e}")}</p> }.into_any()
                     }
-                    _ => view! { <LoadingSpinner /> }.into_any(),
+                    None => view! { <LoadingSpinner /> }.into_any(),
                 }
             }}
         </Suspense>

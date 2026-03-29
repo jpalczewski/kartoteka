@@ -1,4 +1,5 @@
 use crate::components::common::date_utils::DateBadge;
+use kartoteka_shared::{DATE_TYPE_DEADLINE, DATE_TYPE_HARD_DEADLINE, DATE_TYPE_START};
 use leptos::prelude::*;
 
 /// Renders clickable date badge chips that toggle an editing_date signal.
@@ -38,21 +39,21 @@ pub fn DateBadgeChips(
             {if ghost_start {
                 view! {
                     <button type="button" class="badge badge-ghost badge-sm opacity-40 cursor-pointer"
-                        on:click=move |_| editing_date.set(Some("start".into()))
+                        on:click=move |_| editing_date.set(Some(DATE_TYPE_START.into()))
                     >"+\u{1F4C5}"</button>
                 }.into_any()
             } else { view! {}.into_any() }}
             {if ghost_deadline {
                 view! {
                     <button type="button" class="badge badge-ghost badge-sm opacity-40 cursor-pointer"
-                        on:click=move |_| editing_date.set(Some("deadline".into()))
+                        on:click=move |_| editing_date.set(Some(DATE_TYPE_DEADLINE.into()))
                     >"+\u{23F0}"</button>
                 }.into_any()
             } else { view! {}.into_any() }}
             {if ghost_hard {
                 view! {
                     <button type="button" class="badge badge-ghost badge-sm opacity-40 cursor-pointer"
-                        on:click=move |_| editing_date.set(Some("hard_deadline".into()))
+                        on:click=move |_| editing_date.set(Some(DATE_TYPE_HARD_DEADLINE.into()))
                     >"+\u{1F6A8}"</button>
                 }.into_any()
             } else { view! {}.into_any() }}

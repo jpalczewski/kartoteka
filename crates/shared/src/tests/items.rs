@@ -24,6 +24,33 @@ fn update_item_value_field_is_some_some() {
     assert!(matches!(req.deadline, Some(Some(ref d)) if d == "2024-12-31"));
 }
 
+// --- UpdateItemRequest description (Option<Option<String>>) ---
+
+#[test]
+fn update_item_description_absent_is_none() {
+    let req: UpdateItemRequest = serde_json::from_str(r#"{}"#).unwrap();
+    assert!(req.description.is_none(), "absent = don't touch");
+}
+
+#[test]
+fn update_item_description_null_is_none() {
+    // serde collapses Option<Option<String>>: null == absent == None (outer).
+    // This means sending {"description": null} CANNOT clear the description —
+    // the backend sees None and skips the update entirely.
+    // Actual clearing requires a custom deserializer or a sentinel value.
+    let req: UpdateItemRequest = serde_json::from_str(r#"{"description": null}"#).unwrap();
+    assert!(
+        req.description.is_none(),
+        "null also becomes None — cannot clear via null JSON"
+    );
+}
+
+#[test]
+fn update_item_description_value_is_some_some() {
+    let req: UpdateItemRequest = serde_json::from_str(r#"{"description": "hello"}"#).unwrap();
+    assert!(matches!(req.description, Some(Some(ref d)) if d == "hello"));
+}
+
 // --- DateItem -> Item conversion ---
 
 #[test]

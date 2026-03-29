@@ -10,7 +10,7 @@ pub async fn fetch_items(list_id: &str) -> Result<Vec<Item>, String> {
         .map_err(|e| e.to_string())
 }
 
-pub async fn fetch_item(list_id: &str, item_id: &str) -> Result<Item, String> {
+pub async fn fetch_item_detail(list_id: &str, item_id: &str) -> Result<ItemDetailResponse, String> {
     super::get(&format!(
         "{}/lists/{list_id}/items/{item_id}",
         super::API_BASE

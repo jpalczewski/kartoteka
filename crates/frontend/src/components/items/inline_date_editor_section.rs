@@ -1,4 +1,4 @@
-use kartoteka_shared::Item;
+use kartoteka_shared::{DATE_TYPE_HARD_DEADLINE, DATE_TYPE_START, Item};
 use leptos::prelude::*;
 
 use super::date_editor::DateEditor;
@@ -22,13 +22,15 @@ pub fn InlineDateEditorSection(
     wrapper_class: String,
 ) -> impl IntoView {
     let (border, init_date, init_time, has_time) = match date_type.as_str() {
-        "start" => (
+        x if x == DATE_TYPE_START => (
             "border-info",
             item.start_date.clone(),
             item.start_time.clone(),
             true,
         ),
-        "hard_deadline" => ("border-error", item.hard_deadline.clone(), None, false),
+        x if x == DATE_TYPE_HARD_DEADLINE => {
+            ("border-error", item.hard_deadline.clone(), None, false)
+        }
         _ => (
             "border-warning",
             item.deadline.clone(),

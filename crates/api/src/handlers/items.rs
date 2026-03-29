@@ -32,6 +32,7 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
 
 pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
+    let list_id = require_param(&ctx, "list_id")?;
     let id = require_param(&ctx, "id")?;
     let d1 = ctx.env.d1("DB")?;
 
@@ -39,14 +40,40 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
         return json_error("item_not_found", 404);
     }
 
-    let query = format!("SELECT {} FROM items WHERE id = ?1", ITEM_COLS);
+    let query = format!(
+        "SELECT {} FROM items WHERE id = ?1 AND list_id = ?2",
+        ITEM_COLS
+    );
     let item = d1
         .prepare(&query)
-        .bind(&[id.into()])?
+        .bind(&[id.into(), list_id.clone().into()])?
         .first::<Item>(None)
         .await?
         .ok_or_else(|| Error::from("Not found"))?;
-    Response::from_json(&item)
+
+    // Fetch list name + features for the combined response (saves a round-trip from the client)
+    #[derive(serde::Deserialize)]
+    struct ListRow {
+        name: String,
+        features: Option<String>,
+    }
+    let list_row = d1
+        .prepare("SELECT name, (SELECT COALESCE(json_group_array(json_object('name', lf.feature_name, 'config', json(lf.config))), '[]') FROM list_features lf WHERE lf.list_id = ?1) as features FROM lists WHERE id = ?1")
+        .bind(&[list_id.into()])?
+        .first::<ListRow>(None)
+        .await?
+        .ok_or_else(|| Error::from("List not found"))?;
+    let list_features: Vec<ListFeature> = list_row
+        .features
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
+
+    Response::from_json(&ItemDetailResponse {
+        item,
+        list_name: list_row.name,
+        list_features,
+    })
 }
 
 pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
@@ -200,7 +227,10 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     }
 
     if let Some(description) = &body.description {
-        let desc_val: JsValue = description.as_str().into();
+        let desc_val: JsValue = match description {
+            Some(s) => s.clone().into(),
+            None => JsValue::NULL,
+        };
         d1.prepare("UPDATE items SET description = ?1, updated_at = datetime('now') WHERE id = ?2")
             .bind(&[desc_val, id.clone().into()])?
             .run()

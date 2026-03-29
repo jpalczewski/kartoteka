@@ -103,6 +103,11 @@ pub struct HomeData {
 pub const FEATURE_QUANTITY: &str = "quantity";
 pub const FEATURE_DEADLINES: &str = "deadlines";
 
+/// Date type identifiers used in date badge/editor components
+pub const DATE_TYPE_START: &str = "start";
+pub const DATE_TYPE_DEADLINE: &str = "deadline";
+pub const DATE_TYPE_HARD_DEADLINE: &str = "hard_deadline";
+
 pub const SETTING_MCP_AUTO_ENABLE_FEATURES: &str = "mcp_auto_enable_features";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -287,7 +292,7 @@ pub struct CreateItemRequest {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UpdateItemRequest {
     pub title: Option<String>,
-    pub description: Option<String>,
+    pub description: Option<Option<String>>,
     pub completed: Option<bool>,
     pub position: Option<i32>,
     pub quantity: Option<i32>,
@@ -298,6 +303,15 @@ pub struct UpdateItemRequest {
     pub deadline: Option<Option<String>>,
     pub deadline_time: Option<Option<String>>,
     pub hard_deadline: Option<Option<String>>,
+}
+
+/// Response from GET /api/lists/:list_id/items/:id — item + list context in one call.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItemDetailResponse {
+    #[serde(flatten)]
+    pub item: Item,
+    pub list_name: String,
+    pub list_features: Vec<ListFeature>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
