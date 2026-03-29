@@ -238,33 +238,29 @@ fn render_groups(
                             let lid = toggle_list_id.clone();
                             let iid = toggle_item_id.clone();
                             let client_t = client_toggle.clone();
+                            let previous = items_signal.get_untracked();
+                            let new_completed = previous
+                                .iter()
+                                .find(|i| i.id == iid)
+                                .map(|i| !i.completed);
+                            let Some(new_completed) = new_completed else { return };
                             // Toggle ALL occurrences with same id (multi-date items)
                             items_signal.update(|items| {
                                 for item in items.iter_mut().filter(|i| i.id == iid) {
-                                    item.completed = !item.completed;
+                                    item.completed = new_completed;
                                 }
                             });
                             leptos::task::spawn_local(async move {
-                                let current = items_signal.get_untracked()
-                                    .iter()
-                                    .find(|i| i.id == iid)
-                                    .map(|i| i.completed)
-                                    .unwrap_or(false);
                                 let req = UpdateItemRequest {
-                                    title: None,
-                                    description: None,
-                                    completed: Some(current),
-                                    position: None,
-                                    quantity: None,
-                                    actual_quantity: None,
-                                    unit: None,
-                                    start_date: None,
-                                    start_time: None,
-                                    deadline: None,
-                                    deadline_time: None,
-                                    hard_deadline: None,
+                                    completed: Some(new_completed),
+                                    ..Default::default()
                                 };
-                                let _ = api::update_item(&client_t, &lid, &iid, &req).await;
+                                if api::update_item(&client_t, &lid, &iid, &req)
+                                    .await
+                                    .is_err()
+                                {
+                                    items_signal.set(previous); // rollback
+                                }
                             });
                         });
 
@@ -275,12 +271,15 @@ fn render_groups(
                             let lid = delete_list_id.clone();
                             let iid = delete_item_id.clone();
                             let client_d = client_delete.clone();
+                            let previous = items_signal.get_untracked();
                             // Remove ALL occurrences
                             items_signal.update(|items| {
                                 items.retain(|i| i.id != iid);
                             });
                             leptos::task::spawn_local(async move {
-                                let _ = api::delete_item(&client_d, &lid, &iid).await;
+                                if api::delete_item(&client_d, &lid, &iid).await.is_err() {
+                                    items_signal.set(previous); // rollback
+                                }
                             });
                         });
 

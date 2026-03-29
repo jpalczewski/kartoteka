@@ -72,36 +72,33 @@ pub fn WeekView(
                                     let iid = toggle_item_id.clone();
                                     let td = target_date.clone();
                                     let client_t = client_toggle.clone();
-                                    // Optimistic update in nested signal
+                                    let previous = items_signal.get_untracked();
+                                    let new_completed = previous
+                                        .iter()
+                                        .find(|d| d.date == td)
+                                        .and_then(|d| d.items.iter().find(|i| i.id == iid))
+                                        .map(|i| !i.completed);
+                                    let Some(new_completed) = new_completed else { return };
                                     items_signal.update(|days| {
                                         if let Some(day) = days.iter_mut().find(|d| d.date == td) {
-                                            if let Some(item) = day.items.iter_mut().find(|i| i.id == iid) {
-                                                item.completed = !item.completed;
+                                            if let Some(item) =
+                                                day.items.iter_mut().find(|i| i.id == iid)
+                                            {
+                                                item.completed = new_completed;
                                             }
                                         }
                                     });
                                     leptos::task::spawn_local(async move {
-                                        let completed = items_signal.get_untracked()
-                                            .iter()
-                                            .flat_map(|d| d.items.iter())
-                                            .find(|i| i.id == iid)
-                                            .map(|i| i.completed)
-                                            .unwrap_or(false);
                                         let req = UpdateItemRequest {
-                                            title: None,
-                                            description: None,
-                                            completed: Some(completed),
-                                            position: None,
-                                            quantity: None,
-                                            actual_quantity: None,
-                                            unit: None,
-                                            start_date: None,
-                                            start_time: None,
-                                            deadline: None,
-                                            deadline_time: None,
-                                            hard_deadline: None,
+                                            completed: Some(new_completed),
+                                            ..Default::default()
                                         };
-                                        let _ = api::update_item(&client_t, &lid, &iid, &req).await;
+                                        if api::update_item(&client_t, &lid, &iid, &req)
+                                            .await
+                                            .is_err()
+                                        {
+                                            items_signal.set(previous); // rollback
+                                        }
                                     });
                                 });
 
@@ -114,13 +111,19 @@ pub fn WeekView(
                                     let iid = delete_item_id.clone();
                                     let dd = delete_date.clone();
                                     let client_d = client_delete.clone();
+                                    let previous = items_signal.get_untracked();
                                     items_signal.update(|days| {
                                         if let Some(day) = days.iter_mut().find(|d| d.date == dd) {
                                             day.items.retain(|i| i.id != iid);
                                         }
                                     });
                                     leptos::task::spawn_local(async move {
-                                        let _ = api::delete_item(&client_d, &lid, &iid).await;
+                                        if api::delete_item(&client_d, &lid, &iid)
+                                            .await
+                                            .is_err()
+                                        {
+                                            items_signal.set(previous); // rollback
+                                        }
                                     });
                                 });
 
