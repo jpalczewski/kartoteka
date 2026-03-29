@@ -5,6 +5,7 @@ use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::api;
+use crate::api::client::GlooClient;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::breadcrumbs::Breadcrumbs;
 use crate::components::common::editable_description::EditableDescription;
@@ -29,6 +30,8 @@ pub fn ListPage() -> impl IntoView {
     let params = use_params_map();
     let list_id = move || params.read().get("id").unwrap_or_default();
 
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
+
     let items = RwSignal::new(Vec::<Item>::new());
     let all_tags = RwSignal::new(Vec::<Tag>::new());
     let item_tag_links = RwSignal::new(Vec::<ItemTagLink>::new());
@@ -45,11 +48,12 @@ pub fn ListPage() -> impl IntoView {
     let sublists = RwSignal::new(Vec::<List>::new());
 
     let lid = list_id();
+    let client_init = client.clone();
     leptos::task::spawn_local(async move {
-        if let Ok(list) = api::fetch_list(&lid).await {
+        if let Ok(list) = api::fetch_list(&client_init, &lid).await {
             // Build breadcrumbs if the list belongs to a container
             if let Some(cid) = list.container_id.clone() {
-                if let Ok(all_containers) = api::fetch_containers().await {
+                if let Ok(all_containers) = api::fetch_containers(&client_init).await {
                     let mut chain = Vec::new();
                     let mut current_id = Some(cid);
                     let mut depth = 0;
@@ -73,20 +77,20 @@ pub fn ListPage() -> impl IntoView {
             list_description.set(list.description);
             list_features.set(list.features);
         }
-        match api::fetch_items(&lid).await {
+        match api::fetch_items(&client_init, &lid).await {
             Ok(fetched) => items.set(fetched),
-            Err(e) => set_error.set(Some(e)),
+            Err(e) => set_error.set(Some(e.to_string())),
         }
-        if let Ok(fetched_tags) = api::fetch_tags().await {
+        if let Ok(fetched_tags) = api::fetch_tags(&client_init).await {
             all_tags.set(fetched_tags);
         }
-        if let Ok(links) = api::fetch_item_tag_links().await {
+        if let Ok(links) = api::fetch_item_tag_links(&client_init).await {
             item_tag_links.set(links);
         }
-        if let Ok(fetched_sublists) = api::fetch_sublists(&lid).await {
+        if let Ok(fetched_sublists) = api::fetch_sublists(&client_init, &lid).await {
             sublists.set(fetched_sublists);
         }
-        if let Ok(links) = api::fetch_list_tag_links().await {
+        if let Ok(links) = api::fetch_list_tag_links(&client_init).await {
             let filtered: Vec<ListTagLink> =
                 links.into_iter().filter(|l| l.list_id == lid).collect();
             list_tag_links.set(filtered);
@@ -94,7 +98,7 @@ pub fn ListPage() -> impl IntoView {
         set_loading.set(false);
     });
 
-    let actions = create_item_actions(items, list_id(), Some(set_error));
+    let actions = create_item_actions(client.clone(), items, list_id(), Some(set_error));
     let on_add = actions.on_add;
     let on_toggle = actions.on_toggle;
     let on_delete = actions.on_delete;
@@ -102,10 +106,10 @@ pub fn ListPage() -> impl IntoView {
     let on_quantity_change = actions.on_quantity_change;
     let on_date_save = actions.on_date_save;
 
-    let on_tag_toggle = make_item_tag_toggle(item_tag_links);
+    let on_tag_toggle = make_item_tag_toggle(client.clone(), item_tag_links);
     let lid_for_tag = list_id();
-    let on_list_tag_toggle = make_list_tag_toggle(list_tag_links, lid_for_tag);
-    let on_move_main = make_move_callback(items);
+    let on_list_tag_toggle = make_list_tag_toggle(client.clone(), list_tag_links, lid_for_tag);
+    let on_move_main = make_move_callback(client.clone(), items);
 
     let parent_lid = list_id();
     let on_item_moved_out = Callback::new(move |(moved_item, target_list_id): (Item, String)| {
@@ -116,16 +120,18 @@ pub fn ListPage() -> impl IntoView {
 
     let on_delete_list = {
         let navigate = navigate.clone();
+        let client = client.clone();
         Callback::new(move |_: ()| {
             let lid = list_id();
             let nav = navigate.clone();
+            let client = client.clone();
             leptos::task::spawn_local(async move {
-                match api::delete_list(&lid).await {
+                match api::delete_list(&client, &lid).await {
                     Ok(()) => {
                         toast.push("Lista usunięta".into(), ToastKind::Success);
                         nav("/", Default::default());
                     }
-                    Err(e) => toast.push(e, ToastKind::Error),
+                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
                 }
             });
         })
@@ -133,47 +139,57 @@ pub fn ListPage() -> impl IntoView {
 
     let on_archive = {
         let navigate = use_navigate();
+        let client = client.clone();
         Callback::new(move |_: ()| {
             let lid = list_id();
             let nav = navigate.clone();
+            let client = client.clone();
             leptos::task::spawn_local(async move {
-                match api::archive_list(&lid).await {
+                match api::archive_list(&client, &lid).await {
                     Ok(_) => {
                         toast.push("Lista zarchiwizowana".into(), ToastKind::Success);
                         nav("/", Default::default());
                     }
-                    Err(e) => toast.push(e, ToastKind::Error),
+                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
                 }
             });
         })
     };
 
-    let on_reset = Callback::new(move |_: ()| {
-        let lid = list_id();
-        leptos::task::spawn_local(async move {
-            match api::reset_list(&lid).await {
-                Ok(()) => {
-                    items.update(|list| {
-                        for item in list.iter_mut() {
-                            item.completed = false;
-                            item.actual_quantity = Some(0);
-                        }
-                    });
-                    toast.push("Lista zresetowana".into(), ToastKind::Success);
+    let on_reset = {
+        let client = client.clone();
+        Callback::new(move |_: ()| {
+            let lid = list_id();
+            let client = client.clone();
+            leptos::task::spawn_local(async move {
+                match api::reset_list(&client, &lid).await {
+                    Ok(()) => {
+                        items.update(|list| {
+                            for item in list.iter_mut() {
+                                item.completed = false;
+                                item.actual_quantity = Some(0);
+                            }
+                        });
+                        toast.push("Lista zresetowana".into(), ToastKind::Success);
+                    }
+                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
                 }
-                Err(e) => toast.push(e, ToastKind::Error),
-            }
-        });
-    });
+            });
+        })
+    };
 
-    let on_create_group = Callback::new(move |name: String| {
-        let lid = list_id();
-        leptos::task::spawn_local(async move {
-            if let Ok(sl) = api::create_sublist(&lid, &name).await {
-                sublists.update(|list| list.push(sl));
-            }
-        });
-    });
+    let on_create_group = {
+        let client = client.clone();
+        Callback::new(move |name: String| {
+            let lid = list_id();
+            let client = client.clone();
+            leptos::task::spawn_local(async move {
+                if let Ok(sl) = api::create_sublist(&client, &lid, &name).await {
+                    sublists.update(|list| list.push(sl));
+                }
+            });
+        })
+    };
 
     let (active_tag_filter, set_active_tag_filter) = signal(Option::<String>::None);
 
@@ -226,7 +242,9 @@ pub fn ListPage() -> impl IntoView {
                 }
             }}
 
-            {move || view! {
+            {move || {
+                let client = use_context::<GlooClient>().expect("GlooClient not provided");
+                view! {
                 <ListHeader
                     list_name=list_name.get()
                     list_id=list_id()
@@ -237,6 +255,7 @@ pub fn ListPage() -> impl IntoView {
                     features=list_features.get()
                     on_feature_toggle=Callback::new(move |(feature_name, enabled): (String, bool)| {
                         let lid = list_id();
+                        let client = client.clone();
                         // Optimistic update
                         list_features.update(|feats| {
                             if enabled {
@@ -263,14 +282,15 @@ pub fn ListPage() -> impl IntoView {
                         };
                         leptos::task::spawn_local(async move {
                             if enabled {
-                                let _ = api::add_feature(&lid, &fname, config).await;
+                                let _ = api::add_feature(&client, &lid, &fname, config).await;
                             } else {
-                                let _ = api::remove_feature(&lid, &fname).await;
+                                let _ = api::remove_feature(&client, &lid, &fname).await;
                             }
                         });
                     })
                     on_deadlines_config_change=Callback::new(move |new_config: serde_json::Value| {
                         let lid = list_id();
+                        let client = use_context::<GlooClient>().expect("GlooClient not provided");
                         // Optimistic update
                         list_features.update(|feats| {
                             if let Some(f) = feats.iter_mut().find(|f| f.name == FEATURE_DEADLINES) {
@@ -278,12 +298,13 @@ pub fn ListPage() -> impl IntoView {
                             }
                         });
                         leptos::task::spawn_local(async move {
-                            let _ = api::add_feature(&lid, FEATURE_DEADLINES, new_config).await;
+                            let _ = api::add_feature(&client, &lid, FEATURE_DEADLINES, new_config).await;
                         });
                     })
                     on_rename=Callback::new(move |new_name: String| {
                         list_name.set(new_name.clone());
                         let lid = list_id();
+                        let client = use_context::<GlooClient>().expect("GlooClient not provided");
                         leptos::task::spawn_local(async move {
                             let req = UpdateListRequest {
                                 name: Some(new_name),
@@ -291,18 +312,20 @@ pub fn ListPage() -> impl IntoView {
                                 list_type: None,
                                 archived: None,
                             };
-                            let _ = api::update_list(&lid, &req).await;
+                            let _ = api::update_list(&client, &lid, &req).await;
                         });
                     })
                 />
-            }}
+            }}}
 
-            {move || view! {
+            {move || {
+                view! {
                 <EditableDescription
                     value=list_description.get()
                     on_save=Callback::new(move |new_desc: Option<String>| {
                         list_description.set(new_desc.clone());
                         let lid = list_id();
+                        let client = use_context::<GlooClient>().expect("GlooClient not provided");
                         leptos::task::spawn_local(async move {
                             let req = UpdateListRequest {
                                 name: None,
@@ -310,11 +333,11 @@ pub fn ListPage() -> impl IntoView {
                                 list_type: None,
                                 archived: None,
                             };
-                            let _ = api::update_list(&lid, &req).await;
+                            let _ = api::update_list(&client, &lid, &req).await;
                         });
                     })
                 />
-            }}
+            }}}
 
             {move || {
                 let links = list_tag_links.read();
@@ -420,7 +443,10 @@ pub fn ListPage() -> impl IntoView {
     }
 }
 
-fn make_item_tag_toggle(item_tag_links: RwSignal<Vec<ItemTagLink>>) -> Callback<(String, String)> {
+fn make_item_tag_toggle(
+    client: GlooClient,
+    item_tag_links: RwSignal<Vec<ItemTagLink>>,
+) -> Callback<(String, String)> {
     Callback::new(move |(item_id, tag_id): (String, String)| {
         let has_tag = item_tag_links
             .read()
@@ -431,8 +457,9 @@ fn make_item_tag_toggle(item_tag_links: RwSignal<Vec<ItemTagLink>>) -> Callback<
                 .update(|links| links.retain(|l| !(l.item_id == item_id && l.tag_id == tag_id)));
             let iid = item_id.clone();
             let tid = tag_id.clone();
+            let client = client.clone();
             leptos::task::spawn_local(async move {
-                let _ = api::remove_tag_from_item(&iid, &tid).await;
+                let _ = api::remove_tag_from_item(&client, &iid, &tid).await;
             });
         } else {
             item_tag_links.update(|links| {
@@ -443,14 +470,16 @@ fn make_item_tag_toggle(item_tag_links: RwSignal<Vec<ItemTagLink>>) -> Callback<
             });
             let iid = item_id.clone();
             let tid = tag_id.clone();
+            let client = client.clone();
             leptos::task::spawn_local(async move {
-                let _ = api::assign_tag_to_item(&iid, &tid).await;
+                let _ = api::assign_tag_to_item(&client, &iid, &tid).await;
             });
         }
     })
 }
 
 fn make_list_tag_toggle(
+    client: GlooClient,
     list_tag_links: RwSignal<Vec<ListTagLink>>,
     list_id: String,
 ) -> Callback<String> {
@@ -460,8 +489,9 @@ fn make_list_tag_toggle(
             list_tag_links.update(|links| links.retain(|l| l.tag_id != tag_id));
             let lid = list_id.clone();
             let tid = tag_id.clone();
+            let client = client.clone();
             leptos::task::spawn_local(async move {
-                let _ = api::remove_tag_from_list(&lid, &tid).await;
+                let _ = api::remove_tag_from_list(&client, &lid, &tid).await;
             });
         } else {
             let lid = list_id.clone();
@@ -472,18 +502,23 @@ fn make_list_tag_toggle(
                 })
             });
             let tid = tag_id.clone();
+            let client = client.clone();
             leptos::task::spawn_local(async move {
-                let _ = api::assign_tag_to_list(&lid, &tid).await;
+                let _ = api::assign_tag_to_list(&client, &lid, &tid).await;
             });
         }
     })
 }
 
-fn make_move_callback(items: RwSignal<Vec<Item>>) -> Callback<(String, String)> {
+fn make_move_callback(
+    client: GlooClient,
+    items: RwSignal<Vec<Item>>,
+) -> Callback<(String, String)> {
     Callback::new(move |(item_id, target_list_id): (String, String)| {
         items.update(|list| list.retain(|i| i.id != item_id));
+        let client = client.clone();
         leptos::task::spawn_local(async move {
-            let _ = api::move_item(&item_id, &target_list_id).await;
+            let _ = api::move_item(&client, &item_id, &target_list_id).await;
         });
     })
 }

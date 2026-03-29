@@ -1,7 +1,6 @@
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 use leptos_fluent::move_tr;
-use send_wrapper::SendWrapper;
-use wasm_bindgen_futures::spawn_local;
 
 use crate::api;
 
@@ -26,7 +25,7 @@ pub fn OAuthConsentPage() -> impl IntoView {
         .unwrap_or_default();
     let deny_url = format!("{}?error=access_denied&state={}", redirect_uri, state);
 
-    let session = LocalResource::new(move || SendWrapper::new(api::get_session()));
+    let session = LocalResource::new(api::get_session);
     let login_error = RwSignal::new(Option::<String>::None);
     let loading = RwSignal::new(false);
     let email = RwSignal::new(String::new());
@@ -92,7 +91,7 @@ pub fn OAuthConsentPage() -> impl IntoView {
                 {move || {
                     let deny_url = deny_url.clone();
                     session.get().map(|result| {
-                        let session_info = (*result).clone();
+                        let session_info = result.clone();
                         match session_info {
                             Some(info) => {
                                 // Logged in — show consent

@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 
 use crate::api;
+use crate::api::client::GlooClient;
 use crate::components::common::date_utils::{
     add_days, format_date_short, polish_day_of_week, week_range,
 };
@@ -16,6 +17,7 @@ pub fn WeekView(
     items_signal: RwSignal<Vec<DayItems>>,
     start_date: String,
 ) -> impl IntoView {
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
     let (monday, _sunday) = week_range(&start_date);
 
     // Build 7 days starting from monday
@@ -64,57 +66,64 @@ pub fn WeekView(
                                 let toggle_list_id = item_list_id.clone();
                                 let toggle_item_id = item_id.clone();
                                 let target_date = date.clone();
+                                let client_toggle = client.clone();
                                 let on_toggle = Callback::new(move |_id: String| {
                                     let lid = toggle_list_id.clone();
                                     let iid = toggle_item_id.clone();
                                     let td = target_date.clone();
-                                    // Optimistic update in nested signal
+                                    let client_t = client_toggle.clone();
+                                    let previous = items_signal.get_untracked();
+                                    let new_completed = previous
+                                        .iter()
+                                        .find(|d| d.date == td)
+                                        .and_then(|d| d.items.iter().find(|i| i.id == iid))
+                                        .map(|i| !i.completed);
+                                    let Some(new_completed) = new_completed else { return };
                                     items_signal.update(|days| {
                                         if let Some(day) = days.iter_mut().find(|d| d.date == td) {
-                                            if let Some(item) = day.items.iter_mut().find(|i| i.id == iid) {
-                                                item.completed = !item.completed;
+                                            if let Some(item) =
+                                                day.items.iter_mut().find(|i| i.id == iid)
+                                            {
+                                                item.completed = new_completed;
                                             }
                                         }
                                     });
                                     leptos::task::spawn_local(async move {
-                                        let completed = items_signal.get_untracked()
-                                            .iter()
-                                            .flat_map(|d| d.items.iter())
-                                            .find(|i| i.id == iid)
-                                            .map(|i| i.completed)
-                                            .unwrap_or(false);
                                         let req = UpdateItemRequest {
-                                            title: None,
-                                            description: None,
-                                            completed: Some(completed),
-                                            position: None,
-                                            quantity: None,
-                                            actual_quantity: None,
-                                            unit: None,
-                                            start_date: None,
-                                            start_time: None,
-                                            deadline: None,
-                                            deadline_time: None,
-                                            hard_deadline: None,
+                                            completed: Some(new_completed),
+                                            ..Default::default()
                                         };
-                                        let _ = api::update_item(&lid, &iid, &req).await;
+                                        if api::update_item(&client_t, &lid, &iid, &req)
+                                            .await
+                                            .is_err()
+                                        {
+                                            items_signal.set(previous); // rollback
+                                        }
                                     });
                                 });
 
                                 let delete_list_id = item_list_id.clone();
                                 let delete_item_id = item_id.clone();
                                 let delete_date = date.clone();
+                                let client_delete = client.clone();
                                 let on_delete = Callback::new(move |_id: String| {
                                     let lid = delete_list_id.clone();
                                     let iid = delete_item_id.clone();
                                     let dd = delete_date.clone();
+                                    let client_d = client_delete.clone();
+                                    let previous = items_signal.get_untracked();
                                     items_signal.update(|days| {
                                         if let Some(day) = days.iter_mut().find(|d| d.date == dd) {
                                             day.items.retain(|i| i.id != iid);
                                         }
                                     });
                                     leptos::task::spawn_local(async move {
-                                        let _ = api::delete_item(&lid, &iid).await;
+                                        if api::delete_item(&client_d, &lid, &iid)
+                                            .await
+                                            .is_err()
+                                        {
+                                            items_signal.set(previous); // rollback
+                                        }
                                     });
                                 });
 

@@ -5,6 +5,7 @@ use leptos::prelude::*;
 use leptos_fluent::move_tr;
 
 use crate::api;
+use crate::api::client::GlooClient;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::confirm_delete_modal::ConfirmDeleteModal;
@@ -15,16 +16,21 @@ use crate::components::list_card::{ListCard, list_type_icon};
 #[component]
 pub fn HomePage() -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
 
     let (refresh, set_refresh) = signal(0u32);
     let (active_tag_filter, set_active_tag_filter) = signal(Option::<String>::None);
     let pending_delete = RwSignal::new(Option::<(String, String)>::None);
 
     // Home data: pinned + recent + root
-    let home_res = LocalResource::new(move || {
-        let _ = refresh.get();
-        api::fetch_home()
-    });
+    let home_res = {
+        let client = client.clone();
+        LocalResource::new(move || {
+            let _ = refresh.get();
+            let client = client.clone();
+            async move { api::fetch_home(&client).await }
+        })
+    };
 
     let pinned_lists = RwSignal::new(Vec::<List>::new());
     let pinned_containers = RwSignal::new(Vec::<Container>::new());
@@ -34,117 +40,111 @@ pub fn HomePage() -> impl IntoView {
     let root_lists = RwSignal::new(Vec::<List>::new());
 
     Effect::new(move |_| {
-        if let Some(data) = home_res.get() {
-            if let Ok(v) = &*data {
-                if let Some(pl) = v
-                    .get("pinned_lists")
-                    .and_then(|x| serde_json::from_value::<Vec<List>>(x.clone()).ok())
-                {
-                    pinned_lists.set(pl);
-                }
-                if let Some(pc) = v
-                    .get("pinned_containers")
-                    .and_then(|x| serde_json::from_value::<Vec<Container>>(x.clone()).ok())
-                {
-                    pinned_containers.set(pc);
-                }
-                if let Some(rl) = v
-                    .get("recent_lists")
-                    .and_then(|x| serde_json::from_value::<Vec<List>>(x.clone()).ok())
-                {
-                    recent_lists.set(rl);
-                }
-                if let Some(rc) = v
-                    .get("recent_containers")
-                    .and_then(|x| serde_json::from_value::<Vec<Container>>(x.clone()).ok())
-                {
-                    recent_containers.set(rc);
-                }
-                if let Some(rcc) = v
-                    .get("root_containers")
-                    .and_then(|x| serde_json::from_value::<Vec<Container>>(x.clone()).ok())
-                {
-                    root_containers.set(rcc);
-                }
-                if let Some(rll) = v
-                    .get("root_lists")
-                    .and_then(|x| serde_json::from_value::<Vec<List>>(x.clone()).ok())
-                {
-                    root_lists.set(rll);
-                }
-            }
+        if let Some(Ok(data)) = home_res.get() {
+            pinned_lists.set(data.pinned_lists);
+            pinned_containers.set(data.pinned_containers);
+            recent_lists.set(data.recent_lists);
+            recent_containers.set(data.recent_containers);
+            root_containers.set(data.root_containers);
+            root_lists.set(data.root_lists);
         }
     });
 
     // Archived lists
-    let archived_res = LocalResource::new(move || {
-        let _ = refresh.get();
-        api::fetch_archived_lists()
-    });
+    let archived_res = {
+        let client = client.clone();
+        LocalResource::new(move || {
+            let _ = refresh.get();
+            let client = client.clone();
+            async move { api::fetch_archived_lists(&client).await }
+        })
+    };
     let archived_data = RwSignal::new(Vec::<List>::new());
     Effect::new(move |_| {
-        if let Some(data) = archived_res.get() {
-            if let Ok(lists) = data.as_deref() {
-                archived_data.set(lists.to_vec());
-            }
+        if let Some(Ok(lists)) = archived_res.get() {
+            archived_data.set(lists);
         }
     });
 
-    let tags_res = LocalResource::new(api::fetch_tags);
-    let links_res = LocalResource::new(move || {
-        let _ = refresh.get();
-        api::fetch_list_tag_links()
-    });
+    let tags_res = {
+        let client = client.clone();
+        LocalResource::new(move || {
+            let client = client.clone();
+            async move { api::fetch_tags(&client).await }
+        })
+    };
+
+    let links_res = {
+        let client = client.clone();
+        LocalResource::new(move || {
+            let _ = refresh.get();
+            let client = client.clone();
+            async move { api::fetch_list_tag_links(&client).await }
+        })
+    };
+
     let list_tag_links = RwSignal::new(Vec::<ListTagLink>::new());
     Effect::new(move |_| {
-        if let Some(data) = links_res.get() {
-            if let Some(links) = data.as_deref().ok().map(|s| s.to_vec()) {
-                list_tag_links.set(links);
-            }
+        if let Some(Ok(links)) = links_res.get() {
+            list_tag_links.set(links);
         }
     });
 
-    let on_list_tag_toggle = Callback::new(move |(list_id, tag_id): (String, String)| {
-        let has_tag = list_tag_links
-            .read()
-            .iter()
-            .any(|l| l.list_id == list_id && l.tag_id == tag_id);
-        if has_tag {
-            list_tag_links
-                .update(|links| links.retain(|l| !(l.list_id == list_id && l.tag_id == tag_id)));
-            leptos::task::spawn_local(async move {
-                let _ = api::remove_tag_from_list(&list_id, &tag_id).await;
-            });
-        } else {
-            list_tag_links.update(|links| {
-                links.push(ListTagLink {
-                    list_id: list_id.clone(),
-                    tag_id: tag_id.clone(),
-                })
-            });
-            leptos::task::spawn_local(async move {
-                let _ = api::assign_tag_to_list(&list_id, &tag_id).await;
-            });
-        }
-    });
-
-    let on_create_list = Callback::new(move |req: CreateListRequest| {
-        leptos::task::spawn_local(async move {
-            match api::create_list(&req).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e, ToastKind::Error),
+    let on_list_tag_toggle = {
+        let client = client.clone();
+        Callback::new(move |(list_id, tag_id): (String, String)| {
+            let has_tag = list_tag_links
+                .read()
+                .iter()
+                .any(|l| l.list_id == list_id && l.tag_id == tag_id);
+            if has_tag {
+                list_tag_links.update(|links| {
+                    links.retain(|l| !(l.list_id == list_id && l.tag_id == tag_id))
+                });
+                let client = client.clone();
+                leptos::task::spawn_local(async move {
+                    let _ = api::remove_tag_from_list(&client, &list_id, &tag_id).await;
+                });
+            } else {
+                list_tag_links.update(|links| {
+                    links.push(ListTagLink {
+                        list_id: list_id.clone(),
+                        tag_id: tag_id.clone(),
+                    })
+                });
+                let client = client.clone();
+                leptos::task::spawn_local(async move {
+                    let _ = api::assign_tag_to_list(&client, &list_id, &tag_id).await;
+                });
             }
-        });
-    });
+        })
+    };
 
-    let on_create_container = Callback::new(move |req: CreateContainerRequest| {
-        leptos::task::spawn_local(async move {
-            match api::create_container(&req).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e, ToastKind::Error),
-            }
-        });
-    });
+    let on_create_list = {
+        let client = client.clone();
+        Callback::new(move |req: CreateListRequest| {
+            let client = client.clone();
+            leptos::task::spawn_local(async move {
+                match api::create_list(&client, &req).await {
+                    Ok(_) => set_refresh.update(|n| *n += 1),
+                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                }
+            });
+        })
+    };
+
+    let on_create_container = {
+        let client = client.clone();
+        Callback::new(move |req: CreateContainerRequest| {
+            let client = client.clone();
+            leptos::task::spawn_local(async move {
+                match api::create_container(&client, &req).await {
+                    Ok(_) => set_refresh.update(|n| *n += 1),
+                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                }
+            });
+        })
+    };
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
@@ -152,40 +152,40 @@ pub fn HomePage() -> impl IntoView {
 
             // Tag filter bar
             <Suspense fallback=|| view! {}>
-                {move || tags_res.get().map(|result| {
-                    match &*result {
-                        Ok(tags) if !tags.is_empty() => {
-                            let tags = tags.clone();
-                            view! {
-                                <div class="tag-filter-bar">
-                                    {tags.into_iter().map(|tag| {
-                                        let tid = tag.id.clone();
-                                        let tid2 = tag.id.clone();
-                                        let tid3 = tag.id.clone();
-                                        let color = tag.color.clone();
-                                        let name = tag.name.clone();
-                                        view! {
-                                            <span
-                                                class=move || if active_tag_filter.get().as_deref() == Some(tid.as_str()) { "tag-badge active" } else { "tag-badge" }
-                                                style=format!("background: {}; color: white; cursor: pointer;", color)
-                                                on:click=move |_| {
-                                                    if active_tag_filter.get().as_deref() == Some(tid2.as_str()) {
-                                                        set_active_tag_filter.set(None);
-                                                    } else {
-                                                        set_active_tag_filter.set(Some(tid3.clone()));
-                                                    }
+                {move || if let Some(Ok(tags)) = tags_res.get() {
+                    if !tags.is_empty() {
+                        view! {
+                            <div class="tag-filter-bar">
+                                {tags.into_iter().map(|tag| {
+                                    let tid = tag.id.clone();
+                                    let tid2 = tag.id.clone();
+                                    let tid3 = tag.id.clone();
+                                    let color = tag.color.clone();
+                                    let name = tag.name.clone();
+                                    view! {
+                                        <span
+                                            class=move || if active_tag_filter.get().as_deref() == Some(tid.as_str()) { "tag-badge active" } else { "tag-badge" }
+                                            style=format!("background: {}; color: white; cursor: pointer;", color)
+                                            on:click=move |_| {
+                                                if active_tag_filter.get().as_deref() == Some(tid2.as_str()) {
+                                                    set_active_tag_filter.set(None);
+                                                } else {
+                                                    set_active_tag_filter.set(Some(tid3.clone()));
                                                 }
-                                            >
-                                                {name}
-                                            </span>
-                                        }
-                                    }).collect::<Vec<_>>()}
-                                </div>
-                            }.into_any()
-                        }
-                        _ => view! {}.into_any()
+                                            }
+                                        >
+                                            {name}
+                                        </span>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </div>
+                        }.into_any()
+                    } else {
+                        view! {}.into_any()
                     }
-                })}
+                } else {
+                    view! {}.into_any()
+                }}
             </Suspense>
 
             // Create form
@@ -198,12 +198,14 @@ pub fn HomePage() -> impl IntoView {
             // Delete confirmation modal
             {move || pending_delete.get().map(|(lid, lname)| {
                 let lid_confirm = lid.clone();
+                let client = use_context::<GlooClient>().expect("GlooClient not provided");
                 view! {
                     <ConfirmDeleteModal
                         list_id=lid
                         list_name=lname
                         on_confirm=Callback::new(move |_| {
                             let lid = lid_confirm.clone();
+                            let client = client.clone();
                             leptos::task::spawn_local(async move {
                                 let removed_idx = root_lists.read().iter().position(|l| l.id == lid);
                                 let removed = root_lists.read().iter().find(|l| l.id == lid).cloned();
@@ -212,7 +214,7 @@ pub fn HomePage() -> impl IntoView {
                                 recent_lists.update(|ls| ls.retain(|l| l.id != lid));
                                 pending_delete.set(None);
 
-                                match api::delete_list(&lid).await {
+                                match api::delete_list(&client, &lid).await {
                                     Ok(()) => toast.push(move_tr!("home-list-deleted").get(), ToastKind::Success),
                                     Err(e) => {
                                         if let (Some(list), Some(idx)) = (removed, removed_idx) {
@@ -221,7 +223,7 @@ pub fn HomePage() -> impl IntoView {
                                                 ls.insert(idx, list);
                                             });
                                         }
-                                        toast.push(e, ToastKind::Error);
+                                        toast.push(e.to_string(), ToastKind::Error);
                                     }
                                 }
                             });
@@ -236,11 +238,9 @@ pub fn HomePage() -> impl IntoView {
                     return view! { <LoadingSpinner/> }.into_any();
                 }
 
-                let tags_data = tags_res.get();
-                let all_tags: Vec<Tag> = tags_data
-                    .as_ref()
-                    .and_then(|r| r.as_deref().ok())
-                    .map(|s| s.to_vec())
+                let all_tags: Vec<Tag> = tags_res
+                    .get()
+                    .and_then(|r| r.ok())
                     .unwrap_or_default();
                 let all_links = list_tag_links.get();
                 let filter = active_tag_filter.get();
@@ -259,6 +259,8 @@ pub fn HomePage() -> impl IntoView {
                         .any(|link| link.list_id == list.id && &link.tag_id == tag_id),
                 };
 
+                let client_inner = use_context::<GlooClient>().expect("GlooClient not provided");
+
                 view! {
                     <div>
                         // === Pinned section ===
@@ -267,6 +269,7 @@ pub fn HomePage() -> impl IntoView {
                             let pc = pc.clone();
                             let all_tags = all_tags.clone();
                             let all_links = all_links.clone();
+                            let client_p = client_inner.clone();
                             view! {
                                 <div class="collapse collapse-arrow bg-base-200 mb-4">
                                     <input type="checkbox" checked />
@@ -275,13 +278,15 @@ pub fn HomePage() -> impl IntoView {
                                         <div class="flex flex-col gap-3 pt-2">
                                             {pc.into_iter().map(|c| {
                                                 let cid = c.id.clone();
+                                                let client_pp = client_p.clone();
                                                 view! {
                                                     <ContainerCard
                                                         container=c
                                                         on_pin=Callback::new(move |_| {
                                                             let cid = cid.clone();
+                                                            let client_pp = client_pp.clone();
                                                             leptos::task::spawn_local(async move {
-                                                                let _ = api::toggle_container_pin(&cid).await;
+                                                                let _ = api::toggle_container_pin(&client_pp, &cid).await;
                                                                 set_refresh.update(|n| *n += 1);
                                                             });
                                                         })
@@ -370,6 +375,7 @@ pub fn HomePage() -> impl IntoView {
                         // === Root containers ===
                         {if !rc_list.is_empty() {
                             let rc_list = rc_list.clone();
+                            let client_rc = client_inner.clone();
                             view! {
                                 <div class="mb-4">
                                     <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">{move_tr!("home-folders-and-projects")}</h3>
@@ -377,25 +383,29 @@ pub fn HomePage() -> impl IntoView {
                                         {rc_list.into_iter().map(|c| {
                                             let cid = c.id.clone();
                                             let cid_del = c.id.clone();
+                                            let client_del = client_rc.clone();
+                                            let client_pn = client_rc.clone();
                                             view! {
                                                 <ContainerCard
                                                     container=c
                                                     on_delete=Callback::new(move |_: String| {
                                                         let cid = cid_del.clone();
+                                                        let client_del = client_del.clone();
                                                         leptos::task::spawn_local(async move {
-                                                            match api::delete_container(&cid).await {
+                                                            match api::delete_container(&client_del, &cid).await {
                                                                 Ok(()) => {
                                                                     root_containers.update(|cs| cs.retain(|c| c.id != cid));
                                                                     toast.push(move_tr!("home-container-deleted").get(), ToastKind::Success);
                                                                 }
-                                                                Err(e) => toast.push(e, ToastKind::Error),
+                                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                                             }
                                                         });
                                                     })
                                                     on_pin=Callback::new(move |_| {
                                                         let cid = cid.clone();
+                                                        let client_pn = client_pn.clone();
                                                         leptos::task::spawn_local(async move {
-                                                            let _ = api::toggle_container_pin(&cid).await;
+                                                            let _ = api::toggle_container_pin(&client_pn, &cid).await;
                                                             set_refresh.update(|n| *n += 1);
                                                         });
                                                     })
@@ -472,6 +482,7 @@ pub fn HomePage() -> impl IntoView {
                     view! {}.into_any()
                 } else {
                     let archived_count = archived.len();
+                    let client_arch = use_context::<GlooClient>().expect("GlooClient not provided");
                     view! {
                         <div class="collapse collapse-arrow bg-base-200 mt-6">
                             <input type="checkbox" />
@@ -483,6 +494,7 @@ pub fn HomePage() -> impl IntoView {
                                     {archived.into_iter().map(|list| {
                                         let lid = list.id.clone();
                                         let icon = list_type_icon(&list.list_type);
+                                        let client_a = client_arch.clone();
                                         view! {
                                             <div class="flex items-center justify-between p-3 bg-base-100 rounded-lg">
                                                 <span class="text-base-content/70">
@@ -493,14 +505,15 @@ pub fn HomePage() -> impl IntoView {
                                                     class="btn btn-ghost btn-sm"
                                                     on:click=move |_| {
                                                         let lid = lid.clone();
+                                                        let client_a = client_a.clone();
                                                         leptos::task::spawn_local(async move {
-                                                            match api::archive_list(&lid).await {
+                                                            match api::archive_list(&client_a, &lid).await {
                                                                 Ok(_) => {
                                                                     archived_data.update(|ls| ls.retain(|l| l.id != lid));
                                                                     set_refresh.update(|n| *n += 1);
                                                                     toast.push(move_tr!("home-list-restored").get(), ToastKind::Success);
                                                                 }
-                                                                Err(e) => toast.push(e, ToastKind::Error),
+                                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                                             }
                                                         });
                                                     }

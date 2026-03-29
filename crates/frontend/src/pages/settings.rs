@@ -1,9 +1,8 @@
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
-use wasm_bindgen_futures::spawn_local;
 
 use crate::api;
-use crate::api::preferences::put_preferences;
+use crate::api::client::GlooClient;
 use kartoteka_shared::SETTING_MCP_AUTO_ENABLE_FEATURES;
 
 #[component]
@@ -17,20 +16,24 @@ pub fn McpRedirect() -> impl IntoView {
 
 #[component]
 pub fn SettingsPage() -> impl IntoView {
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
     let mcp_url = format!("{}/mcp", api::auth_base());
     let copied = RwSignal::new(false);
     let auto_enable = RwSignal::new(false);
 
     // Load settings on mount
-    leptos::task::spawn_local(async move {
-        if let Ok(settings) = api::fetch_settings().await {
-            let val = settings
-                .get(SETTING_MCP_AUTO_ENABLE_FEATURES)
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            auto_enable.set(val);
-        }
-    });
+    {
+        let client = client.clone();
+        leptos::task::spawn_local(async move {
+            if let Ok(settings) = api::fetch_settings(&client).await {
+                let val = settings
+                    .get(SETTING_MCP_AUTO_ENABLE_FEATURES)
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                auto_enable.set(val);
+            }
+        });
+    }
 
     let mcp_url_copy = mcp_url.clone();
     let on_copy = move |_| {
@@ -48,15 +51,19 @@ pub fn SettingsPage() -> impl IntoView {
     let i18n = expect_context::<leptos_fluent::I18n>();
     let current_lang = move || i18n.language.get().id.to_string();
 
-    let on_lang_change = move |ev: web_sys::Event| {
-        let value = event_target_value(&ev);
-        let langs = i18n.languages;
-        if let Some(lang) = langs.iter().find(|l| l.id.to_string() == value) {
-            i18n.language.set(lang);
-            let value_clone = value.clone();
-            spawn_local(async move {
-                let _ = put_preferences(&value_clone).await;
-            });
+    let on_lang_change = {
+        let client = client.clone();
+        move |ev: web_sys::Event| {
+            let value = event_target_value(&ev);
+            let langs = i18n.languages;
+            if let Some(lang) = langs.iter().find(|l| l.id == value) {
+                i18n.language.set(lang);
+                let value_clone = value.clone();
+                let client = client.clone();
+                leptos::task::spawn_local(async move {
+                    let _ = api::preferences::put_preferences(&client, &value_clone).await;
+                });
+            }
         }
     };
 
@@ -112,8 +119,10 @@ pub fn SettingsPage() -> impl IntoView {
                             on:change=move |ev| {
                                 let checked = event_target_checked(&ev);
                                 auto_enable.set(checked);
+                                let client = use_context::<GlooClient>().expect("GlooClient not provided");
                                 leptos::task::spawn_local(async move {
                                     let _ = api::upsert_setting(
+                                        &client,
                                         SETTING_MCP_AUTO_ENABLE_FEATURES,
                                         serde_json::Value::Bool(checked),
                                     ).await;

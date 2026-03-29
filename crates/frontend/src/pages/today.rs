@@ -5,6 +5,7 @@ use leptos_fluent::move_tr;
 use leptos_router::components::A;
 
 use crate::api;
+use crate::api::client::GlooClient;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::date_utils::{
     format_polish_date, get_today_string, is_overdue_for_date_type,
@@ -17,6 +18,7 @@ use kartoteka_shared::*;
 #[component]
 pub fn TodayPage() -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
     let today = get_today_string();
     let items = RwSignal::new(Vec::<DateItem>::new());
     let all_tags = RwSignal::new(Vec::<Tag>::new());
@@ -27,22 +29,26 @@ pub fn TodayPage() -> impl IntoView {
     let show_completed = RwSignal::new(true);
 
     let today_for_fetch = today.clone();
-    let _resource = LocalResource::new(move || {
-        let date = today_for_fetch.clone();
-        async move {
-            match api::fetch_items_by_date(&date, true, "all").await {
-                Ok(fetched) => items.set(fetched),
-                Err(e) => toast.push(format!("Błąd ładowania zadań: {e}"), ToastKind::Error),
+    let _resource = {
+        let client = client.clone();
+        LocalResource::new(move || {
+            let date = today_for_fetch.clone();
+            let client = client.clone();
+            async move {
+                match api::fetch_items_by_date(&client, &date, true, "all").await {
+                    Ok(fetched) => items.set(fetched),
+                    Err(e) => toast.push(format!("Błąd ładowania zadań: {e}"), ToastKind::Error),
+                }
+                if let Ok(tags) = api::fetch_tags(&client).await {
+                    all_tags.set(tags);
+                }
+                if let Ok(links) = api::fetch_item_tag_links(&client).await {
+                    item_tag_links.set(links);
+                }
+                set_loading.set(false);
             }
-            if let Ok(tags) = api::fetch_tags().await {
-                all_tags.set(tags);
-            }
-            if let Ok(links) = api::fetch_item_tag_links().await {
-                item_tag_links.set(links);
-            }
-            set_loading.set(false);
-        }
-    });
+        })
+    };
 
     let today_display = today.clone();
     let today_for_overdue = today.clone();
@@ -133,6 +139,8 @@ pub fn TodayPage() -> impl IntoView {
                     }
                 }
 
+                let client_render = use_context::<GlooClient>().expect("GlooClient not provided");
+
                 view! {
                     <div>
                         <FilterChips
@@ -154,7 +162,7 @@ pub fn TodayPage() -> impl IntoView {
                                         <h3 class="text-xs text-error uppercase tracking-wider font-semibold mb-2">
                                             {move_tr!("today-overdue")}
                                         </h3>
-                                        {render_groups(overdue_groups, tags.clone(), links.clone(), items)}
+                                        {render_groups(overdue_groups, tags.clone(), links.clone(), items, client_render.clone())}
                                     </div>
                                 }.into_any()
                             } else {
@@ -173,7 +181,7 @@ pub fn TodayPage() -> impl IntoView {
                                         } else {
                                             ().into_any()
                                         }}
-                                        {render_groups(today_groups, tags.clone(), links.clone(), items)}
+                                        {render_groups(today_groups, tags.clone(), links.clone(), items, client_render.clone())}
                                     </div>
                                 }.into_any()
                             } else {
@@ -198,6 +206,7 @@ fn render_groups(
     all_tags: Vec<Tag>,
     all_links: Vec<ItemTagLink>,
     items_signal: RwSignal<Vec<DateItem>>,
+    client: GlooClient,
 ) -> impl IntoView {
     groups
         .into_iter()
@@ -224,58 +233,63 @@ fn render_groups(
 
                         let toggle_list_id = item_list_id.clone();
                         let toggle_item_id = item_id.clone();
+                        let client_toggle = client.clone();
                         let on_toggle = Callback::new(move |_id: String| {
                             let lid = toggle_list_id.clone();
                             let iid = toggle_item_id.clone();
+                            let client_t = client_toggle.clone();
+                            let previous = items_signal.get_untracked();
+                            let new_completed = previous
+                                .iter()
+                                .find(|i| i.id == iid)
+                                .map(|i| !i.completed);
+                            let Some(new_completed) = new_completed else { return };
                             // Toggle ALL occurrences with same id (multi-date items)
                             items_signal.update(|items| {
                                 for item in items.iter_mut().filter(|i| i.id == iid) {
-                                    item.completed = !item.completed;
+                                    item.completed = new_completed;
                                 }
                             });
                             leptos::task::spawn_local(async move {
-                                let current = items_signal.get_untracked()
-                                    .iter()
-                                    .find(|i| i.id == iid)
-                                    .map(|i| i.completed)
-                                    .unwrap_or(false);
                                 let req = UpdateItemRequest {
-                                    title: None,
-                                    description: None,
-                                    completed: Some(current),
-                                    position: None,
-                                    quantity: None,
-                                    actual_quantity: None,
-                                    unit: None,
-                                    start_date: None,
-                                    start_time: None,
-                                    deadline: None,
-                                    deadline_time: None,
-                                    hard_deadline: None,
+                                    completed: Some(new_completed),
+                                    ..Default::default()
                                 };
-                                let _ = api::update_item(&lid, &iid, &req).await;
+                                if api::update_item(&client_t, &lid, &iid, &req)
+                                    .await
+                                    .is_err()
+                                {
+                                    items_signal.set(previous); // rollback
+                                }
                             });
                         });
 
                         let delete_list_id = item_list_id.clone();
                         let delete_item_id = item_id.clone();
+                        let client_delete = client.clone();
                         let on_delete = Callback::new(move |_id: String| {
                             let lid = delete_list_id.clone();
                             let iid = delete_item_id.clone();
+                            let client_d = client_delete.clone();
+                            let previous = items_signal.get_untracked();
                             // Remove ALL occurrences
                             items_signal.update(|items| {
                                 items.retain(|i| i.id != iid);
                             });
                             leptos::task::spawn_local(async move {
-                                let _ = api::delete_item(&lid, &iid).await;
+                                if api::delete_item(&client_d, &lid, &iid).await.is_err() {
+                                    items_signal.set(previous); // rollback
+                                }
                             });
                         });
 
                         // Date save callback
                         let date_save_list_id = item_list_id.clone();
                         let date_save_item_id = item_id.clone();
+                        let client_date = client.clone();
                         let on_date_save = Callback::new(move |(iid, dt, date, time): (String, String, String, Option<String>)| {
                             let lid = date_save_list_id.clone();
+                            let client_ds = client_date.clone();
                             let date_opt = if date.is_empty() { Some(None) } else { Some(Some(date)) };
                             let time_opt = if date_opt == Some(None) { Some(None) } else { time.map(Some) };
                             // Optimistic update on all occurrences
@@ -305,7 +319,7 @@ fn render_groups(
                                     "hard_deadline" => { req.hard_deadline = date_opt; }
                                     _ => {}
                                 }
-                                let _ = api::update_item(&lid, &iid2, &req).await;
+                                let _ = api::update_item(&client_ds, &lid, &iid2, &req).await;
                             });
                         });
 

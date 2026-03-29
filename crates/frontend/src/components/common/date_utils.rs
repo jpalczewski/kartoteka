@@ -1,15 +1,65 @@
+use chrono::NaiveDate;
 use kartoteka_shared::Item;
 
+// Re-export shared date_utils for backward compatibility
+pub use kartoteka_shared::date_utils::{
+    add_days, days_between, days_in_month, is_overdue_for_date_type, month_grid_range, next_month,
+    parse_date, prev_month, sort_by_deadline, week_range,
+};
+
+/// Get today's date as "YYYY-MM-DD" using JS Date
 pub fn get_today_string() -> String {
-    let today = js_sys::Date::new_0();
-    let year = today.get_full_year() as i32;
-    let month = today.get_month() + 1;
-    let day = today.get_date();
-    format!("{:04}-{:02}-{:02}", year, month, day)
+    let d = js_sys::Date::new_0();
+    kartoteka_shared::date_utils::format_date(
+        &NaiveDate::from_ymd_opt(d.get_full_year() as i32, d.get_month() + 1, d.get_date())
+            .unwrap_or_default(),
+    )
 }
 
+/// Alias for get_today_string
 pub fn get_today() -> String {
     get_today_string()
+}
+
+/// Current time as "HH:MM" using JS Date
+pub fn current_time_hhmm() -> String {
+    let now = js_sys::Date::new_0();
+    format!("{:02}:{:02}", now.get_hours(), now.get_minutes())
+}
+
+/// Day of week: Mon=0, ..., Sun=6 (used by polish_day_of_week and calendar grid headers)
+/// This wraps the shared day_of_week (Sun=0 convention) and converts to Mon=0.
+pub fn day_of_week(date_str: &str) -> u32 {
+    // shared: Sun=0, Mon=1, ..., Sat=6
+    // Convert to Mon=0, ..., Sun=6: (dow + 6) % 7
+    let shared_dow = kartoteka_shared::date_utils::day_of_week(date_str);
+    (shared_dow + 6) % 7
+}
+
+/// Check if an item is overdue, using current time from JS Date
+pub fn is_overdue(item: &Item, today: &str) -> bool {
+    let now_time = current_time_hhmm();
+    kartoteka_shared::date_utils::is_overdue(item, today, &now_time)
+}
+
+/// Check if an item is upcoming (not completed, not overdue), using current time from JS Date
+pub fn is_upcoming(item: &Item, today: &str) -> bool {
+    let now_time = current_time_hhmm();
+    kartoteka_shared::date_utils::is_upcoming(item, today, &now_time)
+}
+
+/// Compute relative date string in Polish
+pub fn relative_date(date_str: &str, today_str: &str) -> String {
+    match days_between(today_str, date_str) {
+        Some(diff) => match diff {
+            0 => "dzisiaj".to_string(),
+            1 => "jutro".to_string(),
+            -1 => "wczoraj".to_string(),
+            n if n > 1 => format!("za {} dni", n),
+            n => format!("{} dni temu", -n),
+        },
+        None => String::new(),
+    }
 }
 
 pub fn polish_month_abbr(month: u32) -> &'static str {
@@ -64,97 +114,50 @@ pub fn format_polish_date(date_str: &str) -> String {
     format!("{day} {month} {}", parts[0])
 }
 
-pub fn days_in_month(year: i32, month: u32) -> i32 {
+/// Day of week short name in Polish: Mon=0, ..., Sun=6
+pub fn polish_day_of_week(dow: u32) -> &'static str {
+    match dow {
+        0 => "Pn",
+        1 => "Wt",
+        2 => "Śr",
+        3 => "Cz",
+        4 => "Pt",
+        5 => "Sb",
+        6 => "Nd",
+        _ => "??",
+    }
+}
+
+/// Day of week full name in Polish: Mon=0, ..., Sun=6
+pub fn polish_day_of_week_full(dow: u32) -> &'static str {
+    match dow {
+        0 => "poniedziałek",
+        1 => "wtorek",
+        2 => "środa",
+        3 => "czwartek",
+        4 => "piątek",
+        5 => "sobota",
+        6 => "niedziela",
+        _ => "??",
+    }
+}
+
+pub fn polish_month_name(month: u32) -> &'static str {
     match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 => {
-            if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 {
-                29
-            } else {
-                28
-            }
-        }
-        _ => 30,
+        1 => "Styczeń",
+        2 => "Luty",
+        3 => "Marzec",
+        4 => "Kwiecień",
+        5 => "Maj",
+        6 => "Czerwiec",
+        7 => "Lipiec",
+        8 => "Sierpień",
+        9 => "Wrzesień",
+        10 => "Październik",
+        11 => "Listopad",
+        12 => "Grudzień",
+        _ => "???",
     }
-}
-
-pub fn date_to_days(date_str: &str) -> Option<i32> {
-    let parts: Vec<&str> = date_str.split('-').collect();
-    if parts.len() != 3 {
-        return None;
-    }
-    let y: i32 = parts[0].parse().ok()?;
-    let m: u32 = parts[1].parse().ok()?;
-    let d: i32 = parts[2].parse().ok()?;
-
-    let mut total: i32 = 0;
-    for yr in 0..y {
-        if (yr % 4 == 0 && yr % 100 != 0) || yr % 400 == 0 {
-            total += 366;
-        } else {
-            total += 365;
-        }
-    }
-    for mo in 1..m {
-        total += days_in_month(y, mo);
-    }
-    total += d;
-    Some(total)
-}
-
-pub fn relative_date(date_str: &str, today_str: &str) -> String {
-    let date_days = date_to_days(date_str);
-    let today_days = date_to_days(today_str);
-    match (date_days, today_days) {
-        (Some(d), Some(t)) => {
-            let diff = d - t;
-            match diff {
-                0 => "dzisiaj".to_string(),
-                1 => "jutro".to_string(),
-                -1 => "wczoraj".to_string(),
-                n if n > 1 => format!("za {} dni", n),
-                n => format!("{} dni temu", -n),
-            }
-        }
-        _ => String::new(),
-    }
-}
-
-pub fn current_time_hhmm() -> String {
-    let now = js_sys::Date::new_0();
-    format!("{:02}:{:02}", now.get_hours(), now.get_minutes())
-}
-
-pub fn is_overdue(item: &Item, today: &str) -> bool {
-    if item.completed {
-        return false;
-    }
-    match item.deadline.as_deref() {
-        None => false,
-        Some(d) if d < today => true,
-        Some(d) if d == today => match item.deadline_time.as_deref() {
-            Some(t) if !t.is_empty() => t < current_time_hhmm().as_str(),
-            _ => false,
-        },
-        _ => false,
-    }
-}
-
-/// Check overdue for a specific date field type (used in multi-date views)
-pub fn is_overdue_for_date_type(date_val: Option<&str>, completed: bool, today: &str) -> bool {
-    if completed {
-        return false;
-    }
-    match date_val {
-        None => false,
-        Some(d) if d < today => true,
-        _ => false,
-    }
-}
-
-pub fn is_upcoming(item: &Item, today: &str) -> bool {
-    !item.completed && !is_overdue(item, today)
 }
 
 /// A date badge descriptor for consistent rendering across components
@@ -207,160 +210,4 @@ pub fn item_date_badges(item: &Item, skip: Option<&str>) -> Vec<DateBadge> {
         }
     }
     badges
-}
-
-pub fn sort_by_deadline(items: &mut [Item]) {
-    items.sort_by(|a, b| {
-        let da = a.deadline.as_deref().unwrap_or("9999-99-99");
-        let db = b.deadline.as_deref().unwrap_or("9999-99-99");
-        da.cmp(db)
-    });
-}
-
-// === Calendar navigation utilities ===
-
-pub fn parse_date(date_str: &str) -> Option<(i32, u32, u32)> {
-    let parts: Vec<&str> = date_str.split('-').collect();
-    if parts.len() != 3 {
-        return None;
-    }
-    let y: i32 = parts[0].parse().ok()?;
-    let m: u32 = parts[1].parse().ok()?;
-    let d: u32 = parts[2].parse().ok()?;
-    Some((y, m, d))
-}
-
-fn format_ymd(y: i32, m: u32, d: u32) -> String {
-    format!("{:04}-{:02}-{:02}", y, m, d)
-}
-
-/// Day of week: 0=Mon, 6=Sun
-/// Uses Tomohiko Sakamoto's algorithm
-pub fn day_of_week(date_str: &str) -> u32 {
-    let (mut y, m, d) = parse_date(date_str).unwrap_or((2026, 1, 1));
-    let t = [0i32, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
-    if m < 3 {
-        y -= 1;
-    }
-    let dow = ((y + y / 4 - y / 100 + y / 400 + t[(m - 1) as usize] + d as i32) % 7 + 7) % 7;
-    // dow: 0=Sun, 1=Mon, ..., 6=Sat → convert to 0=Mon, 6=Sun
-    ((dow + 6) % 7) as u32
-}
-
-/// Add (or subtract) days from a date string
-pub fn add_days(date_str: &str, n: i32) -> String {
-    let (mut y, mut m, mut d) = parse_date(date_str).unwrap_or((2026, 1, 1));
-
-    if n >= 0 {
-        for _ in 0..n {
-            d += 1;
-            let dim = days_in_month(y, m) as u32;
-            if d > dim {
-                d = 1;
-                m += 1;
-                if m > 12 {
-                    m = 1;
-                    y += 1;
-                }
-            }
-        }
-    } else {
-        for _ in 0..(-n) {
-            if d == 1 {
-                if m == 1 {
-                    m = 12;
-                    y -= 1;
-                } else {
-                    m -= 1;
-                }
-                d = days_in_month(y, m) as u32;
-            } else {
-                d -= 1;
-            }
-        }
-    }
-
-    format_ymd(y, m, d)
-}
-
-/// Returns (first_monday, last_sunday) for the calendar grid of a given month
-pub fn month_grid_range(year: i32, month: u32) -> (String, String) {
-    let first_day = format_ymd(year, month, 1);
-    let dow = day_of_week(&first_day);
-    let first_monday = add_days(&first_day, -(dow as i32));
-
-    let dim = days_in_month(year, month) as u32;
-    let last_day = format_ymd(year, month, dim);
-    let last_dow = day_of_week(&last_day);
-    let last_sunday = add_days(&last_day, (6 - last_dow) as i32);
-
-    (first_monday, last_sunday)
-}
-
-/// Returns (monday, sunday) of the week containing the given date
-pub fn week_range(date_str: &str) -> (String, String) {
-    let dow = day_of_week(date_str);
-    let monday = add_days(date_str, -(dow as i32));
-    let sunday = add_days(date_str, (6 - dow) as i32);
-    (monday, sunday)
-}
-
-pub fn prev_month(year: i32, month: u32) -> (i32, u32) {
-    if month == 1 {
-        (year - 1, 12)
-    } else {
-        (year, month - 1)
-    }
-}
-
-pub fn next_month(year: i32, month: u32) -> (i32, u32) {
-    if month == 12 {
-        (year + 1, 1)
-    } else {
-        (year, month + 1)
-    }
-}
-
-pub fn polish_day_of_week(dow: u32) -> &'static str {
-    match dow {
-        0 => "Pn",
-        1 => "Wt",
-        2 => "Śr",
-        3 => "Cz",
-        4 => "Pt",
-        5 => "Sb",
-        6 => "Nd",
-        _ => "??",
-    }
-}
-
-pub fn polish_day_of_week_full(dow: u32) -> &'static str {
-    match dow {
-        0 => "poniedziałek",
-        1 => "wtorek",
-        2 => "środa",
-        3 => "czwartek",
-        4 => "piątek",
-        5 => "sobota",
-        6 => "niedziela",
-        _ => "??",
-    }
-}
-
-pub fn polish_month_name(month: u32) -> &'static str {
-    match month {
-        1 => "Styczeń",
-        2 => "Luty",
-        3 => "Marzec",
-        4 => "Kwiecień",
-        5 => "Maj",
-        6 => "Czerwiec",
-        7 => "Lipiec",
-        8 => "Sierpień",
-        9 => "Wrzesień",
-        10 => "Październik",
-        11 => "Listopad",
-        12 => "Grudzień",
-        _ => "???",
-    }
 }

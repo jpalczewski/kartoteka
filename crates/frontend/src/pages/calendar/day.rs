@@ -6,6 +6,7 @@ use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 
 use crate::api;
+use crate::api::client::GlooClient;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::date_utils::{
     add_days, day_of_week, format_polish_date, polish_day_of_week_full,
@@ -21,6 +22,7 @@ pub fn CalendarDayPage() -> impl IntoView {
     let date = move || params.read().get("date").unwrap_or_default();
 
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
     let items = RwSignal::new(Vec::<DateItem>::new());
     let all_tags = RwSignal::new(Vec::<Tag>::new());
     let item_tag_links = RwSignal::new(Vec::<ItemTagLink>::new());
@@ -29,23 +31,27 @@ pub fn CalendarDayPage() -> impl IntoView {
     let hidden_tags = RwSignal::new(HashSet::<String>::new());
     let show_completed = RwSignal::new(true);
 
-    let _resource = LocalResource::new(move || {
-        let d = date();
-        async move {
-            set_loading.set(true);
-            match api::fetch_items_by_date(&d, false, "all").await {
-                Ok(fetched) => items.set(fetched),
-                Err(e) => toast.push(format!("Błąd: {e}"), ToastKind::Error),
+    let _resource = {
+        let client = client.clone();
+        LocalResource::new(move || {
+            let d = date();
+            let client = client.clone();
+            async move {
+                set_loading.set(true);
+                match api::fetch_items_by_date(&client, &d, false, "all").await {
+                    Ok(fetched) => items.set(fetched),
+                    Err(e) => toast.push(format!("Błąd: {e}"), ToastKind::Error),
+                }
+                if let Ok(tags) = api::fetch_tags(&client).await {
+                    all_tags.set(tags);
+                }
+                if let Ok(links) = api::fetch_item_tag_links(&client).await {
+                    item_tag_links.set(links);
+                }
+                set_loading.set(false);
             }
-            if let Ok(tags) = api::fetch_tags().await {
-                all_tags.set(tags);
-            }
-            if let Ok(links) = api::fetch_item_tag_links().await {
-                item_tag_links.set(links);
-            }
-            set_loading.set(false);
-        }
-    });
+        })
+    };
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
@@ -139,6 +145,8 @@ pub fn CalendarDayPage() -> impl IntoView {
                     groups.entry(key).or_default().push(item);
                 }
 
+                let client_render = use_context::<GlooClient>().expect("GlooClient not provided");
+
                 view! {
                     <div>
                         <FilterChips
@@ -152,6 +160,7 @@ pub fn CalendarDayPage() -> impl IntoView {
                         {groups.into_iter().map(|((list_id, list_name), group_items)| {
                             let tags = tags.clone();
                             let links = links.clone();
+                            let client = client_render.clone();
                             view! {
                                 <div class="mb-4">
                                     <h4 class="text-sm font-semibold uppercase tracking-wide mb-1 text-base-content/70">
@@ -172,9 +181,11 @@ pub fn CalendarDayPage() -> impl IntoView {
 
                                         let toggle_list_id = item_list_id.clone();
                                         let toggle_item_id = item_id.clone();
+                                        let client_toggle = client.clone();
                                         let on_toggle = Callback::new(move |_id: String| {
                                             let lid = toggle_list_id.clone();
                                             let iid = toggle_item_id.clone();
+                                            let client_t = client_toggle.clone();
                                             items.update(|items| {
                                                 if let Some(item) = items.iter_mut().find(|i| i.id == iid) {
                                                     item.completed = !item.completed;
@@ -200,29 +211,33 @@ pub fn CalendarDayPage() -> impl IntoView {
                                                     deadline_time: None,
                                                     hard_deadline: None,
                                                 };
-                                                let _ = api::update_item(&lid, &iid, &req).await;
+                                                let _ = api::update_item(&client_t, &lid, &iid, &req).await;
                                             });
                                         });
 
                                         let delete_list_id = item_list_id.clone();
                                         let delete_item_id = item_id.clone();
+                                        let client_delete = client.clone();
                                         let on_delete = Callback::new(move |_id: String| {
                                             let lid = delete_list_id.clone();
                                             let iid = delete_item_id.clone();
+                                            let client_d = client_delete.clone();
                                             items.update(|items| {
                                                 items.retain(|i| i.id != iid);
                                             });
                                             leptos::task::spawn_local(async move {
-                                                let _ = api::delete_item(&lid, &iid).await;
+                                                let _ = api::delete_item(&client_d, &lid, &iid).await;
                                             });
                                         });
 
                                         // Date save
                                         let ds_lid = item_list_id.clone();
                                         let ds_iid = item_id.clone();
+                                        let client_date = client.clone();
                                         let on_date_save = Callback::new(move |(_iid, dt, date, time): (String, String, String, Option<String>)| {
                                             let lid = ds_lid.clone();
                                             let iid = ds_iid.clone();
+                                            let client_ds = client_date.clone();
                                             let date_opt = if date.is_empty() { Some(None) } else { Some(Some(date)) };
                                             let time_opt = if date_opt == Some(None) { Some(None) } else { time.map(Some) };
                                             leptos::task::spawn_local(async move {
@@ -238,7 +253,7 @@ pub fn CalendarDayPage() -> impl IntoView {
                                                     "hard_deadline" => { req.hard_deadline = date_opt; }
                                                     _ => {}
                                                 }
-                                                let _ = api::update_item(&lid, &iid, &req).await;
+                                                let _ = api::update_item(&client_ds, &lid, &iid, &req).await;
                                             });
                                         });
 

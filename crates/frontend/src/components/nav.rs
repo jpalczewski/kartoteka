@@ -1,6 +1,5 @@
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
-use send_wrapper::SendWrapper;
 
 use crate::api;
 
@@ -8,7 +7,7 @@ use crate::api;
 pub fn Nav() -> impl IntoView {
     let (menu_open, set_menu_open) = signal(false);
 
-    let session_res = LocalResource::new(|| async { SendWrapper::new(api::get_session().await) });
+    let session_res = LocalResource::new(api::get_session);
 
     let on_logout = move |_| {
         api::logout();
@@ -26,7 +25,7 @@ pub fn Nav() -> impl IntoView {
                 <Suspense fallback=|| view! { <span class="loading loading-spinner loading-sm"></span> }>
                     {move || {
                         session_res.get().map(|s| {
-                            match &**s {
+                            match s.as_ref() {
                                 Some(session) => {
                                     let email_display = session.user.email.clone();
                                     view! {

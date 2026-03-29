@@ -1,3 +1,4 @@
+pub mod client;
 mod containers;
 mod items;
 mod lists;
@@ -11,8 +12,7 @@ pub use lists::*;
 pub use settings::*;
 pub use tags::*;
 
-use gloo_net::http::{Headers, Request};
-use serde::Deserialize;
+pub(crate) use client::{HttpClient, HttpResponse, Method};
 
 /// Structured API error type for i18n-aware error display.
 #[derive(Debug, Clone)]
@@ -57,88 +57,132 @@ impl std::fmt::Display for ApiError {
     }
 }
 
-#[derive(Deserialize)]
-#[allow(dead_code)]
-struct ErrorBody {
-    code: Option<String>,
-}
-
 pub(crate) const API_BASE: &str = match option_env!("API_BASE_URL") {
     Some(v) => v,
     None => "/api",
 };
 
-pub(crate) fn auth_headers() -> Headers {
-    let headers = Headers::new();
+/// Build auth headers (Content-Type: application/json).
+/// Only available on wasm32.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn auth_headers() -> gloo_net::http::Headers {
+    let headers = gloo_net::http::Headers::new();
     headers.set("Content-Type", "application/json");
     headers
 }
 
-pub(crate) fn get(url: &str) -> gloo_net::http::RequestBuilder {
-    Request::get(url)
-        .headers(auth_headers())
-        .credentials(web_sys::RequestCredentials::Include)
-}
-
-pub(crate) fn del(url: &str) -> gloo_net::http::RequestBuilder {
-    Request::delete(url)
-        .headers(auth_headers())
-        .credentials(web_sys::RequestCredentials::Include)
-}
-
-pub(crate) async fn post_json<T: serde::de::DeserializeOwned>(
-    url: &str,
-    body: &impl serde::Serialize,
-) -> Result<T, String> {
-    let json = serde_json::to_string(body).map_err(|e| e.to_string())?;
-    Request::post(url)
-        .headers(auth_headers())
-        .credentials(web_sys::RequestCredentials::Include)
-        .body(json)
-        .map_err(|e| e.to_string())?
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
-        .map_err(|e| e.to_string())
-}
-
-pub(crate) async fn put_json<T: serde::de::DeserializeOwned>(
-    url: &str,
-    body: &impl serde::Serialize,
-) -> Result<T, String> {
-    let json = serde_json::to_string(body).map_err(|e| e.to_string())?;
-    Request::put(url)
-        .headers(auth_headers())
-        .credentials(web_sys::RequestCredentials::Include)
-        .body(json)
-        .map_err(|e| e.to_string())?
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
-        .map_err(|e| e.to_string())
-}
-
-pub(crate) async fn patch_json<T: serde::de::DeserializeOwned>(
-    url: &str,
-    body: &impl serde::Serialize,
-) -> Result<T, String> {
-    let json = serde_json::to_string(body).map_err(|e| e.to_string())?;
-    let resp = Request::patch(url)
-        .headers(auth_headers())
-        .credentials(web_sys::RequestCredentials::Include)
-        .body(json)
-        .map_err(|e| e.to_string())?
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if resp.status() >= 400 {
-        return Err(format!("HTTP {}", resp.status()));
+/// Parse response body, checking HTTP status code first.
+pub(crate) fn parse_response<T: serde::de::DeserializeOwned>(
+    resp: &HttpResponse,
+) -> Result<T, ApiError> {
+    if resp.status >= 400 {
+        let code = serde_json::from_str::<kartoteka_shared::ErrorResponse>(&resp.body)
+            .ok()
+            .and_then(|e| e.code);
+        return Err(ApiError::Http {
+            status: resp.status,
+            code,
+        });
     }
-    resp.json().await.map_err(|e| e.to_string())
+    serde_json::from_str(&resp.body).map_err(|e| ApiError::Parse(e.to_string()))
+}
+
+/// Parse response with no body (204 No Content). Returns Ok if status < 400.
+pub(crate) fn parse_empty_response(resp: &HttpResponse) -> Result<(), ApiError> {
+    if resp.status >= 400 {
+        let code = serde_json::from_str::<kartoteka_shared::ErrorResponse>(&resp.body)
+            .ok()
+            .and_then(|e| e.code);
+        return Err(ApiError::Http {
+            status: resp.status,
+            code,
+        });
+    }
+    Ok(())
+}
+
+pub(crate) async fn api_get<T: serde::de::DeserializeOwned>(
+    client: &impl HttpClient,
+    url: &str,
+) -> Result<T, ApiError> {
+    let resp = client
+        .request(Method::Get, url, None)
+        .await
+        .map_err(ApiError::Network)?;
+    parse_response(&resp)
+}
+
+pub(crate) async fn api_post<T: serde::de::DeserializeOwned>(
+    client: &impl HttpClient,
+    url: &str,
+    body: &impl serde::Serialize,
+) -> Result<T, ApiError> {
+    let json = serde_json::to_string(body).map_err(|e| ApiError::Parse(e.to_string()))?;
+    let resp = client
+        .request(Method::Post, url, Some(&json))
+        .await
+        .map_err(ApiError::Network)?;
+    parse_response(&resp)
+}
+
+pub(crate) async fn api_post_empty(
+    client: &impl HttpClient,
+    url: &str,
+    body: &impl serde::Serialize,
+) -> Result<(), ApiError> {
+    let json = serde_json::to_string(body).map_err(|e| ApiError::Parse(e.to_string()))?;
+    let resp = client
+        .request(Method::Post, url, Some(&json))
+        .await
+        .map_err(ApiError::Network)?;
+    parse_empty_response(&resp)
+}
+
+pub(crate) async fn api_put<T: serde::de::DeserializeOwned>(
+    client: &impl HttpClient,
+    url: &str,
+    body: &impl serde::Serialize,
+) -> Result<T, ApiError> {
+    let json = serde_json::to_string(body).map_err(|e| ApiError::Parse(e.to_string()))?;
+    let resp = client
+        .request(Method::Put, url, Some(&json))
+        .await
+        .map_err(ApiError::Network)?;
+    parse_response(&resp)
+}
+
+pub(crate) async fn api_put_empty(
+    client: &impl HttpClient,
+    url: &str,
+    body: &impl serde::Serialize,
+) -> Result<(), ApiError> {
+    let json = serde_json::to_string(body).map_err(|e| ApiError::Parse(e.to_string()))?;
+    let resp = client
+        .request(Method::Put, url, Some(&json))
+        .await
+        .map_err(ApiError::Network)?;
+    parse_empty_response(&resp)
+}
+
+pub(crate) async fn api_patch<T: serde::de::DeserializeOwned>(
+    client: &impl HttpClient,
+    url: &str,
+    body: &impl serde::Serialize,
+) -> Result<T, ApiError> {
+    let json = serde_json::to_string(body).map_err(|e| ApiError::Parse(e.to_string()))?;
+    let resp = client
+        .request(Method::Patch, url, Some(&json))
+        .await
+        .map_err(ApiError::Network)?;
+    parse_response(&resp)
+}
+
+pub(crate) async fn api_delete(client: &impl HttpClient, url: &str) -> Result<(), ApiError> {
+    let resp = client
+        .request(Method::Delete, url, None)
+        .await
+        .map_err(ApiError::Network)?;
+    parse_empty_response(&resp)
 }
 
 /// Auth base URL — derived from API_BASE_URL.
@@ -148,9 +192,14 @@ pub fn auth_base() -> String {
     if API_BASE.starts_with("http") {
         API_BASE.trim_end_matches("/api").to_string()
     } else {
-        web_sys::window()
-            .and_then(|w| w.location().origin().ok())
-            .unwrap_or_default()
+        #[cfg(target_arch = "wasm32")]
+        {
+            web_sys::window()
+                .and_then(|w| w.location().origin().ok())
+                .unwrap_or_default()
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        String::new()
     }
 }
 
@@ -169,29 +218,132 @@ pub struct SessionUser {
 
 /// Check current session. Returns Some(SessionInfo) if logged in.
 pub async fn get_session() -> Option<SessionInfo> {
-    let url = format!("{}/auth/api/get-session", auth_base());
-    let resp = Request::get(&url)
-        .credentials(web_sys::RequestCredentials::Include)
-        .send()
-        .await
-        .ok()?;
-    if resp.status() == 200 {
-        resp.json::<SessionInfo>().await.ok()
-    } else {
-        None
+    #[cfg(target_arch = "wasm32")]
+    {
+        use gloo_net::http::Request;
+        let url = format!("{}/auth/api/get-session", auth_base());
+        let resp = Request::get(&url)
+            .credentials(web_sys::RequestCredentials::Include)
+            .send()
+            .await
+            .ok()?;
+        if resp.status() == 200 {
+            resp.json::<SessionInfo>().await.ok()
+        } else {
+            None
+        }
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    None
 }
 
 /// Sign out and redirect to /login
 pub fn logout() {
-    wasm_bindgen_futures::spawn_local(async {
-        let url = format!("{}/auth/api/sign-out", auth_base());
-        let _ = Request::post(&url)
-            .credentials(web_sys::RequestCredentials::Include)
-            .send()
-            .await;
-        if let Some(window) = web_sys::window() {
-            let _ = window.location().set_href("/login");
+    #[cfg(target_arch = "wasm32")]
+    {
+        use gloo_net::http::Request;
+        leptos::task::spawn_local(async {
+            let url = format!("{}/auth/api/sign-out", auth_base());
+            let _ = Request::post(&url)
+                .credentials(web_sys::RequestCredentials::Include)
+                .send()
+                .await;
+            if let Some(window) = web_sys::window() {
+                let _ = window.location().set_href("/login");
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::client::{HttpClient, HttpResponse, Method};
+    use super::*;
+
+    struct MockClient {
+        status: u16,
+        body: String,
+    }
+
+    impl MockClient {
+        fn ok(body: &str) -> Self {
+            Self {
+                status: 200,
+                body: body.to_string(),
+            }
         }
-    });
+        fn error(status: u16, code: &str) -> Self {
+            Self {
+                status,
+                body: serde_json::json!({"code": code, "status": status}).to_string(),
+            }
+        }
+        fn no_content() -> Self {
+            Self {
+                status: 204,
+                body: String::new(),
+            }
+        }
+    }
+
+    impl HttpClient for MockClient {
+        async fn request(
+            &self,
+            _method: Method,
+            _url: &str,
+            _body: Option<&str>,
+        ) -> Result<HttpResponse, String> {
+            Ok(HttpResponse {
+                status: self.status,
+                body: self.body.clone(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_parse_response_success() {
+        let resp = HttpResponse {
+            status: 200,
+            body: r#"[1, 2, 3]"#.to_string(),
+        };
+        let result: Result<Vec<i32>, ApiError> = parse_response(&resp);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), vec![1, 2, 3]);
+    }
+
+    #[tokio::test]
+    async fn test_parse_response_http_error() {
+        let resp = HttpResponse {
+            status: 404,
+            body: r#"{"code": "not_found", "status": 404}"#.to_string(),
+        };
+        let result: Result<Vec<i32>, ApiError> = parse_response(&resp);
+        assert!(matches!(result, Err(ApiError::Http { status: 404, .. })));
+        if let Err(ApiError::Http { code, .. }) = result {
+            assert_eq!(code.as_deref(), Some("not_found"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_api_get_success() {
+        use kartoteka_shared::List;
+        let list_json = r#"[{"id":"1","user_id":"u1","name":"Test","list_type":"checklist","position":0,"archived":0,"features":[],"created_at":"2026-01-01","updated_at":"2026-01-01"}]"#;
+        let client = MockClient::ok(list_json);
+        let result: Result<Vec<List>, ApiError> = api_get(&client, "/test").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_api_delete_no_content() {
+        let client = MockClient::no_content();
+        let result = api_delete(&client, "/test/123").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_api_delete_error() {
+        let client = MockClient::error(404, "not_found");
+        let result = api_delete(&client, "/test/123").await;
+        assert!(matches!(result, Err(ApiError::Http { status: 404, .. })));
+    }
 }

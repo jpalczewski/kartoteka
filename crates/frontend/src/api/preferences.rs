@@ -1,48 +1,17 @@
-use gloo_net::http::Request;
-use serde::{Deserialize, Serialize};
+use kartoteka_shared::{PreferencesResponse, UpdatePreferencesBody};
 
-use super::{API_BASE, auth_headers};
-
-#[derive(Deserialize)]
-pub struct PreferencesResponse {
-    pub locale: String,
+pub async fn get_preferences(
+    client: &impl super::HttpClient,
+) -> Result<PreferencesResponse, super::ApiError> {
+    super::api_get(client, &format!("{}/preferences", super::API_BASE)).await
 }
 
-#[derive(Serialize)]
-pub struct UpdatePreferencesBody {
-    pub locale: String,
-}
-
-pub async fn get_preferences() -> Result<PreferencesResponse, String> {
-    let url = format!("{API_BASE}/preferences");
-    let resp = super::get(&url).send().await.map_err(|e| e.to_string())?;
-
-    if resp.status() == 401 {
-        return Err("unauthorized".to_string());
-    }
-
-    resp.json::<PreferencesResponse>()
-        .await
-        .map_err(|e| e.to_string())
-}
-
-pub async fn put_preferences(locale: &str) -> Result<(), String> {
+pub async fn put_preferences(
+    client: &impl super::HttpClient,
+    locale: &str,
+) -> Result<(), super::ApiError> {
     let body = UpdatePreferencesBody {
         locale: locale.to_string(),
     };
-    let json = serde_json::to_string(&body).map_err(|e| e.to_string())?;
-    let resp = Request::put(&format!("{API_BASE}/preferences"))
-        .headers(auth_headers())
-        .credentials(web_sys::RequestCredentials::Include)
-        .body(json)
-        .map_err(|e| e.to_string())?
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if resp.status() >= 400 {
-        return Err(format!("HTTP error {}", resp.status()));
-    }
-
-    Ok(())
+    super::api_put_empty(client, &format!("{}/preferences", super::API_BASE), &body).await
 }

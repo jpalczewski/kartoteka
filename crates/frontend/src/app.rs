@@ -3,6 +3,9 @@ use leptos_fluent::leptos_fluent;
 use leptos_router::components::{Route, Router, Routes};
 use leptos_router::path;
 
+#[cfg(target_arch = "wasm32")]
+use crate::api::client::GlooClient;
+
 use crate::components::nav::Nav;
 use crate::components::sync_locale::SyncLocale;
 use crate::components::toast_container::ToastContainer;
@@ -82,6 +85,9 @@ fn I18nProvider(children: Children) -> impl IntoView {
 pub fn App() -> impl IntoView {
     let toast_ctx = ToastContext::new();
     provide_context(toast_ctx);
+
+    #[cfg(target_arch = "wasm32")]
+    provide_context(GlooClient);
 
     view! {
         <I18nProvider>
