@@ -25,8 +25,7 @@ pub trait HttpClient {
 }
 
 /// Production HTTP client using gloo-net. Sends credentials with every request.
-/// Only compiled for WASM target.
-#[cfg(target_arch = "wasm32")]
+/// On non-wasm targets the impl panics — only ever instantiated in WASM context.
 #[derive(Clone)]
 pub struct GlooClient;
 
@@ -65,5 +64,17 @@ impl HttpClient for GlooClient {
         let text = resp.text().await.map_err(|e| e.to_string())?;
 
         Ok(HttpResponse { status, body: text })
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl HttpClient for GlooClient {
+    async fn request(
+        &self,
+        _method: Method,
+        _url: &str,
+        _body: Option<&str>,
+    ) -> Result<HttpResponse, String> {
+        unimplemented!("GlooClient is a WASM-only HTTP client")
     }
 }

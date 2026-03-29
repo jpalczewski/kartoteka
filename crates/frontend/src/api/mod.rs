@@ -164,14 +164,18 @@ pub(crate) async fn api_delete(
 /// Auth base URL — derived from API_BASE_URL.
 /// Locally API_BASE_URL="/api" so Trunk proxy handles /auth/* via window origin.
 /// In prod/dev API_BASE_URL="https://gateway.../api" so strip "/api" to get gateway root.
-#[cfg(target_arch = "wasm32")]
 pub fn auth_base() -> String {
     if API_BASE.starts_with("http") {
         API_BASE.trim_end_matches("/api").to_string()
     } else {
-        web_sys::window()
-            .and_then(|w| w.location().origin().ok())
-            .unwrap_or_default()
+        #[cfg(target_arch = "wasm32")]
+        {
+            web_sys::window()
+                .and_then(|w| w.location().origin().ok())
+                .unwrap_or_default()
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        String::new()
     }
 }
 
@@ -189,36 +193,42 @@ pub struct SessionUser {
 }
 
 /// Check current session. Returns Some(SessionInfo) if logged in.
-#[cfg(target_arch = "wasm32")]
 pub async fn get_session() -> Option<SessionInfo> {
-    use gloo_net::http::Request;
-    let url = format!("{}/auth/api/get-session", auth_base());
-    let resp = Request::get(&url)
-        .credentials(web_sys::RequestCredentials::Include)
-        .send()
-        .await
-        .ok()?;
-    if resp.status() == 200 {
-        resp.json::<SessionInfo>().await.ok()
-    } else {
-        None
+    #[cfg(target_arch = "wasm32")]
+    {
+        use gloo_net::http::Request;
+        let url = format!("{}/auth/api/get-session", auth_base());
+        let resp = Request::get(&url)
+            .credentials(web_sys::RequestCredentials::Include)
+            .send()
+            .await
+            .ok()?;
+        if resp.status() == 200 {
+            resp.json::<SessionInfo>().await.ok()
+        } else {
+            None
+        }
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    None
 }
 
 /// Sign out and redirect to /login
-#[cfg(target_arch = "wasm32")]
 pub fn logout() {
-    use gloo_net::http::Request;
-    leptos::task::spawn_local(async {
-        let url = format!("{}/auth/api/sign-out", auth_base());
-        let _ = Request::post(&url)
-            .credentials(web_sys::RequestCredentials::Include)
-            .send()
-            .await;
-        if let Some(window) = web_sys::window() {
-            let _ = window.location().set_href("/login");
-        }
-    });
+    #[cfg(target_arch = "wasm32")]
+    {
+        use gloo_net::http::Request;
+        leptos::task::spawn_local(async {
+            let url = format!("{}/auth/api/sign-out", auth_base());
+            let _ = Request::post(&url)
+                .credentials(web_sys::RequestCredentials::Include)
+                .send()
+                .await;
+            if let Some(window) = web_sys::window() {
+                let _ = window.location().set_href("/login");
+            }
+        });
+    }
 }
 
 #[cfg(test)]
