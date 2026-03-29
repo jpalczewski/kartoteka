@@ -293,6 +293,15 @@ mod tests {
     }
 
     #[test]
+    fn test_days_in_month() {
+        assert_eq!(days_in_month(2026, 1), 31);
+        assert_eq!(days_in_month(2026, 2), 28); // non-leap year
+        assert_eq!(days_in_month(2024, 2), 29); // leap year
+        assert_eq!(days_in_month(2026, 4), 30);
+        assert_eq!(days_in_month(2026, 12), 31);
+    }
+
+    #[test]
     fn test_prev_next_month() {
         assert_eq!(prev_month(2026, 3), (2026, 2));
         assert_eq!(prev_month(2026, 1), (2025, 12));
