@@ -1,3 +1,4 @@
+use chrono::Datelike;
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
 
@@ -17,8 +18,8 @@ pub fn CalendarNav(
         let date = current_date.get();
         match view_mode.get() {
             ViewMode::Month => {
-                if let Some((y, m, _)) = parse_date(&date) {
-                    format!("{} {}", polish_month_name(m), y)
+                if let Some(d) = parse_date(&date) {
+                    format!("{} {}", polish_month_name(d.month()), d.year())
                 } else {
                     date
                 }

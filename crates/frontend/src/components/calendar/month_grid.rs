@@ -21,12 +21,12 @@ pub fn MonthGrid(counts: Vec<DaySummary>, year: i32, month: u32, today: String) 
     // Build grid: find first Monday before month start
     let first_day = format!("{:04}-{:02}-01", year, month);
     let first_dow = day_of_week(&first_day);
-    let grid_start = add_days(&first_day, -(first_dow as i32));
+    let grid_start = add_days(&first_day, -(first_dow as i64));
 
-    let dim = days_in_month(year, month) as u32;
+    let dim = days_in_month(year, month);
     let last_day = format!("{:04}-{:02}-{:02}", year, month, dim);
     let last_dow = day_of_week(&last_day);
-    let grid_end = add_days(&last_day, (6 - last_dow) as i32);
+    let grid_end = add_days(&last_day, (6 - last_dow) as i64);
 
     // Generate all dates in the grid
     let mut dates: Vec<String> = Vec::new();

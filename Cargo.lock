@@ -1107,6 +1107,7 @@ dependencies = [
 name = "kartoteka-frontend"
 version = "0.1.1"
 dependencies = [
+ "chrono",
  "console_error_panic_hook",
  "gloo-net 0.7.0",
  "gloo-timers",
@@ -1120,7 +1121,6 @@ dependencies = [
  "serde",
  "serde_json",
  "wasm-bindgen",
- "wasm-bindgen-futures",
  "web-sys",
 ]
 
@@ -1137,6 +1137,7 @@ dependencies = [
 name = "kartoteka-shared"
 version = "0.1.1"
 dependencies = [
+ "chrono",
  "serde",
  "serde_json",
 ]

@@ -2,6 +2,7 @@ pub mod day;
 
 use std::collections::HashSet;
 
+use chrono::Datelike;
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
 
@@ -47,8 +48,8 @@ pub fn CalendarPage() -> impl IntoView {
 
             match mode {
                 ViewMode::Month => {
-                    if let Some((y, m, _)) = parse_date(&date) {
-                        let (from, to) = month_grid_range(y, m);
+                    if let Some(d) = parse_date(&date) {
+                        let (from, to) = month_grid_range(d.year(), d.month());
                         match api::fetch_calendar_counts(&from, &to, "all").await {
                             Ok(counts) => month_counts.set(counts),
                             Err(e) => toast.push(format!("Błąd: {e}"), ToastKind::Error),
@@ -78,8 +79,8 @@ pub fn CalendarPage() -> impl IntoView {
         let date = current_date.get();
         match view_mode.get() {
             ViewMode::Month => {
-                if let Some((y, m, _)) = parse_date(&date) {
-                    let (ny, nm) = prev_month(y, m);
+                if let Some(d) = parse_date(&date) {
+                    let (ny, nm) = prev_month(d.year(), d.month());
                     current_date.set(format!("{:04}-{:02}-01", ny, nm));
                 }
             }
@@ -93,8 +94,8 @@ pub fn CalendarPage() -> impl IntoView {
         let date = current_date.get();
         match view_mode.get() {
             ViewMode::Month => {
-                if let Some((y, m, _)) = parse_date(&date) {
-                    let (ny, nm) = next_month(y, m);
+                if let Some(d) = parse_date(&date) {
+                    let (ny, nm) = next_month(d.year(), d.month());
                     current_date.set(format!("{:04}-{:02}-01", ny, nm));
                 }
             }
@@ -123,12 +124,12 @@ pub fn CalendarPage() -> impl IntoView {
                 match view_mode.get() {
                     ViewMode::Month => {
                         let date = current_date.get();
-                        if let Some((y, m, _)) = parse_date(&date) {
+                        if let Some(d) = parse_date(&date) {
                             view! {
                                 <MonthGrid
                                     counts=month_counts.get()
-                                    year=y
-                                    month=m
+                                    year=d.year()
+                                    month=d.month()
                                     today=today_for_view.clone()
                                 />
                             }.into_any()
