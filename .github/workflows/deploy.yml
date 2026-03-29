@@ -1,0 +1,137 @@
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: "GitHub Environment name (dev or production)"
+      wrangler_env:
+        required: false
+        type: string
+        default: ""
+        description: "Wrangler --env flag value (empty for prod)"
+      d1_database:
+        required: true
+        type: string
+        description: "D1 database name for API migrations"
+      pages_branch:
+        required: true
+        type: string
+        description: "CF Pages branch (dev or main)"
+
+jobs:
+  deploy:
+    name: Deploy (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: ${{ inputs.environment == 'dev' }}
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Toolchain setup ---
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: deploy
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: gateway/package-lock.json
+
+      - name: Install trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+
+      - uses: cargo-bins/cargo-binstall@main
+
+      - name: Install worker-build
+        run: cargo binstall worker-build --no-confirm
+
+      # --- API Worker ---
+      - name: Run D1 migrations
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.78.0"
+          workingDirectory: crates/api
+          command: >-
+            d1 migrations apply ${{ inputs.d1_database }}
+            ${{ inputs.wrangler_env != '' && format('--env {0}', inputs.wrangler_env) || '' }}
+            --remote
+
+      - name: Deploy API Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.78.0"
+          workingDirectory: crates/api
+          command: >-
+            deploy
+            ${{ inputs.wrangler_env != '' && format('--env {0}', inputs.wrangler_env) || '' }}
+
+      # --- Gateway Worker ---
+      - name: Copy locales to gateway
+        run: |
+          cp -r locales gateway/locales
+          cp locales/en/mcp.ftl gateway/locales/en/mcp.txt
+          cp locales/pl/mcp.ftl gateway/locales/pl/mcp.txt
+
+      - name: Install gateway deps
+        run: cd gateway && npm ci
+
+      - name: Deploy Gateway Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.78.0"
+          workingDirectory: gateway
+          command: >-
+            deploy
+            ${{ inputs.wrangler_env != '' && format('--env {0}', inputs.wrangler_env) || '' }}
+
+      - name: Run Gateway auth migrations
+        env:
+          GATEWAY_URL: ${{ secrets.GATEWAY_URL }}
+          MIGRATE_SECRET: ${{ secrets.MIGRATE_SECRET }}
+        run: |
+          curl -sf -X POST "$GATEWAY_URL/migrate" \
+            -H "x-migrate-secret: $MIGRATE_SECRET"
+
+      # --- Frontend ---
+      - name: Install frontend deps
+        run: cd crates/frontend && npm install
+
+      - name: Build frontend
+        env:
+          API_BASE_URL: ${{ secrets.GATEWAY_URL }}/api
+        run: cd crates/frontend && trunk build --release
+
+      - name: Deploy frontend to CF Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.78.0"
+          command: >-
+            pages deploy crates/frontend/dist
+            --project-name=kartoteka
+            --branch=${{ inputs.pages_branch }}
+            --commit-dirty=true
