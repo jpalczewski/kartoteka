@@ -36,3 +36,6 @@ binding = "DB"
 database_name = "kartoteka-dev"
 database_id = "94ab37c2-8a21-40ad-a878-fd546d741e92"
 migrations_dir = "./migrations"
+
+[observability]
+enabled = true
