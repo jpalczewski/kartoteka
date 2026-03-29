@@ -60,6 +60,14 @@ mod tests {
     }
 
     #[test]
+    fn test_toggle_item_true_to_false() {
+        let items = vec![make_item("1", true)];
+        let (result, new_val) = with_item_toggled(&items, "1");
+        assert!(!new_val); // was true, now false
+        assert!(!result[0].completed);
+    }
+
+    #[test]
     fn test_toggle_item_idempotent_double() {
         let items = vec![make_item("1", false)];
         let (toggled, _) = with_item_toggled(&items, "1");
