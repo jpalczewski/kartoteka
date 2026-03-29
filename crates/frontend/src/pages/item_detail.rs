@@ -215,7 +215,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                             } else { view! {}.into_any() }}
 
                             // Quantity section
-                            {if has_quantity && item.quantity.is_some() {
+                            {if has_quantity {
                                 let target = item.quantity.unwrap_or(0);
                                 let unit = item.unit.clone().unwrap_or_default();
                                 view! {
