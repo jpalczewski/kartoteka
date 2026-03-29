@@ -26,10 +26,8 @@ pub fn ItemDetailPage() -> impl IntoView {
     let toast = expect_context::<ToastContext>();
     let navigate = leptos_router::hooks::use_navigate();
 
-    let list_id =
-        move || params.with(|p| p.get("list_id").unwrap_or_default().to_string());
-    let item_id =
-        move || params.with(|p| p.get("id").unwrap_or_default().to_string());
+    let list_id = move || params.with(|p| p.get("list_id").unwrap_or_default().to_string());
+    let item_id = move || params.with(|p| p.get("id").unwrap_or_default().to_string());
 
     // Fetch item
     let item_resource = LocalResource::new(move || {

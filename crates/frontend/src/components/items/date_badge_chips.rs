@@ -10,10 +10,8 @@ pub fn DateBadgeChips(
     /// Show ghost chips for unset date types
     #[prop(default = false)]
     ghost_start: bool,
-    #[prop(default = false)]
-    ghost_deadline: bool,
-    #[prop(default = false)]
-    ghost_hard: bool,
+    #[prop(default = false)] ghost_deadline: bool,
+    #[prop(default = false)] ghost_hard: bool,
 ) -> impl IntoView {
     let has_ghosts = ghost_start || ghost_deadline || ghost_hard;
     if badges.is_empty() && !has_ghosts {
