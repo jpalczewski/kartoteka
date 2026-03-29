@@ -66,6 +66,19 @@ struct ErrorBody {
     status: u16,
 }
 
+fn log_and_build_error_response(e: &ApiError) -> worker::Result<Response> {
+    match e.log_level() {
+        tracing::Level::ERROR => tracing::error!(error = %e, "failed"),
+        tracing::Level::WARN => tracing::warn!(error = %e, "failed"),
+        _ => tracing::debug!(error = %e, "failed"),
+    }
+    let body = ErrorBody {
+        code: e.code().to_string(),
+        status: e.status_code(),
+    };
+    Response::from_json(&body).map(|r| r.with_status(e.status_code()))
+}
+
 /// Convert `ApiResult<T>` to `worker::Result<Response>`, logging at the appropriate level.
 pub fn into_response<T: Serialize>(result: ApiResult<T>, status: u16) -> worker::Result<Response> {
     match result {
@@ -73,18 +86,7 @@ pub fn into_response<T: Serialize>(result: ApiResult<T>, status: u16) -> worker:
             tracing::info!("success");
             Response::from_json(&data).map(|r| r.with_status(status))
         }
-        Err(ref e) => {
-            match e.log_level() {
-                tracing::Level::ERROR => tracing::error!(error = %e, "failed"),
-                tracing::Level::WARN => tracing::warn!(error = %e, "failed"),
-                _ => tracing::debug!(error = %e, "failed"),
-            }
-            let body = ErrorBody {
-                code: e.code().to_string(),
-                status: e.status_code(),
-            };
-            Response::from_json(&body).map(|r| r.with_status(e.status_code()))
-        }
+        Err(ref e) => log_and_build_error_response(e),
     }
 }
 
@@ -105,17 +107,6 @@ pub fn no_content_response(result: ApiResult<()>) -> worker::Result<Response> {
             tracing::info!("success");
             Ok(Response::empty()?.with_status(204))
         }
-        Err(ref e) => {
-            match e.log_level() {
-                tracing::Level::ERROR => tracing::error!(error = %e, "failed"),
-                tracing::Level::WARN => tracing::warn!(error = %e, "failed"),
-                _ => tracing::debug!(error = %e, "failed"),
-            }
-            let body = ErrorBody {
-                code: e.code().to_string(),
-                status: e.status_code(),
-            };
-            Response::from_json(&body).map(|r| r.with_status(e.status_code()))
-        }
+        Err(ref e) => log_and_build_error_response(e),
     }
 }
