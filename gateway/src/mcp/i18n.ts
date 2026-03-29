@@ -1,11 +1,8 @@
 import { FluentBundle, FluentResource } from "@fluent/bundle";
 
-// These imports work because wrangler.toml has [[rules]] type="Text" for .ftl files,
-// and the locales are copied to gateway/locales/ by the prebuild script.
-// @ts-ignore — text imports are valid with wrangler [[rules]]
-import enMcp from "../../locales/en/mcp.ftl";
-// @ts-ignore
-import plMcp from "../../locales/pl/mcp.ftl";
+// FTL files are copied as .txt during prebuild so esbuild's built-in text loader handles them.
+import enMcp from "../../locales/en/mcp.txt";
+import plMcp from "../../locales/pl/mcp.txt";
 
 function createBundle(locale: string, ftlText: string): FluentBundle {
   const bundle = new FluentBundle(locale);
