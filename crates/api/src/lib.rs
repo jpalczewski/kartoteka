@@ -1,4 +1,3 @@
-use tracing::Instrument;
 use worker::*;
 
 mod auth;
@@ -35,15 +34,18 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         user_id = %user_id,
     );
 
-    let response = router::handle(req, env).instrument(span.clone()).await;
+    let response = {
+        let _guard = span.enter();
+        router::handle(req, env).await
+    };
 
     match &response {
         Ok(resp) => {
-            let _enter = span.enter();
+            let _guard = span.enter();
             tracing::info!(status = resp.status_code(), "request completed");
         }
         Err(e) => {
-            let _enter = span.enter();
+            let _guard = span.enter();
             tracing::error!(error = %e, "request failed");
         }
     }
