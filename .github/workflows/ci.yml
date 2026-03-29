@@ -6,6 +6,10 @@ on:
   push:
     branches-ignore: [develop]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -30,6 +34,8 @@ jobs:
           components: clippy
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace
       - name: Cargo check
         run: cargo check --workspace
       - name: Clippy
@@ -84,4 +90,6 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace
       - run: cargo test --workspace
