@@ -184,7 +184,7 @@ pub async fn get_session() -> Option<SessionInfo> {
 
 /// Sign out and redirect to /login
 pub fn logout() {
-    wasm_bindgen_futures::spawn_local(async {
+    leptos::task::spawn_local(async {
         let url = format!("{}/auth/api/sign-out", auth_base());
         let _ = Request::post(&url)
             .credentials(web_sys::RequestCredentials::Include)

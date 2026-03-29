@@ -1,6 +1,5 @@
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
-use wasm_bindgen_futures::spawn_local;
 
 use crate::api;
 use crate::api::preferences::put_preferences;
@@ -54,7 +53,7 @@ pub fn SettingsPage() -> impl IntoView {
         if let Some(lang) = langs.iter().find(|l| l.id.to_string() == value) {
             i18n.language.set(lang);
             let value_clone = value.clone();
-            spawn_local(async move {
+            leptos::task::spawn_local(async move {
                 let _ = put_preferences(&value_clone).await;
             });
         }

@@ -14,7 +14,7 @@ pub fn SignupPage() -> impl IntoView {
         loading.set(true);
         error.set(None);
 
-        wasm_bindgen_futures::spawn_local(async move {
+        leptos::task::spawn_local(async move {
             let body = serde_json::json!({
                 "name": name.get_untracked(),
                 "email": email.get_untracked(),

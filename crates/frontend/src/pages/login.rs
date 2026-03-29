@@ -13,7 +13,7 @@ pub fn LoginPage() -> impl IntoView {
         loading.set(true);
         error.set(None);
 
-        wasm_bindgen_futures::spawn_local(async move {
+        leptos::task::spawn_local(async move {
             let body = serde_json::json!({
                 "email": email.get_untracked(),
                 "password": password.get_untracked(),
