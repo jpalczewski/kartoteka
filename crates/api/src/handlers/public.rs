@@ -1,9 +1,11 @@
 use kartoteka_shared::constants::INSTANCE_SETTING_REGISTRATION_MODE;
 use kartoteka_shared::dto::requests::ValidateInviteRequest;
 use kartoteka_shared::dto::responses::{RegistrationModeResponse, ValidateInviteResponse};
+use tracing::instrument;
 use worker::*;
 
 /// GET /api/public/registration-mode — no auth required
+#[instrument(skip_all)]
 pub async fn get_registration_mode(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let d1 = ctx.env.d1("DB")?;
 
@@ -22,6 +24,7 @@ pub async fn get_registration_mode(_req: Request, ctx: RouteContext<String>) -> 
 }
 
 /// POST /api/public/validate-invite — no auth required
+#[instrument(skip_all, fields(action = "validate_invite"))]
 pub async fn validate_invite(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let body: ValidateInviteRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;

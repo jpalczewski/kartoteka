@@ -1,11 +1,13 @@
 use crate::helpers::{opt_str_to_js, require_admin, require_param};
 use kartoteka_shared::dto::requests::{CreateInvitationCodeRequest, UpsertSettingRequest};
 use kartoteka_shared::models::{InvitationCode, UserSetting};
+use tracing::instrument;
 use uuid::Uuid;
 use worker::*;
 
 // ── Instance Settings ──────────────────────────────────────────────────────
 
+#[instrument(skip_all)]
 pub async fn list_settings(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let d1 = ctx.env.d1("DB")?;
@@ -32,6 +34,7 @@ pub async fn list_settings(_req: Request, ctx: RouteContext<String>) -> Result<R
     Response::from_json(&settings)
 }
 
+#[instrument(skip_all, fields(action = "update_instance_setting"))]
 pub async fn update_setting(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let key = require_param(&ctx, "key")?;
@@ -59,6 +62,7 @@ pub async fn update_setting(mut req: Request, ctx: RouteContext<String>) -> Resu
 
 // ── Invitation Codes ───────────────────────────────────────────────────────
 
+#[instrument(skip_all)]
 pub async fn list_codes(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let d1 = ctx.env.d1("DB")?;
@@ -105,6 +109,7 @@ pub async fn list_codes(_req: Request, ctx: RouteContext<String>) -> Result<Resp
     Response::from_json(&codes)
 }
 
+#[instrument(skip_all, fields(action = "create_invitation_code"))]
 pub async fn create_code(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let d1 = ctx.env.d1("DB")?;
@@ -150,6 +155,7 @@ pub async fn create_code(mut req: Request, ctx: RouteContext<String>) -> Result<
     })
 }
 
+#[instrument(skip_all, fields(action = "delete_invitation_code"))]
 pub async fn delete_code(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;

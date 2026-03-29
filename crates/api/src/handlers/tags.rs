@@ -1,10 +1,12 @@
 use crate::error::json_error;
 use crate::helpers::*;
 use kartoteka_shared::*;
+use tracing::instrument;
 use wasm_bindgen::JsValue;
 use worker::*;
 
 /// GET /api/tags
+#[instrument(skip_all)]
 pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.as_str();
     let d1 = ctx.env.d1("DB")?;
@@ -18,10 +20,12 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
 }
 
 /// POST /api/tags
+#[instrument(skip_all, fields(action = "create_tag", tag_id = tracing::field::Empty))]
 pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let body: CreateTagRequest = req.json().await?;
     let id = uuid::Uuid::new_v4().to_string();
+    tracing::Span::current().record("tag_id", &tracing::field::display(&id));
 
     let parent_val = opt_str_to_js(&body.parent_tag_id);
 
@@ -52,9 +56,11 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 }
 
 /// PUT /api/tags/:id
+#[instrument(skip_all, fields(action = "update_tag", tag_id = tracing::field::Empty))]
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("tag_id", &tracing::field::display(&id));
     let body: UpdateTagRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
@@ -123,9 +129,11 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 }
 
 /// DELETE /api/tags/:id
+#[instrument(skip_all, fields(action = "delete_tag", tag_id = tracing::field::Empty))]
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("tag_id", &tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
     d1.prepare("DELETE FROM tags WHERE id = ?1 AND user_id = ?2")
         .bind(&[id.into(), user_id.into()])?
@@ -135,9 +143,11 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
 }
 
 /// POST /api/tags/:id/merge
+#[instrument(skip_all, fields(action = "merge_tags", tag_id = tracing::field::Empty))]
 pub async fn merge(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let source_id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("tag_id", &tracing::field::display(&source_id));
     let body: kartoteka_shared::MergeTagRequest = req.json().await?;
     let target_id = body.target_tag_id;
     let d1 = ctx.env.d1("DB")?;
@@ -188,6 +198,7 @@ pub async fn merge(mut req: Request, ctx: RouteContext<String>) -> Result<Respon
 }
 
 /// POST /api/items/:item_id/tags
+#[instrument(skip_all, fields(action = "assign_tag_to_item"))]
 pub async fn assign_to_item(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let item_id = require_param(&ctx, "item_id")?;
@@ -210,6 +221,7 @@ pub async fn assign_to_item(mut req: Request, ctx: RouteContext<String>) -> Resu
 }
 
 /// DELETE /api/items/:item_id/tags/:tag_id
+#[instrument(skip_all, fields(action = "remove_tag_from_item"))]
 pub async fn remove_from_item(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let item_id = require_param(&ctx, "item_id")?;
@@ -228,6 +240,7 @@ pub async fn remove_from_item(_req: Request, ctx: RouteContext<String>) -> Resul
 }
 
 /// POST /api/lists/:list_id/tags
+#[instrument(skip_all, fields(action = "assign_tag_to_list"))]
 pub async fn assign_to_list(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let list_id = require_param(&ctx, "list_id")?;
@@ -250,6 +263,7 @@ pub async fn assign_to_list(mut req: Request, ctx: RouteContext<String>) -> Resu
 }
 
 /// DELETE /api/lists/:list_id/tags/:tag_id
+#[instrument(skip_all, fields(action = "remove_tag_from_list"))]
 pub async fn remove_from_list(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let list_id = require_param(&ctx, "list_id")?;
@@ -268,6 +282,7 @@ pub async fn remove_from_list(_req: Request, ctx: RouteContext<String>) -> Resul
 }
 
 /// GET /api/tags/:id/items
+#[instrument(skip_all)]
 pub async fn tag_items(req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let tag_id = require_param(&ctx, "id")?;
@@ -326,6 +341,7 @@ pub async fn tag_items(req: Request, ctx: RouteContext<String>) -> Result<Respon
 }
 
 /// GET /api/tag-links/items
+#[instrument(skip_all)]
 pub async fn all_item_tag_links(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let d1 = ctx.env.d1("DB")?;
@@ -339,6 +355,7 @@ pub async fn all_item_tag_links(_req: Request, ctx: RouteContext<String>) -> Res
 }
 
 /// GET /api/tag-links/lists
+#[instrument(skip_all)]
 pub async fn all_list_tag_links(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let d1 = ctx.env.d1("DB")?;

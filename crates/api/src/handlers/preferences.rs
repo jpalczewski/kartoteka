@@ -1,5 +1,6 @@
 use crate::error::json_error;
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 use worker::*;
 
 #[derive(Serialize)]
@@ -12,6 +13,7 @@ struct UpdatePreferencesBody {
     locale: String,
 }
 
+#[instrument(skip_all)]
 pub async fn get_preferences(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
 
@@ -32,6 +34,7 @@ pub async fn get_preferences(_req: Request, ctx: RouteContext<String>) -> Result
     Response::from_json(&PreferencesResponse { locale })
 }
 
+#[instrument(skip_all, fields(action = "update_preferences"))]
 pub async fn put_preferences(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
 

@@ -1,8 +1,10 @@
 use crate::auth::user_email_from_gateway;
 use crate::helpers::ensure_user_exists;
 use kartoteka_shared::dto::responses::MeResponse;
+use tracing::instrument;
 use worker::*;
 
+#[instrument(skip_all)]
 pub async fn get_me(req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let d1 = ctx.env.d1("DB")?;

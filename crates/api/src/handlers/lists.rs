@@ -1,6 +1,7 @@
 use crate::error::json_error;
 use crate::helpers::*;
 use kartoteka_shared::*;
+use tracing::instrument;
 use worker::*;
 
 pub const LIST_SELECT: &str = "\
@@ -11,6 +12,7 @@ pub const LIST_SELECT: &str = "\
     FROM list_features lf WHERE lf.list_id = l.id), '[]') as features \
     FROM lists l";
 
+#[instrument(skip_all)]
 pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let d1 = ctx.env.d1("DB")?;
@@ -25,10 +27,12 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
     Response::from_json(&lists)
 }
 
+#[instrument(skip_all, fields(action = "create_list", list_id = tracing::field::Empty))]
 pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let body: CreateListRequest = req.json().await?;
     let id = uuid::Uuid::new_v4().to_string();
+    tracing::Span::current().record("list_id", &tracing::field::display(&id));
     let list_type_str = serde_json::to_value(&body.list_type)
         .map_err(|e| Error::from(e.to_string()))?
         .as_str()
@@ -74,6 +78,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     Ok(resp)
 }
 
+#[instrument(skip_all)]
 pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
@@ -98,9 +103,11 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
     }
 }
 
+#[instrument(skip_all, fields(action = "update_list", list_id = tracing::field::Empty))]
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("list_id", &tracing::field::display(&id));
     let body: UpdateListRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
@@ -152,9 +159,11 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     Response::from_json(&list)
 }
 
+#[instrument(skip_all, fields(action = "delete_list", list_id = tracing::field::Empty))]
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("list_id", &tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
     d1.prepare("DELETE FROM lists WHERE id = ?1 AND user_id = ?2")
         .bind(&[id.into(), user_id.into()])?
@@ -163,6 +172,7 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
     Ok(Response::empty()?.with_status(204))
 }
 
+#[instrument(skip_all)]
 pub async fn list_sublists(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let parent_id = require_param(&ctx, "id")?;
@@ -183,6 +193,7 @@ pub async fn list_sublists(_req: Request, ctx: RouteContext<String>) -> Result<R
     Response::from_json(&sublists)
 }
 
+#[instrument(skip_all)]
 pub async fn list_archived(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let d1 = ctx.env.d1("DB")?;
@@ -197,9 +208,11 @@ pub async fn list_archived(_req: Request, ctx: RouteContext<String>) -> Result<R
     Response::from_json(&lists)
 }
 
+#[instrument(skip_all, fields(action = "toggle_archive", list_id = tracing::field::Empty))]
 pub async fn toggle_archive(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("list_id", &tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
 
     if toggle_bool_field(&d1, "lists", "archived", &id, &user_id)
@@ -219,9 +232,11 @@ pub async fn toggle_archive(_req: Request, ctx: RouteContext<String>) -> Result<
     Response::from_json(&list)
 }
 
+#[instrument(skip_all, fields(action = "reset_list", list_id = tracing::field::Empty))]
 pub async fn reset(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("list_id", &tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
 
     if !check_ownership(&d1, "lists", &id, &user_id).await? {
@@ -248,6 +263,7 @@ pub async fn reset(_req: Request, ctx: RouteContext<String>) -> Result<Response>
     Ok(Response::empty()?.with_status(204))
 }
 
+#[instrument(skip_all, fields(action = "create_sublist", list_id = tracing::field::Empty))]
 pub async fn create_sublist(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let parent_id = require_param(&ctx, "id")?;
@@ -258,6 +274,7 @@ pub async fn create_sublist(mut req: Request, ctx: RouteContext<String>) -> Resu
         .ok_or_else(|| Error::from("Missing name"))?
         .to_string();
     let id = uuid::Uuid::new_v4().to_string();
+    tracing::Span::current().record("list_id", &tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
 
     // Verify parent belongs to user and is a top-level list
@@ -306,9 +323,11 @@ pub async fn create_sublist(mut req: Request, ctx: RouteContext<String>) -> Resu
 
 // === Feature CRUD ===
 
+#[instrument(skip_all, fields(action = "add_list_feature", list_id = tracing::field::Empty))]
 pub async fn add_feature(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let list_id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("list_id", &tracing::field::display(&list_id));
     let feature_name = require_param(&ctx, "name")?;
 
     let d1 = ctx.env.d1("DB")?;
@@ -351,9 +370,11 @@ pub async fn add_feature(mut req: Request, ctx: RouteContext<String>) -> Result<
     Response::from_json(&list)
 }
 
+#[instrument(skip_all, fields(action = "remove_list_feature", list_id = tracing::field::Empty))]
 pub async fn remove_feature(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let list_id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("list_id", &tracing::field::display(&list_id));
     let feature_name = require_param(&ctx, "name")?;
 
     let d1 = ctx.env.d1("DB")?;
@@ -380,9 +401,11 @@ pub async fn remove_feature(_req: Request, ctx: RouteContext<String>) -> Result<
 
 // === Container assignment ===
 
+#[instrument(skip_all, fields(action = "move_list", list_id = tracing::field::Empty))]
 pub async fn move_list(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("list_id", &tracing::field::display(&id));
     let body: MoveListRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
@@ -414,9 +437,11 @@ pub async fn move_list(mut req: Request, ctx: RouteContext<String>) -> Result<Re
     Response::from_json(&list)
 }
 
+#[instrument(skip_all, fields(action = "toggle_list_pin", list_id = tracing::field::Empty))]
 pub async fn toggle_pin(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("list_id", &tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
 
     if toggle_bool_field(&d1, "lists", "pinned", &id, &user_id)
