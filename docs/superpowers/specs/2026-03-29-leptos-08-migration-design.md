@@ -18,7 +18,7 @@ Four sequential PRs, each independently shippable. Each step builds on the previ
 
 ## PR 1: Leptos 0.8 Bump
 
-Mechanical upgrade, no logic changes.
+Mechanical upgrade, no logic changes. One production bugfix included.
 
 ### Changes
 - `Cargo.toml`: `leptos`, `leptos_router`, `leptos_meta` → `0.8`
@@ -27,12 +27,14 @@ Mechanical upgrade, no logic changes.
 - Remove `send_wrapper` from dependencies
 - Unify `wasm_bindgen_futures::spawn_local` → `leptos::task::spawn_local` everywhere
 - Check `leptos-fluent` 0.2 compatibility with Leptos 0.8 (bump if needed)
+- Verify `gloo-net` 0.7, `web-sys`, `wasm-bindgen` compatibility with Leptos 0.8
 - Optionally: add `--cfg=erase_components` to `RUSTFLAGS` in `Trunk.toml` for faster dev builds
+- **Bugfix:** add missing `credentials: include` on `reset_list` in `api/lists.rs` (production auth bug, should not wait for PR 3)
 
 ### Not in scope
 - No structural refactoring
 - No new types
-- No logic changes
+- No logic changes (beyond the credentials bugfix)
 
 ## PR 2: Shared Crate Expansion
 
@@ -49,13 +51,12 @@ crates/shared/src/
     item.rs         -- Item, DateItem, DaySummary, DayItems
     list.rs         -- List, ListType, ListFeature, DateField
     tag.rs          -- Tag, ItemTagLink, ListTagLink
-    home.rs         -- HomeData (fixed to match actual API response)
     settings.rs     -- UserSetting
   dto/
     mod.rs
     requests.rs     -- Create/Update/Move request DTOs
     responses.rs    -- ItemDetailResponse, ContainerChildrenResponse,
-                       PreferencesResponse, ErrorResponse (deduplicated)
+                       PreferencesResponse, ErrorResponse, HomeData (deduplicated)
   deserializers.rs  -- bool_from_number, u32_from_number, features_from_json
   date_utils.rs     -- moved from frontend, js_sys replaced with `now` parameter
   constants.rs      -- FEATURE_*, DATE_TYPE_*, SETTING_*
@@ -63,8 +64,8 @@ crates/shared/src/
 
 ### Key decisions
 - **Re-exports from `lib.rs`** — `pub use models::*; pub use dto::*;` etc. so existing imports in `crates/api` continue to work without changes. Flat re-export avoids churn in API crate.
-- **`HomeData` fix** — current `HomeData` struct doesn't match the actual API response shape (`pinned_lists`, `pinned_containers`, `recent_lists`, `recent_containers` vs `pinned`, `recent`). Fix the struct, make frontend use it instead of `serde_json::Value`.
-- **`date_utils` migration** — move all pure date math to shared. The two functions that use `js_sys::Date` (`get_today_string`, `current_time_hhmm`) get refactored to accept `now: &str` parameter. Frontend wrapper passes `js_sys::Date` value. Backend can pass `chrono` or `time` value later.
+- **`HomeData` fix** — current `HomeData` struct in shared has `pinned: Vec<HomeItem>` and `recent: Vec<HomeItem>`, but the actual API response returns 6 separate fields: `pinned_lists`, `pinned_containers`, `recent_lists`, `recent_containers`, `root_containers`, `root_lists`. Fix: rewrite `HomeData` to match the actual API response shape. Move to `dto/responses.rs` (it's a response DTO, not a domain model). Make frontend use the typed struct instead of `serde_json::Value`.
+- **`date_utils` migration** — move pure date math and business logic to shared. Functions using `js_sys::Date` (`get_today_string`, `current_time_hhmm`) get refactored to accept parameters: `get_today_string(year: u32, month: u32, day: u32)` and `current_time_hhmm(hours: u32, minutes: u32)`. `is_overdue` and `is_overdue_for_date_type` also need `today: &str` and `now_time: &str` parameters (they call `current_time_hhmm` internally). Frontend thin wrappers read `js_sys::Date` and pass values. Polish-specific formatting functions (`polish_month_abbr`, `format_polish_date`, etc.) stay in the frontend crate — they are presentation logic, not business logic.
 - **New shared types from deduplication:**
   - `PreferencesResponse { locale: String }` — currently duplicated in API and frontend
   - `ErrorResponse { code: String, status: u16 }` — API defines `ErrorResponse`, frontend defines `ErrorBody`; unify
@@ -109,9 +110,12 @@ impl HttpClient for GlooClient { /* gloo-net + credentials: include */ }
 - `GlooClient` provided via `provide_context` in `App`; components retrieve with `use_context`
 - `ApiError` as proper enum (Network, Http, Parse) instead of `String`
 
+### Design notes
+- `HttpClient` uses `async fn` in trait (stable since Rust 1.75). Used with `impl HttpClient` (static dispatch), not `dyn HttpClient`, since async trait methods are not object-safe without boxing. This is fine — WASM-only, no need for dynamic dispatch.
+- Tests call API functions directly with a mock client (e.g. `fetch_lists(&mock_client)`), no Leptos context needed.
+
 ### Fixes included
 - Consistent HTTP status checking in ALL methods (today only `patch_json` checks)
-- Missing `credentials: include` on `reset_list`
 - Uniform error handling across all API functions
 
 ### Tests
@@ -130,8 +134,9 @@ Extract data transformation logic from components into pure functions.
 
 /// Pure functions — immutable input, new value output
 
-pub fn with_item_toggled(items: &[Item], item_id: &str) -> Vec<Item> { ... }
-pub fn without_item(items: &[Item], item_id: &str) -> (Vec<Item>, Option<Item>) { ... }
+pub fn with_item_toggled(items: &[Item], item_id: &str) -> (Vec<Item>, bool) { ... }
+// returns (new list, new completed value) — caller needs the value for the API request
+pub fn without_item(items: &[Item], item_id: &str) -> Vec<Item> { ... }
 pub fn filter_items_by_tag(items: &[Item], tag_id: &str) -> Vec<Item> { ... }
 pub fn group_items_by_date(items: &[DateItem]) -> BTreeMap<String, Vec<DateItem>> { ... }
 pub fn sorted_by_position<T: HasPosition>(items: &[T]) -> Vec<T> { ... }
