@@ -27,6 +27,7 @@ pub async fn reset_list(id: &str) -> Result<(), String> {
     let json = serde_json::to_string(&serde_json::json!({})).map_err(|e| e.to_string())?;
     let resp = Request::post(&format!("{}/lists/{id}/reset", super::API_BASE))
         .headers(super::auth_headers())
+        .credentials(web_sys::RequestCredentials::Include)
         .body(json)
         .map_err(|e| e.to_string())?
         .send()
