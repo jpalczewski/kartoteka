@@ -36,6 +36,6 @@ jobs:
             {
               "permissions": {
                 "allow": ["Read", "Glob", "Grep", "Bash"],
-                "deny": ["Edit", "Write", "WebFetch", "WebSearch"]
+                "deny": ["Edit", "WebFetch", "WebSearch"]
               }
             }
