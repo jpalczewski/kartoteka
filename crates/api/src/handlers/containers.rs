@@ -4,6 +4,7 @@ use kartoteka_shared::{
     Container, ContainerDetail, CreateContainerRequest, List, MoveContainerRequest,
     UpdateContainerRequest,
 };
+use tracing::instrument;
 use wasm_bindgen::JsValue;
 use worker::*;
 
@@ -13,6 +14,7 @@ const CONTAINER_SELECT: &str = "\
     c.created_at, c.updated_at \
     FROM containers c";
 
+#[instrument(skip_all)]
 pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let d1 = ctx.env.d1("DB")?;
@@ -27,10 +29,12 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
     Response::from_json(&containers)
 }
 
+#[instrument(skip_all, fields(action = "create_container", container_id = tracing::field::Empty))]
 pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let body: CreateContainerRequest = req.json().await?;
     let id = uuid::Uuid::new_v4().to_string();
+    tracing::Span::current().record("container_id", &tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
 
     // Validate: parent must not be a project (status != NULL)
@@ -101,6 +105,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     Ok(resp)
 }
 
+#[instrument(skip_all)]
 pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
@@ -185,9 +190,11 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
     Response::from_json(&detail)
 }
 
+#[instrument(skip_all, fields(action = "update_container", container_id = tracing::field::Empty))]
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("container_id", &tracing::field::display(&id));
     let body: UpdateContainerRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
@@ -241,9 +248,11 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     Response::from_json(&container)
 }
 
+#[instrument(skip_all, fields(action = "delete_container", container_id = tracing::field::Empty))]
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("container_id", &tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
 
     if !check_ownership(&d1, "containers", &id, &user_id).await? {
@@ -258,6 +267,7 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
     Ok(Response::empty()?.with_status(204))
 }
 
+#[instrument(skip_all)]
 pub async fn get_children(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
@@ -296,9 +306,11 @@ pub async fn get_children(_req: Request, ctx: RouteContext<String>) -> Result<Re
     Response::from_json(&resp)
 }
 
+#[instrument(skip_all, fields(action = "move_container", container_id = tracing::field::Empty))]
 pub async fn move_container(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("container_id", &tracing::field::display(&id));
     let body: MoveContainerRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
@@ -347,9 +359,11 @@ pub async fn move_container(mut req: Request, ctx: RouteContext<String>) -> Resu
     Response::from_json(&container)
 }
 
+#[instrument(skip_all, fields(action = "toggle_container_pin", container_id = tracing::field::Empty))]
 pub async fn toggle_pin(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("container_id", &tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
 
     if toggle_bool_field(&d1, "containers", "pinned", &id, &user_id)
@@ -373,6 +387,7 @@ pub async fn toggle_pin(_req: Request, ctx: RouteContext<String>) -> Result<Resp
 
 // === Home endpoint ===
 
+#[instrument(skip_all)]
 pub async fn home(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let d1 = ctx.env.d1("DB")?;
