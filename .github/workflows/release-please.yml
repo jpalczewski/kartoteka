@@ -3,7 +3,7 @@ name: Release Please
 on:
   push:
     branches:
-      - main
+      - develop
   workflow_dispatch:
 
 jobs:
@@ -14,25 +14,12 @@ jobs:
       contents: write
       pull-requests: write
     concurrency:
-      group: release-please-${{ github.ref }}
+      group: release-please
       cancel-in-progress: false
-    outputs:
-      releases_created: ${{ steps.release.outputs.releases_created }}
     steps:
-      - id: release
-        uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v4
         with:
           release-type: simple
+          target-branch: main
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-
-  deploy-prod:
-    needs: release-please
-    if: needs.release-please.outputs.releases_created == 'true'
-    uses: ./.github/workflows/deploy.yml
-    with:
-      environment: production
-      wrangler_env: ""
-      d1_database: kartoteka-db
-      pages_branch: main
-    secrets: inherit

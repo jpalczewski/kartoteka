@@ -1,0 +1,16 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: production
+      wrangler_env: ""
+      d1_database: kartoteka-db
+      pages_branch: main
+    secrets: inherit
