@@ -21,6 +21,9 @@ on:
         type: string
         description: "CF Pages branch (dev or main)"
 
+permissions:
+  contents: read
+
 jobs:
   # --- API Worker + Gateway (sequential, gateway depends on API) ---
   deploy-backend:
