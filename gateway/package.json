@@ -14,7 +14,8 @@
     "@fluent/bundle": "^0.19.1",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "better-auth": "^1.5.0",
-    "hono": "^4.0.0"
+    "hono": "^4.0.0",
+    "nanoid": "^5.1.7"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260329.1",

@@ -2,11 +2,13 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { getMigrations } from "better-auth/db/migration";
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
+import { nanoid } from "nanoid";
 import type { Env, Variables } from "./types";
 import { getAuth } from "./auth";
 import { authMiddleware } from "./middleware";
 import { proxy } from "./proxy";
 import { McpApiHandler } from "./mcp/server";
+import { log } from "./logger";
 
 function escapeHtml(s: string): string {
   return s
@@ -27,6 +29,23 @@ app.use("*", async (c, next) => {
     credentials: true,
   });
   return corsMiddleware(c, next);
+});
+
+app.use("*", async (c, next) => {
+  const requestId = c.req.header("x-request-id") ?? nanoid();
+  c.set("requestId", requestId);
+  c.header("X-Request-Id", requestId);
+
+  const start = Date.now();
+  await next();
+
+  log("INFO", "request completed", {
+    request_id: requestId,
+    method: c.req.method,
+    path: new URL(c.req.url).pathname,
+    status: c.res.status,
+    duration_ms: Date.now() - start,
+  });
 });
 
 app.get("/health", (c) => c.text("ok"));
