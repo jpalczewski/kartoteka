@@ -36,6 +36,12 @@ pub fn SignupPage() -> impl IntoView {
         loading.set(true);
         error.set(None);
 
+        // Read cached mode synchronously before spawning to avoid an extra network round-trip.
+        // The Gateway always validates independently, so stale-by-submit-time is safe.
+        let current_mode = reg_mode
+            .get_untracked()
+            .unwrap_or_else(|| "open".to_string());
+
         leptos::task::spawn_local(async move {
             let current_email = email.get_untracked();
             let code = invite_code.get_untracked();
@@ -45,18 +51,14 @@ pub fn SignupPage() -> impl IntoView {
             #[cfg(target_arch = "wasm32")]
             {
                 let client = GlooClient;
-                let mode = crate::api::admin::get_registration_mode(&client)
-                    .await
-                    .map(|r| r.mode)
-                    .unwrap_or_else(|_| "open".to_string());
 
-                if mode == "closed" {
+                if current_mode == "closed" {
                     loading.set(false);
                     error.set(Some(move_tr!("registration-closed-message").get()));
                     return;
                 }
 
-                if mode == "invite" && !code.is_empty() {
+                if current_mode == "invite" && !code.is_empty() {
                     match crate::api::admin::validate_invite(&client, &code, &current_email).await {
                         Ok(res) if !res.valid => {
                             loading.set(false);
