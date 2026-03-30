@@ -70,6 +70,26 @@ Kartoteka — aplikacja todo/listy na Cloudflare Workers (Rust API + TypeScript 
 - `require_param(ctx, name)` — wyciągnij param z RouteContext lub Error
 - `get_list_features(d1, list_id)` — lista feature names dla listy
 
+### Tracing / Logging
+
+Każdy handler w `crates/api/src/handlers/` **musi** mieć `#[instrument]`. Wzorzec:
+
+```rust
+#[instrument(skip_all, fields(action = "create_list", list_id = tracing::field::Empty))]
+pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let id = Uuid::new_v4().to_string();
+    Span::current().record("list_id", tracing::field::display(&id));
+    // ...
+}
+```
+
+- `skip_all` — pomija `req`/`ctx` (nie są `Debug`)
+- `action` — nazwa operacji w formacie `verb_noun` (`create_list`, `delete_item`, `toggle_item`)
+- Entity ID jako `tracing::field::Empty` w atrybucie, uzupełniane przez `Span::current().record(...)` po poznaniu wartości
+- **Bez `&` przed `tracing::field::display`** — clippy `needless_borrows_for_generic_args` blokuje CI
+- Inicjalizacja tracingu: `kartoteka_logging::init_cf()` w `#[event(start)]`
+- Gateway: `log()` z `gateway/src/logger.ts` — ten sam schemat JSON, korelacja przez `X-Request-Id`
+
 ## Komendy
 
 ```bash

@@ -1,8 +1,10 @@
 use crate::helpers::require_param;
 use kartoteka_shared::*;
 use std::collections::HashMap;
+use tracing::instrument;
 use worker::*;
 
+#[instrument(skip_all)]
 pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let d1 = ctx.env.d1("DB")?;
@@ -28,6 +30,7 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
     Response::from_json(&map)
 }
 
+#[instrument(skip_all, fields(action = "upsert_setting"))]
 pub async fn upsert(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let key = require_param(&ctx, "key")?;
@@ -46,6 +49,7 @@ pub async fn upsert(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     Ok(Response::empty()?.with_status(204))
 }
 
+#[instrument(skip_all, fields(action = "delete_setting"))]
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let key = require_param(&ctx, "key")?;

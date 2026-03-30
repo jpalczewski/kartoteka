@@ -28,5 +28,10 @@ js-sys = "0.3"
 name = "kartoteka-frontend"
 test = false
 
+[package.metadata.cargo-machete]
+# kartoteka-i18n: pulled in by leptos-fluent macro; leptos_meta: used in components via view! macro;
+# wasm-bindgen: required as a transitive dep for WASM target — not directly imported
+ignored = ["kartoteka-i18n", "leptos_meta", "wasm-bindgen"]
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }

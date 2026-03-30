@@ -1,6 +1,7 @@
 use crate::error::json_error;
 use crate::helpers::*;
 use kartoteka_shared::*;
+use tracing::instrument;
 use wasm_bindgen::JsValue;
 use worker::*;
 
@@ -12,6 +13,7 @@ const DATE_ITEM_COLS: &str = "i.id, i.list_id, i.title, i.description, i.complet
     i.quantity, i.actual_quantity, i.unit, i.start_date, i.start_time, i.deadline, i.deadline_time, i.hard_deadline, \
     i.created_at, i.updated_at, l.name as list_name, l.list_type";
 
+#[instrument(skip_all)]
 pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let list_id = require_param(&ctx, "list_id")?;
@@ -30,6 +32,7 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
     Response::from_json(&items)
 }
 
+#[instrument(skip_all)]
 pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let list_id = require_param(&ctx, "list_id")?;
@@ -76,11 +79,13 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
     })
 }
 
+#[instrument(skip_all, fields(action = "create_item", item_id = tracing::field::Empty))]
 pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let list_id = require_param(&ctx, "list_id")?;
     let body: CreateItemRequest = req.json().await?;
     let id = uuid::Uuid::new_v4().to_string();
+    tracing::Span::current().record("item_id", tracing::field::display(&id));
 
     let d1 = ctx.env.d1("DB")?;
 
@@ -193,9 +198,11 @@ fn check_item_features(
     Ok(None)
 }
 
+#[instrument(skip_all, fields(action = "update_item", item_id = tracing::field::Empty))]
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("item_id", tracing::field::display(&id));
     let body: UpdateItemRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
@@ -328,9 +335,11 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     Response::from_json(&item)
 }
 
+#[instrument(skip_all, fields(action = "delete_item", item_id = tracing::field::Empty))]
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("item_id", tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
 
     if !check_item_ownership(&d1, &id, &user_id).await? {
@@ -344,9 +353,11 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
     Ok(Response::empty()?.with_status(204))
 }
 
+#[instrument(skip_all, fields(action = "move_item", item_id = tracing::field::Empty))]
 pub async fn move_item(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("item_id", tracing::field::display(&id));
     let body: serde_json::Value = req.json().await?;
     let target_list_id = body
         .get("target_list_id")
@@ -390,6 +401,7 @@ pub async fn move_item(mut req: Request, ctx: RouteContext<String>) -> Result<Re
 }
 
 /// GET /api/items/by-date?date=YYYY-MM-DD&date_field=deadline&include_overdue=true
+#[instrument(skip_all)]
 pub async fn by_date(req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let url = req.url()?;
@@ -484,6 +496,7 @@ pub async fn by_date(req: Request, ctx: RouteContext<String>) -> Result<Response
 }
 
 /// GET /api/items/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD&date_field=deadline&detail=counts|full
+#[instrument(skip_all)]
 pub async fn calendar(req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let url = req.url()?;

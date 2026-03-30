@@ -1,6 +1,25 @@
 use crate::models::{Container, Item, List, ListFeature};
 use serde::{Deserialize, Serialize};
 
+/// Response from GET /api/me
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeResponse {
+    pub is_admin: bool,
+}
+
+/// Response from GET /api/public/registration-mode
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistrationModeResponse {
+    pub mode: String,
+}
+
+/// Response from POST /api/public/validate-invite
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidateInviteResponse {
+    pub valid: bool,
+    pub error: Option<String>,
+}
+
 /// Response from GET /api/lists/:list_id/items/:id
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ItemDetailResponse {

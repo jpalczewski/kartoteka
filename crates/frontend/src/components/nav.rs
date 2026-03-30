@@ -2,10 +2,12 @@ use leptos::prelude::*;
 use leptos_fluent::move_tr;
 
 use crate::api;
+use crate::state::AdminContext;
 
 #[component]
 pub fn Nav() -> impl IntoView {
     let (menu_open, set_menu_open) = signal(false);
+    let admin_ctx = use_context::<AdminContext>();
 
     let session_res = LocalResource::new(api::get_session);
 
@@ -42,6 +44,11 @@ pub fn Nav() -> impl IntoView {
                                                 class="menu bg-base-200 rounded-box border border-base-300 shadow-lg z-50 min-w-40 absolute right-0 top-full mt-1"
                                                 style:display=move || if menu_open.get() { "block" } else { "none" }
                                             >
+                                                {move || admin_ctx.map(|ctx| {
+                                                    ctx.is_admin.get().then(|| view! {
+                                                        <li><a href="/admin">{move_tr!("nav-admin")}</a></li>
+                                                    })
+                                                })}
                                                 <li><a href="/tags">{move_tr!("nav-tags")}</a></li>
                                                 <li><a href="/settings">{move_tr!("nav-settings")}</a></li>
                                                 <li><button type="button" on:click=on_logout>{move_tr!("nav-logout")}</button></li>

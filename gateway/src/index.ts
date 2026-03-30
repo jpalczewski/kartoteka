@@ -2,11 +2,13 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { getMigrations } from "better-auth/db/migration";
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
+import { nanoid } from "nanoid";
 import type { Env, Variables } from "./types";
 import { getAuth } from "./auth";
 import { authMiddleware } from "./middleware";
 import { proxy } from "./proxy";
 import { McpApiHandler } from "./mcp/server";
+import { log } from "./logger";
 
 function escapeHtml(s: string): string {
   return s
@@ -27,6 +29,23 @@ app.use("*", async (c, next) => {
     credentials: true,
   });
   return corsMiddleware(c, next);
+});
+
+app.use("*", async (c, next) => {
+  const requestId = c.req.header("x-request-id") ?? nanoid();
+  c.set("requestId", requestId);
+  c.header("X-Request-Id", requestId);
+
+  const start = Date.now();
+  await next();
+
+  log("INFO", "request completed", {
+    request_id: requestId,
+    method: c.req.method,
+    path: new URL(c.req.url).pathname,
+    status: c.res.status,
+    duration_ms: Date.now() - start,
+  });
 });
 
 app.get("/health", (c) => c.text("ok"));
@@ -62,6 +81,93 @@ app.get("/auth/api/get-session", async (c, next) => {
     session: { id: "dev-session", userId: c.env.DEV_AUTH_USER_ID, expiresAt: "2099-01-01T00:00:00.000Z" },
     user: { id: c.env.DEV_AUTH_USER_ID, email: "dev@local", name: "Dev User", emailVerified: true },
   });
+});
+
+async function checkRegistrationMode(env: Env): Promise<{ mode: string } | null> {
+  const apiBase = env.DEV_API_URL ?? "http://internal";
+  const res = await (env.DEV_API_URL
+    ? fetch(`${apiBase}/api/public/registration-mode`)
+    : env.API_WORKER.fetch(new Request(`${apiBase}/api/public/registration-mode`)));
+  if (!res.ok) return null;
+  return res.json<{ mode: string }>();
+}
+
+// Block OAuth social sign-in when registration mode is closed or invite-only
+app.post("/auth/api/sign-in/social", async (c) => {
+  if (!c.env.DEV_AUTH_USER_ID) {
+    const modeData = await checkRegistrationMode(c.env);
+    if (!modeData) return c.json({ error: "Failed to check registration mode" }, 500);
+    if (modeData.mode === "closed") return c.json({ error: "Registration is closed" }, 403);
+    if (modeData.mode === "invite")
+      return c.json({ error: "Invite-only mode does not support social login" }, 403);
+  }
+  const auth = getAuth(c.env);
+  return auth.handler(c.req.raw);
+});
+
+// Intercept signup to enforce registration mode and validate invite codes
+app.post("/auth/api/sign-up/email", async (c) => {
+  // Skip in local dev (DEV_AUTH_USER_ID bypasses auth entirely)
+  if (!c.env.DEV_AUTH_USER_ID) {
+    const body = await c.req.json<Record<string, string>>();
+
+    const apiBase = c.env.DEV_API_URL ?? "http://internal";
+    const modeData = await checkRegistrationMode(c.env);
+    if (!modeData) {
+      return c.json({ error: "Failed to check registration mode" }, 500);
+    }
+
+    const { mode } = modeData;
+
+    if (mode === "closed") {
+      return c.json({ error: "Registration is closed" }, 403);
+    }
+
+    if (mode === "invite") {
+      const inviteCode = body.inviteCode;
+      if (!inviteCode) {
+        return c.json({ error: "Invite code required" }, 403);
+      }
+
+      const validateRes = await (c.env.DEV_API_URL
+        ? fetch(`${apiBase}/api/public/validate-invite`, {
+            method: "POST",
+            body: JSON.stringify({ code: inviteCode, email: body.email }),
+            headers: { "Content-Type": "application/json" },
+          })
+        : c.env.API_WORKER.fetch(
+            new Request(`${apiBase}/api/public/validate-invite`, {
+              method: "POST",
+              body: JSON.stringify({ code: inviteCode, email: body.email }),
+              headers: { "Content-Type": "application/json" },
+            })
+          ));
+
+      if (!validateRes.ok) {
+        return c.json({ error: "Failed to validate invite code" }, 500);
+      }
+
+      const { valid, error } = await validateRes.json<{ valid: boolean; error?: string }>();
+      if (!valid) {
+        return c.json({ error: error ?? "Invalid invite code" }, 403);
+      }
+    }
+
+    // Strip inviteCode before forwarding to Better Auth
+    const { inviteCode: _removed, ...authBody } = body;
+    const auth = getAuth(c.env);
+    return auth.handler(
+      new Request(c.req.raw.url, {
+        method: "POST",
+        body: JSON.stringify(authBody),
+        headers: c.req.raw.headers,
+      })
+    );
+  }
+
+  // Dev mode: forward directly
+  const auth = getAuth(c.env);
+  return auth.handler(c.req.raw);
 });
 
 app.all("/auth/*", async (c) => {

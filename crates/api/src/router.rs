@@ -1,12 +1,25 @@
 use worker::*;
 
 use crate::auth;
-use crate::handlers::{containers, items, lists, preferences, settings, tags};
+use crate::handlers::{admin, containers, items, lists, me, preferences, public, settings, tags};
 
 pub async fn handle(req: Request, env: Env) -> Result<Response> {
     let path = req.path();
     if path == "/api/health" {
         return Response::ok("ok");
+    }
+
+    // Public routes — no auth required
+    if path.starts_with("/api/public/") {
+        let public_router = Router::with_data(String::new());
+        return public_router
+            .get_async(
+                "/api/public/registration-mode",
+                public::get_registration_mode,
+            )
+            .post_async("/api/public/validate-invite", public::validate_invite)
+            .run(req, env)
+            .await;
     }
 
     let user_id = if let Some(uid) = auth::dev_bypass_user_id(&env) {
@@ -17,6 +30,8 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
 
     let router = Router::with_data(user_id);
     router
+        // Me
+        .get_async("/api/me", me::get_me)
         // Home
         .get_async("/api/home", containers::home)
         // Containers
@@ -79,6 +94,13 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         // Tag link queries
         .get_async("/api/tag-links/items", tags::all_item_tag_links)
         .get_async("/api/tag-links/lists", tags::all_list_tag_links)
+        // Admin — instance settings
+        .get_async("/api/admin/instance-settings", admin::list_settings)
+        .put_async("/api/admin/instance-settings/:key", admin::update_setting)
+        // Admin — invitation codes
+        .get_async("/api/admin/invitation-codes", admin::list_codes)
+        .post_async("/api/admin/invitation-codes", admin::create_code)
+        .delete_async("/api/admin/invitation-codes/:id", admin::delete_code)
         .run(req, env)
         .await
 }

@@ -19,6 +19,10 @@ name = "kartoteka-api-local"
 
 [env.local.vars]
 DEV_AUTH_USER_ID = "dev-user-00000000-0000-0000-0000-000000000001"
+# Auto-promotes the first user with this email to admin on /api/me.
+# In local dev the gateway sets X-User-Email = "dev@local" for the bypass user,
+# so the dev user becomes admin automatically.
+INITIAL_ADMIN_EMAIL = "dev@local"
 
 [[env.local.d1_databases]]
 binding = "DB"
@@ -36,3 +40,10 @@ binding = "DB"
 database_name = "kartoteka-dev"
 database_id = "94ab37c2-8a21-40ad-a878-fd546d741e92"
 migrations_dir = "./migrations"
+
+[observability]
+enabled = true
+
+# Optional secrets — configure via `wrangler secret put`:
+#   INITIAL_ADMIN_EMAIL   First user with this email gets auto-promoted to admin on /api/me.
+#                         Set once after deploy, then remove or leave for re-promotion on re-signup.

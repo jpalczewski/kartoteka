@@ -1,0 +1,27 @@
+[package]
+name = "kartoteka-logging"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+default = ["cf"]
+cf = ["tracing-web", "dep:time"]
+axum = ["tracing-subscriber/ansi"]
+
+[dependencies]
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "time"] }
+worker = { version = "0.7", default-features = false }
+serde = { version = "1", features = ["derive"] }
+
+# CF-only
+tracing-web = { version = "0.1", optional = true }
+time = { version = "0.3", features = ["wasm-bindgen"], optional = true }
+
+[package.metadata.cargo-machete]
+# time: used via UtcTime in #[cfg(feature = "cf")] — machete doesn't see conditional usage
+ignored = ["time"]
