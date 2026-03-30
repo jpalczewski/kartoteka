@@ -26,7 +26,7 @@ pub trait HttpClient {
 
 /// Production HTTP client using gloo-net. Sends credentials with every request.
 /// On non-wasm targets the impl panics — only ever instantiated in WASM context.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct GlooClient;
 
 #[cfg(target_arch = "wasm32")]
