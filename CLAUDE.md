@@ -70,6 +70,13 @@ Kartoteka — aplikacja todo/listy na Cloudflare Workers (Rust API + TypeScript 
 - `require_param(ctx, name)` — wyciągnij param z RouteContext lub Error
 - `get_list_features(d1, list_id)` — lista feature names dla listy
 
+### Tracing / Logging
+
+- Crate `kartoteka-logging` — inicjalizacja przez `kartoteka_logging::init_cf()` w `#[event(start)]`
+- Handlery instrumentowane: `#[instrument(skip_all, fields(action = "create_list", list_id = tracing::field::Empty))]`
+- Dynamiczne pola: `Span::current().record("list_id", tracing::field::display(&id))` — **bez `&` przed `tracing::field::display`** (clippy `needless_borrows_for_generic_args` blokuje CI)
+- Gateway: `log()` z `gateway/src/logger.ts` — ten sam schemat JSON, korelacja przez `X-Request-Id`
+
 ## Komendy
 
 ```bash
