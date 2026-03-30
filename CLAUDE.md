@@ -87,7 +87,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 - `action` — nazwa operacji w formacie `verb_noun` (`create_list`, `delete_item`, `toggle_item`)
 - Entity ID jako `tracing::field::Empty` w atrybucie, uzupełniane przez `Span::current().record(...)` po poznaniu wartości
 - **Bez `&` przed `tracing::field::display`** — clippy `needless_borrows_for_generic_args` blokuje CI
-- Inicjalizacja tracingu: `kartoteka_logging::init_cf()` w `#[event(start)]`
+- Inicjalizacja tracingu: `kartoteka_logging::init_cf(level)` wywoływane na początku `#[event(fetch)]`; level z `env.var("LOG_LEVEL")` (default `"info"`); dev ma `LOG_LEVEL = "debug"` w `wrangler.toml`
 - Gateway: `log()` z `gateway/src/logger.ts` — ten sam schemat JSON, korelacja przez `X-Request-Id`
 
 ## Komendy
