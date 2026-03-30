@@ -1,6 +1,14 @@
 use wasm_bindgen::JsValue;
 use worker::*;
 
+pub fn dedupe_ids(ids: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    ids.iter()
+        .filter(|id| seen.insert(id.as_str()))
+        .cloned()
+        .collect()
+}
+
 /// Ensure a user row exists in the `users` table. Creates one if absent.
 /// If `initial_admin_email` is non-empty and matches the user's email,
 /// promotes the user to admin on first creation.

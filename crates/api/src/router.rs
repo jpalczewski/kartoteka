@@ -46,6 +46,7 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         // Lists
         .get_async("/api/lists", lists::list_all)
         .post_async("/api/lists", lists::create)
+        .patch_async("/api/lists/placement", lists::set_placement)
         .get_async("/api/lists/archived", lists::list_archived)
         .patch_async("/api/lists/:id/archive", lists::toggle_archive)
         .post_async("/api/lists/:id/reset", lists::reset)
@@ -91,6 +92,7 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         .delete_async("/api/items/:item_id/tags/:tag_id", tags::remove_from_item)
         .post_async("/api/lists/:list_id/tags", tags::assign_to_list)
         .delete_async("/api/lists/:list_id/tags/:tag_id", tags::remove_from_list)
+        .patch_async("/api/tag-links", tags::set_links)
         // Tag link queries
         .get_async("/api/tag-links/items", tags::all_item_tag_links)
         .get_async("/api/tag-links/lists", tags::all_list_tag_links)

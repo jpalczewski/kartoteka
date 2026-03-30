@@ -1,8 +1,10 @@
 # Lists
 tool-list-lists = List all lists for the current user
-tool-create-list = Create a new list
+tool-create-list = Create a new list, optionally inside a container or as a sublist
 tool-update-list = Update a list's name, description, type, or archive status
 tool-move-list = Move a list into a container or remove from container
+tool-get-list-sublists = Get direct sublists of a list
+tool-set-list-placement = Move one or more lists between root, containers, and parent lists
 
 # Items
 tool-get-items = Get all items in a specific list
@@ -23,6 +25,7 @@ tool-list-tags = List all tags for the current user
 tool-create-tag = Create a new tag
 tool-assign-tag = Assign a tag to an item or list
 tool-remove-tag = Remove a tag from an item or list
+tool-set-tag-links = Assign or remove many tag links for items or lists in one call
 tool-get-tagged-items = Get all items tagged with a specific tag
 
 # Calendar

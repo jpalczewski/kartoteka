@@ -2,6 +2,7 @@ use crate::error::json_error;
 use crate::helpers::*;
 use kartoteka_shared::*;
 use tracing::instrument;
+use wasm_bindgen::JsValue;
 use worker::*;
 
 pub const LIST_SELECT: &str = "\
@@ -12,25 +13,143 @@ pub const LIST_SELECT: &str = "\
     FROM list_features lf WHERE lf.list_id = l.id), '[]') as features \
     FROM lists l";
 
-#[instrument(skip_all)]
-pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
-    let user_id = ctx.data.clone();
-    let d1 = ctx.env.d1("DB")?;
-    let result = d1
-        .prepare(format!(
-            "{LIST_SELECT} WHERE l.user_id = ?1 AND l.parent_list_id IS NULL AND l.container_id IS NULL AND l.archived = 0 ORDER BY l.updated_at DESC"
-        ))
-        .bind(&[user_id.into()])?
-        .all()
-        .await?;
-    let lists = result.results::<List>()?;
-    Response::from_json(&lists)
+fn placement_filter(
+    parent_list_id: Option<&str>,
+    container_id: Option<&str>,
+) -> (&'static str, Vec<JsValue>) {
+    match (parent_list_id, container_id) {
+        (Some(parent_id), None) => ("parent_list_id = ?1", vec![parent_id.into()]),
+        (None, Some(container_id)) => (
+            "parent_list_id IS NULL AND container_id = ?1",
+            vec![container_id.into()],
+        ),
+        (None, None) => ("parent_list_id IS NULL AND container_id IS NULL", vec![]),
+        (Some(_), Some(_)) => unreachable!("validated earlier"),
+    }
 }
 
-#[instrument(skip_all, fields(action = "create_list", list_id = tracing::field::Empty))]
-pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
-    let user_id = ctx.data.clone();
-    let body: CreateListRequest = req.json().await?;
+async fn ensure_parent_list_target(
+    d1: &D1Database,
+    parent_id: &str,
+    user_id: &str,
+) -> Result<bool> {
+    Ok(d1
+        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2 AND parent_list_id IS NULL")
+        .bind(&[parent_id.into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?
+        .is_some())
+}
+
+async fn list_has_sublists(d1: &D1Database, list_id: &str) -> Result<bool> {
+    Ok(d1
+        .prepare("SELECT 1 FROM lists WHERE parent_list_id = ?1 LIMIT 1")
+        .bind(&[list_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?
+        .is_some())
+}
+
+async fn fetch_lists_by_ids(
+    d1: &D1Database,
+    user_id: &str,
+    list_ids: &[String],
+) -> Result<Vec<List>> {
+    let mut lists = Vec::with_capacity(list_ids.len());
+    for list_id in list_ids {
+        let list = d1
+            .prepare(format!("{LIST_SELECT} WHERE l.id = ?1 AND l.user_id = ?2"))
+            .bind(&[list_id.clone().into(), user_id.into()])?
+            .first::<List>(None)
+            .await?
+            .ok_or_else(|| Error::from("Not found"))?;
+        lists.push(list);
+    }
+    Ok(lists)
+}
+
+async fn apply_list_placement(
+    d1: &D1Database,
+    user_id: &str,
+    list_ids: &[String],
+    parent_list_id: Option<String>,
+    container_id: Option<String>,
+) -> Result<Vec<List>> {
+    let deduped_ids = dedupe_ids(list_ids);
+    if deduped_ids.is_empty() {
+        return Err(Error::from("list_ids must not be empty"));
+    }
+
+    for list_id in &deduped_ids {
+        if !check_ownership(d1, "lists", list_id, user_id).await? {
+            return Err(Error::from("list_not_found"));
+        }
+    }
+
+    if let Some(ref parent_id) = parent_list_id {
+        if deduped_ids.iter().any(|list_id| list_id == parent_id) {
+            return Err(Error::from("list_self_parent"));
+        }
+        if !ensure_parent_list_target(d1, parent_id, user_id).await? {
+            return Err(Error::from("list_not_found"));
+        }
+        for list_id in &deduped_ids {
+            if list_has_sublists(d1, list_id).await? {
+                return Err(Error::from("list_has_sublists"));
+            }
+        }
+    }
+
+    if let Some(ref target_container_id) = container_id
+        && !check_ownership(d1, "containers", target_container_id, user_id).await?
+    {
+        return Err(Error::from("container_not_found"));
+    }
+
+    let (filter, params) = placement_filter(parent_list_id.as_deref(), container_id.as_deref());
+    let position = next_position(d1, "lists", filter, &params).await?;
+    let parent_val = opt_str_to_js(&parent_list_id);
+    let container_val = opt_str_to_js(&container_id);
+
+    for (index, list_id) in deduped_ids.iter().enumerate() {
+        let next_pos = position + index as i32;
+        d1.prepare(
+            "UPDATE lists SET parent_list_id = ?1, container_id = ?2, position = ?3, updated_at = datetime('now') WHERE id = ?4",
+        )
+        .bind(&[
+            parent_val.clone(),
+            container_val.clone(),
+            next_pos.into(),
+            list_id.clone().into(),
+        ])?
+        .run()
+        .await?;
+    }
+
+    fetch_lists_by_ids(d1, user_id, &deduped_ids).await
+}
+
+async fn create_list_from_request(
+    d1: &D1Database,
+    user_id: &str,
+    body: CreateListRequest,
+) -> Result<Response> {
+    if let Err(code) = body.validate_placement() {
+        return json_error(code, 400);
+    }
+
+    if let Some(ref parent_id) = body.parent_list_id
+        && !ensure_parent_list_target(d1, parent_id, user_id).await?
+    {
+        return json_error("list_not_found", 404);
+    }
+
+    if let Some(ref container_id) = body.container_id
+        && !check_ownership(d1, "containers", container_id, user_id).await?
+    {
+        return json_error("container_not_found", 404);
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     tracing::Span::current().record("list_id", tracing::field::display(&id));
     let list_type_str = serde_json::to_value(&body.list_type)
@@ -38,19 +157,27 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         .as_str()
         .unwrap_or("custom")
         .to_string();
+    let (filter, params) =
+        placement_filter(body.parent_list_id.as_deref(), body.container_id.as_deref());
+    let position = next_position(d1, "lists", filter, &params).await?;
+    let parent_val = opt_str_to_js(&body.parent_list_id);
+    let container_val = opt_str_to_js(&body.container_id);
 
-    let d1 = ctx.env.d1("DB")?;
-    d1.prepare("INSERT INTO lists (id, user_id, name, list_type) VALUES (?1, ?2, ?3, ?4)")
-        .bind(&[
-            id.clone().into(),
-            user_id.clone().into(),
-            body.name.clone().into(),
-            list_type_str.into(),
-        ])?
-        .run()
-        .await?;
+    d1.prepare(
+        "INSERT INTO lists (id, user_id, name, list_type, parent_list_id, container_id, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )
+    .bind(&[
+        id.clone().into(),
+        user_id.into(),
+        body.name.clone().into(),
+        list_type_str.into(),
+        parent_val,
+        container_val,
+        position.into(),
+    ])?
+    .run()
+    .await?;
 
-    // Insert features (from request or defaults from ListType)
     let features = body
         .features
         .unwrap_or_else(|| body.list_type.default_features());
@@ -73,9 +200,30 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         .await?
         .ok_or_else(|| Error::from("Failed to create list"))?;
 
-    let mut resp = Response::from_json(&list)?;
-    resp = resp.with_status(201);
-    Ok(resp)
+    Ok(Response::from_json(&list)?.with_status(201))
+}
+
+#[instrument(skip_all)]
+pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let d1 = ctx.env.d1("DB")?;
+    let result = d1
+        .prepare(format!(
+            "{LIST_SELECT} WHERE l.user_id = ?1 AND l.parent_list_id IS NULL AND l.container_id IS NULL AND l.archived = 0 ORDER BY l.updated_at DESC"
+        ))
+        .bind(&[user_id.into()])?
+        .all()
+        .await?;
+    let lists = result.results::<List>()?;
+    Response::from_json(&lists)
+}
+
+#[instrument(skip_all, fields(action = "create_list", list_id = tracing::field::Empty))]
+pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let body: CreateListRequest = req.json().await?;
+    let d1 = ctx.env.d1("DB")?;
+    create_list_from_request(&d1, &user_id, body).await
 }
 
 #[instrument(skip_all)]
@@ -273,52 +421,15 @@ pub async fn create_sublist(mut req: Request, ctx: RouteContext<String>) -> Resu
         .and_then(|v| v.as_str())
         .ok_or_else(|| Error::from("Missing name"))?
         .to_string();
-    let id = uuid::Uuid::new_v4().to_string();
-    tracing::Span::current().record("list_id", tracing::field::display(&id));
+    let create_req = CreateListRequest {
+        name,
+        list_type: ListType::Custom,
+        features: None,
+        parent_list_id: Some(parent_id),
+        container_id: None,
+    };
     let d1 = ctx.env.d1("DB")?;
-
-    // Verify parent belongs to user and is a top-level list
-    let parent = d1
-        .prepare("SELECT id FROM lists WHERE id = ?1 AND user_id = ?2 AND parent_list_id IS NULL")
-        .bind(&[parent_id.clone().into(), user_id.clone().into()])?
-        .first::<serde_json::Value>(None)
-        .await?;
-    if parent.is_none() {
-        return json_error("list_not_found", 404);
-    }
-
-    let position = next_position(
-        &d1,
-        "lists",
-        "parent_list_id = ?1",
-        &[parent_id.clone().into()],
-    )
-    .await?;
-
-    d1.prepare(
-        "INSERT INTO lists (id, user_id, name, list_type, parent_list_id, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-    )
-    .bind(&[
-        id.clone().into(),
-        user_id.clone().into(),
-        name.into(),
-        "custom".into(),
-        parent_id.into(),
-        position.into(),
-    ])?
-    .run()
-    .await?;
-
-    let sublist = d1
-        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1 AND l.user_id = ?2"))
-        .bind(&[id.into(), user_id.into()])?
-        .first::<List>(None)
-        .await?
-        .ok_or_else(|| Error::from("Failed to create sublist"))?;
-
-    let mut resp = Response::from_json(&sublist)?;
-    resp = resp.with_status(201);
-    Ok(resp)
+    create_list_from_request(&d1, &user_id, create_req).await
 }
 
 // === Feature CRUD ===
@@ -408,33 +519,61 @@ pub async fn move_list(mut req: Request, ctx: RouteContext<String>) -> Result<Re
     tracing::Span::current().record("list_id", tracing::field::display(&id));
     let body: MoveListRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
-
-    if !check_ownership(&d1, "lists", &id, &user_id).await? {
-        return json_error("list_not_found", 404);
-    }
-
-    // If target container specified, verify ownership
-    if let Some(ref cid) = body.container_id {
-        if !check_ownership(&d1, "containers", cid, &user_id).await? {
-            return json_error("container_not_found", 404);
+    match apply_list_placement(&d1, &user_id, &[id], None, body.container_id).await {
+        Ok(mut lists) => Response::from_json(&lists.remove(0)),
+        Err(err) if err.to_string() == "list_not_found" => json_error("list_not_found", 404),
+        Err(err) if err.to_string() == "container_not_found" => {
+            json_error("container_not_found", 404)
         }
+        Err(err) => json_error(err.to_string().as_str(), 400),
     }
+}
 
-    let cid_val = opt_str_to_js(&body.container_id);
+#[instrument(
+    skip_all,
+    fields(
+        action = "set_list_placement",
+        list_count = tracing::field::Empty,
+        target_kind = tracing::field::Empty
+    )
+)]
+pub async fn set_placement(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let body: SetListPlacementRequest = req.json().await?;
+    tracing::Span::current().record("list_count", body.list_ids.len());
+    tracing::Span::current().record(
+        "target_kind",
+        tracing::field::display(if body.parent_list_id.is_some() {
+            "parent_list"
+        } else if body.container_id.is_some() {
+            "container"
+        } else {
+            "root"
+        }),
+    );
+    if let Err(code) = body.validate() {
+        return json_error(code, 400);
+    }
+    let d1 = ctx.env.d1("DB")?;
 
-    d1.prepare("UPDATE lists SET container_id = ?1, updated_at = datetime('now') WHERE id = ?2")
-        .bind(&[cid_val, id.clone().into()])?
-        .run()
-        .await?;
-
-    let list = d1
-        .prepare(format!("{LIST_SELECT} WHERE l.id = ?1 AND l.user_id = ?2"))
-        .bind(&[id.into(), user_id.into()])?
-        .first::<List>(None)
-        .await?
-        .ok_or_else(|| Error::from("Not found"))?;
-
-    Response::from_json(&list)
+    match apply_list_placement(
+        &d1,
+        &user_id,
+        &body.list_ids,
+        body.parent_list_id,
+        body.container_id,
+    )
+    .await
+    {
+        Ok(moved_lists) => Response::from_json(&serde_json::json!({
+            "moved_lists": moved_lists,
+        })),
+        Err(err) if err.to_string() == "list_not_found" => json_error("list_not_found", 404),
+        Err(err) if err.to_string() == "container_not_found" => {
+            json_error("container_not_found", 404)
+        }
+        Err(err) => json_error(err.to_string().as_str(), 400),
+    }
 }
 
 #[instrument(skip_all, fields(action = "toggle_list_pin", list_id = tracing::field::Empty))]

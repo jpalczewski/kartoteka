@@ -1,8 +1,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ApiContext } from "../api";
-import { apiCall, callTool, textResult, errorResult } from "../api";
+import { callTool, textResult, errorResult } from "../api";
 import { tr } from "../i18n";
+import { callJsonTool, dedupeIds, validateExclusiveTargets } from "./common";
 
 export function registerTagTools(server: McpServer, api: ApiContext, locale: string): void {
   server.registerTool("list_tags", {
@@ -28,14 +29,15 @@ export function registerTagTools(server: McpServer, api: ApiContext, locale: str
       list_id: z.string().optional().describe("List ID (provide item_id or list_id)"),
     },
   }, async ({ tag_id, item_id, list_id }) => {
-    if (item_id) {
-      const res = await apiCall(api, "POST", `/api/items/${item_id}/tags`, { tag_id });
-      return res.ok ? textResult(`Tag assigned to item ${item_id}`) : errorResult(`API error ${res.status}: ${await res.text()}`);
-    }
-    if (list_id) {
-      const res = await apiCall(api, "POST", `/api/lists/${list_id}/tags`, { tag_id });
-      return res.ok ? textResult(`Tag assigned to list ${list_id}`) : errorResult(`API error ${res.status}: ${await res.text()}`);
-    }
+    const result = await setTagLinks(api, {
+      action: "assign",
+      tag_ids: [tag_id],
+      item_ids: item_id ? [item_id] : undefined,
+      list_ids: list_id ? [list_id] : undefined,
+    });
+    if (result.isError) return result;
+    if (item_id) return textResult(`Tag assigned to item ${item_id}`);
+    if (list_id) return textResult(`Tag assigned to list ${list_id}`);
     return errorResult("Provide either item_id or list_id");
   });
 
@@ -47,16 +49,28 @@ export function registerTagTools(server: McpServer, api: ApiContext, locale: str
       list_id: z.string().optional().describe("List ID (provide item_id or list_id)"),
     },
   }, async ({ tag_id, item_id, list_id }) => {
-    if (item_id) {
-      const res = await apiCall(api, "DELETE", `/api/items/${item_id}/tags/${tag_id}`);
-      return res.ok ? textResult(`Tag removed from item ${item_id}`) : errorResult(`API error ${res.status}: ${await res.text()}`);
-    }
-    if (list_id) {
-      const res = await apiCall(api, "DELETE", `/api/lists/${list_id}/tags/${tag_id}`);
-      return res.ok ? textResult(`Tag removed from list ${list_id}`) : errorResult(`API error ${res.status}: ${await res.text()}`);
-    }
+    const result = await setTagLinks(api, {
+      action: "remove",
+      tag_ids: [tag_id],
+      item_ids: item_id ? [item_id] : undefined,
+      list_ids: list_id ? [list_id] : undefined,
+    });
+    if (result.isError) return result;
+    if (item_id) return textResult(`Tag removed from item ${item_id}`);
+    if (list_id) return textResult(`Tag removed from list ${list_id}`);
     return errorResult("Provide either item_id or list_id");
   });
+
+  server.registerTool("set_tag_links", {
+    description: tr("tool-set-tag-links", locale),
+    inputSchema: {
+      action: z.enum(["assign", "remove"]).describe("Whether to assign or remove links"),
+      tag_ids: z.array(z.string()).min(1).describe("Tag IDs to link"),
+      item_ids: z.array(z.string()).optional().describe("Target item IDs"),
+      list_ids: z.array(z.string()).optional().describe("Target list IDs"),
+    },
+  }, ({ action, tag_ids, item_ids, list_ids }) =>
+    setTagLinks(api, { action, tag_ids, item_ids, list_ids }));
 
   server.registerTool("get_tag_items", {
     description: tr("tool-get-tagged-items", locale),
@@ -68,4 +82,35 @@ export function registerTagTools(server: McpServer, api: ApiContext, locale: str
     const params = recursive ? "?recursive=true" : "";
     return callTool(api, "GET", `/api/tags/${tag_id}/items${params}`);
   });
+
+  async function setTagLinks(
+    api: ApiContext,
+    input: {
+      action: "assign" | "remove";
+      tag_ids: string[];
+      item_ids?: string[];
+      list_ids?: string[];
+    }
+  ) {
+    const tag_ids = dedupeIds(input.tag_ids);
+    const item_ids = dedupeIds(input.item_ids);
+    const list_ids = dedupeIds(input.list_ids);
+    if (tag_ids.length === 0) {
+      return errorResult("Provide at least one tag_id.");
+    }
+    const targetError = validateExclusiveTargets(
+      [item_ids, list_ids],
+      "Provide item_ids or list_ids.",
+      "Provide exactly one target kind: item_ids or list_ids."
+    );
+    if (targetError) {
+      return errorResult(targetError);
+    }
+    return callJsonTool(api, "PATCH", "/api/tag-links", {
+      action: input.action,
+      tag_ids,
+      item_ids: item_ids.length > 0 ? item_ids : undefined,
+      list_ids: list_ids.length > 0 ? list_ids : undefined,
+    });
+  }
 }
