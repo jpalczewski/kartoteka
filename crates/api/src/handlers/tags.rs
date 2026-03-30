@@ -25,7 +25,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     let user_id = ctx.data.clone();
     let body: CreateTagRequest = req.json().await?;
     let id = uuid::Uuid::new_v4().to_string();
-    tracing::Span::current().record("tag_id", &tracing::field::display(&id));
+    tracing::Span::current().record("tag_id", tracing::field::display(&id));
 
     let parent_val = opt_str_to_js(&body.parent_tag_id);
 
@@ -60,7 +60,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
-    tracing::Span::current().record("tag_id", &tracing::field::display(&id));
+    tracing::Span::current().record("tag_id", tracing::field::display(&id));
     let body: UpdateTagRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
@@ -133,7 +133,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
-    tracing::Span::current().record("tag_id", &tracing::field::display(&id));
+    tracing::Span::current().record("tag_id", tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
     d1.prepare("DELETE FROM tags WHERE id = ?1 AND user_id = ?2")
         .bind(&[id.into(), user_id.into()])?
@@ -147,7 +147,7 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
 pub async fn merge(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let source_id = require_param(&ctx, "id")?;
-    tracing::Span::current().record("tag_id", &tracing::field::display(&source_id));
+    tracing::Span::current().record("tag_id", tracing::field::display(&source_id));
     let body: kartoteka_shared::MergeTagRequest = req.json().await?;
     let target_id = body.target_tag_id;
     let d1 = ctx.env.d1("DB")?;

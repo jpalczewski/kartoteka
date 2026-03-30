@@ -1,12 +1,14 @@
 pub mod error;
 
-pub use error::{ApiError, ApiResult, created_response, into_response, no_content_response, ok_response};
+pub use error::{
+    ApiError, ApiResult, created_response, into_response, no_content_response, ok_response,
+};
 
 #[cfg(feature = "cf")]
 pub fn init_cf() {
+    use tracing_subscriber::EnvFilter;
     use tracing_subscriber::fmt::format::Pretty;
     use tracing_subscriber::fmt::time::UtcTime;
-    use tracing_subscriber::EnvFilter;
     use tracing_subscriber::prelude::*;
     use tracing_web::{MakeConsoleWriter, performance_layer};
 
@@ -25,8 +27,8 @@ pub fn init_cf() {
 
 #[cfg(feature = "axum")]
 pub fn init_axum() {
-    use tracing_subscriber::fmt::format::FmtSpan;
     use tracing_subscriber::EnvFilter;
+    use tracing_subscriber::fmt::format::FmtSpan;
 
     tracing_subscriber::fmt()
         .json()

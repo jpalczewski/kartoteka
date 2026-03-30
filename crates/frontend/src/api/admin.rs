@@ -1,9 +1,13 @@
+// All functions in this module are called from #[cfg(target_arch = "wasm32")] blocks.
+// Suppress dead_code warnings on non-wasm targets (e.g. CI native clippy).
+#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+
 use kartoteka_shared::{
     CreateInvitationCodeRequest, InvitationCode, MeResponse, RegistrationModeResponse,
     UpsertSettingRequest, UserSetting, ValidateInviteResponse,
 };
 
-use super::{api_delete, api_get, api_post, api_put, ApiError, HttpClient, API_BASE};
+use super::{API_BASE, ApiError, HttpClient, api_delete, api_get, api_post, api_put};
 
 /// GET /api/me — creates user row if needed, returns admin flag.
 /// Pass `invite_code` to finalize invite code after signup.
@@ -19,7 +23,9 @@ pub async fn get_me(
 }
 
 /// GET /api/public/registration-mode — no auth, usable before login.
-pub async fn get_registration_mode(client: &impl HttpClient) -> Result<RegistrationModeResponse, ApiError> {
+pub async fn get_registration_mode(
+    client: &impl HttpClient,
+) -> Result<RegistrationModeResponse, ApiError> {
     api_get(client, &format!("{API_BASE}/public/registration-mode")).await
 }
 
@@ -78,9 +84,6 @@ pub async fn create_invitation_code(
     .await
 }
 
-pub async fn delete_invitation_code(
-    client: &impl HttpClient,
-    id: &str,
-) -> Result<(), ApiError> {
+pub async fn delete_invitation_code(client: &impl HttpClient, id: &str) -> Result<(), ApiError> {
     api_delete(client, &format!("{API_BASE}/admin/invitation-codes/{id}")).await
 }

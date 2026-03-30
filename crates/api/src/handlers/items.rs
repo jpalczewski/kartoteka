@@ -85,7 +85,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     let list_id = require_param(&ctx, "list_id")?;
     let body: CreateItemRequest = req.json().await?;
     let id = uuid::Uuid::new_v4().to_string();
-    tracing::Span::current().record("item_id", &tracing::field::display(&id));
+    tracing::Span::current().record("item_id", tracing::field::display(&id));
 
     let d1 = ctx.env.d1("DB")?;
 
@@ -202,7 +202,7 @@ fn check_item_features(
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
-    tracing::Span::current().record("item_id", &tracing::field::display(&id));
+    tracing::Span::current().record("item_id", tracing::field::display(&id));
     let body: UpdateItemRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
@@ -339,7 +339,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
-    tracing::Span::current().record("item_id", &tracing::field::display(&id));
+    tracing::Span::current().record("item_id", tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
 
     if !check_item_ownership(&d1, &id, &user_id).await? {
@@ -357,7 +357,7 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
 pub async fn move_item(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
-    tracing::Span::current().record("item_id", &tracing::field::display(&id));
+    tracing::Span::current().record("item_id", tracing::field::display(&id));
     let body: serde_json::Value = req.json().await?;
     let target_list_id = body
         .get("target_list_id")

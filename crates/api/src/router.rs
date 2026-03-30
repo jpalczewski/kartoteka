@@ -13,7 +13,10 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
     if path.starts_with("/api/public/") {
         let public_router = Router::with_data(String::new());
         return public_router
-            .get_async("/api/public/registration-mode", public::get_registration_mode)
+            .get_async(
+                "/api/public/registration-mode",
+                public::get_registration_mode,
+            )
             .post_async("/api/public/validate-invite", public::validate_invite)
             .run(req, env)
             .await;

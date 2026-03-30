@@ -162,6 +162,7 @@ fn InvitationCodesSection() -> impl IntoView {
                                 let dimmed = c.used_by.is_some();
                                 // Inline delete callback — Fn-compatible (codes is Copy RwSignal)
                                 let delete_this = move |_: web_sys::MouseEvent| {
+                                    #[allow(unused_variables)]
                                     let id = id_del.clone();
                                     leptos::task::spawn_local(async move {
                                         #[cfg(target_arch = "wasm32")]

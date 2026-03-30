@@ -34,7 +34,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     let user_id = ctx.data.clone();
     let body: CreateContainerRequest = req.json().await?;
     let id = uuid::Uuid::new_v4().to_string();
-    tracing::Span::current().record("container_id", &tracing::field::display(&id));
+    tracing::Span::current().record("container_id", tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
 
     // Validate: parent must not be a project (status != NULL)
@@ -194,7 +194,7 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
-    tracing::Span::current().record("container_id", &tracing::field::display(&id));
+    tracing::Span::current().record("container_id", tracing::field::display(&id));
     let body: UpdateContainerRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
@@ -252,7 +252,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
-    tracing::Span::current().record("container_id", &tracing::field::display(&id));
+    tracing::Span::current().record("container_id", tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
 
     if !check_ownership(&d1, "containers", &id, &user_id).await? {
@@ -310,7 +310,7 @@ pub async fn get_children(_req: Request, ctx: RouteContext<String>) -> Result<Re
 pub async fn move_container(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
-    tracing::Span::current().record("container_id", &tracing::field::display(&id));
+    tracing::Span::current().record("container_id", tracing::field::display(&id));
     let body: MoveContainerRequest = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
 
@@ -363,7 +363,7 @@ pub async fn move_container(mut req: Request, ctx: RouteContext<String>) -> Resu
 pub async fn toggle_pin(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
-    tracing::Span::current().record("container_id", &tracing::field::display(&id));
+    tracing::Span::current().record("container_id", tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
 
     if toggle_bool_field(&d1, "containers", "pinned", &id, &user_id)

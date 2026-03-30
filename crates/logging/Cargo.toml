@@ -21,3 +21,7 @@ serde = { version = "1", features = ["derive"] }
 # CF-only
 tracing-web = { version = "0.1", optional = true }
 time = { version = "0.3", features = ["wasm-bindgen"], optional = true }
+
+[package.metadata.cargo-machete]
+# time: used via UtcTime in #[cfg(feature = "cf")] — machete doesn't see conditional usage
+ignored = ["time"]

@@ -87,7 +87,10 @@ pub async fn list_codes(_req: Request, ctx: RouteContext<String>) -> Result<Resp
                 id: row.get("id")?.as_str().map(String::from)?,
                 code: row.get("code")?.as_str().map(String::from)?,
                 created_by: row.get("created_by")?.as_str().map(String::from)?,
-                used_by: row.get("used_by").and_then(|v| v.as_str()).map(String::from),
+                used_by: row
+                    .get("used_by")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
                 reserved_by_email: row
                     .get("reserved_by_email")
                     .and_then(|v| v.as_str())
@@ -97,7 +100,10 @@ pub async fn list_codes(_req: Request, ctx: RouteContext<String>) -> Result<Resp
                     .and_then(|v| v.as_str())
                     .map(String::from),
                 created_at: row.get("created_at")?.as_str().map(String::from)?,
-                used_at: row.get("used_at").and_then(|v| v.as_str()).map(String::from),
+                used_at: row
+                    .get("used_at")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
                 expires_at: row
                     .get("expires_at")
                     .and_then(|v| v.as_str())

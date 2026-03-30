@@ -21,7 +21,11 @@ pub async fn get_me(req: Request, ctx: RouteContext<String>) -> Result<Response>
 
     // Optional: finalize an invite code after successful signup
     let url = req.url()?;
-    if let Some(invite_code) = url.query_pairs().find(|(k, _)| k == "invite_code").map(|(_, v)| v.into_owned()) {
+    if let Some(invite_code) = url
+        .query_pairs()
+        .find(|(k, _)| k == "invite_code")
+        .map(|(_, v)| v.into_owned())
+    {
         d1.prepare(
             "UPDATE invitation_codes \
              SET used_by = ?1, used_at = datetime('now'), \
