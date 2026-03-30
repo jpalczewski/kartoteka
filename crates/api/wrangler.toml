@@ -35,6 +35,9 @@ migrations_dir = "./migrations"
 name = "kartoteka-api-dev"
 workers_dev = false
 
+[env.dev.vars]
+LOG_LEVEL = "debug"
+
 [[env.dev.d1_databases]]
 binding = "DB"
 database_name = "kartoteka-dev"

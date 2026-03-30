@@ -6,13 +6,13 @@ mod handlers;
 pub(crate) mod helpers;
 mod router;
 
-#[event(start)]
-fn start() {
-    kartoteka_logging::init_cf();
-}
-
 #[event(fetch, respond_with_errors)]
 pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
+    let log_level = env
+        .var("LOG_LEVEL")
+        .map(|v| v.to_string())
+        .unwrap_or_else(|_| "info".to_string());
+    kartoteka_logging::init_cf(&log_level);
     let request_id = req
         .headers()
         .get("X-Request-Id")
