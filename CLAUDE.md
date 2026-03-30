@@ -72,9 +72,22 @@ Kartoteka — aplikacja todo/listy na Cloudflare Workers (Rust API + TypeScript 
 
 ### Tracing / Logging
 
-- Crate `kartoteka-logging` — inicjalizacja przez `kartoteka_logging::init_cf()` w `#[event(start)]`
-- Handlery instrumentowane: `#[instrument(skip_all, fields(action = "create_list", list_id = tracing::field::Empty))]`
-- Dynamiczne pola: `Span::current().record("list_id", tracing::field::display(&id))` — **bez `&` przed `tracing::field::display`** (clippy `needless_borrows_for_generic_args` blokuje CI)
+Każdy handler w `crates/api/src/handlers/` **musi** mieć `#[instrument]`. Wzorzec:
+
+```rust
+#[instrument(skip_all, fields(action = "create_list", list_id = tracing::field::Empty))]
+pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let id = Uuid::new_v4().to_string();
+    Span::current().record("list_id", tracing::field::display(&id));
+    // ...
+}
+```
+
+- `skip_all` — pomija `req`/`ctx` (nie są `Debug`)
+- `action` — nazwa operacji w formacie `verb_noun` (`create_list`, `delete_item`, `toggle_item`)
+- Entity ID jako `tracing::field::Empty` w atrybucie, uzupełniane przez `Span::current().record(...)` po poznaniu wartości
+- **Bez `&` przed `tracing::field::display`** — clippy `needless_borrows_for_generic_args` blokuje CI
+- Inicjalizacja tracingu: `kartoteka_logging::init_cf()` w `#[event(start)]`
 - Gateway: `log()` z `gateway/src/logger.ts` — ten sam schemat JSON, korelacja przez `X-Request-Id`
 
 ## Komendy
