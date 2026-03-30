@@ -38,6 +38,7 @@ pub fn SignupPage() -> impl IntoView {
 
         // Read cached mode synchronously before spawning to avoid an extra network round-trip.
         // The Gateway always validates independently, so stale-by-submit-time is safe.
+        #[allow(unused_variables)]
         let current_mode = reg_mode
             .get_untracked()
             .unwrap_or_else(|| "open".to_string());
