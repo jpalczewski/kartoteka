@@ -1,6 +1,6 @@
 use crate::auth::user_email_from_gateway;
 use crate::helpers::ensure_user_exists;
-use kartoteka_shared::dto::responses::MeResponse;
+use kartoteka_shared::MeResponse;
 use tracing::instrument;
 use worker::*;
 
@@ -30,9 +30,9 @@ pub async fn get_me(req: Request, ctx: RouteContext<String>) -> Result<Response>
             "UPDATE invitation_codes \
              SET used_by = ?1, used_at = datetime('now'), \
                  reserved_by_email = NULL, reserved_until = NULL \
-             WHERE code = ?2 AND used_by IS NULL",
+             WHERE code = ?2 AND used_by IS NULL AND reserved_by_email = ?3",
         )
-        .bind(&[user_id.into(), invite_code.into()])?
+        .bind(&[user_id.into(), invite_code.into(), email.as_str().into()])?
         .run()
         .await?;
     }

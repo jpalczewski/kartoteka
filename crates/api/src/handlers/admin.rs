@@ -1,6 +1,7 @@
 use crate::helpers::{opt_str_to_js, require_admin, require_param};
-use kartoteka_shared::dto::requests::{CreateInvitationCodeRequest, UpsertSettingRequest};
-use kartoteka_shared::models::{InvitationCode, UserSetting};
+use kartoteka_shared::{
+    CreateInvitationCodeRequest, InvitationCode, UpsertSettingRequest, UserSetting,
+};
 use tracing::instrument;
 use uuid::Uuid;
 use worker::*;

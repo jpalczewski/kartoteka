@@ -83,23 +83,41 @@ app.get("/auth/api/get-session", async (c, next) => {
   });
 });
 
+async function checkRegistrationMode(env: Env): Promise<{ mode: string } | null> {
+  const apiBase = env.DEV_API_URL ?? "http://internal";
+  const res = await (env.DEV_API_URL
+    ? fetch(`${apiBase}/api/public/registration-mode`)
+    : env.API_WORKER.fetch(new Request(`${apiBase}/api/public/registration-mode`)));
+  if (!res.ok) return null;
+  return res.json<{ mode: string }>();
+}
+
+// Block OAuth social sign-in when registration mode is closed or invite-only
+app.post("/auth/api/sign-in/social", async (c) => {
+  if (!c.env.DEV_AUTH_USER_ID) {
+    const modeData = await checkRegistrationMode(c.env);
+    if (!modeData) return c.json({ error: "Failed to check registration mode" }, 500);
+    if (modeData.mode === "closed") return c.json({ error: "Registration is closed" }, 403);
+    if (modeData.mode === "invite")
+      return c.json({ error: "Invite-only mode does not support social login" }, 403);
+  }
+  const auth = getAuth(c.env);
+  return auth.handler(c.req.raw);
+});
+
 // Intercept signup to enforce registration mode and validate invite codes
 app.post("/auth/api/sign-up/email", async (c) => {
   // Skip in local dev (DEV_AUTH_USER_ID bypasses auth entirely)
   if (!c.env.DEV_AUTH_USER_ID) {
     const body = await c.req.json<Record<string, string>>();
 
-    // Call the Rust API to get the current registration mode
     const apiBase = c.env.DEV_API_URL ?? "http://internal";
-    const modeRes = await (c.env.DEV_API_URL
-      ? fetch(`${apiBase}/api/public/registration-mode`)
-      : c.env.API_WORKER.fetch(new Request(`${apiBase}/api/public/registration-mode`)));
-
-    if (!modeRes.ok) {
+    const modeData = await checkRegistrationMode(c.env);
+    if (!modeData) {
       return c.json({ error: "Failed to check registration mode" }, 500);
     }
 
-    const { mode } = await modeRes.json<{ mode: string }>();
+    const { mode } = modeData;
 
     if (mode === "closed") {
       return c.json({ error: "Registration is closed" }, 403);

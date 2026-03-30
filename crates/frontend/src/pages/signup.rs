@@ -71,7 +71,9 @@ pub fn SignupPage() -> impl IntoView {
                         }
                         Err(_) => {
                             loading.set(false);
-                            error.set(Some(move_tr!("error-network").get()));
+                            error.set(Some(
+                                move_tr!("error-network", { "detail" => "connection error" }).get(),
+                            ));
                             return;
                         }
                         _ => {}

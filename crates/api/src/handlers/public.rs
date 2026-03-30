@@ -1,6 +1,7 @@
-use kartoteka_shared::constants::INSTANCE_SETTING_REGISTRATION_MODE;
-use kartoteka_shared::dto::requests::ValidateInviteRequest;
-use kartoteka_shared::dto::responses::{RegistrationModeResponse, ValidateInviteResponse};
+use kartoteka_shared::{
+    INSTANCE_SETTING_REGISTRATION_MODE, RegistrationModeResponse, ValidateInviteRequest,
+    ValidateInviteResponse,
+};
 use tracing::instrument;
 use worker::*;
 

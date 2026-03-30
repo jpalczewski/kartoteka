@@ -11,17 +11,12 @@ pub async fn ensure_user_exists(
     email: &str,
     initial_admin_email: &str,
 ) -> Result<bool> {
-    d1.prepare("INSERT OR IGNORE INTO users (id, email, is_admin) VALUES (?1, ?2, 0)")
-        .bind(&[user_id.into(), email.into()])?
+    let initial_admin = !initial_admin_email.is_empty() && email == initial_admin_email;
+    let is_admin_val: i32 = if initial_admin { 1 } else { 0 };
+    d1.prepare("INSERT OR IGNORE INTO users (id, email, is_admin) VALUES (?1, ?2, ?3)")
+        .bind(&[user_id.into(), email.into(), is_admin_val.into()])?
         .run()
         .await?;
-
-    if !initial_admin_email.is_empty() && email == initial_admin_email {
-        d1.prepare("UPDATE users SET is_admin = 1 WHERE id = ?1 AND is_admin = 0")
-            .bind(&[user_id.into()])?
-            .run()
-            .await?;
-    }
 
     let row = d1
         .prepare("SELECT is_admin FROM users WHERE id = ?1")
