@@ -529,10 +529,28 @@ pub async fn move_list(mut req: Request, ctx: RouteContext<String>) -> Result<Re
     }
 }
 
-#[instrument(skip_all, fields(action = "set_list_placement"))]
+#[instrument(
+    skip_all,
+    fields(
+        action = "set_list_placement",
+        list_count = tracing::field::Empty,
+        target_kind = tracing::field::Empty
+    )
+)]
 pub async fn set_placement(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let body: SetListPlacementRequest = req.json().await?;
+    tracing::Span::current().record("list_count", body.list_ids.len());
+    tracing::Span::current().record(
+        "target_kind",
+        tracing::field::display(if body.parent_list_id.is_some() {
+            "parent_list"
+        } else if body.container_id.is_some() {
+            "container"
+        } else {
+            "root"
+        }),
+    );
     if let Err(code) = body.validate() {
         return json_error(code, 400);
     }

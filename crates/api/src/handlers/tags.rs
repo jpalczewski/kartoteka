@@ -406,10 +406,36 @@ pub async fn remove_from_list(_req: Request, ctx: RouteContext<String>) -> Resul
     }
 }
 
-#[instrument(skip_all, fields(action = "set_tag_links"))]
+#[instrument(
+    skip_all,
+    fields(
+        action = "set_tag_links",
+        tag_count = tracing::field::Empty,
+        target_count = tracing::field::Empty,
+        target_kind = tracing::field::Empty
+    )
+)]
 pub async fn set_links(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let body: SetTagLinksRequest = req.json().await?;
+    tracing::Span::current().record("tag_count", body.tag_ids.len());
+    tracing::Span::current().record(
+        "target_count",
+        body.item_ids.as_ref().map_or_else(
+            || body.list_ids.as_ref().map_or(0, std::vec::Vec::len),
+            std::vec::Vec::len,
+        ),
+    );
+    tracing::Span::current().record(
+        "target_kind",
+        tracing::field::display(if body.item_ids.is_some() {
+            "item"
+        } else if body.list_ids.is_some() {
+            "list"
+        } else {
+            "unknown"
+        }),
+    );
     let d1 = ctx.env.d1("DB")?;
 
     match apply_tag_links(&d1, &user_id, body).await {
