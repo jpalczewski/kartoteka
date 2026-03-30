@@ -55,6 +55,8 @@ pub fn CreateEntityInput(
                     name,
                     list_type: lt,
                     features: Some(features),
+                    parent_list_id: None,
+                    container_id: None,
                 });
             }
             EntityMode::Folder => {

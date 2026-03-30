@@ -5,6 +5,131 @@ use tracing::instrument;
 use wasm_bindgen::JsValue;
 use worker::*;
 
+async fn apply_tag_links(
+    d1: &D1Database,
+    user_id: &str,
+    body: SetTagLinksRequest,
+) -> Result<serde_json::Value> {
+    if let Err(code) = body.validate() {
+        return Err(Error::from(code));
+    }
+
+    let SetTagLinksRequest {
+        action,
+        tag_ids,
+        item_ids,
+        list_ids,
+    } = body;
+
+    let tag_ids = dedupe_ids(&tag_ids);
+    let (target_kind, target_ids) = if let Some(item_ids) = item_ids {
+        ("item", dedupe_ids(&item_ids))
+    } else if let Some(list_ids) = list_ids {
+        ("list", dedupe_ids(&list_ids))
+    } else {
+        return Err(Error::from("provide item_ids or list_ids"));
+    };
+
+    for tag_id in &tag_ids {
+        if !check_ownership(d1, "tags", tag_id, user_id).await? {
+            return Err(Error::from("tag_not_found"));
+        }
+    }
+
+    match target_kind {
+        "item" => {
+            for item_id in &target_ids {
+                if !check_item_ownership(d1, item_id, user_id).await? {
+                    return Err(Error::from("item_not_found"));
+                }
+            }
+        }
+        "list" => {
+            for list_id in &target_ids {
+                if !check_ownership(d1, "lists", list_id, user_id).await? {
+                    return Err(Error::from("list_not_found"));
+                }
+            }
+        }
+        _ => unreachable!("validated above"),
+    }
+
+    let requested_links = tag_ids.len() * target_ids.len();
+    let mut applied_links = 0usize;
+    let mut skipped_duplicates = 0usize;
+
+    for target_id in &target_ids {
+        for tag_id in &tag_ids {
+            let exists = match target_kind {
+                "item" => d1
+                    .prepare("SELECT 1 FROM item_tags WHERE item_id = ?1 AND tag_id = ?2 LIMIT 1")
+                    .bind(&[target_id.clone().into(), tag_id.clone().into()])?
+                    .first::<serde_json::Value>(None)
+                    .await?
+                    .is_some(),
+                "list" => d1
+                    .prepare("SELECT 1 FROM list_tags WHERE list_id = ?1 AND tag_id = ?2 LIMIT 1")
+                    .bind(&[target_id.clone().into(), tag_id.clone().into()])?
+                    .first::<serde_json::Value>(None)
+                    .await?
+                    .is_some(),
+                _ => unreachable!("validated above"),
+            };
+
+            match action {
+                TagLinkAction::Assign if exists => skipped_duplicates += 1,
+                TagLinkAction::Remove if !exists => skipped_duplicates += 1,
+                TagLinkAction::Assign => {
+                    match target_kind {
+                        "item" => {
+                            d1.prepare("INSERT INTO item_tags (item_id, tag_id) VALUES (?1, ?2)")
+                                .bind(&[target_id.clone().into(), tag_id.clone().into()])?
+                                .run()
+                                .await?;
+                        }
+                        "list" => {
+                            d1.prepare("INSERT INTO list_tags (list_id, tag_id) VALUES (?1, ?2)")
+                                .bind(&[target_id.clone().into(), tag_id.clone().into()])?
+                                .run()
+                                .await?;
+                        }
+                        _ => unreachable!("validated above"),
+                    }
+                    applied_links += 1;
+                }
+                TagLinkAction::Remove => {
+                    match target_kind {
+                        "item" => {
+                            d1.prepare("DELETE FROM item_tags WHERE item_id = ?1 AND tag_id = ?2")
+                                .bind(&[target_id.clone().into(), tag_id.clone().into()])?
+                                .run()
+                                .await?;
+                        }
+                        "list" => {
+                            d1.prepare("DELETE FROM list_tags WHERE list_id = ?1 AND tag_id = ?2")
+                                .bind(&[target_id.clone().into(), tag_id.clone().into()])?
+                                .run()
+                                .await?;
+                        }
+                        _ => unreachable!("validated above"),
+                    }
+                    applied_links += 1;
+                }
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "action": action,
+        "target_kind": target_kind,
+        "tag_ids": tag_ids,
+        "target_ids": target_ids,
+        "requested_links": requested_links,
+        "applied_links": applied_links,
+        "skipped_duplicates": skipped_duplicates,
+    }))
+}
+
 /// GET /api/tags
 #[instrument(skip_all)]
 pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
@@ -204,20 +329,18 @@ pub async fn assign_to_item(mut req: Request, ctx: RouteContext<String>) -> Resu
     let item_id = require_param(&ctx, "item_id")?;
     let body: TagAssignment = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
-
-    if !check_item_ownership(&d1, &item_id, &user_id).await? {
-        return json_error("item_not_found", 404);
+    let batch = SetTagLinksRequest {
+        action: TagLinkAction::Assign,
+        tag_ids: vec![body.tag_id],
+        item_ids: Some(vec![item_id]),
+        list_ids: None,
+    };
+    match apply_tag_links(&d1, &user_id, batch).await {
+        Ok(_) => Ok(Response::empty()?.with_status(204)),
+        Err(err) if err.to_string() == "item_not_found" => json_error("item_not_found", 404),
+        Err(err) if err.to_string() == "tag_not_found" => json_error("tag_not_found", 404),
+        Err(err) => json_error(err.to_string().as_str(), 400),
     }
-
-    if !check_ownership(&d1, "tags", &body.tag_id, &user_id).await? {
-        return json_error("tag_not_found", 404);
-    }
-
-    d1.prepare("INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?1, ?2)")
-        .bind(&[item_id.into(), body.tag_id.into()])?
-        .run()
-        .await?;
-    Ok(Response::empty()?.with_status(204))
 }
 
 /// DELETE /api/items/:item_id/tags/:tag_id
@@ -227,16 +350,18 @@ pub async fn remove_from_item(_req: Request, ctx: RouteContext<String>) -> Resul
     let item_id = require_param(&ctx, "item_id")?;
     let tag_id = require_param(&ctx, "tag_id")?;
     let d1 = ctx.env.d1("DB")?;
-
-    if !check_item_ownership(&d1, &item_id, &user_id).await? {
-        return json_error("item_not_found", 404);
+    let batch = SetTagLinksRequest {
+        action: TagLinkAction::Remove,
+        tag_ids: vec![tag_id],
+        item_ids: Some(vec![item_id]),
+        list_ids: None,
+    };
+    match apply_tag_links(&d1, &user_id, batch).await {
+        Ok(_) => Ok(Response::empty()?.with_status(204)),
+        Err(err) if err.to_string() == "item_not_found" => json_error("item_not_found", 404),
+        Err(err) if err.to_string() == "tag_not_found" => json_error("tag_not_found", 404),
+        Err(err) => json_error(err.to_string().as_str(), 400),
     }
-
-    d1.prepare("DELETE FROM item_tags WHERE item_id = ?1 AND tag_id = ?2")
-        .bind(&[item_id.into(), tag_id.into()])?
-        .run()
-        .await?;
-    Ok(Response::empty()?.with_status(204))
 }
 
 /// POST /api/lists/:list_id/tags
@@ -246,20 +371,18 @@ pub async fn assign_to_list(mut req: Request, ctx: RouteContext<String>) -> Resu
     let list_id = require_param(&ctx, "list_id")?;
     let body: TagAssignment = req.json().await?;
     let d1 = ctx.env.d1("DB")?;
-
-    if !check_ownership(&d1, "lists", &list_id, &user_id).await? {
-        return json_error("list_not_found", 404);
+    let batch = SetTagLinksRequest {
+        action: TagLinkAction::Assign,
+        tag_ids: vec![body.tag_id],
+        item_ids: None,
+        list_ids: Some(vec![list_id]),
+    };
+    match apply_tag_links(&d1, &user_id, batch).await {
+        Ok(_) => Ok(Response::empty()?.with_status(204)),
+        Err(err) if err.to_string() == "list_not_found" => json_error("list_not_found", 404),
+        Err(err) if err.to_string() == "tag_not_found" => json_error("tag_not_found", 404),
+        Err(err) => json_error(err.to_string().as_str(), 400),
     }
-
-    if !check_ownership(&d1, "tags", &body.tag_id, &user_id).await? {
-        return json_error("tag_not_found", 404);
-    }
-
-    d1.prepare("INSERT OR IGNORE INTO list_tags (list_id, tag_id) VALUES (?1, ?2)")
-        .bind(&[list_id.into(), body.tag_id.into()])?
-        .run()
-        .await?;
-    Ok(Response::empty()?.with_status(204))
 }
 
 /// DELETE /api/lists/:list_id/tags/:tag_id
@@ -269,16 +392,33 @@ pub async fn remove_from_list(_req: Request, ctx: RouteContext<String>) -> Resul
     let list_id = require_param(&ctx, "list_id")?;
     let tag_id = require_param(&ctx, "tag_id")?;
     let d1 = ctx.env.d1("DB")?;
-
-    if !check_ownership(&d1, "lists", &list_id, &user_id).await? {
-        return json_error("list_not_found", 404);
+    let batch = SetTagLinksRequest {
+        action: TagLinkAction::Remove,
+        tag_ids: vec![tag_id],
+        item_ids: None,
+        list_ids: Some(vec![list_id]),
+    };
+    match apply_tag_links(&d1, &user_id, batch).await {
+        Ok(_) => Ok(Response::empty()?.with_status(204)),
+        Err(err) if err.to_string() == "list_not_found" => json_error("list_not_found", 404),
+        Err(err) if err.to_string() == "tag_not_found" => json_error("tag_not_found", 404),
+        Err(err) => json_error(err.to_string().as_str(), 400),
     }
+}
 
-    d1.prepare("DELETE FROM list_tags WHERE list_id = ?1 AND tag_id = ?2")
-        .bind(&[list_id.into(), tag_id.into()])?
-        .run()
-        .await?;
-    Ok(Response::empty()?.with_status(204))
+#[instrument(skip_all, fields(action = "set_tag_links"))]
+pub async fn set_links(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let body: SetTagLinksRequest = req.json().await?;
+    let d1 = ctx.env.d1("DB")?;
+
+    match apply_tag_links(&d1, &user_id, body).await {
+        Ok(summary) => Response::from_json(&summary),
+        Err(err) if err.to_string() == "item_not_found" => json_error("item_not_found", 404),
+        Err(err) if err.to_string() == "list_not_found" => json_error("list_not_found", 404),
+        Err(err) if err.to_string() == "tag_not_found" => json_error("tag_not_found", 404),
+        Err(err) => json_error(err.to_string().as_str(), 400),
+    }
 }
 
 /// GET /api/tags/:id/items

@@ -109,6 +109,102 @@ fn move_list_request_remove_from_container() {
     assert!(req.container_id.is_none());
 }
 
+#[test]
+fn set_list_placement_request_validates_non_empty_ids() {
+    let req = SetListPlacementRequest {
+        list_ids: vec![],
+        parent_list_id: None,
+        container_id: None,
+    };
+    assert_eq!(req.validate(), Err("list_ids must not be empty"));
+}
+
+#[test]
+fn set_list_placement_request_rejects_two_targets() {
+    let req = SetListPlacementRequest {
+        list_ids: vec!["l1".into()],
+        parent_list_id: Some("parent".into()),
+        container_id: Some("container".into()),
+    };
+    assert_eq!(
+        req.validate(),
+        Err("parent_list_id and container_id are mutually exclusive")
+    );
+}
+
+#[test]
+fn set_list_placement_request_allows_root_target() {
+    let req = SetListPlacementRequest {
+        list_ids: vec!["l1".into(), "l2".into()],
+        parent_list_id: None,
+        container_id: None,
+    };
+    assert!(req.validate().is_ok());
+}
+
+#[test]
+fn create_list_request_rejects_two_targets() {
+    let req = CreateListRequest {
+        name: "Test".into(),
+        list_type: ListType::Checklist,
+        features: None,
+        parent_list_id: Some("parent".into()),
+        container_id: Some("container".into()),
+    };
+    assert_eq!(
+        req.validate_placement(),
+        Err("parent_list_id and container_id are mutually exclusive")
+    );
+}
+
+#[test]
+fn create_list_request_allows_parent_list_id() {
+    let req = CreateListRequest {
+        name: "Sublist".into(),
+        list_type: ListType::Custom,
+        features: None,
+        parent_list_id: Some("parent".into()),
+        container_id: None,
+    };
+    assert!(req.validate_placement().is_ok());
+}
+
+#[test]
+fn set_tag_links_request_requires_exactly_one_target_kind() {
+    let req = SetTagLinksRequest {
+        action: TagLinkAction::Assign,
+        tag_ids: vec!["t1".into()],
+        item_ids: Some(vec!["i1".into()]),
+        list_ids: Some(vec!["l1".into()]),
+    };
+    assert_eq!(
+        req.validate(),
+        Err("item_ids and list_ids are mutually exclusive")
+    );
+}
+
+#[test]
+fn set_tag_links_request_requires_tags() {
+    let req = SetTagLinksRequest {
+        action: TagLinkAction::Assign,
+        tag_ids: vec![],
+        item_ids: Some(vec!["i1".into()]),
+        list_ids: None,
+    };
+    assert_eq!(req.validate(), Err("tag_ids must not be empty"));
+}
+
+#[test]
+fn set_tag_links_request_accepts_list_targets() {
+    let req = SetTagLinksRequest {
+        action: TagLinkAction::Remove,
+        tag_ids: vec!["t1".into(), "t2".into()],
+        item_ids: None,
+        list_ids: Some(vec!["l1".into()]),
+    };
+    assert!(req.validate().is_ok());
+}
+
 // --- DateField ---
 
 #[test]

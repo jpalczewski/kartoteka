@@ -72,7 +72,7 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
       target_list_id: z.string().describe("Target list ID"),
     },
   }, ({ item_id, target_list_id }) =>
-    callTool(api, "PATCH", `/api/items/${item_id}/move`, { list_id: target_list_id }));
+    callTool(api, "PATCH", `/api/items/${item_id}/move`, { target_list_id }));
 
   async function withAutoEnable(
     api: ApiContext,
