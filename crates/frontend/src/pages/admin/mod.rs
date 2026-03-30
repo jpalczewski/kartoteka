@@ -41,30 +41,23 @@ fn InstanceSettingsSection() -> impl IntoView {
     let client = use_context::<GlooClient>().expect("GlooClient not provided");
 
     #[cfg(target_arch = "wasm32")]
-    let _settings_res = {
-        LocalResource::new(move || {
-            let client = client.clone();
-            async move {
-                if let Ok(settings) = crate::api::admin::list_instance_settings(&client).await {
-                    for s in settings {
-                        if s.key == kartoteka_shared::INSTANCE_SETTING_REGISTRATION_MODE {
-                            if let Some(m) = s.value.as_str() {
-                                reg_mode.set(m.to_string());
-                            }
-                        }
+    let _settings_res = LocalResource::new(move || async move {
+        if let Ok(settings) = crate::api::admin::list_instance_settings(&client).await {
+            for s in settings {
+                if s.key == kartoteka_shared::INSTANCE_SETTING_REGISTRATION_MODE {
+                    if let Some(m) = s.value.as_str() {
+                        reg_mode.set(m.to_string());
                     }
                 }
             }
-        })
-    };
+        }
+    });
 
     let on_save = move |_| {
         saving.set(true);
         save_error.set(None);
         #[cfg(target_arch = "wasm32")]
         let mode = reg_mode.get_untracked();
-        #[cfg(target_arch = "wasm32")]
-        let client = client.clone();
         leptos::task::spawn_local(async move {
             #[cfg(target_arch = "wasm32")]
             {
@@ -127,21 +120,14 @@ fn InvitationCodesSection() -> impl IntoView {
     let client = use_context::<GlooClient>().expect("GlooClient not provided");
 
     #[cfg(target_arch = "wasm32")]
-    let _codes_res = {
-        LocalResource::new(move || {
-            let client = client.clone();
-            async move {
-                if let Ok(list) = crate::api::admin::list_invitation_codes(&client).await {
-                    codes.set(list);
-                }
-            }
-        })
-    };
+    let _codes_res = LocalResource::new(move || async move {
+        if let Ok(list) = crate::api::admin::list_invitation_codes(&client).await {
+            codes.set(list);
+        }
+    });
 
     let on_generate = move |_| {
         generating.set(true);
-        #[cfg(target_arch = "wasm32")]
-        let client = client.clone();
         leptos::task::spawn_local(async move {
             #[cfg(target_arch = "wasm32")]
             {
@@ -181,12 +167,9 @@ fn InvitationCodesSection() -> impl IntoView {
                             {move || codes.get().into_iter().map(|c| {
                                 let id_del = c.id.clone();
                                 let dimmed = c.used_by.is_some();
-                                // Inline delete callback — Fn-compatible (codes is Copy RwSignal)
                                 let delete_this = move |_: web_sys::MouseEvent| {
                                     #[allow(unused_variables)]
                                     let id = id_del.clone();
-                                    #[cfg(target_arch = "wasm32")]
-                                    let client = client.clone();
                                     leptos::task::spawn_local(async move {
                                         #[cfg(target_arch = "wasm32")]
                                         {
