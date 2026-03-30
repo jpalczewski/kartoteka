@@ -20,7 +20,7 @@ export function createAuth(env: Env) {
       crossSubDomainCookies: { enabled: false },
       cookies: {
         session_token: {
-          attributes: { sameSite: "none", secure: true, path: "/" },
+          attributes: { sameSite: "none", secure: true, path: "/", partitioned: true },
         },
       },
     },
