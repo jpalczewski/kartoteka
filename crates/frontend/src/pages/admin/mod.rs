@@ -35,10 +35,13 @@ pub fn AdminPage() -> impl IntoView {
 fn InstanceSettingsSection() -> impl IntoView {
     let reg_mode = RwSignal::new("open".to_string());
     let saving = RwSignal::new(false);
+    let save_error = RwSignal::new(Option::<String>::None);
+
+    #[cfg(target_arch = "wasm32")]
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
 
     #[cfg(target_arch = "wasm32")]
     let _settings_res = {
-        let client = use_context::<GlooClient>().expect("GlooClient not provided");
         LocalResource::new(move || {
             let client = client.clone();
             async move {
@@ -57,18 +60,24 @@ fn InstanceSettingsSection() -> impl IntoView {
 
     let on_save = move |_| {
         saving.set(true);
+        save_error.set(None);
         #[cfg(target_arch = "wasm32")]
         let mode = reg_mode.get_untracked();
+        #[cfg(target_arch = "wasm32")]
+        let client = client.clone();
         leptos::task::spawn_local(async move {
             #[cfg(target_arch = "wasm32")]
             {
-                let client = use_context::<GlooClient>().expect("GlooClient not provided");
-                let _ = crate::api::admin::update_instance_setting(
+                match crate::api::admin::update_instance_setting(
                     &client,
                     kartoteka_shared::INSTANCE_SETTING_REGISTRATION_MODE,
                     serde_json::Value::String(mode),
                 )
-                .await;
+                .await
+                {
+                    Ok(_) => {}
+                    Err(e) => save_error.set(Some(format!("{e:?}"))),
+                }
             }
             saving.set(false);
         });
@@ -90,6 +99,9 @@ fn InstanceSettingsSection() -> impl IntoView {
                         <option value="closed">{move_tr!("registration-closed")}</option>
                     </select>
                 </div>
+                {move || save_error.get().map(|e| view! {
+                    <div class="alert alert-error mt-2"><span>{e}</span></div>
+                })}
                 <div class="card-actions justify-end mt-4">
                     <button
                         class="btn btn-primary"
@@ -112,8 +124,10 @@ fn InvitationCodesSection() -> impl IntoView {
     let generating = RwSignal::new(false);
 
     #[cfg(target_arch = "wasm32")]
+    let client = use_context::<GlooClient>().expect("GlooClient not provided");
+
+    #[cfg(target_arch = "wasm32")]
     let _codes_res = {
-        let client = use_context::<GlooClient>().expect("GlooClient not provided");
         LocalResource::new(move || {
             let client = client.clone();
             async move {
@@ -126,10 +140,11 @@ fn InvitationCodesSection() -> impl IntoView {
 
     let on_generate = move |_| {
         generating.set(true);
+        #[cfg(target_arch = "wasm32")]
+        let client = client.clone();
         leptos::task::spawn_local(async move {
             #[cfg(target_arch = "wasm32")]
             {
-                let client = use_context::<GlooClient>().expect("GlooClient not provided");
                 match crate::api::admin::create_invitation_code(&client, None).await {
                     Ok(new_code) => codes.update(|list| list.insert(0, new_code)),
                     Err(_) => {}
@@ -170,10 +185,11 @@ fn InvitationCodesSection() -> impl IntoView {
                                 let delete_this = move |_: web_sys::MouseEvent| {
                                     #[allow(unused_variables)]
                                     let id = id_del.clone();
+                                    #[cfg(target_arch = "wasm32")]
+                                    let client = client.clone();
                                     leptos::task::spawn_local(async move {
                                         #[cfg(target_arch = "wasm32")]
                                         {
-                                            let client = use_context::<GlooClient>().expect("GlooClient not provided");
                                             if crate::api::admin::delete_invitation_code(&client, &id).await.is_ok() {
                                                 codes.update(|list| list.retain(|item| item.id != id));
                                             }
