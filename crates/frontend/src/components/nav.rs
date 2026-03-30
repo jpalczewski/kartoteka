@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use leptos_fluent::move_tr;
 
 use crate::api;
+use crate::app::SessionResource;
 use crate::state::AdminContext;
 
 #[component]
@@ -9,7 +10,7 @@ pub fn Nav() -> impl IntoView {
     let (menu_open, set_menu_open) = signal(false);
     let admin_ctx = use_context::<AdminContext>();
 
-    let session_res = LocalResource::new(api::get_session);
+    let session_res = use_context::<SessionResource>().expect("SessionResource missing");
 
     let on_logout = move |_| {
         api::logout();

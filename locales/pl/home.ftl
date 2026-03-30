@@ -1,4 +1,5 @@
 home-title = Kartoteka
+landing-tagline = Twoje listy i zadania
 home-pinned = Przypięte
 home-recent = Ostatnio otwierane
 home-folders-and-projects = Foldery i projekty
