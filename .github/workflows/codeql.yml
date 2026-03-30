@@ -3,8 +3,14 @@ name: "CodeQL"
 on:
   push:
     branches: [main, develop]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
   pull_request:
     branches: [main, develop]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
   schedule:
     - cron: "0 6 * * 1" # weekly Monday 6am
 
@@ -23,10 +29,13 @@ jobs:
         include:
           - language: javascript-typescript
             build-mode: none
+            paths: gateway
           - language: actions
             build-mode: none
+            paths: .github
           - language: rust
             build-mode: none
+            paths: crates
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -36,6 +45,8 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+          paths: ${{ matrix.paths }}
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
