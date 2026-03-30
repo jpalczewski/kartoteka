@@ -6,6 +6,7 @@ use leptos_router::path;
 #[cfg(target_arch = "wasm32")]
 use crate::api::client::GlooClient;
 
+use crate::api::SessionInfo;
 use crate::components::nav::Nav;
 use crate::components::sync_locale::SyncLocale;
 use crate::components::toast_container::ToastContainer;
@@ -17,6 +18,8 @@ use crate::pages::{
     today::TodayPage,
 };
 use crate::state::AdminContext;
+
+pub type SessionResource = LocalResource<Option<SessionInfo>>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToastKind {
@@ -94,16 +97,21 @@ pub fn App() -> impl IntoView {
     #[cfg(target_arch = "wasm32")]
     provide_context(GlooClient);
 
-    // Fetch /api/me after session check to populate is_admin signal
+    let session_res: SessionResource = LocalResource::new(crate::api::get_session);
+    provide_context(session_res);
+
+    // Fetch /api/me after session resolves to populate is_admin signal
     #[cfg(target_arch = "wasm32")]
     {
         let client = GlooClient;
-        leptos::task::spawn_local(async move {
-            if let Some(session) = crate::api::get_session().await {
-                let _ = session; // session is valid
-                if let Ok(me) = crate::api::admin::get_me(&client, None).await {
-                    admin_ctx.is_admin.set(me.is_admin);
-                }
+        Effect::new(move |_| {
+            if let Some(Some(_)) = session_res.get() {
+                let client = client.clone();
+                leptos::task::spawn_local(async move {
+                    if let Ok(me) = crate::api::admin::get_me(&client, None).await {
+                        admin_ctx.is_admin.set(me.is_admin);
+                    }
+                });
             }
         });
     }

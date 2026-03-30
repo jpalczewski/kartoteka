@@ -6,7 +6,7 @@ use leptos_fluent::move_tr;
 
 use crate::api;
 use crate::api::client::GlooClient;
-use crate::app::{ToastContext, ToastKind};
+use crate::app::{SessionResource, ToastContext, ToastKind};
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::confirm_delete_modal::ConfirmDeleteModal;
 use crate::components::container_card::ContainerCard;
@@ -14,7 +14,38 @@ use crate::components::create_entity_input::CreateEntityInput;
 use crate::components::list_card::{ListCard, list_type_icon};
 
 #[component]
+fn LandingPage() -> impl IntoView {
+    view! {
+        <div class="flex flex-col items-center justify-center min-h-[60vh] p-4">
+            <div class="card bg-base-200 border border-base-300 w-full max-w-sm text-center">
+                <div class="card-body items-center gap-4">
+                    <h1 class="text-3xl font-bold text-primary">{move_tr!("app-title")}</h1>
+                    <p class="text-base-content/70">{move_tr!("landing-tagline")}</p>
+                    <div class="flex gap-3 mt-2">
+                        <a href="/login" class="btn btn-primary">{move_tr!("auth-login-button")}</a>
+                        <a href="/signup" class="btn btn-outline">{move_tr!("auth-signup-button")}</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+#[component]
 pub fn HomePage() -> impl IntoView {
+    let session_res = use_context::<SessionResource>().expect("SessionResource missing");
+
+    view! {
+        {move || match session_res.get() {
+            None => view! { <LoadingSpinner/> }.into_any(),
+            Some(None) => view! { <LandingPage/> }.into_any(),
+            Some(Some(_)) => view! { <HomePageInner/> }.into_any(),
+        }}
+    }
+}
+
+#[component]
+fn HomePageInner() -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let client = use_context::<GlooClient>().expect("GlooClient not provided");
 
