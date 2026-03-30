@@ -11,9 +11,9 @@ crate-type = ["cdylib"]
 workspace = true
 
 [dependencies]
-kartoteka-shared = { path = "../shared", version = "0.1.1" }
-kartoteka-i18n = { path = "../i18n", version = "0.1.1" }
-kartoteka-logging = { path = "../logging", version = "0.1.1" }
+kartoteka-shared = { path = "../shared", version = "0.4.1" }
+kartoteka-i18n = { path = "../i18n", version = "0.4.1" }
+kartoteka-logging = { path = "../logging", version = "0.4.1" }
 tracing = "0.1"
 nanoid = "0.4"
 getrandom = { version = "0.2", features = ["js"] }
