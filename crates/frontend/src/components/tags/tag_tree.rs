@@ -8,7 +8,6 @@ pub use crate::state::view_helpers::build_tag_filter_options;
 use kartoteka_shared::{CreateTagRequest, Tag};
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
-use leptos_router::components::A;
 use std::collections::HashMap;
 
 /// A tag with its children, used for rendering tag trees.
@@ -115,7 +114,6 @@ pub fn TagTreeRow(
     let client = use_context::<GlooClient>().expect("GlooClient not provided");
     let tag = node.tag;
     let children = node.children;
-    let tid_link = tag.id.clone();
     let tid_add = tag.id.clone();
     let tid_delete = tag.id.clone();
     let padding = format!("padding-left: {}rem;", depth as f64 * 1.0);
@@ -124,9 +122,7 @@ pub fn TagTreeRow(
     view! {
         <div>
             <div class="flex items-center gap-1 py-1" style=padding.clone()>
-                <A href=format!("/tags/{tid_link}") attr:class="no-underline">
-                    <TagBadge tag=tag.clone() />
-                </A>
+                <TagBadge tag=tag.clone() />
                 {show_add_child.then(|| {
                     view! {
                         <button
