@@ -6,7 +6,7 @@ use crate::components::editable_title::EditableTitle;
 use crate::components::tag_tree::{
     TagTreeRow, build_breadcrumb, build_subtree, get_descendant_ids,
 };
-use kartoteka_shared::{Tag, UpdateTagRequest};
+use kartoteka_shared::{DateItem, Tag, UpdateTagRequest};
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
 use leptos_router::components::A;
@@ -28,7 +28,7 @@ pub fn TagDetailPage() -> impl IntoView {
 
     let all_tags = RwSignal::new(Vec::<Tag>::new());
     let tag = RwSignal::new(Option::<Tag>::None);
-    let items = RwSignal::new(Vec::<serde_json::Value>::new());
+    let items = RwSignal::new(Vec::<DateItem>::new());
     let (loading, set_loading) = signal(true);
     let (recursive, set_recursive) = signal(true);
     let active_action = RwSignal::new(Option::<DetailAction>::None);
@@ -78,16 +78,14 @@ pub fn TagDetailPage() -> impl IntoView {
 
                         // Group items by list_name
                         let no_list_label = move_tr!("tags-no-list").get();
-                        let mut groups: BTreeMap<(String, String), Vec<serde_json::Value>> = BTreeMap::new();
+                        let mut groups: BTreeMap<(String, String), Vec<DateItem>> = BTreeMap::new();
                         for item in all_items {
-                            let list_name = item.get("list_name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or(&no_list_label)
-                                .to_string();
-                            let list_id = item.get("list_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
+                            let list_name = if item.list_name.is_empty() {
+                                no_list_label.clone()
+                            } else {
+                                item.list_name.clone()
+                            };
+                            let list_id = item.list_id.clone();
                             groups.entry((list_id, list_name)).or_default().push(item);
                         }
 
@@ -363,13 +361,8 @@ pub fn TagDetailPage() -> impl IntoView {
                                                             </A>
                                                         </h4>
                                                         {group_items.into_iter().map(|item| {
-                                                            let title = item.get("title")
-                                                                .and_then(|v| v.as_str())
-                                                                .unwrap_or("")
-                                                                .to_string();
-                                                            let completed = item.get("completed")
-                                                                .map(|v| v.as_f64().unwrap_or(0.0) != 0.0 || v.as_bool().unwrap_or(false))
-                                                                .unwrap_or(false);
+                                                            let title = item.title.clone();
+                                                            let completed = item.completed;
                                                             view! {
                                                                 <div class="flex items-center gap-2 py-1 pl-2">
                                                                     <span class=if completed { "text-base-content/40" } else { "" }>

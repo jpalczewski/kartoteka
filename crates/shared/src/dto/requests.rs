@@ -12,7 +12,8 @@ pub struct CreateContainerRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateContainerRequest {
     pub name: Option<String>,
-    pub description: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub description: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub status: Option<Option<ContainerStatus>>,
 }
@@ -67,7 +68,8 @@ impl CreateListRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateListRequest {
     pub name: Option<String>,
-    pub description: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub description: Option<Option<String>>,
     pub list_type: Option<ListType>,
     pub archived: Option<bool>,
 }
@@ -94,12 +96,14 @@ pub struct CreateItemRequest {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UpdateItemRequest {
     pub title: Option<String>,
-    pub description: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub description: Option<Option<String>>,
     pub completed: Option<bool>,
     pub position: Option<i32>,
     pub quantity: Option<i32>,
     pub actual_quantity: Option<i32>,
-    pub unit: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub unit: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub start_date: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
@@ -115,7 +119,7 @@ pub struct UpdateItemRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateTagRequest {
     pub name: String,
-    pub color: String,
+    pub color: Option<String>,
     pub parent_tag_id: Option<String>,
 }
 

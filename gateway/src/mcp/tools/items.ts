@@ -4,6 +4,10 @@ import type { ApiContext } from "../api";
 import { callTool, apiCall, errorResult, jsonResult } from "../api";
 import { tr } from "../i18n";
 
+const itemTitleSchema = z.string().trim().min(1).max(255);
+const quantitySchema = z.number().int().positive();
+const actualQuantitySchema = z.number().int().nonnegative();
+
 export function registerItemTools(server: McpServer, api: ApiContext, locale: string): void {
   server.registerTool("get_list_items", {
     description: tr("tool-get-items", locale),
@@ -16,9 +20,9 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
     description: tr("tool-add-item", locale),
     inputSchema: {
       list_id: z.string().describe("The list ID"),
-      title: z.string().describe("Item title"),
+      title: itemTitleSchema.describe("Item title"),
       description: z.string().optional().describe("Item description"),
-      quantity: z.number().optional().describe("Target quantity"),
+      quantity: quantitySchema.optional().describe("Target quantity"),
       unit: z.string().optional().describe("Unit of measurement"),
       start_date: z.string().optional().describe("Start date YYYY-MM-DD"),
       start_time: z.string().optional().describe("Start time HH:MM"),
@@ -37,11 +41,11 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
     inputSchema: {
       list_id: z.string().describe("The list ID"),
       item_id: z.string().describe("The item ID"),
-      title: z.string().optional().describe("New title"),
+      title: itemTitleSchema.optional().describe("New title"),
       description: z.string().nullable().optional().describe("New description (null to clear)"),
       completed: z.boolean().optional().describe("Completion state"),
-      quantity: z.number().optional().describe("Target quantity"),
-      actual_quantity: z.number().optional().describe("Actual quantity (auto-completes when >= quantity)"),
+      quantity: quantitySchema.optional().describe("Target quantity"),
+      actual_quantity: actualQuantitySchema.optional().describe("Actual quantity (auto-completes when >= quantity)"),
       unit: z.string().nullable().optional().describe("Unit (null to clear)"),
       start_date: z.string().nullable().optional().describe("Start date YYYY-MM-DD (null to clear)"),
       start_time: z.string().nullable().optional().describe("Start time HH:MM (null to clear)"),
@@ -82,9 +86,10 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
   ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
     const res = await apiFn(fields);
     if (!res.ok) {
+      const raw = await res.text();
       if (res.status === 422) {
         let body: { error?: string; feature?: string; message?: string } = {};
-        try { body = await res.json(); } catch { /* ignore */ }
+        try { body = JSON.parse(raw) as typeof body; } catch { /* ignore */ }
 
         if (body.error === "feature_required" && body.feature) {
           let autoEnable = false;
@@ -117,7 +122,7 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
           );
         }
       }
-      return errorResult(`API error ${res.status}: ${await res.text()}`);
+      return errorResult(`API error ${res.status}: ${raw}`);
     }
     try {
       return jsonResult(await res.json());

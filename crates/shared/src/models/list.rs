@@ -62,7 +62,7 @@ impl DateField {
 
     pub fn label(&self) -> &'static str {
         match self {
-            Self::StartDate => "start",
+            Self::StartDate => "start_date",
             Self::Deadline => "deadline",
             Self::HardDeadline => "hard_deadline",
         }

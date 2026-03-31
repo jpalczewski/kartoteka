@@ -329,7 +329,7 @@ pub fn ListPage() -> impl IntoView {
                         leptos::task::spawn_local(async move {
                             let req = UpdateListRequest {
                                 name: None,
-                                description: new_desc,
+                                description: Some(new_desc),
                                 list_type: None,
                                 archived: None,
                             };

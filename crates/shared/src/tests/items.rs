@@ -31,17 +31,39 @@ fn update_item_description_absent_is_none() {
 }
 
 #[test]
-fn update_item_description_empty_string_is_clear_sentinel() {
-    // Some("") = clear description (set NULL in DB). This is kept for
-    // description even though date fields use explicit JSON null semantics.
-    let req: UpdateItemRequest = serde_json::from_str(r#"{"description": ""}"#).unwrap();
-    assert!(matches!(req.description, Some(ref d) if d.is_empty()));
+fn update_item_description_null_clears_field() {
+    let req: UpdateItemRequest = serde_json::from_str(r#"{"description": null}"#).unwrap();
+    assert!(matches!(req.description, Some(None)));
 }
 
 #[test]
 fn update_item_description_value_is_some_string() {
     let req: UpdateItemRequest = serde_json::from_str(r#"{"description": "hello"}"#).unwrap();
-    assert!(matches!(req.description, Some(ref d) if d == "hello"));
+    assert!(matches!(req.description, Some(Some(ref d)) if d == "hello"));
+}
+
+#[test]
+fn update_item_description_empty_string_is_preserved() {
+    let req: UpdateItemRequest = serde_json::from_str(r#"{"description": ""}"#).unwrap();
+    assert!(matches!(req.description, Some(Some(ref d)) if d.is_empty()));
+}
+
+#[test]
+fn update_item_unit_absent_is_none() {
+    let req: UpdateItemRequest = serde_json::from_str(r#"{}"#).unwrap();
+    assert!(req.unit.is_none());
+}
+
+#[test]
+fn update_item_unit_null_clears_field() {
+    let req: UpdateItemRequest = serde_json::from_str(r#"{"unit": null}"#).unwrap();
+    assert!(matches!(req.unit, Some(None)));
+}
+
+#[test]
+fn update_item_unit_value_is_some_some() {
+    let req: UpdateItemRequest = serde_json::from_str(r#"{"unit": "kg"}"#).unwrap();
+    assert!(matches!(req.unit, Some(Some(ref unit)) if unit == "kg"));
 }
 
 // --- DateItem -> Item conversion ---
@@ -112,6 +134,33 @@ fn day_summary_deserialize() {
 }
 
 #[test]
+fn date_item_deserializes_numeric_completed_and_missing_date_type() {
+    let json = r#"{
+        "id": "abc",
+        "list_id": "l1",
+        "title": "Test",
+        "description": null,
+        "completed": 1,
+        "position": 0,
+        "quantity": null,
+        "actual_quantity": null,
+        "unit": null,
+        "start_date": null,
+        "start_time": null,
+        "deadline": null,
+        "deadline_time": null,
+        "hard_deadline": null,
+        "created_at": "2024-01-01",
+        "updated_at": "2024-01-01",
+        "list_name": "Lista",
+        "list_type": "checklist"
+    }"#;
+    let item: DateItem = serde_json::from_str(json).unwrap();
+    assert!(item.completed);
+    assert!(item.date_type.is_none());
+}
+
+#[test]
 fn validate_business_date_accepts_valid_date() {
     let parsed = validate_business_date("2026-03-31").unwrap();
     assert_eq!(format_date(&parsed), "2026-03-31");
@@ -147,4 +196,14 @@ fn validate_hhmm_time_rejects_invalid_hour() {
         validate_hhmm_time("25:61"),
         Err(TimeValidationError::Invalid)
     );
+}
+
+#[test]
+fn validate_hhmm_time_rejects_missing_zero_padding() {
+    assert_eq!(validate_hhmm_time("9:5"), Err(TimeValidationError::Invalid));
+}
+
+#[test]
+fn validate_hhmm_time_accepts_zero_padded_time() {
+    assert!(validate_hhmm_time("09:05").is_ok());
 }

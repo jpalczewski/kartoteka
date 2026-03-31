@@ -24,5 +24,15 @@ pub fn validate_business_date(date_str: &str) -> Result<NaiveDate, DateValidatio
 }
 
 pub fn validate_hhmm_time(time_str: &str) -> Result<NaiveTime, TimeValidationError> {
+    let bytes = time_str.as_bytes();
+    if bytes.len() != 5
+        || bytes[2] != b':'
+        || !bytes[0].is_ascii_digit()
+        || !bytes[1].is_ascii_digit()
+        || !bytes[3].is_ascii_digit()
+        || !bytes[4].is_ascii_digit()
+    {
+        return Err(TimeValidationError::Invalid);
+    }
     NaiveTime::parse_from_str(time_str, "%H:%M").map_err(|_| TimeValidationError::Invalid)
 }

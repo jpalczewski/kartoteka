@@ -13,6 +13,8 @@ const DATE_ITEM_COLS: &str = "i.id, i.list_id, i.title, i.description, i.complet
     i.quantity, i.actual_quantity, i.unit, i.start_date, i.start_time, i.deadline, i.deadline_time, i.hard_deadline, \
     i.created_at, i.updated_at, l.name as list_name, l.list_type";
 
+const MAX_ITEM_TITLE_LENGTH: usize = 255;
+
 #[derive(Clone, Debug)]
 struct ItemTemporalState {
     start_date: Option<String>,
@@ -53,6 +55,37 @@ impl ItemTemporalState {
 }
 
 #[derive(Clone, Copy, Debug)]
+struct ItemQuantityState {
+    quantity: Option<i32>,
+    actual_quantity: Option<i32>,
+}
+
+impl ItemQuantityState {
+    fn from_create(body: &CreateItemRequest) -> Self {
+        Self {
+            quantity: body.quantity,
+            actual_quantity: body.quantity.map(|_| 0),
+        }
+    }
+
+    fn from_item(item: &Item) -> Self {
+        Self {
+            quantity: item.quantity,
+            actual_quantity: item.actual_quantity,
+        }
+    }
+
+    fn apply_update(&mut self, body: &UpdateItemRequest) {
+        if let Some(quantity) = body.quantity {
+            self.quantity = Some(quantity);
+        }
+        if let Some(actual_quantity) = body.actual_quantity {
+            self.actual_quantity = Some(actual_quantity);
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 enum DateFieldSelector {
     All,
     One(DateField),
@@ -82,9 +115,35 @@ fn normalize_title(
     if trimmed.is_empty() {
         errors.push(validation_field(field, "required"));
         None
+    } else if trimmed.chars().count() > MAX_ITEM_TITLE_LENGTH {
+        errors.push(validation_field(field, "too_long"));
+        None
     } else {
         Some(trimmed.to_string())
     }
+}
+
+fn validate_item_quantity_state(state: &ItemQuantityState, errors: &mut Vec<ValidationFieldError>) {
+    if state.quantity.is_some_and(|quantity| quantity <= 0) {
+        errors.push(validation_field("quantity", "must_be_positive"));
+    }
+    if state
+        .actual_quantity
+        .is_some_and(|actual_quantity| actual_quantity < 0)
+    {
+        errors.push(validation_field("actual_quantity", "must_be_non_negative"));
+    }
+}
+
+fn derive_completed_from_quantity_state(state: &ItemQuantityState) -> bool {
+    match (state.quantity, state.actual_quantity) {
+        (Some(quantity), Some(actual_quantity)) => actual_quantity >= quantity,
+        _ => false,
+    }
+}
+
+fn list_archived_response() -> worker::Result<Response> {
+    json_error("list_archived", 409)
 }
 
 fn validate_date_field(
@@ -170,6 +229,17 @@ fn parse_date_field_selector(date_field: &str) -> std::result::Result<DateFieldS
         )
         .expect("build 422 response")),
     }
+}
+
+fn query_param_with_alias(url: &Url, primary: &str, alias: Option<&str>) -> Option<String> {
+    if let Some((_, value)) = url.query_pairs().find(|(k, _)| k == primary) {
+        return Some(value.to_string());
+    }
+
+    let alias_key = alias?;
+    url.query_pairs()
+        .find(|(k, _)| k == alias_key)
+        .map(|(_, value)| value.to_string())
 }
 
 fn parse_required_query_date(
@@ -298,7 +368,10 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
     let id = require_param(&ctx, "id")?;
     let d1 = ctx.env.d1("DB")?;
 
-    if !check_item_ownership(&d1, &id, &user_id).await? {
+    if get_owned_item_state_in_list(&d1, &id, &list_id, &user_id)
+        .await?
+        .is_none()
+    {
         return json_error("item_not_found", 404);
     }
 
@@ -310,8 +383,10 @@ pub async fn get_one(_req: Request, ctx: RouteContext<String>) -> Result<Respons
         .prepare(&query)
         .bind(&[id.into(), list_id.clone().into()])?
         .first::<Item>(None)
-        .await?
-        .ok_or_else(|| Error::from("Not found"))?;
+        .await?;
+    let Some(item) = item else {
+        return json_error("item_not_found", 404);
+    };
 
     // Fetch list name + features for the combined response (saves a round-trip from the client)
     #[derive(serde::Deserialize)]
@@ -351,8 +426,11 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
     let d1 = ctx.env.d1("DB")?;
 
-    if !check_ownership(&d1, "lists", &list_id, &user_id).await? {
+    let Some(list_state) = get_owned_list_state(&d1, &list_id, &user_id).await? else {
         return json_error("list_not_found", 404);
+    };
+    if list_state.archived {
+        return list_archived_response();
     }
 
     let position = next_position(&d1, "items", "list_id = ?1", &[list_id.clone().into()]).await?;
@@ -373,6 +451,8 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
     let mut validation_errors =
         validate_item_temporal_state(&ItemTemporalState::from_create(&body));
+    let quantity_state = ItemQuantityState::from_create(&body);
+    validate_item_quantity_state(&quantity_state, &mut validation_errors);
     let Some(title) = normalize_title(&body.title, "title", &mut validation_errors) else {
         return validation_error("Invalid item payload.", validation_errors);
     };
@@ -385,9 +465,14 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         Some(q) => q.into(),
         None => JsValue::NULL,
     };
-    let actual_quantity_val: JsValue = match body.quantity {
-        Some(_) => 0i32.into(),
+    let actual_quantity_val: JsValue = match quantity_state.actual_quantity {
+        Some(actual_quantity) => actual_quantity.into(),
         None => JsValue::NULL,
+    };
+    let completed_val: i32 = if derive_completed_from_quantity_state(&quantity_state) {
+        1
+    } else {
+        0
     };
     let unit_val = opt_str_to_js(&body.unit);
     let start_date_val = opt_str_to_js(&body.start_date);
@@ -397,14 +482,15 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     let hard_deadline_val = opt_str_to_js(&body.hard_deadline);
 
     d1.prepare(
-        "INSERT INTO items (id, list_id, title, description, position, quantity, actual_quantity, unit, start_date, start_time, deadline, deadline_time, hard_deadline) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        "INSERT INTO items (id, list_id, title, description, completed, position, quantity, actual_quantity, unit, start_date, start_time, deadline, deadline_time, hard_deadline) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
     )
     .bind(&[
         id.clone().into(),
         list_id.into(),
         title.into(),
         desc_val,
+        completed_val.into(),
         position.into(),
         quantity_val,
         actual_quantity_val,
@@ -429,16 +515,6 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     let mut resp = Response::from_json(&item)?;
     resp = resp.with_status(201);
     Ok(resp)
-}
-
-/// Helper to handle Option<Option<String>> date fields in update:
-/// None = don't change, Some(None) = set NULL, Some(Some(v)) = set value
-fn update_nullable_str(outer: &Option<Option<String>>) -> Option<JsValue> {
-    match outer {
-        None => None, // don't change
-        Some(None) => Some(JsValue::NULL),
-        Some(Some(s)) => Some(JsValue::from(s.as_str())),
-    }
 }
 
 fn check_item_features(
@@ -472,6 +548,7 @@ fn check_item_features(
 #[instrument(skip_all, fields(action = "update_item", item_id = tracing::field::Empty))]
 pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
+    let list_id = require_param(&ctx, "list_id")?;
     let id = require_param(&ctx, "id")?;
     tracing::Span::current().record("item_id", tracing::field::display(&id));
     let body: UpdateItemRequest = match parse_json_body(&mut req).await {
@@ -480,12 +557,15 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     };
     let d1 = ctx.env.d1("DB")?;
 
-    let list_id_for_features = match check_item_ownership_with_list(&d1, &id, &user_id).await? {
-        Some(lid) => lid,
+    let item_state = match get_owned_item_state_in_list(&d1, &id, &list_id, &user_id).await? {
+        Some(item_state) => item_state,
         None => return json_error("item_not_found", 404),
     };
+    if item_state.list_archived {
+        return list_archived_response();
+    }
 
-    let feature_names = get_list_features(&d1, &list_id_for_features).await?;
+    let feature_names = get_list_features(&d1, &item_state.list_id).await?;
 
     let has_date_field = matches!(&body.start_date, Some(Some(_)))
         || matches!(&body.deadline, Some(Some(_)))
@@ -509,7 +589,10 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 
     let mut next_temporal_state = ItemTemporalState::from_item(&current_item);
     next_temporal_state.apply_update(&body);
+    let mut next_quantity_state = ItemQuantityState::from_item(&current_item);
+    next_quantity_state.apply_update(&body);
     let mut validation_errors = validate_item_temporal_state(&next_temporal_state);
+    validate_item_quantity_state(&next_quantity_state, &mut validation_errors);
     let normalized_title = body
         .title
         .as_deref()
@@ -525,13 +608,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
             .await?;
     }
 
-    if let Some(description) = &body.description {
-        // Empty string is the sentinel for "clear description" (set NULL in DB).
-        let desc_val: JsValue = if description.is_empty() {
-            JsValue::NULL
-        } else {
-            description.clone().into()
-        };
+    if let Some(desc_val) = nullable_string_patch_to_js(&body.description, true) {
         d1.prepare("UPDATE items SET description = ?1, updated_at = datetime('now') WHERE id = ?2")
             .bind(&[desc_val, id.clone().into()])?
             .run()
@@ -553,6 +630,8 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
             .await?;
     }
 
+    let quantity_changed = body.quantity.is_some() || body.actual_quantity.is_some();
+
     if let Some(quantity) = body.quantity {
         d1.prepare("UPDATE items SET quantity = ?1, updated_at = datetime('now') WHERE id = ?2")
             .bind(&[JsValue::from(quantity), id.clone().into()])?
@@ -567,29 +646,11 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         .bind(&[JsValue::from(actual), id.clone().into()])?
         .run()
         .await?;
-
-        // Auto-complete: check if actual >= target
-        let row = d1
-            .prepare("SELECT quantity FROM items WHERE id = ?1")
-            .bind(&[id.clone().into()])?
-            .first::<serde_json::Value>(None)
-            .await?;
-        if let Some(row) = row {
-            if let Some(target) = row.get("quantity").and_then(|v| v.as_i64()) {
-                let completed_val: i32 = if (actual as i64) >= target { 1 } else { 0 };
-                d1.prepare(
-                    "UPDATE items SET completed = ?1, updated_at = datetime('now') WHERE id = ?2",
-                )
-                .bind(&[JsValue::from(completed_val), id.clone().into()])?
-                .run()
-                .await?;
-            }
-        }
     }
 
-    if let Some(unit) = &body.unit {
+    if let Some(unit_val) = nullable_string_patch_to_js(&body.unit, false) {
         d1.prepare("UPDATE items SET unit = ?1, updated_at = datetime('now') WHERE id = ?2")
-            .bind(&[JsValue::from(unit.as_str()), id.clone().into()])?
+            .bind(&[unit_val, id.clone().into()])?
             .run()
             .await?;
     }
@@ -604,7 +665,7 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     ];
 
     for (col, field) in &date_updates {
-        if let Some(js_val) = update_nullable_str(field) {
+        if let Some(js_val) = nullable_string_patch_to_js(field, false) {
             let sql = format!(
                 "UPDATE items SET {} = ?1, updated_at = datetime('now') WHERE id = ?2",
                 col
@@ -614,6 +675,18 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
                 .run()
                 .await?;
         }
+    }
+
+    if quantity_changed {
+        let completed_val: i32 = if derive_completed_from_quantity_state(&next_quantity_state) {
+            1
+        } else {
+            0
+        };
+        d1.prepare("UPDATE items SET completed = ?1, updated_at = datetime('now') WHERE id = ?2")
+            .bind(&[completed_val.into(), id.clone().into()])?
+            .run()
+            .await?;
     }
 
     let select_query = format!("SELECT {} FROM items WHERE id = ?1", ITEM_COLS);
@@ -630,12 +703,17 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 #[instrument(skip_all, fields(action = "delete_item", item_id = tracing::field::Empty))]
 pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
+    let list_id = require_param(&ctx, "list_id")?;
     let id = require_param(&ctx, "id")?;
     tracing::Span::current().record("item_id", tracing::field::display(&id));
     let d1 = ctx.env.d1("DB")?;
 
-    if !check_item_ownership(&d1, &id, &user_id).await? {
-        return json_error("item_not_found", 404);
+    let item_state = match get_owned_item_state_in_list(&d1, &id, &list_id, &user_id).await? {
+        Some(item_state) => item_state,
+        None => return json_error("item_not_found", 404),
+    };
+    if item_state.list_archived {
+        return list_archived_response();
     }
 
     d1.prepare("DELETE FROM items WHERE id = ?1")
@@ -647,23 +725,35 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
 
 #[instrument(skip_all, fields(action = "move_item", item_id = tracing::field::Empty))]
 pub async fn move_item(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    #[derive(serde::Deserialize)]
+    struct MoveItemRequest {
+        target_list_id: String,
+    }
+
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
     tracing::Span::current().record("item_id", tracing::field::display(&id));
-    let body: serde_json::Value = req.json().await?;
-    let target_list_id = body
-        .get("target_list_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| Error::from("Missing target_list_id"))?
-        .to_string();
+    let body: MoveItemRequest = match parse_json_body(&mut req).await {
+        Ok(body) => body,
+        Err(resp) => return Ok(resp),
+    };
+    let target_list_id = body.target_list_id;
     let d1 = ctx.env.d1("DB")?;
 
-    if !check_item_ownership(&d1, &id, &user_id).await? {
-        return json_error("item_not_found", 404);
+    let source_item_state = match get_owned_item_state(&d1, &id, &user_id).await? {
+        Some(item_state) => item_state,
+        None => return json_error("item_not_found", 404),
+    };
+    if source_item_state.list_archived {
+        return list_archived_response();
     }
 
-    if !check_ownership(&d1, "lists", &target_list_id, &user_id).await? {
+    let Some(target_list_state) = get_owned_list_state(&d1, &target_list_id, &user_id).await?
+    else {
         return json_error("list_not_found", 404);
+    };
+    if target_list_state.archived {
+        return list_archived_response();
     }
 
     let position = next_position(
@@ -698,12 +788,7 @@ pub async fn by_date(req: Request, ctx: RouteContext<String>) -> Result<Response
     let user_id = ctx.data.clone();
     let url = req.url()?;
 
-    let date = match parse_required_query_date(
-        "date",
-        url.query_pairs()
-            .find(|(k, _)| k == "date")
-            .map(|(_, v)| v.to_string()),
-    ) {
+    let date = match parse_required_query_date("date", query_param_with_alias(&url, "date", None)) {
         Ok(date) => date,
         Err(resp) => return Ok(resp),
     };
@@ -714,10 +799,7 @@ pub async fn by_date(req: Request, ctx: RouteContext<String>) -> Result<Response
         .map(|(_, v)| v != "false")
         .unwrap_or(true);
 
-    let date_field_raw = url
-        .query_pairs()
-        .find(|(k, _)| k == "date_field")
-        .map(|(_, v)| v.to_string())
+    let date_field_raw = query_param_with_alias(&url, "date_field", Some("field"))
         .unwrap_or_else(|| "deadline".to_string());
     let selector = match parse_date_field_selector(&date_field_raw) {
         Ok(selector) => selector,
@@ -730,19 +812,21 @@ pub async fn by_date(req: Request, ctx: RouteContext<String>) -> Result<Response
     if matches!(selector, DateFieldSelector::All) {
         // UNION ALL across all three date fields
         let sql = format!(
-            "SELECT {cols}, 'start' as date_type \
-             FROM items i JOIN lists l ON l.id = i.list_id \
-             WHERE l.user_id = ?1 AND l.archived = 0 AND i.start_date = ?2 \
-             UNION ALL \
-             SELECT {cols}, 'deadline' as date_type \
-             FROM items i JOIN lists l ON l.id = i.list_id \
-             WHERE l.user_id = ?1 AND l.archived = 0 \
-             AND (i.deadline = ?2{overdue}) \
-             UNION ALL \
-             SELECT {cols}, 'hard_deadline' as date_type \
-             FROM items i JOIN lists l ON l.id = i.list_id \
-             WHERE l.user_id = ?1 AND l.archived = 0 AND i.hard_deadline = ?2 \
-             ORDER BY completed ASC, list_name ASC, deadline_time ASC, position ASC",
+            "SELECT * FROM ( \
+                SELECT {cols}, 'start_date' as date_type, i.completed as sort_completed, l.name as sort_list_name, COALESCE(i.start_time, '') as sort_time, i.position as sort_position \
+                FROM items i JOIN lists l ON l.id = i.list_id \
+                WHERE l.user_id = ?1 AND l.archived = 0 AND i.start_date = ?2 \
+                UNION ALL \
+                SELECT {cols}, 'deadline' as date_type, i.completed as sort_completed, l.name as sort_list_name, COALESCE(i.deadline_time, '') as sort_time, i.position as sort_position \
+                FROM items i JOIN lists l ON l.id = i.list_id \
+                WHERE l.user_id = ?1 AND l.archived = 0 \
+                AND (i.deadline = ?2{overdue}) \
+                UNION ALL \
+                SELECT {cols}, 'hard_deadline' as date_type, i.completed as sort_completed, l.name as sort_list_name, '' as sort_time, i.position as sort_position \
+                FROM items i JOIN lists l ON l.id = i.list_id \
+                WHERE l.user_id = ?1 AND l.archived = 0 AND i.hard_deadline = ?2 \
+             ) \
+             ORDER BY sort_completed ASC, sort_list_name ASC, sort_time ASC, sort_position ASC",
             cols = DATE_ITEM_COLS,
             overdue = if include_overdue {
                 " OR (i.deadline < ?2 AND i.completed = 0)"
@@ -763,29 +847,32 @@ pub async fn by_date(req: Request, ctx: RouteContext<String>) -> Result<Response
         Response::from_json(&items)
     } else {
         // Single date field query
-        let col = match selector {
-            DateFieldSelector::One(field) => field.column_name(),
+        let field = match selector {
+            DateFieldSelector::One(field) => field,
             DateFieldSelector::All => unreachable!("handled above"),
         };
+        let col = field.column_name();
 
         let sql = if include_overdue {
             format!(
-                "SELECT {cols}, NULL as date_type \
+                "SELECT {cols}, '{label}' as date_type \
                  FROM items i JOIN lists l ON l.id = i.list_id \
                  WHERE l.user_id = ?1 AND l.archived = 0 \
                  AND ({col} = ?2 OR ({col} < ?2 AND i.completed = 0)) \
                  ORDER BY i.completed ASC, {col} ASC, l.name ASC, i.deadline_time ASC, i.position ASC",
                 cols = DATE_ITEM_COLS,
                 col = col,
+                label = field.label(),
             )
         } else {
             format!(
-                "SELECT {cols}, NULL as date_type \
+                "SELECT {cols}, '{label}' as date_type \
                  FROM items i JOIN lists l ON l.id = i.list_id \
                  WHERE l.user_id = ?1 AND l.archived = 0 AND {col} = ?2 \
                  ORDER BY i.completed ASC, l.name ASC, i.deadline_time ASC, i.position ASC",
                 cols = DATE_ITEM_COLS,
                 col = col,
+                label = field.label(),
             )
         };
 
@@ -809,22 +896,12 @@ pub async fn calendar(req: Request, ctx: RouteContext<String>) -> Result<Respons
     let user_id = ctx.data.clone();
     let url = req.url()?;
 
-    let from = match parse_required_query_date(
-        "from",
-        url.query_pairs()
-            .find(|(k, _)| k == "from")
-            .map(|(_, v)| v.to_string()),
-    ) {
+    let from = match parse_required_query_date("from", query_param_with_alias(&url, "from", None)) {
         Ok(from) => from,
         Err(resp) => return Ok(resp),
     };
 
-    let to = match parse_required_query_date(
-        "to",
-        url.query_pairs()
-            .find(|(k, _)| k == "to")
-            .map(|(_, v)| v.to_string()),
-    ) {
+    let to = match parse_required_query_date("to", query_param_with_alias(&url, "to", None)) {
         Ok(to) => to,
         Err(resp) => return Ok(resp),
     };
@@ -835,10 +912,7 @@ pub async fn calendar(req: Request, ctx: RouteContext<String>) -> Result<Respons
         );
     }
 
-    let detail = url
-        .query_pairs()
-        .find(|(k, _)| k == "detail")
-        .map(|(_, v)| v.to_string())
+    let detail = query_param_with_alias(&url, "detail", Some("mode"))
         .unwrap_or_else(|| "counts".to_string());
     if detail != "counts" && detail != "full" {
         return validation_error(
@@ -847,10 +921,7 @@ pub async fn calendar(req: Request, ctx: RouteContext<String>) -> Result<Respons
         );
     }
 
-    let date_field_raw = url
-        .query_pairs()
-        .find(|(k, _)| k == "date_field")
-        .map(|(_, v)| v.to_string())
+    let date_field_raw = query_param_with_alias(&url, "date_field", Some("field"))
         .unwrap_or_else(|| "deadline".to_string());
     let selector = match parse_date_field_selector(&date_field_raw) {
         Ok(selector) => selector,
@@ -864,18 +935,20 @@ pub async fn calendar(req: Request, ctx: RouteContext<String>) -> Result<Respons
     if detail == "full" {
         if matches!(selector, DateFieldSelector::All) {
             let sql = format!(
-                "SELECT {cols}, 'start' as date_type \
-                 FROM items i JOIN lists l ON l.id = i.list_id \
-                 WHERE l.user_id = ?1 AND l.archived = 0 AND i.start_date >= ?2 AND i.start_date <= ?3 \
-                 UNION ALL \
-                 SELECT {cols}, 'deadline' as date_type \
-                 FROM items i JOIN lists l ON l.id = i.list_id \
-                 WHERE l.user_id = ?1 AND l.archived = 0 AND i.deadline >= ?2 AND i.deadline <= ?3 \
-                 UNION ALL \
-                 SELECT {cols}, 'hard_deadline' as date_type \
-                 FROM items i JOIN lists l ON l.id = i.list_id \
-                 WHERE l.user_id = ?1 AND l.archived = 0 AND i.hard_deadline >= ?2 AND i.hard_deadline <= ?3 \
-                 ORDER BY completed ASC, list_name ASC, deadline_time ASC, position ASC",
+                "SELECT * FROM ( \
+                    SELECT {cols}, 'start_date' as date_type, i.start_date as sort_date, i.completed as sort_completed, l.name as sort_list_name, COALESCE(i.start_time, '') as sort_time, i.position as sort_position \
+                    FROM items i JOIN lists l ON l.id = i.list_id \
+                    WHERE l.user_id = ?1 AND l.archived = 0 AND i.start_date >= ?2 AND i.start_date <= ?3 \
+                    UNION ALL \
+                    SELECT {cols}, 'deadline' as date_type, i.deadline as sort_date, i.completed as sort_completed, l.name as sort_list_name, COALESCE(i.deadline_time, '') as sort_time, i.position as sort_position \
+                    FROM items i JOIN lists l ON l.id = i.list_id \
+                    WHERE l.user_id = ?1 AND l.archived = 0 AND i.deadline >= ?2 AND i.deadline <= ?3 \
+                    UNION ALL \
+                    SELECT {cols}, 'hard_deadline' as date_type, i.hard_deadline as sort_date, i.completed as sort_completed, l.name as sort_list_name, '' as sort_time, i.position as sort_position \
+                    FROM items i JOIN lists l ON l.id = i.list_id \
+                    WHERE l.user_id = ?1 AND l.archived = 0 AND i.hard_deadline >= ?2 AND i.hard_deadline <= ?3 \
+                 ) \
+                 ORDER BY sort_date ASC, sort_completed ASC, sort_list_name ASC, sort_time ASC, sort_position ASC",
                 cols = DATE_ITEM_COLS,
             );
             let result = d1
@@ -904,18 +977,20 @@ pub async fn calendar(req: Request, ctx: RouteContext<String>) -> Result<Respons
 
             Response::from_json(&day_items)
         } else {
-            let col = match selector {
-                DateFieldSelector::One(field) => field.column_name(),
+            let field = match selector {
+                DateFieldSelector::One(field) => field,
                 DateFieldSelector::All => unreachable!("handled above"),
             };
+            let col = field.column_name();
             let sql = format!(
-                "SELECT {cols}, NULL as date_type \
+                "SELECT {cols}, '{label}' as date_type \
                  FROM items i JOIN lists l ON l.id = i.list_id \
                  WHERE l.user_id = ?1 AND l.archived = 0 \
                  AND {col} >= ?2 AND {col} <= ?3 \
                  ORDER BY {col} ASC, i.completed ASC, l.name ASC, i.deadline_time ASC, i.position ASC",
                 cols = DATE_ITEM_COLS,
                 col = col,
+                label = field.label(),
             );
             let result = d1
                 .prepare(&sql)
@@ -989,5 +1064,56 @@ pub async fn calendar(req: Request, ctx: RouteContext<String>) -> Result<Respons
             let summaries = filter_day_summaries(result.results::<DaySummary>()?, from, to);
             Response::from_json(&summaries)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_title_rejects_titles_longer_than_255_chars() {
+        let title = "a".repeat(MAX_ITEM_TITLE_LENGTH + 1);
+        let mut errors = Vec::new();
+
+        let normalized = normalize_title(&title, "title", &mut errors);
+
+        assert!(normalized.is_none());
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].field, "title");
+        assert_eq!(errors[0].code, "too_long");
+    }
+
+    #[test]
+    fn quantity_validation_rejects_non_positive_quantity_and_negative_actual() {
+        let state = ItemQuantityState {
+            quantity: Some(0),
+            actual_quantity: Some(-1),
+        };
+        let mut errors = Vec::new();
+
+        validate_item_quantity_state(&state, &mut errors);
+
+        assert_eq!(errors.len(), 2);
+        assert_eq!(errors[0].field, "quantity");
+        assert_eq!(errors[0].code, "must_be_positive");
+        assert_eq!(errors[1].field, "actual_quantity");
+        assert_eq!(errors[1].code, "must_be_non_negative");
+    }
+
+    #[test]
+    fn derived_completion_uses_quantity_and_actual_quantity() {
+        assert!(!derive_completed_from_quantity_state(&ItemQuantityState {
+            quantity: Some(3),
+            actual_quantity: Some(2),
+        }));
+        assert!(derive_completed_from_quantity_state(&ItemQuantityState {
+            quantity: Some(3),
+            actual_quantity: Some(3),
+        }));
+        assert!(!derive_completed_from_quantity_state(&ItemQuantityState {
+            quantity: None,
+            actual_quantity: None,
+        }));
     }
 }
