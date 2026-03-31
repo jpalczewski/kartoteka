@@ -4,6 +4,7 @@ pub mod filters;
 pub mod items;
 pub mod lists;
 pub mod nav;
+pub mod pwa_runtime;
 pub mod sync_locale;
 pub mod tags;
 

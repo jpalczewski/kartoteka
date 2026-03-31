@@ -28,6 +28,30 @@
   --color-error-content: #ffffff;
 }
 
+@layer base {
+  body {
+    background: var(--color-base-100);
+  }
+
+  nav.navbar {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 0.5rem);
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+  }
+
+  main.app-main {
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+  }
+
+  .toast {
+    top: calc(env(safe-area-inset-top, 0px) + 1rem);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem);
+    right: max(1rem, env(safe-area-inset-right, 0px));
+  }
+}
+
 /* Neon glow on card hover */
 @layer components {
   .card-neon:hover {

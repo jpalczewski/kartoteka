@@ -8,6 +8,7 @@ use crate::api::client::GlooClient;
 
 use crate::api::SessionInfo;
 use crate::components::nav::Nav;
+use crate::components::pwa_runtime::PwaRuntime;
 use crate::components::sync_locale::SyncLocale;
 use crate::components::toast_container::ToastContainer;
 use crate::pages::{
@@ -118,11 +119,12 @@ pub fn App() -> impl IntoView {
 
     view! {
         <I18nProvider>
+            <PwaRuntime/>
             <SyncLocale/>
             <Router>
                 <Nav/>
                 <ToastContainer/>
-                <main class="container">
+                <main class="container app-main">
                     <Routes fallback=|| view! { <p>"Nie znaleziono strony"</p> }>
                         <Route path=path!("/") view=HomePage/>
                         <Route path=path!("/today") view=TodayPage/>

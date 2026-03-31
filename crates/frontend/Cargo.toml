@@ -15,6 +15,7 @@ leptos = { version = "0.8", features = ["csr"] }
 leptos_router = "0.8"
 leptos-fluent = "0.3"
 leptos_meta = "0.8"
+leptos-use = { version = "0.18.3", features = ["use_service_worker"] }
 gloo-net = { version = "0.7", features = ["http"] }
 gloo-timers = { version = "0.4", features = ["futures"] }
 serde = { version = "1", features = ["derive"] }

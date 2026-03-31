@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title>Kartoteka</title>
+  <defs>
+    <linearGradient id="bg" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#12122a" />
+      <stop offset="100%" stop-color="#0a0a1a" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#00d4ff" />
+      <stop offset="100%" stop-color="#39ff14" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <rect x="72" y="72" width="368" height="368" rx="88" fill="none" stroke="url(#accent)" stroke-width="18" opacity="0.95" />
+  <path
+    d="M188 146h64v112l104-112h82L320 274l132 92h-90l-110-79v79h-64z"
+    fill="#e2e8f0"
+    filter="url(#glow)"
+  />
+</svg>
