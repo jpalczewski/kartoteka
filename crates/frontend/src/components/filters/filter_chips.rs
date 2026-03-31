@@ -1,12 +1,13 @@
 use std::collections::HashSet;
 
-use kartoteka_shared::Tag;
 use leptos::prelude::*;
+
+use crate::components::tags::tag_tree::TagFilterOption;
 
 #[component]
 pub fn FilterChips(
     unique_lists: Vec<(String, String)>,
-    relevant_tags: Vec<Tag>,
+    relevant_tags: Vec<TagFilterOption>,
     hidden_lists: RwSignal<HashSet<String>>,
     hidden_tags: RwSignal<HashSet<String>>,
     show_completed: RwSignal<bool>,
@@ -48,7 +49,7 @@ pub fn FilterChips(
                     <div class="flex flex-wrap gap-1 mb-2">
                         {relevant_tags.into_iter().map(|tag| {
                             let tid = tag.id.clone();
-                            let tag_name = tag.name.clone();
+                            let tag_name = tag.label.clone();
                             let tag_color = tag.color.clone();
                             let is_hidden = {
                                 let tid = tid.clone();
@@ -57,9 +58,9 @@ pub fn FilterChips(
                             view! {
                                 <button
                                     class=move || if is_hidden() {
-                                        "badge badge-sm opacity-40 line-through cursor-pointer"
+                                        "badge badge-sm h-auto whitespace-normal py-1 text-left opacity-40 line-through cursor-pointer"
                                     } else {
-                                        "badge badge-sm cursor-pointer"
+                                        "badge badge-sm h-auto whitespace-normal py-1 text-left cursor-pointer"
                                     }
                                     style=format!("background-color: {}; color: white;", tag_color)
                                     on:click=move |_| {

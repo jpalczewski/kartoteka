@@ -2,6 +2,9 @@ use crate::api;
 use crate::api::client::GlooClient;
 use crate::components::add_input::AddInput;
 use crate::components::tag_badge::TagBadge;
+pub use crate::state::view_helpers::TagFilterOption;
+use crate::state::view_helpers::build_tag_breadcrumb;
+pub use crate::state::view_helpers::build_tag_filter_options;
 use kartoteka_shared::{CreateTagRequest, Tag};
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
@@ -68,25 +71,7 @@ pub fn build_tag_tree(tags: &[Tag]) -> Vec<TagNode> {
 
 /// Walk ancestors of a tag (from tag up to root). Returns list from root to tag.
 pub fn build_breadcrumb(tags: &[Tag], tag_id: &str) -> Vec<Tag> {
-    let tag_map: HashMap<&str, &Tag> = tags.iter().map(|t| (t.id.as_str(), t)).collect();
-    let mut path = Vec::new();
-    let mut current_id = Some(tag_id);
-
-    let mut visited = std::collections::HashSet::new();
-    while let Some(id) = current_id {
-        if !visited.insert(id.to_string()) {
-            break; // cycle protection
-        }
-        if let Some(tag) = tag_map.get(id) {
-            path.push((*tag).clone());
-            current_id = tag.parent_tag_id.as_deref();
-        } else {
-            break;
-        }
-    }
-
-    path.reverse(); // root first
-    path
+    build_tag_breadcrumb(tags, tag_id)
 }
 
 /// Get all descendant IDs of a tag (not including the tag itself).

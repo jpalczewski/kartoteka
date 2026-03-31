@@ -1,13 +1,17 @@
 mod date_view;
 mod normal_view;
 
+use std::collections::HashSet;
+
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::api;
 use crate::api::client::GlooClient;
 use crate::app::{ToastContext, ToastKind};
-use crate::components::common::breadcrumbs::Breadcrumbs;
+use crate::components::common::breadcrumbs::{
+    BreadcrumbCrumb, Breadcrumbs, build_container_breadcrumbs, build_list_ancestor_breadcrumbs,
+};
 use crate::components::common::editable_description::EditableDescription;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::items::add_item_input::AddItemInput;
@@ -17,6 +21,7 @@ use crate::components::lists::list_header::ListHeader;
 use crate::components::lists::list_tag_bar::ListTagBar;
 use crate::components::lists::sublist_section::SublistSection;
 use crate::components::tags::tag_filter_bar::TagFilterBar;
+use crate::components::tags::tag_tree::build_tag_filter_options;
 use kartoteka_shared::{
     FEATURE_DEADLINES, FEATURE_QUANTITY, Item, ItemTagLink, List, ListFeature, ListTagLink, Tag,
     UpdateListRequest,
@@ -24,6 +29,53 @@ use kartoteka_shared::{
 
 use date_view::render_date_view;
 use normal_view::{NormalViewProps, render_normal_view};
+
+async fn fetch_list_ancestors(client: &GlooClient, list: &List) -> Vec<List> {
+    let mut ancestors = Vec::new();
+    let mut current_parent_id = list.parent_list_id.clone();
+    let mut depth = 0;
+
+    while let Some(parent_id) = current_parent_id {
+        if depth > 10 {
+            break;
+        }
+
+        match api::fetch_list(client, &parent_id).await {
+            Ok(parent) => {
+                current_parent_id = parent.parent_list_id.clone();
+                ancestors.push(parent);
+            }
+            Err(_) => break,
+        }
+        depth += 1;
+    }
+
+    ancestors.reverse();
+    ancestors
+}
+
+async fn resolve_list_breadcrumbs(client: &GlooClient, list: &List) -> Vec<BreadcrumbCrumb> {
+    let ancestors = fetch_list_ancestors(client, list).await;
+    let mut crumbs = Vec::new();
+
+    let root_container_id = ancestors
+        .first()
+        .and_then(|ancestor| ancestor.container_id.clone())
+        .or_else(|| list.container_id.clone());
+
+    if let Some(container_id) = root_container_id
+        && let Ok(all_containers) = api::fetch_containers(client).await
+    {
+        crumbs.extend(build_container_breadcrumbs(
+            &container_id,
+            &all_containers,
+            true,
+        ));
+    }
+
+    crumbs.extend(build_list_ancestor_breadcrumbs(&ancestors));
+    crumbs
+}
 
 #[component]
 pub fn ListPage() -> impl IntoView {
@@ -38,7 +90,7 @@ pub fn ListPage() -> impl IntoView {
     let list_tag_links = RwSignal::new(Vec::<ListTagLink>::new());
     let (loading, set_loading) = signal(true);
     let (error, set_error) = signal(Option::<String>::None);
-    let breadcrumbs = RwSignal::new(Vec::<(String, String)>::new());
+    let breadcrumbs = RwSignal::new(Vec::<BreadcrumbCrumb>::new());
 
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let navigate = use_navigate();
@@ -51,28 +103,7 @@ pub fn ListPage() -> impl IntoView {
     let client_init = client.clone();
     leptos::task::spawn_local(async move {
         if let Ok(list) = api::fetch_list(&client_init, &lid).await {
-            // Build breadcrumbs if the list belongs to a container
-            if let Some(cid) = list.container_id.clone() {
-                if let Ok(all_containers) = api::fetch_containers(&client_init).await {
-                    let mut chain = Vec::new();
-                    let mut current_id = Some(cid);
-                    let mut depth = 0;
-                    while let Some(ref id) = current_id.clone() {
-                        if depth > 10 {
-                            break;
-                        }
-                        if let Some(c) = all_containers.iter().find(|c| &c.id == id) {
-                            chain.push((c.name.clone(), format!("/containers/{}", c.id)));
-                            current_id = c.parent_container_id.clone();
-                        } else {
-                            break;
-                        }
-                        depth += 1;
-                    }
-                    chain.reverse();
-                    breadcrumbs.set(chain);
-                }
-            }
+            breadcrumbs.set(resolve_list_breadcrumbs(&client_init, &list).await);
             list_name.set(list.name);
             list_description.set(list.description);
             list_features.set(list.features);
@@ -222,6 +253,18 @@ pub fn ListPage() -> impl IntoView {
         }
     };
 
+    let tag_filter_options = move || {
+        let tags = all_tags.get();
+        let item_ids: HashSet<String> = items.get().into_iter().map(|item| item.id).collect();
+        let relevant_tag_ids: Vec<String> = item_tag_links
+            .get()
+            .into_iter()
+            .filter(|link| item_ids.contains(&link.item_id))
+            .map(|link| link.tag_id)
+            .collect();
+        build_tag_filter_options(&tags, &relevant_tag_ids)
+    };
+
     /// Get deadlines feature config from list features, or Null if not enabled
     fn get_deadlines_config(feats: &[ListFeature]) -> serde_json::Value {
         feats
@@ -359,8 +402,13 @@ pub fn ListPage() -> impl IntoView {
             }}
 
             {move || {
-                let tags = all_tags.read();
-                view! { <TagFilterBar tags=tags.clone() active_tag_id=active_tag_filter on_select=set_active_tag_filter /> }
+                view! {
+                    <TagFilterBar
+                        tags=tag_filter_options()
+                        active_tag_id=active_tag_filter
+                        on_select=set_active_tag_filter
+                    />
+                }
             }}
 
             {move || {
