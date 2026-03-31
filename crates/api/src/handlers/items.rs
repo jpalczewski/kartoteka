@@ -783,7 +783,7 @@ pub async fn move_item(mut req: Request, ctx: RouteContext<String>) -> Result<Re
 }
 
 /// GET /api/items/by-date?date=YYYY-MM-DD&date_field=deadline&include_overdue=true
-#[instrument(skip_all)]
+#[instrument(skip_all, fields(action = "list_items_by_date"))]
 pub async fn by_date(req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let url = req.url()?;
@@ -891,7 +891,7 @@ pub async fn by_date(req: Request, ctx: RouteContext<String>) -> Result<Response
 }
 
 /// GET /api/items/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD&date_field=deadline&detail=counts|full
-#[instrument(skip_all)]
+#[instrument(skip_all, fields(action = "list_calendar"))]
 pub async fn calendar(req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let url = req.url()?;
