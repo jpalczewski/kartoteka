@@ -272,7 +272,7 @@ fn parse_required_query_date(
 fn relevant_date_for_item(item: &DateItem, selector: DateFieldSelector) -> Option<&str> {
     match selector {
         DateFieldSelector::All => match item.date_type.as_deref() {
-            Some("start") => item.start_date.as_deref(),
+            Some("start_date") => item.start_date.as_deref(),
             Some("hard_deadline") => item.hard_deadline.as_deref(),
             Some("deadline") => item.deadline.as_deref(),
             _ => None,
@@ -301,7 +301,7 @@ fn keep_item_for_day(
             Some("deadline") => {
                 item_date == target || (include_overdue && item_date < target && !item.completed)
             }
-            Some("start") | Some("hard_deadline") => item_date == target,
+            Some("start_date") | Some("hard_deadline") => item_date == target,
             _ => false,
         },
         DateFieldSelector::One(_) => {
@@ -1115,5 +1115,41 @@ mod tests {
             quantity: None,
             actual_quantity: None,
         }));
+    }
+
+    #[test]
+    fn all_selector_uses_start_date_date_type() {
+        let item = DateItem {
+            id: "item-1".into(),
+            list_id: "list-1".into(),
+            title: "Start item".into(),
+            description: None,
+            completed: false,
+            position: 0,
+            quantity: None,
+            actual_quantity: None,
+            unit: None,
+            start_date: Some("2026-04-12".into()),
+            start_time: Some("09:00".into()),
+            deadline: None,
+            deadline_time: None,
+            hard_deadline: None,
+            created_at: "2026-04-01T00:00:00Z".into(),
+            updated_at: "2026-04-01T00:00:00Z".into(),
+            list_name: "List".into(),
+            list_type: ListType::Checklist,
+            date_type: Some("start_date".into()),
+        };
+
+        assert_eq!(
+            relevant_date_for_item(&item, DateFieldSelector::All),
+            Some("2026-04-12")
+        );
+        assert!(keep_item_for_day(
+            &item,
+            DateFieldSelector::All,
+            chrono::NaiveDate::from_ymd_opt(2026, 4, 12).unwrap(),
+            true,
+        ));
     }
 }
