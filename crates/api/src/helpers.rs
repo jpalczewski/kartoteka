@@ -1,3 +1,5 @@
+use crate::error::json_error;
+use serde::de::DeserializeOwned;
 use wasm_bindgen::JsValue;
 use worker::*;
 
@@ -178,6 +180,17 @@ pub fn require_param(ctx: &RouteContext<String>, name: &str) -> Result<String> {
     ctx.param(name)
         .ok_or_else(|| Error::from(format!("Missing {name}")))
         .map(|s| s.to_string())
+}
+
+pub async fn parse_json_body<T: DeserializeOwned>(
+    req: &mut Request,
+) -> std::result::Result<T, Response> {
+    let body = req
+        .text()
+        .await
+        .map_err(|_| json_error("invalid_request_body", 400).expect("build 400 response"))?;
+    serde_json::from_str::<T>(&body)
+        .map_err(|_| json_error("invalid_request_body", 400).expect("build 400 response"))
 }
 
 /// Fetch list feature names for a given list_id.

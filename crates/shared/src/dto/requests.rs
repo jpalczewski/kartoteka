@@ -1,4 +1,4 @@
-use crate::deserializers::default_config;
+use crate::deserializers::{default_config, double_option};
 use crate::models::{ContainerStatus, ListFeature, ListType};
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +13,7 @@ pub struct CreateContainerRequest {
 pub struct UpdateContainerRequest {
     pub name: Option<String>,
     pub description: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub status: Option<Option<ContainerStatus>>,
 }
 
@@ -99,10 +100,15 @@ pub struct UpdateItemRequest {
     pub quantity: Option<i32>,
     pub actual_quantity: Option<i32>,
     pub unit: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub start_date: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub start_time: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub deadline: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub deadline_time: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub hard_deadline: Option<Option<String>>,
 }
 
@@ -117,6 +123,7 @@ pub struct CreateTagRequest {
 pub struct UpdateTagRequest {
     pub name: Option<String>,
     pub color: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub parent_tag_id: Option<Option<String>>,
 }
 

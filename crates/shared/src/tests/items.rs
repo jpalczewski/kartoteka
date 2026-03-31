@@ -11,11 +11,8 @@ fn update_item_absent_field_is_none() {
 
 #[test]
 fn update_item_null_field_is_none() {
-    // serde flattens Option<Option<String>> — null becomes None, same as absent.
-    // To distinguish "clear field" from "don't touch", the frontend must omit
-    // the key (don't touch) vs send null (currently also treated as don't touch).
     let req: UpdateItemRequest = serde_json::from_str(r#"{"deadline": null}"#).unwrap();
-    assert!(req.deadline.is_none());
+    assert!(matches!(req.deadline, Some(None)));
 }
 
 #[test]
@@ -35,8 +32,8 @@ fn update_item_description_absent_is_none() {
 
 #[test]
 fn update_item_description_empty_string_is_clear_sentinel() {
-    // Some("") = clear description (set NULL in DB). Empty string is the sentinel
-    // because serde cannot distinguish Option<Option<T>> null from absent.
+    // Some("") = clear description (set NULL in DB). This is kept for
+    // description even though date fields use explicit JSON null semantics.
     let req: UpdateItemRequest = serde_json::from_str(r#"{"description": ""}"#).unwrap();
     assert!(matches!(req.description, Some(ref d) if d.is_empty()));
 }
@@ -112,4 +109,42 @@ fn day_summary_deserialize() {
     let ds: DaySummary = serde_json::from_str(json).unwrap();
     assert_eq!(ds.total, 5);
     assert_eq!(ds.completed, 3);
+}
+
+#[test]
+fn validate_business_date_accepts_valid_date() {
+    let parsed = validate_business_date("2026-03-31").unwrap();
+    assert_eq!(format_date(&parsed), "2026-03-31");
+}
+
+#[test]
+fn validate_business_date_rejects_invalid_date() {
+    assert_eq!(
+        validate_business_date("2026-02-30"),
+        Err(DateValidationError::Invalid)
+    );
+}
+
+#[test]
+fn validate_business_date_rejects_out_of_range_year() {
+    assert_eq!(
+        validate_business_date("1900-01-01"),
+        Err(DateValidationError::OutOfRange)
+    );
+}
+
+#[test]
+fn validate_hhmm_time_rejects_seconds() {
+    assert_eq!(
+        validate_hhmm_time("14:30:00"),
+        Err(TimeValidationError::Invalid)
+    );
+}
+
+#[test]
+fn validate_hhmm_time_rejects_invalid_hour() {
+    assert_eq!(
+        validate_hhmm_time("25:61"),
+        Err(TimeValidationError::Invalid)
+    );
 }

@@ -148,7 +148,10 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
 #[instrument(skip_all, fields(action = "create_tag", tag_id = tracing::field::Empty))]
 pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let body: CreateTagRequest = req.json().await?;
+    let body: CreateTagRequest = match parse_json_body(&mut req).await {
+        Ok(body) => body,
+        Err(resp) => return Ok(resp),
+    };
     let id = uuid::Uuid::new_v4().to_string();
     tracing::Span::current().record("tag_id", tracing::field::display(&id));
 
@@ -186,7 +189,10 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
     tracing::Span::current().record("tag_id", tracing::field::display(&id));
-    let body: UpdateTagRequest = req.json().await?;
+    let body: UpdateTagRequest = match parse_json_body(&mut req).await {
+        Ok(body) => body,
+        Err(resp) => return Ok(resp),
+    };
     let d1 = ctx.env.d1("DB")?;
 
     if !check_ownership(&d1, "tags", &id, &user_id).await? {
@@ -417,7 +423,10 @@ pub async fn remove_from_list(_req: Request, ctx: RouteContext<String>) -> Resul
 )]
 pub async fn set_links(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let body: SetTagLinksRequest = req.json().await?;
+    let body: SetTagLinksRequest = match parse_json_body(&mut req).await {
+        Ok(body) => body,
+        Err(resp) => return Ok(resp),
+    };
     tracing::Span::current().record("tag_count", body.tag_ids.len());
     tracing::Span::current().record(
         "target_count",

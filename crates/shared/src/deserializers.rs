@@ -32,3 +32,11 @@ pub(crate) fn features_from_json<'de, D: Deserializer<'de>>(
 pub(crate) fn default_config() -> serde_json::Value {
     serde_json::json!({})
 }
+
+pub(crate) fn double_option<'de, T, D>(d: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    Ok(Some(Option::<T>::deserialize(d)?))
+}

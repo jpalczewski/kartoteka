@@ -1,6 +1,12 @@
 use crate::models::{Container, Item, List, ListFeature};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationFieldError {
+    pub field: String,
+    pub code: String,
+}
+
 /// Response from GET /api/me
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeResponse {
@@ -55,6 +61,10 @@ pub struct ErrorResponse {
     pub code: Option<String>,
     #[serde(default)]
     pub status: u16,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub fields: Vec<ValidationFieldError>,
 }
 
 /// Response from GET /api/home — matches actual API shape
