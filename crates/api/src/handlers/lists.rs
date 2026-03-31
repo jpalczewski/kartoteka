@@ -50,6 +50,14 @@ async fn list_has_sublists(d1: &D1Database, list_id: &str) -> Result<bool> {
         .is_some())
 }
 
+async fn touch_list_updated_at(d1: &D1Database, list_id: &str) -> Result<()> {
+    d1.prepare("UPDATE lists SET updated_at = datetime('now') WHERE id = ?1")
+        .bind(&[list_id.into()])?
+        .run()
+        .await?;
+    Ok(())
+}
+
 async fn fetch_lists_by_ids(
     d1: &D1Database,
     user_id: &str,
@@ -256,7 +264,10 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
     tracing::Span::current().record("list_id", tracing::field::display(&id));
-    let body: UpdateListRequest = req.json().await?;
+    let body: UpdateListRequest = match parse_json_body(&mut req).await {
+        Ok(body) => body,
+        Err(resp) => return Ok(resp),
+    };
     let d1 = ctx.env.d1("DB")?;
 
     if !check_ownership(&d1, "lists", &id, &user_id).await? {
@@ -270,9 +281,9 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
             .await?;
     }
 
-    if let Some(description) = &body.description {
+    if let Some(desc_val) = nullable_string_patch_to_js(&body.description, true) {
         d1.prepare("UPDATE lists SET description = ?1, updated_at = datetime('now') WHERE id = ?2")
-            .bind(&[description.clone().into(), id.clone().into()])?
+            .bind(&[desc_val, id.clone().into()])?
             .run()
             .await?;
     }
@@ -469,6 +480,7 @@ pub async fn add_feature(mut req: Request, ctx: RouteContext<String>) -> Result<
     ])?
     .run()
     .await?;
+    touch_list_updated_at(&d1, &list_id).await?;
 
     // Return updated list
     let list = d1
@@ -498,6 +510,7 @@ pub async fn remove_feature(_req: Request, ctx: RouteContext<String>) -> Result<
         .bind(&[list_id.clone().into(), feature_name.into()])?
         .run()
         .await?;
+    touch_list_updated_at(&d1, &list_id).await?;
 
     // Return updated list
     let list = d1

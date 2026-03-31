@@ -35,7 +35,7 @@ impl ListType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum DateField {
     StartDate,
@@ -62,7 +62,7 @@ impl DateField {
 
     pub fn label(&self) -> &'static str {
         match self {
-            Self::StartDate => "start",
+            Self::StartDate => "start_date",
             Self::Deadline => "deadline",
             Self::HardDeadline => "hard_deadline",
         }

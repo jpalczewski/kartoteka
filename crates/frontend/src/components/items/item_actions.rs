@@ -100,7 +100,11 @@ pub fn create_item_actions(
         let client = client_desc.clone();
         leptos::task::spawn_local(async move {
             let req = UpdateItemRequest {
-                description: Some(new_desc), // empty string = clear (sentinel)
+                description: Some(if new_desc.is_empty() {
+                    None
+                } else {
+                    Some(new_desc)
+                }),
                 ..Default::default()
             };
             if api::update_item(&client, &lid, &item_id, &req)

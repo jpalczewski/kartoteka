@@ -79,7 +79,7 @@ export function registerTagTools(server: McpServer, api: ApiContext, locale: str
       recursive: z.boolean().default(false).describe("Include items from child tags"),
     },
   }, ({ tag_id, recursive }) => {
-    const params = recursive ? "?recursive=true" : "";
+    const params = `?recursive=${recursive ? "true" : "false"}`;
     return callTool(api, "GET", `/api/tags/${tag_id}/items${params}`);
   });
 

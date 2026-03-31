@@ -183,7 +183,7 @@ pub fn TagTreeRow(
                         leptos::task::spawn_local(async move {
                             let req = CreateTagRequest {
                                 name,
-                                color,
+                                color: Some(color),
                                 parent_tag_id: Some(parent_id),
                             };
                             if let Ok(tag) = api::create_tag(&client_c, &req).await {

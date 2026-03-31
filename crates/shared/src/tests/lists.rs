@@ -110,6 +110,18 @@ fn move_list_request_remove_from_container() {
 }
 
 #[test]
+fn update_list_description_null_clears_field() {
+    let req: UpdateListRequest = serde_json::from_str(r#"{"description": null}"#).unwrap();
+    assert!(matches!(req.description, Some(None)));
+}
+
+#[test]
+fn update_list_description_value_is_some_some() {
+    let req: UpdateListRequest = serde_json::from_str(r#"{"description": "opis"}"#).unwrap();
+    assert!(matches!(req.description, Some(Some(ref d)) if d == "opis"));
+}
+
+#[test]
 fn set_list_placement_request_validates_non_empty_ids() {
     let req = SetListPlacementRequest {
         list_ids: vec![],
@@ -226,7 +238,7 @@ fn date_field_time_columns() {
 
 #[test]
 fn date_field_labels() {
-    assert_eq!(DateField::StartDate.label(), "start");
+    assert_eq!(DateField::StartDate.label(), "start_date");
     assert_eq!(DateField::Deadline.label(), "deadline");
     assert_eq!(DateField::HardDeadline.label(), "hard_deadline");
 }

@@ -209,7 +209,7 @@ pub fn ContainerPage() -> impl IntoView {
                                     leptos::task::spawn_local(async move {
                                         let req = UpdateContainerRequest {
                                             name: None,
-                                            description: desc,
+                                            description: Some(desc),
                                             status: None,
                                         };
                                         let _ = api::update_container(&client, &cid, &req).await;

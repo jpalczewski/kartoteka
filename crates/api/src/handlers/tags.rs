@@ -5,6 +5,10 @@ use tracing::instrument;
 use wasm_bindgen::JsValue;
 use worker::*;
 
+const TAG_ITEM_COLS: &str = "i.id, i.list_id, i.title, i.description, i.completed, i.position, \
+    i.quantity, i.actual_quantity, i.unit, i.start_date, i.start_time, i.deadline, i.deadline_time, i.hard_deadline, \
+    i.created_at, i.updated_at, l.name as list_name, l.list_type";
+
 async fn apply_tag_links(
     d1: &D1Database,
     user_id: &str,
@@ -148,11 +152,15 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
 #[instrument(skip_all, fields(action = "create_tag", tag_id = tracing::field::Empty))]
 pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let body: CreateTagRequest = req.json().await?;
+    let body: CreateTagRequest = match parse_json_body(&mut req).await {
+        Ok(body) => body,
+        Err(resp) => return Ok(resp),
+    };
     let id = uuid::Uuid::new_v4().to_string();
     tracing::Span::current().record("tag_id", tracing::field::display(&id));
 
     let parent_val = opt_str_to_js(&body.parent_tag_id);
+    let color = body.color.unwrap_or_else(random_hex_color);
 
     let d1 = ctx.env.d1("DB")?;
     d1.prepare(
@@ -162,7 +170,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         id.clone().into(),
         user_id.clone().into(),
         body.name.into(),
-        body.color.into(),
+        color.into(),
         parent_val,
     ])?
     .run()
@@ -186,7 +194,10 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
     let user_id = ctx.data.clone();
     let id = require_param(&ctx, "id")?;
     tracing::Span::current().record("tag_id", tracing::field::display(&id));
-    let body: UpdateTagRequest = req.json().await?;
+    let body: UpdateTagRequest = match parse_json_body(&mut req).await {
+        Ok(body) => body,
+        Err(resp) => return Ok(resp),
+    };
     let d1 = ctx.env.d1("DB")?;
 
     if !check_ownership(&d1, "tags", &id, &user_id).await? {
@@ -417,7 +428,10 @@ pub async fn remove_from_list(_req: Request, ctx: RouteContext<String>) -> Resul
 )]
 pub async fn set_links(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
-    let body: SetTagLinksRequest = req.json().await?;
+    let body: SetTagLinksRequest = match parse_json_body(&mut req).await {
+        Ok(body) => body,
+        Err(resp) => return Ok(resp),
+    };
     tracing::Span::current().record("tag_count", body.tag_ids.len());
     tracing::Span::current().record(
         "target_count",
@@ -467,40 +481,40 @@ pub async fn tag_items(req: Request, ctx: RouteContext<String>) -> Result<Respon
         .unwrap_or(true);
 
     let rows = if recursive {
-        d1.prepare(
+        let sql = format!(
             "WITH RECURSIVE tag_tree AS ( \
              SELECT id FROM tags WHERE id = ?1 AND user_id = ?2 \
              UNION ALL \
              SELECT t.id FROM tags t JOIN tag_tree tt ON t.parent_tag_id = tt.id WHERE t.user_id = ?2 \
              ) \
-             SELECT DISTINCT i.id, i.list_id, i.title, i.description, i.completed, i.position, \
-             i.quantity, i.actual_quantity, i.unit, i.start_date, i.start_time, i.deadline, i.deadline_time, i.hard_deadline, \
-             i.created_at, i.updated_at, l.name as list_name \
+             SELECT DISTINCT {cols}, NULL as date_type \
              FROM items i \
              JOIN item_tags it ON it.item_id = i.id \
              JOIN tag_tree tt ON it.tag_id = tt.id \
              JOIN lists l ON l.id = i.list_id \
-             ORDER BY l.name, i.position"
-        )
-        .bind(&[tag_id.into(), user_id.into()])?
-        .all()
-        .await?
-        .results::<serde_json::Value>()?
+             ORDER BY l.name, i.position",
+            cols = TAG_ITEM_COLS,
+        );
+        d1.prepare(&sql)
+            .bind(&[tag_id.into(), user_id.into()])?
+            .all()
+            .await?
+            .results::<DateItem>()?
     } else {
-        d1.prepare(
-            "SELECT i.id, i.list_id, i.title, i.description, i.completed, i.position, \
-             i.quantity, i.actual_quantity, i.unit, i.start_date, i.start_time, i.deadline, i.deadline_time, i.hard_deadline, \
-             i.created_at, i.updated_at, l.name as list_name \
+        let sql = format!(
+            "SELECT {cols}, NULL as date_type \
              FROM items i \
              JOIN item_tags it ON it.item_id = i.id \
              JOIN lists l ON l.id = i.list_id \
              WHERE it.tag_id = ?1 AND l.user_id = ?2 \
              ORDER BY l.name, i.position",
-        )
-        .bind(&[tag_id.into(), user_id.into()])?
-        .all()
-        .await?
-        .results::<serde_json::Value>()?
+            cols = TAG_ITEM_COLS,
+        );
+        d1.prepare(&sql)
+            .bind(&[tag_id.into(), user_id.into()])?
+            .all()
+            .await?
+            .results::<DateItem>()?
     };
 
     Response::from_json(&rows)

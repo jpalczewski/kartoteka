@@ -34,7 +34,7 @@ pub fn TagsPage() -> impl IntoView {
             leptos::task::spawn_local(async move {
                 let req = CreateTagRequest {
                     name,
-                    color,
+                    color: Some(color),
                     parent_tag_id: None,
                 };
                 if let Ok(tag) = api::create_tag(&client, &req).await {

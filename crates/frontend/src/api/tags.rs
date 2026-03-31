@@ -37,7 +37,7 @@ pub async fn fetch_tag_items(
     client: &impl super::HttpClient,
     tag_id: &str,
     recursive: bool,
-) -> Result<Vec<serde_json::Value>, super::ApiError> {
+) -> Result<Vec<DateItem>, super::ApiError> {
     let url = format!(
         "{}/tags/{tag_id}/items?recursive={recursive}",
         super::API_BASE

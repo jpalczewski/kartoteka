@@ -1,5 +1,20 @@
+use crate::error::json_error;
+use serde::de::DeserializeOwned;
 use wasm_bindgen::JsValue;
 use worker::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnedListState {
+    pub id: String,
+    pub archived: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnedItemState {
+    pub id: String,
+    pub list_id: String,
+    pub list_archived: bool,
+}
 
 pub fn dedupe_ids(ids: &[String]) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
@@ -76,6 +91,28 @@ pub async fn check_ownership(
     Ok(check.is_some())
 }
 
+pub async fn get_owned_list_state(
+    d1: &D1Database,
+    list_id: &str,
+    user_id: &str,
+) -> Result<Option<OwnedListState>> {
+    let row = d1
+        .prepare("SELECT id, archived FROM lists WHERE id = ?1 AND user_id = ?2")
+        .bind(&[list_id.into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+
+    Ok(row.and_then(|value| {
+        let id = value.get("id")?.as_str()?.to_string();
+        let archived = value
+            .get("archived")
+            .and_then(|v| v.as_f64())
+            .map(|f| f != 0.0)
+            .unwrap_or(false);
+        Some(OwnedListState { id, archived })
+    }))
+}
+
 /// Check if an item belongs to the user (via list join). Returns `true` if owned.
 pub async fn check_item_ownership(d1: &D1Database, item_id: &str, user_id: &str) -> Result<bool> {
     let check = d1
@@ -90,22 +127,46 @@ pub async fn check_item_ownership(d1: &D1Database, item_id: &str, user_id: &str)
     Ok(check.is_some())
 }
 
-/// Check item ownership and return its list_id. Returns `None` if not owned.
-pub async fn check_item_ownership_with_list(
+/// Check item ownership and return list metadata. Returns `None` if not owned.
+pub async fn get_owned_item_state(
     d1: &D1Database,
     item_id: &str,
     user_id: &str,
-) -> Result<Option<String>> {
+) -> Result<Option<OwnedItemState>> {
     let check = d1
         .prepare(
-            "SELECT items.id, items.list_id FROM items \
+            "SELECT items.id, items.list_id, lists.archived FROM items \
              JOIN lists ON lists.id = items.list_id \
              WHERE items.id = ?1 AND lists.user_id = ?2",
         )
         .bind(&[item_id.into(), user_id.into()])?
         .first::<serde_json::Value>(None)
         .await?;
-    Ok(check.and_then(|v| v.get("list_id")?.as_str().map(String::from)))
+    Ok(check.and_then(|v| {
+        let id = v.get("id")?.as_str()?.to_string();
+        let list_id = v.get("list_id")?.as_str()?.to_string();
+        let list_archived = v
+            .get("archived")
+            .and_then(|value| value.as_f64())
+            .map(|value| value != 0.0)
+            .unwrap_or(false);
+        Some(OwnedItemState {
+            id,
+            list_id,
+            list_archived,
+        })
+    }))
+}
+
+pub async fn get_owned_item_state_in_list(
+    d1: &D1Database,
+    item_id: &str,
+    list_id: &str,
+    user_id: &str,
+) -> Result<Option<OwnedItemState>> {
+    Ok(get_owned_item_state(d1, item_id, user_id)
+        .await?
+        .filter(|item| item.list_id == list_id))
 }
 
 /// Toggle a boolean field (D1 stores bools as 0/1 floats).
@@ -173,11 +234,42 @@ pub fn opt_str_to_js(opt: &Option<String>) -> JsValue {
     }
 }
 
+/// Convert a tri-state nullable string patch into a DB value.
+/// None = don't change, Some(None) = set NULL, Some(Some(v)) = set value.
+/// When `empty_string_clears` is true, Some(Some("")) also maps to NULL.
+pub fn nullable_string_patch_to_js(
+    patch: &Option<Option<String>>,
+    empty_string_clears: bool,
+) -> Option<JsValue> {
+    match patch {
+        None => None,
+        Some(None) => Some(JsValue::NULL),
+        Some(Some(value)) if empty_string_clears && value.is_empty() => Some(JsValue::NULL),
+        Some(Some(value)) => Some(JsValue::from(value.as_str())),
+    }
+}
+
+pub fn random_hex_color() -> String {
+    let seed = uuid::Uuid::new_v4().simple().to_string();
+    format!("#{}", &seed[..6])
+}
+
 /// Extract a required route parameter or return an error.
 pub fn require_param(ctx: &RouteContext<String>, name: &str) -> Result<String> {
     ctx.param(name)
         .ok_or_else(|| Error::from(format!("Missing {name}")))
         .map(|s| s.to_string())
+}
+
+pub async fn parse_json_body<T: DeserializeOwned>(
+    req: &mut Request,
+) -> std::result::Result<T, Response> {
+    let body = req
+        .text()
+        .await
+        .map_err(|_| json_error("invalid_request_body", 400).expect("build 400 response"))?;
+    serde_json::from_str::<T>(&body)
+        .map_err(|_| json_error("invalid_request_body", 400).expect("build 400 response"))
 }
 
 /// Fetch list feature names for a given list_id.

@@ -157,7 +157,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                 />
                             </div>
 
-                            // Description — empty string is the sentinel for "clear"
+                            // Description — send explicit null to clear, keep string when set
                             <EditableDescription
                                 value=item.description.clone()
                                 on_save=Callback::new(move |new_desc: Option<String>| {
@@ -167,7 +167,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                         item_id(),
                                         toast.clone(),
                                         UpdateItemRequest {
-                                            description: Some(new_desc.unwrap_or_default()),
+                                            description: Some(new_desc),
                                             ..Default::default()
                                         },
                                     );
