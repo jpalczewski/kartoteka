@@ -2,10 +2,12 @@ use crate::api;
 use crate::api::client::GlooClient;
 use crate::components::add_input::AddInput;
 use crate::components::tag_badge::TagBadge;
+pub use crate::state::view_helpers::TagFilterOption;
+use crate::state::view_helpers::build_tag_breadcrumb;
+pub use crate::state::view_helpers::build_tag_filter_options;
 use kartoteka_shared::{CreateTagRequest, Tag};
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
-use leptos_router::components::A;
 use std::collections::HashMap;
 
 /// A tag with its children, used for rendering tag trees.
@@ -68,25 +70,7 @@ pub fn build_tag_tree(tags: &[Tag]) -> Vec<TagNode> {
 
 /// Walk ancestors of a tag (from tag up to root). Returns list from root to tag.
 pub fn build_breadcrumb(tags: &[Tag], tag_id: &str) -> Vec<Tag> {
-    let tag_map: HashMap<&str, &Tag> = tags.iter().map(|t| (t.id.as_str(), t)).collect();
-    let mut path = Vec::new();
-    let mut current_id = Some(tag_id);
-
-    let mut visited = std::collections::HashSet::new();
-    while let Some(id) = current_id {
-        if !visited.insert(id.to_string()) {
-            break; // cycle protection
-        }
-        if let Some(tag) = tag_map.get(id) {
-            path.push((*tag).clone());
-            current_id = tag.parent_tag_id.as_deref();
-        } else {
-            break;
-        }
-    }
-
-    path.reverse(); // root first
-    path
+    build_tag_breadcrumb(tags, tag_id)
 }
 
 /// Get all descendant IDs of a tag (not including the tag itself).
@@ -130,7 +114,6 @@ pub fn TagTreeRow(
     let client = use_context::<GlooClient>().expect("GlooClient not provided");
     let tag = node.tag;
     let children = node.children;
-    let tid_link = tag.id.clone();
     let tid_add = tag.id.clone();
     let tid_delete = tag.id.clone();
     let padding = format!("padding-left: {}rem;", depth as f64 * 1.0);
@@ -139,9 +122,7 @@ pub fn TagTreeRow(
     view! {
         <div>
             <div class="flex items-center gap-1 py-1" style=padding.clone()>
-                <A href=format!("/tags/{tid_link}") attr:class="no-underline">
-                    <TagBadge tag=tag.clone() />
-                </A>
+                <TagBadge tag=tag.clone() />
                 {show_add_child.then(|| {
                     view! {
                         <button

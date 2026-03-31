@@ -9,12 +9,11 @@ pub fn EditableTitle(
     #[prop(default = "text-2xl font-bold".to_string())] class: String,
 ) -> impl IntoView {
     let (editing, set_editing) = signal(false);
-    let edit_value = RwSignal::new(String::new());
+    let edit_value = RwSignal::new(value.clone());
     let original = RwSignal::new(value.clone());
 
     view! {
         {move || {
-            let val = value.clone();
             if editing.get() {
                 view! {
                     <input
@@ -56,16 +55,17 @@ pub fn EditableTitle(
                 }.into_any()
             } else {
                 let display_class = class.clone();
+                let display_value = original.get();
                 view! {
                     <span
-                        class=format!("{display_class} cursor-pointer hover:text-primary transition-colors")
+                        class=format!("{display_class} cursor-pointer hover:text-primary transition-colors break-words")
                         title="Kliknij aby zmienić nazwę"
                         on:click=move |_| {
-                            edit_value.set(val.clone());
+                            edit_value.set(original.get_untracked());
                             set_editing.set(true);
                         }
                     >
-                        {value.clone()}
+                        {display_value}
                     </span>
                 }.into_any()
             }

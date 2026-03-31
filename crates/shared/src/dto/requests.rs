@@ -11,10 +11,19 @@ pub struct CreateContainerRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateContainerRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub description: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub status: Option<Option<ContainerStatus>>,
 }
 
@@ -67,10 +76,17 @@ impl CreateListRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateListRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub description: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub list_type: Option<ListType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub archived: Option<bool>,
 }
 
@@ -95,24 +111,57 @@ pub struct CreateItemRequest {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UpdateItemRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub description: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub completed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub quantity: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub actual_quantity: Option<i32>,
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub unit: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub start_date: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub start_time: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub deadline: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub deadline_time: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub hard_deadline: Option<Option<String>>,
 }
 
@@ -125,9 +174,15 @@ pub struct CreateTagRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateTagRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub parent_tag_id: Option<Option<String>>,
 }
 

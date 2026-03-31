@@ -8,7 +8,9 @@ use leptos_router::hooks::use_params_map;
 use crate::api;
 use crate::api::client::GlooClient;
 use crate::app::{ToastContext, ToastKind};
-use crate::components::common::breadcrumbs::Breadcrumbs;
+use crate::components::common::breadcrumbs::{
+    BreadcrumbCrumb, Breadcrumbs, build_container_breadcrumbs,
+};
 use crate::components::common::editable_description::EditableDescription;
 use crate::components::common::editable_title::EditableTitle;
 use crate::components::common::loading::LoadingSpinner;
@@ -16,37 +18,6 @@ use crate::components::confirm_delete_modal::ConfirmDeleteModal;
 use crate::components::container_card::ContainerCard;
 use crate::components::create_entity_input::CreateEntityInput;
 use crate::components::list_card::ListCard;
-
-async fn build_breadcrumbs(
-    container_id: &str,
-    all_containers: &[Container],
-) -> Vec<(String, String)> {
-    let mut crumbs = Vec::new();
-    let mut current_id = Some(container_id.to_string());
-
-    // Walk up the parent chain (max depth guard: 10)
-    let mut chain = Vec::new();
-    let mut depth = 0;
-    while let Some(ref cid) = current_id.clone() {
-        if depth > 10 {
-            break;
-        }
-        if let Some(c) = all_containers.iter().find(|c| &c.id == cid) {
-            chain.push((c.name.clone(), format!("/containers/{}", c.id)));
-            current_id = c.parent_container_id.clone();
-        } else {
-            break;
-        }
-        depth += 1;
-    }
-    chain.reverse();
-    // Remove the last item (current page, will be shown as plain text by the page title)
-    if !chain.is_empty() {
-        chain.pop();
-    }
-    crumbs.extend(chain);
-    crumbs
-}
 
 #[component]
 pub fn ContainerPage() -> impl IntoView {
@@ -60,7 +31,7 @@ pub fn ContainerPage() -> impl IntoView {
     let detail = RwSignal::new(Option::<ContainerDetail>::None);
     let sub_containers = RwSignal::new(Vec::<Container>::new());
     let sub_lists = RwSignal::new(Vec::<List>::new());
-    let breadcrumbs = RwSignal::new(Vec::<(String, String)>::new());
+    let breadcrumbs = RwSignal::new(Vec::<BreadcrumbCrumb>::new());
     let (loading, set_loading) = signal(true);
     let pending_delete_list = RwSignal::new(Option::<(String, String)>::None);
 
@@ -88,8 +59,7 @@ pub fn ContainerPage() -> impl IntoView {
                     sub_lists.set(children.lists);
                 }
                 if let Ok(all) = api::fetch_containers(&client).await {
-                    let crumbs = build_breadcrumbs(&cid, &all).await;
-                    breadcrumbs.set(crumbs);
+                    breadcrumbs.set(build_container_breadcrumbs(&cid, &all, false));
                 }
                 set_loading.set(false);
             });

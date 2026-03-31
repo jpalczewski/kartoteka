@@ -9,7 +9,7 @@ pub fn EditableDescription(
     #[prop(default = "Dodaj opis...".to_string())] placeholder: String,
 ) -> impl IntoView {
     let editing = RwSignal::new(false);
-    let edit_value = RwSignal::new(String::new());
+    let edit_value = RwSignal::new(value.clone().unwrap_or_default());
     let original = RwSignal::new(value.clone());
 
     move || {

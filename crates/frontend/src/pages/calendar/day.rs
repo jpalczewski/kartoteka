@@ -14,6 +14,7 @@ use crate::components::common::date_utils::{
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::filters::filter_chips::FilterChips;
 use crate::components::items::date_item_row::DateItemRow;
+use crate::components::tags::tag_tree::build_tag_filter_options;
 use kartoteka_shared::*;
 
 #[component]
@@ -111,10 +112,8 @@ pub fn CalendarDayPage() -> impl IntoView {
                     .filter(|l| item_ids.contains(&l.item_id))
                     .map(|l| l.tag_id.clone())
                     .collect();
-                let relevant_tags: Vec<Tag> = tags.iter()
-                    .filter(|t| relevant_tag_ids.contains(&t.id))
-                    .cloned()
-                    .collect();
+                let relevant_tag_ids: Vec<String> = relevant_tag_ids.into_iter().collect();
+                let relevant_tags = build_tag_filter_options(&tags, &relevant_tag_ids);
 
                 // Filter
                 let hl = hidden_lists.get();

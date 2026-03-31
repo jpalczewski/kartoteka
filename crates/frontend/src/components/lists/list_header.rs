@@ -58,15 +58,21 @@ pub fn ListHeader(
     };
 
     view! {
-        <div class="flex items-center justify-between mb-4">
-            {if let Some(on_rename) = on_rename {
-                view! {
-                    <EditableTitle value=list_name.clone() on_save=on_rename />
-                }.into_any()
-            } else {
-                view! { <h2 class="text-2xl font-bold">{list_name.clone()}</h2> }.into_any()
-            }}
-            <div class="flex gap-1">
+        <div class="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between">
+            <div class="min-w-0 flex-1">
+                {if let Some(on_rename) = on_rename {
+                    view! {
+                        <EditableTitle
+                            value=list_name.clone()
+                            on_save=on_rename
+                            class="text-2xl font-bold block break-words".to_string()
+                        />
+                    }.into_any()
+                } else {
+                    view! { <h2 class="text-2xl font-bold break-words">{list_name.clone()}</h2> }.into_any()
+                }}
+            </div>
+            <div class="flex flex-wrap gap-1 sm:justify-end">
                 {on_feature_toggle.map(|_| view! {
                     <button
                         type="button"

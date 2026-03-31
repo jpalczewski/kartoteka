@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title>Kartoteka Maskable Icon</title>
+  <defs>
+    <linearGradient id="bg" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#0a0a1a" />
+      <stop offset="100%" stop-color="#12122a" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#00d4ff" />
+      <stop offset="100%" stop-color="#39ff14" />
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="280" fill="url(#bg)" />
+  <rect x="212" y="212" width="600" height="600" rx="160" fill="none" stroke="url(#accent)" stroke-width="34" opacity="0.95" />
+  <path
+    d="M376 292h118v204l190-204h152L620 528l248 172H698L494 554v146H376z"
+    fill="#e2e8f0"
+  />
+</svg>

@@ -1,11 +1,43 @@
 {
+    "id": "/",
     "name": "Kartoteka",
     "short_name": "Kartoteka",
-    "start_url": "/",
-    "display": "standalone",
-    "background_color": "#1a1a2e",
-    "theme_color": "#1a1a2e",
     "description": "Listy zakupów, pakowania, projektów i więcej",
     "lang": "pl",
-    "icons": []
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "display_override": ["standalone", "minimal-ui"],
+    "background_color": "#0a0a1a",
+    "theme_color": "#1a1a2e",
+    "icons": [
+        {
+            "src": "/icons/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/icons/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "/icons/icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ],
+    "shortcuts": [
+        {
+            "name": "Dziś",
+            "short_name": "Dziś",
+            "url": "/today"
+        },
+        {
+            "name": "Kalendarz",
+            "short_name": "Kalendarz",
+            "url": "/calendar"
+        }
+    ]
 }

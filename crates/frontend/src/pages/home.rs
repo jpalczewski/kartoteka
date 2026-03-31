@@ -12,6 +12,8 @@ use crate::components::confirm_delete_modal::ConfirmDeleteModal;
 use crate::components::container_card::ContainerCard;
 use crate::components::create_entity_input::CreateEntityInput;
 use crate::components::list_card::{ListCard, list_type_icon};
+use crate::components::tags::tag_filter_bar::TagFilterBar;
+use crate::components::tags::tag_tree::build_tag_filter_options;
 
 #[component]
 fn LandingPage() -> impl IntoView {
@@ -185,31 +187,14 @@ fn HomePageInner() -> impl IntoView {
             <Suspense fallback=|| view! {}>
                 {move || if let Some(Ok(tags)) = tags_res.get() {
                     if !tags.is_empty() {
+                        let tag_ids: Vec<String> = tags.iter().map(|tag| tag.id.clone()).collect();
+                        let filter_options = build_tag_filter_options(&tags, &tag_ids);
                         view! {
-                            <div class="tag-filter-bar">
-                                {tags.into_iter().map(|tag| {
-                                    let tid = tag.id.clone();
-                                    let tid2 = tag.id.clone();
-                                    let tid3 = tag.id.clone();
-                                    let color = tag.color.clone();
-                                    let name = tag.name.clone();
-                                    view! {
-                                        <span
-                                            class=move || if active_tag_filter.get().as_deref() == Some(tid.as_str()) { "tag-badge active" } else { "tag-badge" }
-                                            style=format!("background: {}; color: white; cursor: pointer;", color)
-                                            on:click=move |_| {
-                                                if active_tag_filter.get().as_deref() == Some(tid2.as_str()) {
-                                                    set_active_tag_filter.set(None);
-                                                } else {
-                                                    set_active_tag_filter.set(Some(tid3.clone()));
-                                                }
-                                            }
-                                        >
-                                            {name}
-                                        </span>
-                                    }
-                                }).collect::<Vec<_>>()}
-                            </div>
+                            <TagFilterBar
+                                tags=filter_options
+                                active_tag_id=active_tag_filter
+                                on_select=set_active_tag_filter
+                            />
                         }.into_any()
                     } else {
                         view! {}.into_any()

@@ -1,7 +1,10 @@
+pub use crate::state::view_helpers::{
+    BreadcrumbCrumb, build_container_breadcrumbs, build_list_ancestor_breadcrumbs,
+};
 use leptos::prelude::*;
 
 #[component]
-pub fn Breadcrumbs(crumbs: Vec<(String, String)>) -> impl IntoView {
+pub fn Breadcrumbs(crumbs: Vec<BreadcrumbCrumb>) -> impl IntoView {
     view! {
         <div class="breadcrumbs text-sm mb-4">
             <ul>
