@@ -53,9 +53,20 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("message", (event) => {
-  if (event.data === "skipWaiting") {
-    self.skipWaiting();
+  if (event.data !== "skipWaiting") {
+    return;
   }
+
+  const sourceUrl = event.source && "url" in event.source ? event.source.url : null;
+  if (!sourceUrl) {
+    return;
+  }
+
+  if (new URL(sourceUrl).origin !== self.location.origin) {
+    return;
+  }
+
+  self.skipWaiting();
 });
 
 self.addEventListener("fetch", (event) => {
