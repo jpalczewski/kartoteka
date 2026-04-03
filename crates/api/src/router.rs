@@ -75,6 +75,7 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         .patch_async("/api/lists/:id/pin", lists::toggle_pin)
         // Item move
         .patch_async("/api/items/:id/move", items::move_item)
+        .patch_async("/api/items/:id/placement", items::set_placement)
         // Preferences
         .get_async("/api/preferences", preferences::get_preferences)
         .put_async("/api/preferences", preferences::put_preferences)

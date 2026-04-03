@@ -1,13 +1,14 @@
 use leptos::prelude::*;
 
 use crate::components::common::dnd::{
-    DragGrip, END_DROP_TARGET_ID, drag_handle_class, drag_shell_class, drag_surface_class,
-    drop_marker_class, drop_marker_label_class, drop_marker_line_class,
+    DragHandleLabel, ItemDragHandleButton, ItemDragShell, ItemDragSurface, ItemDropTargetMarker,
 };
 use crate::components::items::item_row::ItemRow;
+use crate::state::dnd::{DraggedItem, ItemDndState, ItemDropTarget};
 use kartoteka_shared::{Item, ItemTagLink, List, Tag};
 
 pub struct NormalViewProps {
+    pub list_id: String,
     pub items: Vec<Item>,
     pub tags: Vec<Tag>,
     pub item_tag_links: RwSignal<Vec<ItemTagLink>>,
@@ -21,14 +22,15 @@ pub struct NormalViewProps {
     pub on_move: Callback<(String, String)>,
     pub on_date_save: Callback<(String, String, String, Option<String>)>,
     pub deadlines_config: serde_json::Value,
-    pub enable_reorder: bool,
-    pub dragged_item_id: RwSignal<Option<String>>,
-    pub on_reorder_drop: Callback<Option<String>>,
+    pub enable_item_dnd: bool,
+    pub item_dnd_state: RwSignal<ItemDndState>,
+    pub on_item_drop: Callback<ItemDropTarget>,
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn render_normal_view(p: NormalViewProps) -> impl IntoView {
     let NormalViewProps {
+        list_id,
         items,
         tags,
         item_tag_links,
@@ -42,34 +44,29 @@ pub fn render_normal_view(p: NormalViewProps) -> impl IntoView {
         on_move,
         on_date_save,
         deadlines_config,
-        enable_reorder,
-        dragged_item_id,
-        on_reorder_drop,
+        enable_item_dnd,
+        item_dnd_state,
+        on_item_drop,
     } = p;
     let move_targets: Vec<(String, String)> = sublists
         .iter()
         .map(|s| (s.id.clone(), s.name.clone()))
         .collect();
-    let hovered_drop_id = RwSignal::new(Option::<String>::None);
-    let is_end_drop_target_hovered =
-        Signal::derive(move || hovered_drop_id.get().as_deref() == Some(END_DROP_TARGET_ID));
 
     view! {
         <div>
-            {items.iter().map(|item| {
+            {items.into_iter().map(|item| {
                 let item_id = item.id.clone();
-                let drop_before_id = item.id.clone();
-                let drop_target_id = item.id.clone();
-                let drop_target_id_for_dragover = drop_target_id.clone();
-                let drop_before_id_for_drop = drop_before_id.clone();
-                let drop_target_id_for_hover = drop_target_id.clone();
-                let drag_id = item.id.clone();
-                let drag_id_for_drag = drag_id.clone();
-                let drag_id_for_shell = drag_id.clone();
-                let drag_id_for_surface = drag_id.clone();
-                let is_drop_target_hovered = Signal::derive(move || {
-                    hovered_drop_id.get().as_deref() == Some(drop_target_id_for_hover.as_str())
-                });
+                let dragged_item = DraggedItem {
+                    item_id: item.id.clone(),
+                    source_list_id: list_id.clone(),
+                };
+                let dragged_item_for_handle = dragged_item.clone();
+                let dragged_item_for_shell = dragged_item.clone();
+                let dragged_item_for_surface = dragged_item.clone();
+                let drop_target = ItemDropTarget::before(list_id.clone(), item.id.clone());
+                let drop_target_for_marker = drop_target.clone();
+                let drop_target_for_surface = drop_target.clone();
                 let item_tags: Vec<String> = item_tag_links.read().iter()
                     .filter(|l| l.item_id == item.id)
                     .map(|l| l.tag_id.clone())
@@ -82,81 +79,35 @@ pub fn render_normal_view(p: NormalViewProps) -> impl IntoView {
                 let dc = deadlines_config.clone();
                 view! {
                     <div class="flex flex-col gap-2">
-                        {if enable_reorder {
+                        {if enable_item_dnd {
                             view! {
-                                <div
-                                    class=move || drop_marker_class(
-                                        dragged_item_id.get().is_some(),
-                                        is_drop_target_hovered.get(),
-                                    )
-                                    on:dragover=move |ev: web_sys::DragEvent| {
-                                        ev.prevent_default();
-                                        if let Some(data_transfer) = ev.data_transfer() {
-                                            data_transfer.set_drop_effect("move");
-                                        }
-                                        hovered_drop_id.set(Some(drop_target_id_for_dragover.clone()));
-                                    }
-                                    on:drop=move |ev: web_sys::DragEvent| {
-                                        ev.prevent_default();
-                                        hovered_drop_id.set(None);
-                                        on_reorder_drop.run(Some(drop_before_id_for_drop.clone()));
-                                    }
-                                >
-                                    <span class=move || drop_marker_line_class(
-                                        dragged_item_id.get().is_some(),
-                                        is_drop_target_hovered.get(),
-                                    )></span>
-                                    <span class=move || drop_marker_label_class(
-                                        dragged_item_id.get().is_some(),
-                                        is_drop_target_hovered.get(),
-                                    )>"Upuść tutaj"</span>
-                                    <span class=move || drop_marker_line_class(
-                                        dragged_item_id.get().is_some(),
-                                        is_drop_target_hovered.get(),
-                                    )></span>
-                                </div>
+                                <ItemDropTargetMarker
+                                    dnd_state=item_dnd_state
+                                    target=drop_target_for_marker
+                                    on_drop=on_item_drop.clone()
+                                />
                             }.into_any()
                         } else {
                             view! {}.into_any()
                         }}
-                        <div class=move || drag_shell_class(
-                            dragged_item_id.get().as_deref() == Some(drag_id_for_shell.as_str())
-                        )>
-                            {if enable_reorder {
+                        <ItemDragShell dnd_state=item_dnd_state dragged_item=dragged_item_for_shell>
+                            {if enable_item_dnd {
                                 view! {
-                                    <button
-                                        type="button"
-                                        class=move || format!(
-                                            "{} mt-2",
-                                            drag_handle_class(
-                                                dragged_item_id.get().as_deref() == Some(drag_id.as_str())
-                                            )
-                                        )
-                                        draggable="true"
-                                        aria-label="Przeciągnij, aby zmienić kolejność"
-                                        title="Przeciągnij, aby zmienić kolejność"
-                                        on:dragstart=move |ev: web_sys::DragEvent| {
-                                            if let Some(data_transfer) = ev.data_transfer() {
-                                                let _ = data_transfer.set_data("text/plain", &drag_id_for_drag);
-                                                data_transfer.set_effect_allowed("move");
-                                            }
-                                            dragged_item_id.set(Some(drag_id_for_drag.clone()));
-                                        }
-                                        on:dragend=move |_| {
-                                            dragged_item_id.set(None);
-                                            hovered_drop_id.set(None);
-                                        }
-                                    >
-                                        <DragGrip />
-                                    </button>
+                                    <ItemDragHandleButton
+                                        dnd_state=item_dnd_state
+                                        dragged_item=dragged_item_for_handle
+                                        label=DragHandleLabel::Reorder
+                                        extra_class="mt-2"
+                                    />
                                 }.into_any()
                             } else {
                                 view! {}.into_any()
                             }}
-                            <div class=move || drag_surface_class(
-                                dragged_item_id.get().as_deref() == Some(drag_id_for_surface.as_str()),
-                                is_drop_target_hovered.get(),
-                            )>
+                            <ItemDragSurface
+                                dnd_state=item_dnd_state
+                                dragged_item=dragged_item_for_surface
+                                hover_target=drop_target_for_surface
+                            >
                                 <ItemRow
                                     item=item.clone()
                                     on_toggle=on_toggle
@@ -172,44 +123,18 @@ pub fn render_normal_view(p: NormalViewProps) -> impl IntoView {
                                     on_date_save=on_date_save
                                     deadlines_config=dc
                                 />
-                            </div>
-                        </div>
+                            </ItemDragSurface>
+                        </ItemDragShell>
                     </div>
                 }
             }).collect::<Vec<_>>()}
-            {if enable_reorder {
+            {if enable_item_dnd {
                 view! {
-                    <div
-                        class=move || drop_marker_class(
-                            dragged_item_id.get().is_some(),
-                            is_end_drop_target_hovered.get(),
-                        )
-                        on:dragover=move |ev: web_sys::DragEvent| {
-                            ev.prevent_default();
-                            if let Some(data_transfer) = ev.data_transfer() {
-                                data_transfer.set_drop_effect("move");
-                            }
-                            hovered_drop_id.set(Some(END_DROP_TARGET_ID.to_string()));
-                        }
-                        on:drop=move |ev: web_sys::DragEvent| {
-                            ev.prevent_default();
-                            hovered_drop_id.set(None);
-                            on_reorder_drop.run(None);
-                        }
-                    >
-                        <span class=move || drop_marker_line_class(
-                            dragged_item_id.get().is_some(),
-                            is_end_drop_target_hovered.get(),
-                        )></span>
-                        <span class=move || drop_marker_label_class(
-                            dragged_item_id.get().is_some(),
-                            is_end_drop_target_hovered.get(),
-                        )>"Upuść na końcu"</span>
-                        <span class=move || drop_marker_line_class(
-                            dragged_item_id.get().is_some(),
-                            is_end_drop_target_hovered.get(),
-                        )></span>
-                    </div>
+                    <ItemDropTargetMarker
+                        dnd_state=item_dnd_state
+                        target=ItemDropTarget::end(list_id)
+                        on_drop=on_item_drop
+                    />
                 }.into_any()
             } else {
                 view! {}.into_any()

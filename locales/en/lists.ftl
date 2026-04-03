@@ -58,3 +58,27 @@ lists-confirm-delete-loading = Loading details…
 lists-confirm-delete-message = Are you sure you want to delete the list { $name }? It contains { $count } items. This operation is irreversible.
 lists-confirm-delete-message-unknown = Are you sure you want to delete the list { $name }? This operation is irreversible.
 lists-confirm-delete-button = Delete list
+
+# Drag and drop
+lists-dnd-drop-here = Drop here
+lists-dnd-drop-at-end = Drop at end
+lists-dnd-reorder-aria = Drag to reorder
+lists-dnd-reorder-group-aria = Drag to reorder group
+
+# Container and list pages
+lists-container-status-option-active = Active
+lists-container-status-option-done = Completed
+lists-container-status-option-paused = Paused
+lists-completed-lists-progress = Completed lists: { $completed }/{ $total }
+lists-containers-heading = Containers
+lists-lists-heading = Lists
+lists-container-empty = No lists in this container.
+lists-empty = This list is empty
+lists-inline-error = Error: { $detail }
+lists-main-move-target = { $name } (main)
+
+# Toasts
+lists-toast-container-deleted = Container deleted
+lists-toast-list-deleted = List deleted
+lists-toast-list-archived = List archived
+lists-toast-list-reset = List reset

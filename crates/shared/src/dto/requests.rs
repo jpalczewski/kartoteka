@@ -138,6 +138,29 @@ impl ReorderItemsRequest {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetItemPlacementRequest {
+    pub source_list_id: String,
+    pub target_list_id: String,
+    pub source_item_ids: Vec<String>,
+    pub target_item_ids: Vec<String>,
+}
+
+impl SetItemPlacementRequest {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.source_list_id.is_empty() {
+            return Err("source_list_id must not be empty");
+        }
+        if self.target_list_id.is_empty() {
+            return Err("target_list_id must not be empty");
+        }
+        if self.source_list_id == self.target_list_id {
+            return Err("source_list_id and target_list_id must differ");
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UpdateItemRequest {
     #[serde(skip_serializing_if = "Option::is_none")]

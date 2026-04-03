@@ -35,6 +35,53 @@ fn reorder_items_request_accepts_non_empty_ids() {
     assert!(req.validate().is_ok());
 }
 
+#[test]
+fn set_item_placement_request_requires_source_list_id() {
+    let req = SetItemPlacementRequest {
+        source_list_id: String::new(),
+        target_list_id: "list-2".into(),
+        source_item_ids: vec![],
+        target_item_ids: vec!["item-1".into()],
+    };
+    assert_eq!(req.validate(), Err("source_list_id must not be empty"));
+}
+
+#[test]
+fn set_item_placement_request_requires_target_list_id() {
+    let req = SetItemPlacementRequest {
+        source_list_id: "list-1".into(),
+        target_list_id: String::new(),
+        source_item_ids: vec![],
+        target_item_ids: vec!["item-1".into()],
+    };
+    assert_eq!(req.validate(), Err("target_list_id must not be empty"));
+}
+
+#[test]
+fn set_item_placement_request_rejects_same_source_and_target() {
+    let req = SetItemPlacementRequest {
+        source_list_id: "list-1".into(),
+        target_list_id: "list-1".into(),
+        source_item_ids: vec!["item-2".into()],
+        target_item_ids: vec!["item-1".into()],
+    };
+    assert_eq!(
+        req.validate(),
+        Err("source_list_id and target_list_id must differ")
+    );
+}
+
+#[test]
+fn set_item_placement_request_accepts_cross_list_payload() {
+    let req = SetItemPlacementRequest {
+        source_list_id: "list-1".into(),
+        target_list_id: "list-2".into(),
+        source_item_ids: vec!["item-2".into()],
+        target_item_ids: vec!["item-1".into(), "item-3".into()],
+    };
+    assert!(req.validate().is_ok());
+}
+
 // --- UpdateItemRequest description sentinel convention ---
 
 #[test]

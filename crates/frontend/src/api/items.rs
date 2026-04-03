@@ -75,6 +75,7 @@ pub async fn delete_item(
     .await
 }
 
+#[allow(dead_code)]
 pub async fn move_item(
     client: &impl super::HttpClient,
     item_id: &str,
@@ -85,6 +86,19 @@ pub async fn move_item(
         client,
         &format!("{}/items/{item_id}/move", super::API_BASE),
         &body,
+    )
+    .await
+}
+
+pub async fn set_item_placement(
+    client: &impl super::HttpClient,
+    item_id: &str,
+    req: &SetItemPlacementRequest,
+) -> Result<Item, super::ApiError> {
+    super::api_patch(
+        client,
+        &format!("{}/items/{item_id}/placement", super::API_BASE),
+        req,
     )
     .await
 }

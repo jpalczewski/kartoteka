@@ -1,133 +1,47 @@
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
 
-use crate::api;
-use crate::api::client::GlooClient;
 use crate::components::common::dnd::{
-    DragGrip, END_DROP_TARGET_ID, drag_handle_class, drag_shell_class, drag_surface_class,
-    drop_marker_class, drop_marker_label_class, drop_marker_line_class,
+    DragHandleLabel, ItemDragHandleButton, ItemDragShell, ItemDragSurface, ItemDropTargetMarker,
 };
 use crate::components::items::add_item_input::AddItemInput;
-use crate::components::items::item_actions::create_item_actions;
 use crate::components::items::item_row::ItemRow;
-use crate::state::item_mutations::run_optimistic_mutation;
-use crate::state::reorder::{apply_reorder, reorder_ids};
-use kartoteka_shared::{Item, ItemTagLink, List, ReorderItemsRequest, Tag};
+use crate::state::dnd::{DraggedItem, ItemDndState, ItemDropTarget};
+use kartoteka_shared::{CreateItemRequest, Item, ItemTagLink, List, Tag};
 
 #[component]
+#[allow(clippy::too_many_arguments)]
 pub fn SublistSection(
     sublist: List,
+    items: Vec<Item>,
+    #[prop(default = true)] enable_item_dnd: bool,
+    item_dnd_state: RwSignal<ItemDndState>,
+    on_item_drop: Callback<ItemDropTarget>,
+    on_add: Callback<CreateItemRequest>,
+    on_toggle: Callback<String>,
+    on_delete: Callback<String>,
+    on_description_save: Callback<(String, String)>,
     #[prop(default = false)] has_quantity: bool,
+    on_quantity_change: Callback<(String, i32)>,
     #[prop(default = serde_json::Value::Null)] deadlines_config: serde_json::Value,
     #[prop(default = vec![])] all_tags: Vec<Tag>,
     #[prop(default = vec![])] item_tag_links: Vec<ItemTagLink>,
     on_tag_toggle: Callback<(String, String)>,
     #[prop(default = vec![])] move_targets: Vec<(String, String)>,
-    /// Called when an item is moved OUT of this sublist: (moved_item, target_list_id)
-    #[prop(optional)]
-    on_item_moved_out: Option<Callback<(Item, String)>>,
+    on_move: Callback<(String, String)>,
+    on_date_save: Callback<(String, String, String, Option<String>)>,
 ) -> impl IntoView {
-    let client = use_context::<GlooClient>().expect("GlooClient not provided");
     let expanded = RwSignal::new(true);
-    let items = RwSignal::new(Vec::<Item>::new());
-    let (loading, set_loading) = signal(true);
-    let dragged_item_id = RwSignal::new(Option::<String>::None);
-    let hovered_drop_id = RwSignal::new(Option::<String>::None);
-    let is_end_drop_target_hovered =
-        Signal::derive(move || hovered_drop_id.get().as_deref() == Some(END_DROP_TARGET_ID));
-
     let sublist_id = sublist.id.clone();
     let sublist_name = sublist.name.clone();
+    let items_for_progress = items.clone();
 
-    // Fetch items on mount
-    {
-        let sid = sublist_id.clone();
-        let client_fetch = client.clone();
-        leptos::task::spawn_local(async move {
-            if let Ok(fetched) = api::fetch_items(&client_fetch, &sid).await {
-                items.set(fetched);
-            }
-            set_loading.set(false);
-        });
-    }
-
-    let actions = create_item_actions(client.clone(), items, sublist_id.clone(), None);
-    let on_add = actions.on_add;
-    let on_toggle = actions.on_toggle;
-    let on_delete = actions.on_delete;
-    let on_description_save = actions.on_description_save;
-    let on_quantity_change = actions.on_quantity_change;
-
-    let move_targets = StoredValue::new(move_targets);
-
-    // Move item callback
-    let on_move = Callback::new(move |(item_id, target_list_id): (String, String)| {
-        // Find and remove the item, notify parent
-        let moved_item = items.read().iter().find(|i| i.id == item_id).cloned();
-        items.update(|list| list.retain(|i| i.id != item_id));
-        if let Some(mut item) = moved_item {
-            item.list_id = target_list_id.clone();
-            if let Some(cb) = on_item_moved_out {
-                cb.run((item, target_list_id.clone()));
-            }
-        }
-        let client_move = client.clone();
-        leptos::task::spawn_local(async move {
-            let _ = api::move_item(&client_move, &item_id, &target_list_id).await;
-        });
-    });
-
-    let on_reorder_drop = Callback::new(move |before_id: Option<String>| {
-        let Some(dragged_id) = dragged_item_id.get_untracked() else {
-            return;
-        };
-        let current_ids: Vec<String> = items
-            .get_untracked()
-            .into_iter()
-            .map(|item| item.id)
-            .collect();
-        let Some(next_ids) = reorder_ids(&current_ids, &dragged_id, before_id.as_deref()) else {
-            dragged_item_id.set(None);
-            return;
-        };
-
-        let request = ReorderItemsRequest {
-            item_ids: next_ids.clone(),
-        };
-        let dragged_id_for_mutation = dragged_id.clone();
-        let before_id_for_mutation = before_id.clone();
-        let client = client.clone();
-        let sublist_id_for_request = sublist_id.clone();
-        run_optimistic_mutation(
-            items,
-            move |items| {
-                let current_ids: Vec<String> = items.iter().map(|item| item.id.clone()).collect();
-                let Some(next_ids) = reorder_ids(
-                    &current_ids,
-                    &dragged_id_for_mutation,
-                    before_id_for_mutation.as_deref(),
-                ) else {
-                    return false;
-                };
-                apply_reorder(items, &next_ids, |item| item.id.as_str())
-            },
-            move || async move { api::reorder_items(&client, &sublist_id_for_request, &request).await },
-            |_| {},
-        );
-        dragged_item_id.set(None);
-    });
-
-    let sorted_items = move || {
-        let mut list = items.get();
-        list.sort_by(|a, b| a.position.cmp(&b.position));
-        list
-    };
-
-    // Progress counter
     let progress = move || {
-        let list = items.read();
-        let total = list.len();
-        let completed = list.iter().filter(|i| i.completed).count();
+        let total = items_for_progress.len();
+        let completed = items_for_progress
+            .iter()
+            .filter(|item| item.completed)
+            .count();
         (completed, total)
     };
 
@@ -136,7 +50,7 @@ pub fn SublistSection(
             <input
                 type="checkbox"
                 checked=true
-                on:change=move |_| expanded.update(|e| *e = !*e)
+                on:change=move |_| expanded.update(|is_open| *is_open = !*is_open)
             />
             <div class="collapse-title font-semibold flex items-center gap-2">
                 <span>{sublist_name}</span>
@@ -148,159 +62,103 @@ pub fn SublistSection(
                 </span>
             </div>
             <div class="collapse-content">
-                {move || {
-                    if loading.get() {
-                        view! { <p class="text-sm text-base-content/50">{move_tr!("common-loading")}</p> }.into_any()
-                    } else {
-                        let all_tags_clone = all_tags.clone();
-                        let item_tag_links_clone = item_tag_links.clone();
+                <div>
+                    {items.into_iter().map(|item| {
+                        let item_id = item.id.clone();
+                        let dragged_item = DraggedItem {
+                            item_id: item.id.clone(),
+                            source_list_id: sublist_id.clone(),
+                        };
+                        let dragged_item_for_handle = dragged_item.clone();
+                        let dragged_item_for_shell = dragged_item.clone();
+                        let dragged_item_for_surface = dragged_item.clone();
+                        let drop_target = ItemDropTarget::before(sublist_id.clone(), item.id.clone());
+                        let drop_target_for_marker = drop_target.clone();
+                        let drop_target_for_surface = drop_target.clone();
+                        let item_tags: Vec<String> = item_tag_links
+                            .iter()
+                            .filter(|link| link.item_id == item.id)
+                            .map(|link| link.tag_id.clone())
+                            .collect();
+                        let tags_clone = all_tags.clone();
+                        let on_tag_toggle_item = Callback::new(move |tag_id: String| {
+                            on_tag_toggle.run((item_id.clone(), tag_id));
+                        });
+                        let move_targets_for_item = move_targets.clone();
+                        let deadlines_config_for_item = deadlines_config.clone();
                         view! {
-                            <div>
-                                {move || sorted_items().iter().map(|item| {
-                                    let item_id = item.id.clone();
-                                    let drop_before_id = item.id.clone();
-                                    let drop_target_id = item.id.clone();
-                                    let drop_target_id_for_dragover = drop_target_id.clone();
-                                    let drop_before_id_for_drop = drop_before_id.clone();
-                                    let drag_id = item.id.clone();
-                                    let drag_id_for_drag = drag_id.clone();
-                                    let drag_id_for_shell = drag_id.clone();
-                                    let drag_id_for_surface = drag_id.clone();
-                                    let drop_target_id_for_hover = drop_target_id.clone();
-                                    let is_drop_target_hovered = Signal::derive(move || {
-                                        hovered_drop_id.get().as_deref() == Some(drop_target_id_for_hover.as_str())
-                                    });
-                                    let item_tags: Vec<String> = item_tag_links_clone.iter()
-                                        .filter(|l| l.item_id == item.id)
-                                        .map(|l| l.tag_id.clone())
-                                        .collect();
-                                    let tags_clone = all_tags_clone.clone();
-                                    let tog_cb = on_tag_toggle;
-                                    let item_tag_toggle = Callback::new(move |tag_id: String| {
-                                        tog_cb.run((item_id.clone(), tag_id));
-                                    });
-                                    let mt = move_targets.get_value();
+                            <div class="flex flex-col gap-2">
+                                {if enable_item_dnd {
                                     view! {
-                                        <div class="flex flex-col gap-2">
-                                            <div
-                                                class=move || drop_marker_class(
-                                                    dragged_item_id.get().is_some(),
-                                                    is_drop_target_hovered.get(),
-                                                )
-                                                on:dragover=move |ev: web_sys::DragEvent| {
-                                                    ev.prevent_default();
-                                                    if let Some(data_transfer) = ev.data_transfer() {
-                                                        data_transfer.set_drop_effect("move");
-                                                    }
-                                                    hovered_drop_id.set(Some(drop_target_id_for_dragover.clone()));
-                                                }
-                                                on:drop=move |ev: web_sys::DragEvent| {
-                                                    ev.prevent_default();
-                                                    hovered_drop_id.set(None);
-                                                    on_reorder_drop.run(Some(drop_before_id_for_drop.clone()));
-                                                }
-                                            >
-                                                <span class=move || drop_marker_line_class(
-                                                    dragged_item_id.get().is_some(),
-                                                    is_drop_target_hovered.get(),
-                                                )></span>
-                                                <span class=move || drop_marker_label_class(
-                                                    dragged_item_id.get().is_some(),
-                                                    is_drop_target_hovered.get(),
-                                                )>"Upuść tutaj"</span>
-                                                <span class=move || drop_marker_line_class(
-                                                    dragged_item_id.get().is_some(),
-                                                    is_drop_target_hovered.get(),
-                                                )></span>
-                                            </div>
-                                            <div class=move || drag_shell_class(
-                                                dragged_item_id.get().as_deref() == Some(drag_id_for_shell.as_str())
-                                            )>
-                                                <button
-                                                    type="button"
-                                                    class=move || format!(
-                                                        "{} mt-2",
-                                                        drag_handle_class(
-                                                            dragged_item_id.get().as_deref() == Some(drag_id.as_str())
-                                                        )
-                                                    )
-                                                    draggable="true"
-                                                    aria-label="Przeciągnij, aby zmienić kolejność"
-                                                    title="Przeciągnij, aby zmienić kolejność"
-                                                    on:dragstart=move |ev: web_sys::DragEvent| {
-                                                        if let Some(data_transfer) = ev.data_transfer() {
-                                                            let _ = data_transfer.set_data("text/plain", &drag_id_for_drag);
-                                                            data_transfer.set_effect_allowed("move");
-                                                        }
-                                                        dragged_item_id.set(Some(drag_id_for_drag.clone()));
-                                                    }
-                                                    on:dragend=move |_| {
-                                                        dragged_item_id.set(None);
-                                                        hovered_drop_id.set(None);
-                                                    }
-                                                >
-                                                    <DragGrip />
-                                                </button>
-                                                <div class=move || drag_surface_class(
-                                                    dragged_item_id.get().as_deref() == Some(drag_id_for_surface.as_str()),
-                                                    is_drop_target_hovered.get(),
-                                                )>
-                                                    <ItemRow
-                                                        item=item.clone()
-                                                        on_toggle=on_toggle
-                                                        on_delete=on_delete
-                                                        all_tags=tags_clone
-                                                        item_tag_ids=item_tags
-                                                        on_tag_toggle=item_tag_toggle
-                                                        on_description_save=on_description_save
-                                                        has_quantity=has_quantity
-                                                        on_quantity_change=on_quantity_change
-                                                        move_targets=mt
-                                                        on_move=on_move
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    }
-                                }).collect::<Vec<_>>()}
-                                <div
-                                    class=move || drop_marker_class(
-                                        dragged_item_id.get().is_some(),
-                                        is_end_drop_target_hovered.get(),
-                                    )
-                                    on:dragover=move |ev: web_sys::DragEvent| {
-                                        ev.prevent_default();
-                                        if let Some(data_transfer) = ev.data_transfer() {
-                                            data_transfer.set_drop_effect("move");
-                                        }
-                                        hovered_drop_id.set(Some(END_DROP_TARGET_ID.to_string()));
-                                    }
-                                    on:drop=move |ev: web_sys::DragEvent| {
-                                        ev.prevent_default();
-                                        hovered_drop_id.set(None);
-                                        on_reorder_drop.run(None);
-                                    }
+                                        <ItemDropTargetMarker
+                                            dnd_state=item_dnd_state
+                                            target=drop_target_for_marker
+                                            on_drop=on_item_drop.clone()
+                                        />
+                                    }.into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }}
+                                <ItemDragShell
+                                    dnd_state=item_dnd_state
+                                    dragged_item=dragged_item_for_shell
                                 >
-                                    <span class=move || drop_marker_line_class(
-                                        dragged_item_id.get().is_some(),
-                                        is_end_drop_target_hovered.get(),
-                                    )></span>
-                                    <span class=move || drop_marker_label_class(
-                                        dragged_item_id.get().is_some(),
-                                        is_end_drop_target_hovered.get(),
-                                    )>"Upuść na końcu"</span>
-                                    <span class=move || drop_marker_line_class(
-                                        dragged_item_id.get().is_some(),
-                                        is_end_drop_target_hovered.get(),
-                                    )></span>
-                                </div>
-                                <div class="mt-2">
-                                    <AddItemInput on_submit=on_add has_quantity=has_quantity deadlines_config=deadlines_config.clone() />
-                                </div>
+                                    {if enable_item_dnd {
+                                        view! {
+                                            <ItemDragHandleButton
+                                                dnd_state=item_dnd_state
+                                                dragged_item=dragged_item_for_handle
+                                                label=DragHandleLabel::Reorder
+                                                extra_class="mt-2"
+                                            />
+                                        }.into_any()
+                                    } else {
+                                        view! {}.into_any()
+                                    }}
+                                    <ItemDragSurface
+                                        dnd_state=item_dnd_state
+                                        dragged_item=dragged_item_for_surface
+                                        hover_target=drop_target_for_surface
+                                    >
+                                        <ItemRow
+                                            item=item
+                                            on_toggle=on_toggle
+                                            on_delete=on_delete
+                                            all_tags=tags_clone
+                                            item_tag_ids=item_tags
+                                            on_tag_toggle=on_tag_toggle_item
+                                            on_description_save=on_description_save
+                                            has_quantity=has_quantity
+                                            on_quantity_change=on_quantity_change
+                                            move_targets=move_targets_for_item
+                                            on_move=on_move
+                                            on_date_save=on_date_save
+                                            deadlines_config=deadlines_config_for_item
+                                        />
+                                    </ItemDragSurface>
+                                </ItemDragShell>
                             </div>
+                        }
+                    }).collect::<Vec<_>>()}
+                    {if enable_item_dnd {
+                        view! {
+                            <ItemDropTargetMarker
+                                dnd_state=item_dnd_state
+                                target=ItemDropTarget::end(sublist_id)
+                                on_drop=on_item_drop
+                            />
                         }.into_any()
-                    }
-                }}
+                    } else {
+                        view! {}.into_any()
+                    }}
+                    <div class="mt-2">
+                        <AddItemInput
+                            on_submit=on_add
+                            has_quantity=has_quantity
+                            deadlines_config=deadlines_config
+                        />
+                    </div>
+                </div>
             </div>
         </div>
     }
