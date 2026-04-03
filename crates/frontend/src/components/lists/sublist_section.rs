@@ -3,6 +3,10 @@ use leptos_fluent::move_tr;
 
 use crate::api;
 use crate::api::client::GlooClient;
+use crate::components::common::dnd::{
+    DragGrip, drag_handle_class, drag_shell_class, drag_surface_class, drop_marker_class,
+    drop_marker_label_class, drop_marker_line_class,
+};
 use crate::components::items::add_item_input::AddItemInput;
 use crate::components::items::item_actions::create_item_actions;
 use crate::components::items::item_row::ItemRow;
@@ -153,6 +157,9 @@ pub fn SublistSection(
                                     let item_id = item.id.clone();
                                     let drop_before_id = item.id.clone();
                                     let drag_id = item.id.clone();
+                                    let drag_id_for_drag = drag_id.clone();
+                                    let drag_id_for_shell = drag_id.clone();
+                                    let drag_id_for_surface = drag_id.clone();
                                     let item_tags: Vec<String> = item_tag_links_clone.iter()
                                         .filter(|l| l.item_id == item.id)
                                         .map(|l| l.tag_id.clone())
@@ -166,36 +173,50 @@ pub fn SublistSection(
                                     view! {
                                         <div class="flex flex-col gap-2">
                                             <div
-                                                class=move || {
-                                                    if dragged_item_id.get().is_some() {
-                                                        "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
-                                                    } else {
-                                                        "h-2 rounded border border-dashed border-transparent transition-colors"
+                                                class=move || drop_marker_class(dragged_item_id.get().is_some())
+                                                on:dragover=move |ev: web_sys::DragEvent| {
+                                                    ev.prevent_default();
+                                                    if let Some(data_transfer) = ev.data_transfer() {
+                                                        data_transfer.set_drop_effect("move");
                                                     }
                                                 }
-                                                on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
                                                 on:drop=move |ev: web_sys::DragEvent| {
                                                     ev.prevent_default();
                                                     on_reorder_drop.run(Some(drop_before_id.clone()));
                                                 }
-                                            ></div>
-                                            <div class="flex items-start gap-2">
+                                            >
+                                                <span class=move || drop_marker_line_class(dragged_item_id.get().is_some())></span>
+                                                <span class=move || drop_marker_label_class(dragged_item_id.get().is_some())>"Upuść tutaj"</span>
+                                                <span class=move || drop_marker_line_class(dragged_item_id.get().is_some())></span>
+                                            </div>
+                                            <div class=move || drag_shell_class(
+                                                dragged_item_id.get().as_deref() == Some(drag_id_for_shell.as_str())
+                                            )>
                                                 <button
                                                     type="button"
-                                                    class="btn btn-ghost btn-sm cursor-grab active:cursor-grabbing mt-2"
+                                                    class=move || format!(
+                                                        "{} mt-2",
+                                                        drag_handle_class(
+                                                            dragged_item_id.get().as_deref() == Some(drag_id.as_str())
+                                                        )
+                                                    )
                                                     draggable="true"
-                                                    aria-label="Przestaw pozycję"
+                                                    aria-label="Przeciągnij, aby zmienić kolejność"
+                                                    title="Przeciągnij, aby zmienić kolejność"
                                                     on:dragstart=move |ev: web_sys::DragEvent| {
                                                         if let Some(data_transfer) = ev.data_transfer() {
-                                                            let _ = data_transfer.set_data("text/plain", &drag_id);
+                                                            let _ = data_transfer.set_data("text/plain", &drag_id_for_drag);
+                                                            data_transfer.set_effect_allowed("move");
                                                         }
-                                                        dragged_item_id.set(Some(drag_id.clone()));
+                                                        dragged_item_id.set(Some(drag_id_for_drag.clone()));
                                                     }
                                                     on:dragend=move |_| dragged_item_id.set(None)
                                                 >
-                                                    "⋮⋮"
+                                                    <DragGrip />
                                                 </button>
-                                                <div class="flex-1">
+                                                <div class=move || drag_surface_class(
+                                                    dragged_item_id.get().as_deref() == Some(drag_id_for_surface.as_str())
+                                                )>
                                                     <ItemRow
                                                         item=item.clone()
                                                         on_toggle=on_toggle
@@ -215,19 +236,22 @@ pub fn SublistSection(
                                     }
                                 }).collect::<Vec<_>>()}
                                 <div
-                                    class=move || {
-                                        if dragged_item_id.get().is_some() {
-                                            "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
-                                        } else {
-                                            "h-2 rounded border border-dashed border-transparent transition-colors"
+                                    class=move || drop_marker_class(dragged_item_id.get().is_some())
+                                    on:dragover=move |ev: web_sys::DragEvent| {
+                                        ev.prevent_default();
+                                        if let Some(data_transfer) = ev.data_transfer() {
+                                            data_transfer.set_drop_effect("move");
                                         }
                                     }
-                                    on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
                                     on:drop=move |ev: web_sys::DragEvent| {
                                         ev.prevent_default();
                                         on_reorder_drop.run(None);
                                     }
-                                ></div>
+                                >
+                                    <span class=move || drop_marker_line_class(dragged_item_id.get().is_some())></span>
+                                    <span class=move || drop_marker_label_class(dragged_item_id.get().is_some())>"Upuść na końcu"</span>
+                                    <span class=move || drop_marker_line_class(dragged_item_id.get().is_some())></span>
+                                </div>
                                 <div class="mt-2">
                                     <AddItemInput on_submit=on_add has_quantity=has_quantity deadlines_config=deadlines_config.clone() />
                                 </div>

@@ -11,6 +11,10 @@ use crate::app::{ToastContext, ToastKind};
 use crate::components::common::breadcrumbs::{
     BreadcrumbCrumb, Breadcrumbs, build_container_breadcrumbs,
 };
+use crate::components::common::dnd::{
+    DragGrip, drag_handle_class, drag_shell_class, drag_surface_class, drop_marker_class,
+    drop_marker_label_class, drop_marker_line_class,
+};
 use crate::components::common::editable_description::EditableDescription;
 use crate::components::common::editable_title::EditableTitle;
 use crate::components::common::loading::LoadingSpinner;
@@ -388,41 +392,55 @@ pub fn ContainerPage() -> impl IntoView {
                                             {scs.into_iter().map(|c| {
                                                 let drop_before_id = c.id.clone();
                                                 let drag_id = c.id.clone();
+                                                let drag_id_for_drag = drag_id.clone();
+                                                let drag_id_for_shell = drag_id.clone();
+                                                let drag_id_for_surface = drag_id.clone();
                                                 let cid_del = c.id.clone();
                                                 let client_del = client_sc.clone();
                                                 view! {
                                                     <div class="flex flex-col gap-2">
                                                         <div
-                                                            class=move || {
-                                                                if dragged_container_id.get().is_some() {
-                                                                    "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
-                                                                } else {
-                                                                    "h-2 rounded border border-dashed border-transparent transition-colors"
+                                                            class=move || drop_marker_class(dragged_container_id.get().is_some())
+                                                            on:dragover=move |ev: web_sys::DragEvent| {
+                                                                ev.prevent_default();
+                                                                if let Some(data_transfer) = ev.data_transfer() {
+                                                                    data_transfer.set_drop_effect("move");
                                                                 }
                                                             }
-                                                            on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
                                                             on:drop=move |ev: web_sys::DragEvent| {
                                                                 ev.prevent_default();
                                                                 on_subcontainer_drop.run(Some(drop_before_id.clone()));
                                                             }
-                                                        ></div>
-                                                        <div class="flex items-stretch gap-2">
+                                                        >
+                                                            <span class=move || drop_marker_line_class(dragged_container_id.get().is_some())></span>
+                                                            <span class=move || drop_marker_label_class(dragged_container_id.get().is_some())>"Upuść tutaj"</span>
+                                                            <span class=move || drop_marker_line_class(dragged_container_id.get().is_some())></span>
+                                                        </div>
+                                                        <div class=move || drag_shell_class(
+                                                            dragged_container_id.get().as_deref() == Some(drag_id_for_shell.as_str())
+                                                        )>
                                                             <button
                                                                 type="button"
-                                                                class="btn btn-ghost btn-sm cursor-grab active:cursor-grabbing"
+                                                                class=move || drag_handle_class(
+                                                                    dragged_container_id.get().as_deref() == Some(drag_id.as_str())
+                                                                )
                                                                 draggable="true"
-                                                                aria-label="Przestaw kontener"
+                                                                aria-label="Przeciągnij, aby zmienić kolejność"
+                                                                title="Przeciągnij, aby zmienić kolejność"
                                                                 on:dragstart=move |ev: web_sys::DragEvent| {
                                                                     if let Some(data_transfer) = ev.data_transfer() {
-                                                                        let _ = data_transfer.set_data("text/plain", &drag_id);
+                                                                        let _ = data_transfer.set_data("text/plain", &drag_id_for_drag);
+                                                                        data_transfer.set_effect_allowed("move");
                                                                     }
-                                                                    dragged_container_id.set(Some(drag_id.clone()));
+                                                                    dragged_container_id.set(Some(drag_id_for_drag.clone()));
                                                                 }
                                                                 on:dragend=move |_| dragged_container_id.set(None)
                                                             >
-                                                                "⋮⋮"
+                                                                <DragGrip />
                                                             </button>
-                                                            <div class="flex-1">
+                                                            <div class=move || drag_surface_class(
+                                                                dragged_container_id.get().as_deref() == Some(drag_id_for_surface.as_str())
+                                                            )>
                                                                 <ContainerCard
                                                                     container=c
                                                                     on_delete=Callback::new(move |_: String| {
@@ -445,19 +463,22 @@ pub fn ContainerPage() -> impl IntoView {
                                                 }
                                             }).collect::<Vec<_>>()}
                                             <div
-                                                class=move || {
-                                                    if dragged_container_id.get().is_some() {
-                                                        "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
-                                                    } else {
-                                                        "h-2 rounded border border-dashed border-transparent transition-colors"
+                                                class=move || drop_marker_class(dragged_container_id.get().is_some())
+                                                on:dragover=move |ev: web_sys::DragEvent| {
+                                                    ev.prevent_default();
+                                                    if let Some(data_transfer) = ev.data_transfer() {
+                                                        data_transfer.set_drop_effect("move");
                                                     }
                                                 }
-                                                on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
                                                 on:drop=move |ev: web_sys::DragEvent| {
                                                     ev.prevent_default();
                                                     on_subcontainer_drop.run(None);
                                                 }
-                                            ></div>
+                                            >
+                                                <span class=move || drop_marker_line_class(dragged_container_id.get().is_some())></span>
+                                                <span class=move || drop_marker_label_class(dragged_container_id.get().is_some())>"Upuść na końcu"</span>
+                                                <span class=move || drop_marker_line_class(dragged_container_id.get().is_some())></span>
+                                            </div>
                                         </div>
                                     </div>
                                 }.into_any()
@@ -477,41 +498,55 @@ pub fn ContainerPage() -> impl IntoView {
                                             {lists.into_iter().map(|list| {
                                                 let drag_id = list.id.clone();
                                                 let drop_before_id = list.id.clone();
+                                                let drag_id_for_drag = drag_id.clone();
+                                                let drag_id_for_shell = drag_id.clone();
+                                                let drag_id_for_surface = drag_id.clone();
                                                 let lid_del = list.id.clone();
                                                 let lname_del = list.name.clone();
                                                 view! {
                                                     <div class="flex flex-col gap-2">
                                                         <div
-                                                            class=move || {
-                                                                if dragged_list_id.get().is_some() {
-                                                                    "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
-                                                                } else {
-                                                                    "h-2 rounded border border-dashed border-transparent transition-colors"
+                                                            class=move || drop_marker_class(dragged_list_id.get().is_some())
+                                                            on:dragover=move |ev: web_sys::DragEvent| {
+                                                                ev.prevent_default();
+                                                                if let Some(data_transfer) = ev.data_transfer() {
+                                                                    data_transfer.set_drop_effect("move");
                                                                 }
                                                             }
-                                                            on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
                                                             on:drop=move |ev: web_sys::DragEvent| {
                                                                 ev.prevent_default();
                                                                 on_sublist_drop.run(Some(drop_before_id.clone()));
                                                             }
-                                                        ></div>
-                                                        <div class="flex items-stretch gap-2">
+                                                        >
+                                                            <span class=move || drop_marker_line_class(dragged_list_id.get().is_some())></span>
+                                                            <span class=move || drop_marker_label_class(dragged_list_id.get().is_some())>"Upuść tutaj"</span>
+                                                            <span class=move || drop_marker_line_class(dragged_list_id.get().is_some())></span>
+                                                        </div>
+                                                        <div class=move || drag_shell_class(
+                                                            dragged_list_id.get().as_deref() == Some(drag_id_for_shell.as_str())
+                                                        )>
                                                             <button
                                                                 type="button"
-                                                                class="btn btn-ghost btn-sm cursor-grab active:cursor-grabbing"
+                                                                class=move || drag_handle_class(
+                                                                    dragged_list_id.get().as_deref() == Some(drag_id.as_str())
+                                                                )
                                                                 draggable="true"
-                                                                aria-label="Przestaw listę"
+                                                                aria-label="Przeciągnij, aby zmienić kolejność"
+                                                                title="Przeciągnij, aby zmienić kolejność"
                                                                 on:dragstart=move |ev: web_sys::DragEvent| {
                                                                     if let Some(data_transfer) = ev.data_transfer() {
-                                                                        let _ = data_transfer.set_data("text/plain", &drag_id);
+                                                                        let _ = data_transfer.set_data("text/plain", &drag_id_for_drag);
+                                                                        data_transfer.set_effect_allowed("move");
                                                                     }
-                                                                    dragged_list_id.set(Some(drag_id.clone()));
+                                                                    dragged_list_id.set(Some(drag_id_for_drag.clone()));
                                                                 }
                                                                 on:dragend=move |_| dragged_list_id.set(None)
                                                             >
-                                                                "⋮⋮"
+                                                                <DragGrip />
                                                             </button>
-                                                            <div class="flex-1">
+                                                            <div class=move || drag_surface_class(
+                                                                dragged_list_id.get().as_deref() == Some(drag_id_for_surface.as_str())
+                                                            )>
                                                                 <ListCard
                                                                     list
                                                                     on_delete=Callback::new(move |_: String| {
@@ -524,19 +559,22 @@ pub fn ContainerPage() -> impl IntoView {
                                                 }
                                             }).collect::<Vec<_>>()}
                                             <div
-                                                class=move || {
-                                                    if dragged_list_id.get().is_some() {
-                                                        "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
-                                                    } else {
-                                                        "h-2 rounded border border-dashed border-transparent transition-colors"
+                                                class=move || drop_marker_class(dragged_list_id.get().is_some())
+                                                on:dragover=move |ev: web_sys::DragEvent| {
+                                                    ev.prevent_default();
+                                                    if let Some(data_transfer) = ev.data_transfer() {
+                                                        data_transfer.set_drop_effect("move");
                                                     }
                                                 }
-                                                on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
                                                 on:drop=move |ev: web_sys::DragEvent| {
                                                     ev.prevent_default();
                                                     on_sublist_drop.run(None);
                                                 }
-                                            ></div>
+                                            >
+                                                <span class=move || drop_marker_line_class(dragged_list_id.get().is_some())></span>
+                                                <span class=move || drop_marker_label_class(dragged_list_id.get().is_some())>"Upuść na końcu"</span>
+                                                <span class=move || drop_marker_line_class(dragged_list_id.get().is_some())></span>
+                                            </div>
                                         </div>
                                     </div>
                                 }.into_any()

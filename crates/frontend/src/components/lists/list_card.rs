@@ -43,7 +43,7 @@ pub fn ListCard(
 
     view! {
         <div
-            class="card bg-base-200 border border-base-300 cursor-pointer card-neon relative"
+            class="card bg-base-200 border border-base-300 cursor-pointer card-neon relative transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-lg"
             on:click=move |_| { navigate(&href_clone, Default::default()); }
         >
             // Delete button — positioned absolute, stop_propagation prevents card navigation
