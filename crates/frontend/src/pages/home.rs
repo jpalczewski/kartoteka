@@ -9,8 +9,8 @@ use crate::api;
 use crate::api::client::GlooClient;
 use crate::app::{SessionResource, ToastContext, ToastKind};
 use crate::components::common::dnd::{
-    DragGrip, drag_handle_class, drag_shell_class, drag_surface_class, drop_marker_class,
-    drop_marker_label_class, drop_marker_line_class,
+    DragGrip, END_DROP_TARGET_ID, drag_handle_class, drag_shell_class, drag_surface_class,
+    drop_marker_class, drop_marker_label_class, drop_marker_line_class,
 };
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::confirm_delete_modal::ConfirmDeleteModal;
@@ -80,6 +80,14 @@ fn HomePageInner() -> impl IntoView {
     let root_lists = RwSignal::new(Vec::<List>::new());
     let dragged_root_container_id = RwSignal::new(Option::<String>::None);
     let dragged_root_list_id = RwSignal::new(Option::<String>::None);
+    let hovered_root_container_drop_id = RwSignal::new(Option::<String>::None);
+    let hovered_root_list_drop_id = RwSignal::new(Option::<String>::None);
+    let is_root_container_end_drop_hovered = Signal::derive(move || {
+        hovered_root_container_drop_id.get().as_deref() == Some(END_DROP_TARGET_ID)
+    });
+    let is_root_list_end_drop_hovered = Signal::derive(move || {
+        hovered_root_list_drop_id.get().as_deref() == Some(END_DROP_TARGET_ID)
+    });
 
     Effect::new(move |_| {
         if let Some(Ok(data)) = home_res.get() {
@@ -500,10 +508,17 @@ fn HomePageInner() -> impl IntoView {
                                     <div class="flex flex-col gap-3">
                                         {rc_list.into_iter().map(|c| {
                                             let drop_before_id = c.id.clone();
+                                            let drop_target_id = c.id.clone();
+                                            let drop_target_id_for_dragover = drop_target_id.clone();
+                                            let drop_before_id_for_drop = drop_before_id.clone();
                                             let drag_id = c.id.clone();
                                             let drag_id_for_drag = drag_id.clone();
                                             let drag_id_for_shell = drag_id.clone();
                                             let drag_id_for_surface = drag_id.clone();
+                                            let drop_target_id_for_hover = drop_target_id.clone();
+                                            let is_drop_target_hovered = Signal::derive(move || {
+                                                hovered_root_container_drop_id.get().as_deref() == Some(drop_target_id_for_hover.as_str())
+                                            });
                                             let cid = c.id.clone();
                                             let cid_del = c.id.clone();
                                             let client_del = client_rc.clone();
@@ -511,21 +526,35 @@ fn HomePageInner() -> impl IntoView {
                                             view! {
                                                 <div class="flex flex-col gap-2">
                                                     <div
-                                                        class=move || drop_marker_class(dragged_root_container_id.get().is_some())
+                                                        class=move || drop_marker_class(
+                                                            dragged_root_container_id.get().is_some(),
+                                                            is_drop_target_hovered.get(),
+                                                        )
                                                         on:dragover=move |ev: web_sys::DragEvent| {
                                                             ev.prevent_default();
                                                             if let Some(data_transfer) = ev.data_transfer() {
                                                                 data_transfer.set_drop_effect("move");
                                                             }
+                                                            hovered_root_container_drop_id.set(Some(drop_target_id_for_dragover.clone()));
                                                         }
                                                         on:drop=move |ev: web_sys::DragEvent| {
                                                             ev.prevent_default();
-                                                            on_root_container_drop.run(Some(drop_before_id.clone()));
+                                                            hovered_root_container_drop_id.set(None);
+                                                            on_root_container_drop.run(Some(drop_before_id_for_drop.clone()));
                                                         }
                                                     >
-                                                        <span class=move || drop_marker_line_class(dragged_root_container_id.get().is_some())></span>
-                                                        <span class=move || drop_marker_label_class(dragged_root_container_id.get().is_some())>"Upuść tutaj"</span>
-                                                        <span class=move || drop_marker_line_class(dragged_root_container_id.get().is_some())></span>
+                                                        <span class=move || drop_marker_line_class(
+                                                            dragged_root_container_id.get().is_some(),
+                                                            is_drop_target_hovered.get(),
+                                                        )></span>
+                                                        <span class=move || drop_marker_label_class(
+                                                            dragged_root_container_id.get().is_some(),
+                                                            is_drop_target_hovered.get(),
+                                                        )>"Upuść tutaj"</span>
+                                                        <span class=move || drop_marker_line_class(
+                                                            dragged_root_container_id.get().is_some(),
+                                                            is_drop_target_hovered.get(),
+                                                        )></span>
                                                     </div>
                                                     <div class=move || drag_shell_class(
                                                         dragged_root_container_id.get().as_deref() == Some(drag_id_for_shell.as_str())
@@ -545,12 +574,16 @@ fn HomePageInner() -> impl IntoView {
                                                                 }
                                                                 dragged_root_container_id.set(Some(drag_id_for_drag.clone()));
                                                             }
-                                                            on:dragend=move |_| dragged_root_container_id.set(None)
+                                                            on:dragend=move |_| {
+                                                                dragged_root_container_id.set(None);
+                                                                hovered_root_container_drop_id.set(None);
+                                                            }
                                                         >
                                                             <DragGrip />
                                                         </button>
                                                         <div class=move || drag_surface_class(
-                                                            dragged_root_container_id.get().as_deref() == Some(drag_id_for_surface.as_str())
+                                                            dragged_root_container_id.get().as_deref() == Some(drag_id_for_surface.as_str()),
+                                                            is_drop_target_hovered.get(),
                                                         )>
                                                             <ContainerCard
                                                                 container=c
@@ -582,21 +615,35 @@ fn HomePageInner() -> impl IntoView {
                                             }
                                         }).collect::<Vec<_>>()}
                                         <div
-                                            class=move || drop_marker_class(dragged_root_container_id.get().is_some())
+                                            class=move || drop_marker_class(
+                                                dragged_root_container_id.get().is_some(),
+                                                is_root_container_end_drop_hovered.get(),
+                                            )
                                             on:dragover=move |ev: web_sys::DragEvent| {
                                                 ev.prevent_default();
                                                 if let Some(data_transfer) = ev.data_transfer() {
                                                     data_transfer.set_drop_effect("move");
                                                 }
+                                                hovered_root_container_drop_id.set(Some(END_DROP_TARGET_ID.to_string()));
                                             }
                                             on:drop=move |ev: web_sys::DragEvent| {
                                                 ev.prevent_default();
+                                                hovered_root_container_drop_id.set(None);
                                                 on_root_container_drop.run(None);
                                             }
                                         >
-                                            <span class=move || drop_marker_line_class(dragged_root_container_id.get().is_some())></span>
-                                            <span class=move || drop_marker_label_class(dragged_root_container_id.get().is_some())>"Upuść na końcu"</span>
-                                            <span class=move || drop_marker_line_class(dragged_root_container_id.get().is_some())></span>
+                                            <span class=move || drop_marker_line_class(
+                                                dragged_root_container_id.get().is_some(),
+                                                is_root_container_end_drop_hovered.get(),
+                                            )></span>
+                                            <span class=move || drop_marker_label_class(
+                                                dragged_root_container_id.get().is_some(),
+                                                is_root_container_end_drop_hovered.get(),
+                                            )>"Upuść na końcu"</span>
+                                            <span class=move || drop_marker_line_class(
+                                                dragged_root_container_id.get().is_some(),
+                                                is_root_container_end_drop_hovered.get(),
+                                            )></span>
                                         </div>
                                     </div>
                                 </div>
@@ -633,9 +680,16 @@ fn HomePageInner() -> impl IntoView {
                                             {filtered.into_iter().map(|list| {
                                                 let drag_id = list.id.clone();
                                                 let drop_before_id = list.id.clone();
+                                                let drop_target_id = list.id.clone();
+                                                let drop_target_id_for_dragover = drop_target_id.clone();
+                                                let drop_before_id_for_drop = drop_before_id.clone();
                                                 let drag_id_for_drag = drag_id.clone();
                                                 let drag_id_for_shell = drag_id.clone();
                                                 let drag_id_for_surface = drag_id.clone();
+                                                let drop_target_id_for_hover = drop_target_id.clone();
+                                                let is_drop_target_hovered = Signal::derive(move || {
+                                                    hovered_root_list_drop_id.get().as_deref() == Some(drop_target_id_for_hover.as_str())
+                                                });
                                                 let list_id = list.id.clone();
                                                 let list_name = list.name.clone();
                                                 let lid_del = list.id.clone();
@@ -651,21 +705,35 @@ fn HomePageInner() -> impl IntoView {
                                                         {if can_reorder_root_lists {
                                                             view! {
                                                                 <div
-                                                                    class=move || drop_marker_class(dragged_root_list_id.get().is_some())
+                                                                    class=move || drop_marker_class(
+                                                                        dragged_root_list_id.get().is_some(),
+                                                                        is_drop_target_hovered.get(),
+                                                                    )
                                                                     on:dragover=move |ev: web_sys::DragEvent| {
                                                                         ev.prevent_default();
                                                                         if let Some(data_transfer) = ev.data_transfer() {
                                                                             data_transfer.set_drop_effect("move");
                                                                         }
+                                                                        hovered_root_list_drop_id.set(Some(drop_target_id_for_dragover.clone()));
                                                                     }
                                                                     on:drop=move |ev: web_sys::DragEvent| {
                                                                         ev.prevent_default();
-                                                                        on_root_list_drop.run(Some(drop_before_id.clone()));
+                                                                        hovered_root_list_drop_id.set(None);
+                                                                        on_root_list_drop.run(Some(drop_before_id_for_drop.clone()));
                                                                     }
                                                                 >
-                                                                    <span class=move || drop_marker_line_class(dragged_root_list_id.get().is_some())></span>
-                                                                    <span class=move || drop_marker_label_class(dragged_root_list_id.get().is_some())>"Upuść tutaj"</span>
-                                                                    <span class=move || drop_marker_line_class(dragged_root_list_id.get().is_some())></span>
+                                                                    <span class=move || drop_marker_line_class(
+                                                                        dragged_root_list_id.get().is_some(),
+                                                                        is_drop_target_hovered.get(),
+                                                                    )></span>
+                                                                    <span class=move || drop_marker_label_class(
+                                                                        dragged_root_list_id.get().is_some(),
+                                                                        is_drop_target_hovered.get(),
+                                                                    )>"Upuść tutaj"</span>
+                                                                    <span class=move || drop_marker_line_class(
+                                                                        dragged_root_list_id.get().is_some(),
+                                                                        is_drop_target_hovered.get(),
+                                                                    )></span>
                                                                 </div>
                                                             }.into_any()
                                                         } else {
@@ -691,7 +759,10 @@ fn HomePageInner() -> impl IntoView {
                                                                             }
                                                                             dragged_root_list_id.set(Some(drag_id_for_drag.clone()));
                                                                         }
-                                                                        on:dragend=move |_| dragged_root_list_id.set(None)
+                                                                        on:dragend=move |_| {
+                                                                            dragged_root_list_id.set(None);
+                                                                            hovered_root_list_drop_id.set(None);
+                                                                        }
                                                                     >
                                                                         <DragGrip />
                                                                     </button>
@@ -700,7 +771,8 @@ fn HomePageInner() -> impl IntoView {
                                                                 view! {}.into_any()
                                                             }}
                                                             <div class=move || drag_surface_class(
-                                                                dragged_root_list_id.get().as_deref() == Some(drag_id_for_surface.as_str())
+                                                                dragged_root_list_id.get().as_deref() == Some(drag_id_for_surface.as_str()),
+                                                                is_drop_target_hovered.get(),
                                                             )>
                                                                 <ListCard
                                                                     list
@@ -719,21 +791,35 @@ fn HomePageInner() -> impl IntoView {
                                             {if can_reorder_root_lists {
                                                 view! {
                                                     <div
-                                                        class=move || drop_marker_class(dragged_root_list_id.get().is_some())
+                                                        class=move || drop_marker_class(
+                                                            dragged_root_list_id.get().is_some(),
+                                                            is_root_list_end_drop_hovered.get(),
+                                                        )
                                                         on:dragover=move |ev: web_sys::DragEvent| {
                                                             ev.prevent_default();
                                                             if let Some(data_transfer) = ev.data_transfer() {
                                                                 data_transfer.set_drop_effect("move");
                                                             }
+                                                            hovered_root_list_drop_id.set(Some(END_DROP_TARGET_ID.to_string()));
                                                         }
                                                         on:drop=move |ev: web_sys::DragEvent| {
                                                             ev.prevent_default();
+                                                            hovered_root_list_drop_id.set(None);
                                                             on_root_list_drop.run(None);
                                                         }
                                                     >
-                                                        <span class=move || drop_marker_line_class(dragged_root_list_id.get().is_some())></span>
-                                                        <span class=move || drop_marker_label_class(dragged_root_list_id.get().is_some())>"Upuść na końcu"</span>
-                                                        <span class=move || drop_marker_line_class(dragged_root_list_id.get().is_some())></span>
+                                                        <span class=move || drop_marker_line_class(
+                                                            dragged_root_list_id.get().is_some(),
+                                                            is_root_list_end_drop_hovered.get(),
+                                                        )></span>
+                                                        <span class=move || drop_marker_label_class(
+                                                            dragged_root_list_id.get().is_some(),
+                                                            is_root_list_end_drop_hovered.get(),
+                                                        )>"Upuść na końcu"</span>
+                                                        <span class=move || drop_marker_line_class(
+                                                            dragged_root_list_id.get().is_some(),
+                                                            is_root_list_end_drop_hovered.get(),
+                                                        )></span>
                                                     </div>
                                                 }.into_any()
                                             } else {

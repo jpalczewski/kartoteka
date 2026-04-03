@@ -1,8 +1,8 @@
 use leptos::prelude::*;
 
 use crate::components::common::dnd::{
-    DragGrip, drag_handle_class, drag_shell_class, drag_surface_class, drop_marker_class,
-    drop_marker_label_class, drop_marker_line_class,
+    DragGrip, END_DROP_TARGET_ID, drag_handle_class, drag_shell_class, drag_surface_class,
+    drop_marker_class, drop_marker_label_class, drop_marker_line_class,
 };
 use crate::components::items::item_row::ItemRow;
 use kartoteka_shared::{Item, ItemTagLink, List, Tag};
@@ -50,16 +50,26 @@ pub fn render_normal_view(p: NormalViewProps) -> impl IntoView {
         .iter()
         .map(|s| (s.id.clone(), s.name.clone()))
         .collect();
+    let hovered_drop_id = RwSignal::new(Option::<String>::None);
+    let is_end_drop_target_hovered =
+        Signal::derive(move || hovered_drop_id.get().as_deref() == Some(END_DROP_TARGET_ID));
 
     view! {
         <div>
             {items.iter().map(|item| {
                 let item_id = item.id.clone();
                 let drop_before_id = item.id.clone();
+                let drop_target_id = item.id.clone();
+                let drop_target_id_for_dragover = drop_target_id.clone();
+                let drop_before_id_for_drop = drop_before_id.clone();
+                let drop_target_id_for_hover = drop_target_id.clone();
                 let drag_id = item.id.clone();
                 let drag_id_for_drag = drag_id.clone();
                 let drag_id_for_shell = drag_id.clone();
                 let drag_id_for_surface = drag_id.clone();
+                let is_drop_target_hovered = Signal::derive(move || {
+                    hovered_drop_id.get().as_deref() == Some(drop_target_id_for_hover.as_str())
+                });
                 let item_tags: Vec<String> = item_tag_links.read().iter()
                     .filter(|l| l.item_id == item.id)
                     .map(|l| l.tag_id.clone())
@@ -75,21 +85,35 @@ pub fn render_normal_view(p: NormalViewProps) -> impl IntoView {
                         {if enable_reorder {
                             view! {
                                 <div
-                                    class=move || drop_marker_class(dragged_item_id.get().is_some())
+                                    class=move || drop_marker_class(
+                                        dragged_item_id.get().is_some(),
+                                        is_drop_target_hovered.get(),
+                                    )
                                     on:dragover=move |ev: web_sys::DragEvent| {
                                         ev.prevent_default();
                                         if let Some(data_transfer) = ev.data_transfer() {
                                             data_transfer.set_drop_effect("move");
                                         }
+                                        hovered_drop_id.set(Some(drop_target_id_for_dragover.clone()));
                                     }
                                     on:drop=move |ev: web_sys::DragEvent| {
                                         ev.prevent_default();
-                                        on_reorder_drop.run(Some(drop_before_id.clone()));
+                                        hovered_drop_id.set(None);
+                                        on_reorder_drop.run(Some(drop_before_id_for_drop.clone()));
                                     }
                                 >
-                                    <span class=move || drop_marker_line_class(dragged_item_id.get().is_some())></span>
-                                    <span class=move || drop_marker_label_class(dragged_item_id.get().is_some())>"Upuść tutaj"</span>
-                                    <span class=move || drop_marker_line_class(dragged_item_id.get().is_some())></span>
+                                    <span class=move || drop_marker_line_class(
+                                        dragged_item_id.get().is_some(),
+                                        is_drop_target_hovered.get(),
+                                    )></span>
+                                    <span class=move || drop_marker_label_class(
+                                        dragged_item_id.get().is_some(),
+                                        is_drop_target_hovered.get(),
+                                    )>"Upuść tutaj"</span>
+                                    <span class=move || drop_marker_line_class(
+                                        dragged_item_id.get().is_some(),
+                                        is_drop_target_hovered.get(),
+                                    )></span>
                                 </div>
                             }.into_any()
                         } else {
@@ -118,7 +142,10 @@ pub fn render_normal_view(p: NormalViewProps) -> impl IntoView {
                                             }
                                             dragged_item_id.set(Some(drag_id_for_drag.clone()));
                                         }
-                                        on:dragend=move |_| dragged_item_id.set(None)
+                                        on:dragend=move |_| {
+                                            dragged_item_id.set(None);
+                                            hovered_drop_id.set(None);
+                                        }
                                     >
                                         <DragGrip />
                                     </button>
@@ -127,7 +154,8 @@ pub fn render_normal_view(p: NormalViewProps) -> impl IntoView {
                                 view! {}.into_any()
                             }}
                             <div class=move || drag_surface_class(
-                                dragged_item_id.get().as_deref() == Some(drag_id_for_surface.as_str())
+                                dragged_item_id.get().as_deref() == Some(drag_id_for_surface.as_str()),
+                                is_drop_target_hovered.get(),
                             )>
                                 <ItemRow
                                     item=item.clone()
@@ -152,21 +180,35 @@ pub fn render_normal_view(p: NormalViewProps) -> impl IntoView {
             {if enable_reorder {
                 view! {
                     <div
-                        class=move || drop_marker_class(dragged_item_id.get().is_some())
+                        class=move || drop_marker_class(
+                            dragged_item_id.get().is_some(),
+                            is_end_drop_target_hovered.get(),
+                        )
                         on:dragover=move |ev: web_sys::DragEvent| {
                             ev.prevent_default();
                             if let Some(data_transfer) = ev.data_transfer() {
                                 data_transfer.set_drop_effect("move");
                             }
+                            hovered_drop_id.set(Some(END_DROP_TARGET_ID.to_string()));
                         }
                         on:drop=move |ev: web_sys::DragEvent| {
                             ev.prevent_default();
+                            hovered_drop_id.set(None);
                             on_reorder_drop.run(None);
                         }
                     >
-                        <span class=move || drop_marker_line_class(dragged_item_id.get().is_some())></span>
-                        <span class=move || drop_marker_label_class(dragged_item_id.get().is_some())>"Upuść na końcu"</span>
-                        <span class=move || drop_marker_line_class(dragged_item_id.get().is_some())></span>
+                        <span class=move || drop_marker_line_class(
+                            dragged_item_id.get().is_some(),
+                            is_end_drop_target_hovered.get(),
+                        )></span>
+                        <span class=move || drop_marker_label_class(
+                            dragged_item_id.get().is_some(),
+                            is_end_drop_target_hovered.get(),
+                        )>"Upuść na końcu"</span>
+                        <span class=move || drop_marker_line_class(
+                            dragged_item_id.get().is_some(),
+                            is_end_drop_target_hovered.get(),
+                        )></span>
                     </div>
                 }.into_any()
             } else {

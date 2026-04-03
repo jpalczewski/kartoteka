@@ -13,8 +13,8 @@ use crate::components::common::breadcrumbs::{
     BreadcrumbCrumb, Breadcrumbs, build_container_breadcrumbs, build_list_ancestor_breadcrumbs,
 };
 use crate::components::common::dnd::{
-    DragGrip, drag_handle_class, drag_shell_class, drag_surface_class, drop_marker_class,
-    drop_marker_label_class, drop_marker_line_class,
+    DragGrip, END_DROP_TARGET_ID, drag_handle_class, drag_shell_class, drag_surface_class,
+    drop_marker_class, drop_marker_label_class, drop_marker_line_class,
 };
 use crate::components::common::editable_description::EditableDescription;
 use crate::components::common::loading::LoadingSpinner;
@@ -106,6 +106,10 @@ pub fn ListPage() -> impl IntoView {
     let sublists = RwSignal::new(Vec::<List>::new());
     let dragged_item_id = RwSignal::new(Option::<String>::None);
     let dragged_sublist_id = RwSignal::new(Option::<String>::None);
+    let hovered_sublist_drop_id = RwSignal::new(Option::<String>::None);
+    let is_end_sublist_drop_hovered = Signal::derive(move || {
+        hovered_sublist_drop_id.get().as_deref() == Some(END_DROP_TARGET_ID)
+    });
 
     let lid = list_id();
     let client_init = client.clone();
@@ -549,9 +553,16 @@ pub fn ListPage() -> impl IntoView {
                                             {subs.iter().map(|sl| {
                                                 let drag_id = sl.id.clone();
                                                 let drop_before_id = sl.id.clone();
+                                                let drop_target_id = sl.id.clone();
+                                                let drop_target_id_for_dragover = drop_target_id.clone();
+                                                let drop_before_id_for_drop = drop_before_id.clone();
                                                 let drag_id_for_drag = drag_id.clone();
                                                 let drag_id_for_shell = drag_id.clone();
                                                 let drag_id_for_surface = drag_id.clone();
+                                                let drop_target_id_for_hover = drop_target_id.clone();
+                                                let is_drop_target_hovered = Signal::derive(move || {
+                                                    hovered_sublist_drop_id.get().as_deref() == Some(drop_target_id_for_hover.as_str())
+                                                });
                                                 let tags = all_tags.get();
                                                 let links = item_tag_links.get();
                                                 let lid = list_id();
@@ -570,21 +581,35 @@ pub fn ListPage() -> impl IntoView {
                                                 view! {
                                                     <div class="flex flex-col gap-2">
                                                         <div
-                                                            class=move || drop_marker_class(dragged_sublist_id.get().is_some())
+                                                            class=move || drop_marker_class(
+                                                                dragged_sublist_id.get().is_some(),
+                                                                is_drop_target_hovered.get(),
+                                                            )
                                                             on:dragover=move |ev: web_sys::DragEvent| {
                                                                 ev.prevent_default();
                                                                 if let Some(data_transfer) = ev.data_transfer() {
                                                                     data_transfer.set_drop_effect("move");
                                                                 }
+                                                                hovered_sublist_drop_id.set(Some(drop_target_id_for_dragover.clone()));
                                                             }
                                                             on:drop=move |ev: web_sys::DragEvent| {
                                                                 ev.prevent_default();
-                                                                on_sublist_drop.run(Some(drop_before_id.clone()));
+                                                                hovered_sublist_drop_id.set(None);
+                                                                on_sublist_drop.run(Some(drop_before_id_for_drop.clone()));
                                                             }
                                                         >
-                                                            <span class=move || drop_marker_line_class(dragged_sublist_id.get().is_some())></span>
-                                                            <span class=move || drop_marker_label_class(dragged_sublist_id.get().is_some())>"Upuść tutaj"</span>
-                                                            <span class=move || drop_marker_line_class(dragged_sublist_id.get().is_some())></span>
+                                                            <span class=move || drop_marker_line_class(
+                                                                dragged_sublist_id.get().is_some(),
+                                                                is_drop_target_hovered.get(),
+                                                            )></span>
+                                                            <span class=move || drop_marker_label_class(
+                                                                dragged_sublist_id.get().is_some(),
+                                                                is_drop_target_hovered.get(),
+                                                            )>"Upuść tutaj"</span>
+                                                            <span class=move || drop_marker_line_class(
+                                                                dragged_sublist_id.get().is_some(),
+                                                                is_drop_target_hovered.get(),
+                                                            )></span>
                                                         </div>
                                                         <div class=move || drag_shell_class(
                                                             dragged_sublist_id.get().as_deref() == Some(drag_id_for_shell.as_str())
@@ -604,12 +629,16 @@ pub fn ListPage() -> impl IntoView {
                                                                     }
                                                                     dragged_sublist_id.set(Some(drag_id_for_drag.clone()));
                                                                 }
-                                                                on:dragend=move |_| dragged_sublist_id.set(None)
+                                                                on:dragend=move |_| {
+                                                                    dragged_sublist_id.set(None);
+                                                                    hovered_sublist_drop_id.set(None);
+                                                                }
                                                             >
                                                                 <DragGrip />
                                                             </button>
                                                             <div class=move || drag_surface_class(
-                                                                dragged_sublist_id.get().as_deref() == Some(drag_id_for_surface.as_str())
+                                                                dragged_sublist_id.get().as_deref() == Some(drag_id_for_surface.as_str()),
+                                                                is_drop_target_hovered.get(),
                                                             )>
                                                                 <SublistSection
                                                                     sublist=sl.clone()
@@ -627,21 +656,35 @@ pub fn ListPage() -> impl IntoView {
                                                 }
                                             }).collect::<Vec<_>>()}
                                             <div
-                                                class=move || drop_marker_class(dragged_sublist_id.get().is_some())
+                                                class=move || drop_marker_class(
+                                                    dragged_sublist_id.get().is_some(),
+                                                    is_end_sublist_drop_hovered.get(),
+                                                )
                                                 on:dragover=move |ev: web_sys::DragEvent| {
                                                     ev.prevent_default();
                                                     if let Some(data_transfer) = ev.data_transfer() {
                                                         data_transfer.set_drop_effect("move");
                                                     }
+                                                    hovered_sublist_drop_id.set(Some(END_DROP_TARGET_ID.to_string()));
                                                 }
                                                 on:drop=move |ev: web_sys::DragEvent| {
                                                     ev.prevent_default();
+                                                    hovered_sublist_drop_id.set(None);
                                                     on_sublist_drop.run(None);
                                                 }
                                             >
-                                                <span class=move || drop_marker_line_class(dragged_sublist_id.get().is_some())></span>
-                                                <span class=move || drop_marker_label_class(dragged_sublist_id.get().is_some())>"Upuść na końcu"</span>
-                                                <span class=move || drop_marker_line_class(dragged_sublist_id.get().is_some())></span>
+                                                <span class=move || drop_marker_line_class(
+                                                    dragged_sublist_id.get().is_some(),
+                                                    is_end_sublist_drop_hovered.get(),
+                                                )></span>
+                                                <span class=move || drop_marker_label_class(
+                                                    dragged_sublist_id.get().is_some(),
+                                                    is_end_sublist_drop_hovered.get(),
+                                                )>"Upuść na końcu"</span>
+                                                <span class=move || drop_marker_line_class(
+                                                    dragged_sublist_id.get().is_some(),
+                                                    is_end_sublist_drop_hovered.get(),
+                                                )></span>
                                             </div>
                                         </div>
                                     }.into_any()
