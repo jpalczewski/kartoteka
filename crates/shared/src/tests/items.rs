@@ -21,6 +21,20 @@ fn update_item_value_field_is_some_some() {
     assert!(matches!(req.deadline, Some(Some(ref d)) if d == "2024-12-31"));
 }
 
+#[test]
+fn reorder_items_request_requires_ids() {
+    let req = ReorderItemsRequest { item_ids: vec![] };
+    assert_eq!(req.validate(), Err("item_ids must not be empty"));
+}
+
+#[test]
+fn reorder_items_request_accepts_non_empty_ids() {
+    let req = ReorderItemsRequest {
+        item_ids: vec!["i1".into(), "i2".into()],
+    };
+    assert!(req.validate().is_ok());
+}
+
 // --- UpdateItemRequest description sentinel convention ---
 
 #[test]

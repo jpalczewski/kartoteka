@@ -22,9 +22,11 @@ use crate::components::lists::list_tag_bar::ListTagBar;
 use crate::components::lists::sublist_section::SublistSection;
 use crate::components::tags::tag_filter_bar::TagFilterBar;
 use crate::components::tags::tag_tree::build_tag_filter_options;
+use crate::state::item_mutations::run_optimistic_mutation;
+use crate::state::reorder::{apply_reorder, reorder_ids};
 use kartoteka_shared::{
-    FEATURE_DEADLINES, FEATURE_QUANTITY, Item, ItemTagLink, List, ListFeature, ListTagLink, Tag,
-    UpdateListRequest,
+    FEATURE_DEADLINES, FEATURE_QUANTITY, Item, ItemTagLink, List, ListFeature, ListTagLink,
+    ReorderItemsRequest, SetListPlacementRequest, Tag, UpdateListRequest,
 };
 
 use date_view::render_date_view;
@@ -80,7 +82,7 @@ async fn resolve_list_breadcrumbs(client: &GlooClient, list: &List) -> Vec<Bread
 #[component]
 pub fn ListPage() -> impl IntoView {
     let params = use_params_map();
-    let list_id = move || params.read().get("id").unwrap_or_default();
+    let list_id = move || params.get_untracked().get("id").unwrap_or_default();
 
     let client = use_context::<GlooClient>().expect("GlooClient not provided");
 
@@ -98,6 +100,8 @@ pub fn ListPage() -> impl IntoView {
     let list_description = RwSignal::new(Option::<String>::None);
     let list_features = RwSignal::new(Vec::<ListFeature>::new());
     let sublists = RwSignal::new(Vec::<List>::new());
+    let dragged_item_id = RwSignal::new(Option::<String>::None);
+    let dragged_sublist_id = RwSignal::new(Option::<String>::None);
 
     let lid = list_id();
     let client_init = client.clone();
@@ -222,15 +226,102 @@ pub fn ListPage() -> impl IntoView {
         })
     };
 
+    let on_main_item_drop = {
+        let client = client.clone();
+        Callback::new(move |before_id: Option<String>| {
+            let Some(dragged_id) = dragged_item_id.get_untracked() else {
+                return;
+            };
+            let current_ids: Vec<String> = items
+                .get_untracked()
+                .into_iter()
+                .map(|item| item.id)
+                .collect();
+            let Some(next_ids) = reorder_ids(&current_ids, &dragged_id, before_id.as_deref())
+            else {
+                dragged_item_id.set(None);
+                return;
+            };
+
+            let lid = list_id();
+            let request = ReorderItemsRequest {
+                item_ids: next_ids.clone(),
+            };
+            let dragged_id_for_mutation = dragged_id.clone();
+            let before_id_for_mutation = before_id.clone();
+            let client = client.clone();
+            run_optimistic_mutation(
+                items,
+                move |items| {
+                    let current_ids: Vec<String> =
+                        items.iter().map(|item| item.id.clone()).collect();
+                    let Some(next_ids) = reorder_ids(
+                        &current_ids,
+                        &dragged_id_for_mutation,
+                        before_id_for_mutation.as_deref(),
+                    ) else {
+                        return false;
+                    };
+                    apply_reorder(items, &next_ids, |item| item.id.as_str())
+                },
+                move || async move { api::reorder_items(&client, &lid, &request).await },
+                move |error| set_error.set(Some(error.to_string())),
+            );
+            dragged_item_id.set(None);
+        })
+    };
+
+    let on_sublist_drop = {
+        let client = client.clone();
+        Callback::new(move |before_id: Option<String>| {
+            let Some(dragged_id) = dragged_sublist_id.get_untracked() else {
+                return;
+            };
+            let current_ids: Vec<String> = sublists
+                .get_untracked()
+                .into_iter()
+                .map(|list| list.id)
+                .collect();
+            let Some(next_ids) = reorder_ids(&current_ids, &dragged_id, before_id.as_deref())
+            else {
+                dragged_sublist_id.set(None);
+                return;
+            };
+
+            let request = SetListPlacementRequest {
+                list_ids: next_ids.clone(),
+                parent_list_id: Some(list_id()),
+                container_id: None,
+            };
+            let dragged_id_for_mutation = dragged_id.clone();
+            let before_id_for_mutation = before_id.clone();
+            let client = client.clone();
+            run_optimistic_mutation(
+                sublists,
+                move |lists| {
+                    let current_ids: Vec<String> =
+                        lists.iter().map(|list| list.id.clone()).collect();
+                    let Some(next_ids) = reorder_ids(
+                        &current_ids,
+                        &dragged_id_for_mutation,
+                        before_id_for_mutation.as_deref(),
+                    ) else {
+                        return false;
+                    };
+                    apply_reorder(lists, &next_ids, |list| list.id.as_str())
+                },
+                move || async move { api::reorder_lists(&client, &request).await },
+                move |error| toast.push(error.to_string(), ToastKind::Error),
+            );
+            dragged_sublist_id.set(None);
+        })
+    };
+
     let (active_tag_filter, set_active_tag_filter) = signal(Option::<String>::None);
 
     let sorted_items = move || {
         let mut list = items.get();
-        list.sort_by(|a, b| {
-            a.completed
-                .cmp(&b.completed)
-                .then(a.position.cmp(&b.position))
-        });
+        list.sort_by(|a, b| a.position.cmp(&b.position));
         list
     };
 
@@ -437,6 +528,9 @@ pub fn ListPage() -> impl IntoView {
                                         on_move: on_move_main,
                                         on_date_save,
                                         deadlines_config: get_deadlines_config(&feats),
+                                        enable_reorder: active_tag_filter.get().is_none(),
+                                        dragged_item_id,
+                                        on_reorder_drop: on_main_item_drop,
                                     }).into_any()
                                 }
                             }}
@@ -449,6 +543,8 @@ pub fn ListPage() -> impl IntoView {
                                     view! {
                                         <div class="mt-6">
                                             {subs.iter().map(|sl| {
+                                                let drag_id = sl.id.clone();
+                                                let drop_before_id = sl.id.clone();
                                                 let tags = all_tags.get();
                                                 let links = item_tag_links.get();
                                                 let lid = list_id();
@@ -465,18 +561,67 @@ pub fn ListPage() -> impl IntoView {
                                                 let feats = list_features.get();
                                                 let deadlines_config = get_deadlines_config(&feats);
                                                 view! {
-                                                    <SublistSection
-                                                        sublist=sl.clone()
-                                                        has_quantity=feats.iter().any(|f| f.name == FEATURE_QUANTITY)
-                                                        deadlines_config=deadlines_config
-                                                        all_tags=tags
-                                                        item_tag_links=links
-                                                        on_tag_toggle=on_tag_toggle
-                                                        move_targets=mt
-                                                        on_item_moved_out=on_item_moved_out
-                                                    />
+                                                    <div class="flex flex-col gap-2">
+                                                        <div
+                                                            class=move || {
+                                                                if dragged_sublist_id.get().is_some() {
+                                                                    "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
+                                                                } else {
+                                                                    "h-2 rounded border border-dashed border-transparent transition-colors"
+                                                                }
+                                                            }
+                                                            on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
+                                                            on:drop=move |ev: web_sys::DragEvent| {
+                                                                ev.prevent_default();
+                                                                on_sublist_drop.run(Some(drop_before_id.clone()));
+                                                            }
+                                                        ></div>
+                                                        <div class="flex items-start gap-2">
+                                                            <button
+                                                                type="button"
+                                                                class="btn btn-ghost btn-sm cursor-grab active:cursor-grabbing mt-2"
+                                                                draggable="true"
+                                                                aria-label="Przestaw grupę"
+                                                                on:dragstart=move |ev: web_sys::DragEvent| {
+                                                                    if let Some(data_transfer) = ev.data_transfer() {
+                                                                        let _ = data_transfer.set_data("text/plain", &drag_id);
+                                                                    }
+                                                                    dragged_sublist_id.set(Some(drag_id.clone()));
+                                                                }
+                                                                on:dragend=move |_| dragged_sublist_id.set(None)
+                                                            >
+                                                                "⋮⋮"
+                                                            </button>
+                                                            <div class="flex-1">
+                                                                <SublistSection
+                                                                    sublist=sl.clone()
+                                                                    has_quantity=feats.iter().any(|f| f.name == FEATURE_QUANTITY)
+                                                                    deadlines_config=deadlines_config
+                                                                    all_tags=tags
+                                                                    item_tag_links=links
+                                                                    on_tag_toggle=on_tag_toggle
+                                                                    move_targets=mt
+                                                                    on_item_moved_out=on_item_moved_out
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 }
                                             }).collect::<Vec<_>>()}
+                                            <div
+                                                class=move || {
+                                                    if dragged_sublist_id.get().is_some() {
+                                                        "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
+                                                    } else {
+                                                        "h-2 rounded border border-dashed border-transparent transition-colors"
+                                                    }
+                                                }
+                                                on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
+                                                on:drop=move |ev: web_sys::DragEvent| {
+                                                    ev.prevent_default();
+                                                    on_sublist_drop.run(None);
+                                                }
+                                            ></div>
                                         </div>
                                     }.into_any()
                                 }

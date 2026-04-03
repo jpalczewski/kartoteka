@@ -17,6 +17,9 @@ pub struct NormalViewProps {
     pub on_move: Callback<(String, String)>,
     pub on_date_save: Callback<(String, String, String, Option<String>)>,
     pub deadlines_config: serde_json::Value,
+    pub enable_reorder: bool,
+    pub dragged_item_id: RwSignal<Option<String>>,
+    pub on_reorder_drop: Callback<Option<String>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -35,6 +38,9 @@ pub fn render_normal_view(p: NormalViewProps) -> impl IntoView {
         on_move,
         on_date_save,
         deadlines_config,
+        enable_reorder,
+        dragged_item_id,
+        on_reorder_drop,
     } = p;
     let move_targets: Vec<(String, String)> = sublists
         .iter()
@@ -45,6 +51,8 @@ pub fn render_normal_view(p: NormalViewProps) -> impl IntoView {
         <div>
             {items.iter().map(|item| {
                 let item_id = item.id.clone();
+                let drop_before_id = item.id.clone();
+                let drag_id = item.id.clone();
                 let item_tags: Vec<String> = item_tag_links.read().iter()
                     .filter(|l| l.item_id == item.id)
                     .map(|l| l.tag_id.clone())
@@ -56,23 +64,90 @@ pub fn render_normal_view(p: NormalViewProps) -> impl IntoView {
                 let mt = move_targets.clone();
                 let dc = deadlines_config.clone();
                 view! {
-                    <ItemRow
-                        item=item.clone()
-                        on_toggle=on_toggle
-                        on_delete=on_delete
-                        all_tags=tags_clone
-                        item_tag_ids=item_tags
-                        on_tag_toggle=item_tag_toggle
-                        on_description_save=on_description_save
-                        has_quantity=has_quantity
-                        on_quantity_change=on_quantity_change
-                        move_targets=mt
-                        on_move=on_move
-                        on_date_save=on_date_save
-                        deadlines_config=dc
-                    />
+                    <div class="flex flex-col gap-2">
+                        {if enable_reorder {
+                            view! {
+                                <div
+                                    class=move || {
+                                        if dragged_item_id.get().is_some() {
+                                            "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
+                                        } else {
+                                            "h-2 rounded border border-dashed border-transparent transition-colors"
+                                        }
+                                    }
+                                    on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
+                                    on:drop=move |ev: web_sys::DragEvent| {
+                                        ev.prevent_default();
+                                        on_reorder_drop.run(Some(drop_before_id.clone()));
+                                    }
+                                ></div>
+                            }.into_any()
+                        } else {
+                            view! {}.into_any()
+                        }}
+                        <div class="flex items-start gap-2">
+                            {if enable_reorder {
+                                view! {
+                                    <button
+                                        type="button"
+                                        class="btn btn-ghost btn-sm cursor-grab active:cursor-grabbing mt-2"
+                                        draggable="true"
+                                        aria-label="Przestaw pozycję"
+                                        on:dragstart=move |ev: web_sys::DragEvent| {
+                                            if let Some(data_transfer) = ev.data_transfer() {
+                                                let _ = data_transfer.set_data("text/plain", &drag_id);
+                                            }
+                                            dragged_item_id.set(Some(drag_id.clone()));
+                                        }
+                                        on:dragend=move |_| dragged_item_id.set(None)
+                                    >
+                                        "⋮⋮"
+                                    </button>
+                                }.into_any()
+                            } else {
+                                view! {}.into_any()
+                            }}
+                            <div class="flex-1">
+                                <ItemRow
+                                    item=item.clone()
+                                    on_toggle=on_toggle
+                                    on_delete=on_delete
+                                    all_tags=tags_clone
+                                    item_tag_ids=item_tags
+                                    on_tag_toggle=item_tag_toggle
+                                    on_description_save=on_description_save
+                                    has_quantity=has_quantity
+                                    on_quantity_change=on_quantity_change
+                                    move_targets=mt
+                                    on_move=on_move
+                                    on_date_save=on_date_save
+                                    deadlines_config=dc
+                                />
+                            </div>
+                        </div>
+                    </div>
                 }
             }).collect::<Vec<_>>()}
+            {if enable_reorder {
+                view! {
+                    <div
+                        class=move || {
+                            if dragged_item_id.get().is_some() {
+                                "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
+                            } else {
+                                "h-2 rounded border border-dashed border-transparent transition-colors"
+                            }
+                        }
+                        on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
+                        on:drop=move |ev: web_sys::DragEvent| {
+                            ev.prevent_default();
+                            on_reorder_drop.run(None);
+                        }
+                    ></div>
+                }.into_any()
+            } else {
+                view! {}.into_any()
+            }}
         </div>
     }
 }

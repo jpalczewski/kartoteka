@@ -110,6 +110,24 @@ fn move_list_request_remove_from_container() {
 }
 
 #[test]
+fn reorder_containers_request_requires_ids() {
+    let req = ReorderContainersRequest {
+        container_ids: vec![],
+        parent_container_id: None,
+    };
+    assert_eq!(req.validate(), Err("container_ids must not be empty"));
+}
+
+#[test]
+fn reorder_containers_request_allows_root_scope() {
+    let req = ReorderContainersRequest {
+        container_ids: vec!["c1".into(), "c2".into()],
+        parent_container_id: None,
+    };
+    assert!(req.validate().is_ok());
+}
+
+#[test]
 fn update_list_description_null_clears_field() {
     let req: UpdateListRequest = serde_json::from_str(r#"{"description": null}"#).unwrap();
     assert!(matches!(req.description, Some(None)));

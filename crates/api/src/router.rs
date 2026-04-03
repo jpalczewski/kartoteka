@@ -37,6 +37,7 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         // Containers
         .get_async("/api/containers", containers::list_all)
         .post_async("/api/containers", containers::create)
+        .patch_async("/api/containers/reorder", containers::reorder)
         .get_async("/api/containers/:id", containers::get_one)
         .put_async("/api/containers/:id", containers::update)
         .delete_async("/api/containers/:id", containers::delete)
@@ -62,6 +63,7 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         // Items
         .get_async("/api/lists/:list_id/items", items::list_all)
         .post_async("/api/lists/:list_id/items", items::create)
+        .patch_async("/api/lists/:list_id/items/reorder", items::reorder)
         .get_async("/api/lists/:list_id/items/:id", items::get_one)
         .put_async("/api/lists/:list_id/items/:id", items::update)
         .delete_async("/api/lists/:list_id/items/:id", items::delete)

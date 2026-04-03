@@ -36,6 +36,19 @@ pub async fn create_item(
     .await
 }
 
+pub async fn reorder_items(
+    client: &impl super::HttpClient,
+    list_id: &str,
+    req: &ReorderItemsRequest,
+) -> Result<(), super::ApiError> {
+    super::api_patch_empty(
+        client,
+        &format!("{}/lists/{list_id}/items/reorder", super::API_BASE),
+        req,
+    )
+    .await
+}
+
 pub async fn update_item(
     client: &impl super::HttpClient,
     list_id: &str,

@@ -2,7 +2,7 @@ use crate::error::json_error;
 use crate::helpers::*;
 use kartoteka_shared::{
     Container, ContainerDetail, CreateContainerRequest, List, MoveContainerRequest,
-    UpdateContainerRequest,
+    ReorderContainersRequest, UpdateContainerRequest,
 };
 use tracing::instrument;
 use wasm_bindgen::JsValue;
@@ -13,6 +13,46 @@ const CONTAINER_SELECT: &str = "\
     c.parent_container_id, c.position, c.pinned, c.last_opened_at, \
     c.created_at, c.updated_at \
     FROM containers c";
+
+async fn fetch_container_ids_in_scope(
+    d1: &D1Database,
+    user_id: &str,
+    parent_container_id: Option<&str>,
+) -> Result<Vec<String>> {
+    #[derive(serde::Deserialize)]
+    struct ContainerIdRow {
+        id: String,
+    }
+
+    let result = match parent_container_id {
+        Some(parent_id) => {
+            d1.prepare(
+                "SELECT id FROM containers \
+                 WHERE user_id = ?1 AND parent_container_id = ?2 \
+                 ORDER BY position ASC, created_at ASC",
+            )
+            .bind(&[user_id.into(), parent_id.into()])?
+            .all()
+            .await?
+        }
+        None => {
+            d1.prepare(
+                "SELECT id FROM containers \
+                 WHERE user_id = ?1 AND parent_container_id IS NULL \
+                 ORDER BY position ASC, created_at ASC",
+            )
+            .bind(&[user_id.into()])?
+            .all()
+            .await?
+        }
+    };
+
+    Ok(result
+        .results::<ContainerIdRow>()?
+        .into_iter()
+        .map(|row| row.id)
+        .collect())
+}
 
 #[instrument(skip_all)]
 pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
@@ -294,7 +334,7 @@ pub async fn get_children(_req: Request, ctx: RouteContext<String>) -> Result<Re
     let list_select = super::lists::LIST_SELECT;
     let list_result = d1
         .prepare(format!(
-            "{list_select} WHERE l.container_id = ?1 AND l.parent_list_id IS NULL AND l.archived = 0 ORDER BY l.updated_at DESC"
+            "{list_select} WHERE l.container_id = ?1 AND l.parent_list_id IS NULL AND l.archived = 0 ORDER BY l.position ASC, l.created_at ASC"
         ))
         .bind(&[id.into()])?
         .all()
@@ -307,6 +347,48 @@ pub async fn get_children(_req: Request, ctx: RouteContext<String>) -> Result<Re
     });
 
     Response::from_json(&resp)
+}
+
+#[instrument(skip_all, fields(action = "reorder_containers", container_count = tracing::field::Empty))]
+pub async fn reorder(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let body: ReorderContainersRequest = req.json().await?;
+    tracing::Span::current().record("container_count", body.container_ids.len());
+
+    if let Err(code) = body.validate() {
+        return json_error(code, 400);
+    }
+
+    let d1 = ctx.env.d1("DB")?;
+
+    if let Some(ref parent_id) = body.parent_container_id {
+        let parent = d1
+            .prepare("SELECT status FROM containers WHERE id = ?1 AND user_id = ?2")
+            .bind(&[parent_id.clone().into(), user_id.clone().into()])?
+            .first::<serde_json::Value>(None)
+            .await?;
+        match parent {
+            None => return json_error("container_not_found", 404),
+            Some(ref value) => {
+                if !value
+                    .get("status")
+                    .map(|status| status.is_null())
+                    .unwrap_or(true)
+                {
+                    return json_error("invalid_container_hierarchy", 400);
+                }
+            }
+        }
+    }
+
+    let current_ids =
+        fetch_container_ids_in_scope(&d1, &user_id, body.parent_container_id.as_deref()).await?;
+    if !ids_match_exact_set(&current_ids, &body.container_ids) {
+        return json_error("invalid_container_reorder", 400);
+    }
+
+    apply_positions(&d1, "containers", &body.container_ids).await?;
+    Ok(Response::empty()?.with_status(204))
 }
 
 #[instrument(skip_all, fields(action = "move_container", container_id = tracing::field::Empty))]
@@ -449,7 +531,7 @@ pub async fn home(_req: Request, ctx: RouteContext<String>) -> Result<Response> 
     // Root lists (no container, no parent list, not archived)
     let root_lists_result = d1
         .prepare(format!(
-            "{list_select} WHERE l.user_id = ?1 AND l.container_id IS NULL AND l.parent_list_id IS NULL AND l.archived = 0 ORDER BY l.updated_at DESC"
+            "{list_select} WHERE l.user_id = ?1 AND l.container_id IS NULL AND l.parent_list_id IS NULL AND l.archived = 0 ORDER BY l.position ASC, l.created_at ASC"
         ))
         .bind(&[user_id.into()])?
         .all()

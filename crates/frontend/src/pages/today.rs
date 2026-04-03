@@ -14,6 +14,10 @@ use crate::components::common::loading::LoadingSpinner;
 use crate::components::filters::filter_chips::FilterChips;
 use crate::components::items::date_item_row::DateItemRow;
 use crate::components::tags::tag_tree::build_tag_filter_options;
+use crate::state::item_mutations::{
+    ItemDateField, apply_date_change_to_date_items, build_date_update_request,
+    run_optimistic_mutation,
+};
 use kartoteka_shared::*;
 
 #[component]
@@ -161,7 +165,7 @@ pub fn TodayPage() -> impl IntoView {
                                         <h3 class="text-xs text-error uppercase tracking-wider font-semibold mb-2">
                                             {move_tr!("today-overdue")}
                                         </h3>
-                                        {render_groups(overdue_groups, tags.clone(), links.clone(), items, client_render.clone())}
+                                        {render_groups(overdue_groups, tags.clone(), links.clone(), items, client_render.clone(), toast.clone())}
                                     </div>
                                 }.into_any()
                             } else {
@@ -180,7 +184,7 @@ pub fn TodayPage() -> impl IntoView {
                                         } else {
                                             ().into_any()
                                         }}
-                                        {render_groups(today_groups, tags.clone(), links.clone(), items, client_render.clone())}
+                                        {render_groups(today_groups, tags.clone(), links.clone(), items, client_render.clone(), toast.clone())}
                                     </div>
                                 }.into_any()
                             } else {
@@ -206,6 +210,7 @@ fn render_groups(
     all_links: Vec<ItemTagLink>,
     items_signal: RwSignal<Vec<DateItem>>,
     client: GlooClient,
+    toast: ToastContext,
 ) -> impl IntoView {
     groups
         .into_iter()
@@ -233,93 +238,97 @@ fn render_groups(
                         let toggle_list_id = item_list_id.clone();
                         let toggle_item_id = item_id.clone();
                         let client_toggle = client.clone();
+                        let toast_toggle = toast.clone();
                         let on_toggle = Callback::new(move |_id: String| {
                             let lid = toggle_list_id.clone();
                             let iid = toggle_item_id.clone();
                             let client_t = client_toggle.clone();
-                            let previous = items_signal.get_untracked();
-                            let new_completed = previous
+                            let new_completed = items_signal
+                                .get_untracked()
                                 .iter()
                                 .find(|i| i.id == iid)
                                 .map(|i| !i.completed);
                             let Some(new_completed) = new_completed else { return };
-                            // Toggle ALL occurrences with same id (multi-date items)
-                            items_signal.update(|items| {
-                                for item in items.iter_mut().filter(|i| i.id == iid) {
-                                    item.completed = new_completed;
-                                }
-                            });
-                            leptos::task::spawn_local(async move {
-                                let req = UpdateItemRequest {
-                                    completed: Some(new_completed),
-                                    ..Default::default()
-                                };
-                                if api::update_item(&client_t, &lid, &iid, &req)
-                                    .await
-                                    .is_err()
-                                {
-                                    items_signal.set(previous); // rollback
-                                }
-                            });
+                            let iid_for_mutation = iid.clone();
+                            let iid_for_request = iid.clone();
+                            run_optimistic_mutation(
+                                items_signal,
+                                move |items| {
+                                    let mut changed = false;
+                                    for item in items
+                                        .iter_mut()
+                                        .filter(|item| item.id == iid_for_mutation)
+                                    {
+                                        item.completed = new_completed;
+                                        changed = true;
+                                    }
+                                    changed
+                                },
+                                move || async move {
+                                    let req = UpdateItemRequest {
+                                        completed: Some(new_completed),
+                                        ..Default::default()
+                                    };
+                                    api::update_item(&client_t, &lid, &iid_for_request, &req)
+                                        .await
+                                        .map(|_| ())
+                                },
+                                move |e| toast_toggle.push(format!("Błąd: {e}"), ToastKind::Error),
+                            );
                         });
 
                         let delete_list_id = item_list_id.clone();
                         let delete_item_id = item_id.clone();
                         let client_delete = client.clone();
+                        let toast_delete = toast.clone();
                         let on_delete = Callback::new(move |_id: String| {
                             let lid = delete_list_id.clone();
                             let iid = delete_item_id.clone();
                             let client_d = client_delete.clone();
-                            let previous = items_signal.get_untracked();
-                            // Remove ALL occurrences
-                            items_signal.update(|items| {
-                                items.retain(|i| i.id != iid);
-                            });
-                            leptos::task::spawn_local(async move {
-                                if api::delete_item(&client_d, &lid, &iid).await.is_err() {
-                                    items_signal.set(previous); // rollback
-                                }
-                            });
+                            let iid_for_mutation = iid.clone();
+                            let iid_for_request = iid.clone();
+                            run_optimistic_mutation(
+                                items_signal,
+                                move |items| {
+                                    let before_len = items.len();
+                                    items.retain(|item| item.id != iid_for_mutation);
+                                    items.len() != before_len
+                                },
+                                move || async move { api::delete_item(&client_d, &lid, &iid_for_request).await },
+                                move |e| toast_delete.push(format!("Błąd: {e}"), ToastKind::Error),
+                            );
                         });
 
                         // Date save callback
                         let date_save_list_id = item_list_id.clone();
                         let date_save_item_id = item_id.clone();
                         let client_date = client.clone();
+                        let toast_date = toast.clone();
                         let on_date_save = Callback::new(move |(iid, dt, date, time): (String, String, String, Option<String>)| {
+                            let Some(field) = ItemDateField::parse(&dt) else { return; };
+                            let Some(req) = build_date_update_request(&dt, &date, time.clone()) else { return; };
                             let lid = date_save_list_id.clone();
                             let client_ds = client_date.clone();
-                            let date_opt = if date.is_empty() { Some(None) } else { Some(Some(date)) };
-                            let time_opt = if date_opt == Some(None) { Some(None) } else { time.map(Some) };
-                            // Optimistic update on all occurrences
-                            items_signal.update(|items| {
-                                for item in items.iter_mut().filter(|i| i.id == iid) {
-                                    let d = date_opt.clone().flatten();
-                                    let t = time_opt.clone().flatten();
-                                    match dt.as_str() {
-                                        "start" => { item.start_date = d; item.start_time = t; }
-                                        "deadline" => { item.deadline = d; item.deadline_time = t; }
-                                        "hard_deadline" => { item.hard_deadline = d; }
-                                        _ => {}
-                                    }
-                                }
-                            });
                             let iid2 = date_save_item_id.clone();
-                            leptos::task::spawn_local(async move {
-                                let mut req = UpdateItemRequest {
-                                    title: None, description: None, completed: None, position: None,
-                                    quantity: None, actual_quantity: None, unit: None,
-                                    start_date: None, start_time: None,
-                                    deadline: None, deadline_time: None, hard_deadline: None,
-                                };
-                                match dt.as_str() {
-                                    "start" => { req.start_date = date_opt; req.start_time = time_opt; }
-                                    "deadline" => { req.deadline = date_opt; req.deadline_time = time_opt; }
-                                    "hard_deadline" => { req.hard_deadline = date_opt; }
-                                    _ => {}
-                                }
-                                let _ = api::update_item(&client_ds, &lid, &iid2, &req).await;
-                            });
+                            let time_for_mutation = time.clone();
+                            run_optimistic_mutation(
+                                items_signal,
+                                move |items| {
+                                    apply_date_change_to_date_items(
+                                        items,
+                                        &iid,
+                                        field,
+                                        &date,
+                                        time_for_mutation.as_deref(),
+                                    )
+                                },
+                                move || async move {
+                                    api::update_item(&client_ds, &lid, &iid2, &req)
+                                        .await
+                                        .map(|_| ())
+                                },
+                                move |e| toast_date.push(format!("Błąd: {e}"), ToastKind::Error),
+                            );
                         });
 
                         {if let Some(dt) = date_type {

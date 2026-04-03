@@ -76,6 +76,58 @@ async fn fetch_lists_by_ids(
     Ok(lists)
 }
 
+async fn fetch_list_ids_in_scope(
+    d1: &D1Database,
+    user_id: &str,
+    parent_list_id: Option<&str>,
+    container_id: Option<&str>,
+) -> Result<Vec<String>> {
+    #[derive(serde::Deserialize)]
+    struct ListIdRow {
+        id: String,
+    }
+
+    let result = match (parent_list_id, container_id) {
+        (Some(parent_id), None) => {
+            d1.prepare(
+                "SELECT id FROM lists \
+                 WHERE user_id = ?1 AND parent_list_id = ?2 \
+                 ORDER BY position ASC, created_at ASC",
+            )
+            .bind(&[user_id.into(), parent_id.into()])?
+            .all()
+            .await?
+        }
+        (None, Some(container_id)) => {
+            d1.prepare(
+                "SELECT id FROM lists \
+                 WHERE user_id = ?1 AND parent_list_id IS NULL AND container_id = ?2 AND archived = 0 \
+                 ORDER BY position ASC, created_at ASC",
+            )
+            .bind(&[user_id.into(), container_id.into()])?
+            .all()
+            .await?
+        }
+        (None, None) => {
+            d1.prepare(
+                "SELECT id FROM lists \
+                 WHERE user_id = ?1 AND parent_list_id IS NULL AND container_id IS NULL AND archived = 0 \
+                 ORDER BY position ASC, created_at ASC",
+            )
+            .bind(&[user_id.into()])?
+            .all()
+            .await?
+        }
+        (Some(_), Some(_)) => unreachable!("validated earlier"),
+    };
+
+    Ok(result
+        .results::<ListIdRow>()?
+        .into_iter()
+        .map(|row| row.id)
+        .collect())
+}
+
 async fn apply_list_placement(
     d1: &D1Database,
     user_id: &str,
@@ -217,7 +269,7 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
     let d1 = ctx.env.d1("DB")?;
     let result = d1
         .prepare(format!(
-            "{LIST_SELECT} WHERE l.user_id = ?1 AND l.parent_list_id IS NULL AND l.container_id IS NULL AND l.archived = 0 ORDER BY l.updated_at DESC"
+            "{LIST_SELECT} WHERE l.user_id = ?1 AND l.parent_list_id IS NULL AND l.container_id IS NULL AND l.archived = 0 ORDER BY l.position ASC, l.created_at ASC"
         ))
         .bind(&[user_id.into()])?
         .all()
@@ -569,24 +621,31 @@ pub async fn set_placement(mut req: Request, ctx: RouteContext<String>) -> Resul
     }
     let d1 = ctx.env.d1("DB")?;
 
-    match apply_list_placement(
+    if let Some(ref parent_id) = body.parent_list_id
+        && !ensure_parent_list_target(&d1, parent_id, &user_id).await?
+    {
+        return json_error("list_not_found", 404);
+    }
+
+    if let Some(ref target_container_id) = body.container_id
+        && !check_ownership(&d1, "containers", target_container_id, &user_id).await?
+    {
+        return json_error("container_not_found", 404);
+    }
+
+    let current_ids = fetch_list_ids_in_scope(
         &d1,
         &user_id,
-        &body.list_ids,
-        body.parent_list_id,
-        body.container_id,
+        body.parent_list_id.as_deref(),
+        body.container_id.as_deref(),
     )
-    .await
-    {
-        Ok(moved_lists) => Response::from_json(&serde_json::json!({
-            "moved_lists": moved_lists,
-        })),
-        Err(err) if err.to_string() == "list_not_found" => json_error("list_not_found", 404),
-        Err(err) if err.to_string() == "container_not_found" => {
-            json_error("container_not_found", 404)
-        }
-        Err(err) => json_error(err.to_string().as_str(), 400),
+    .await?;
+    if !ids_match_exact_set(&current_ids, &body.list_ids) {
+        return json_error("invalid_list_reorder", 400);
     }
+
+    apply_positions(&d1, "lists", &body.list_ids).await?;
+    Ok(Response::empty()?.with_status(204))
 }
 
 #[instrument(skip_all, fields(action = "toggle_list_pin", list_id = tracing::field::Empty))]

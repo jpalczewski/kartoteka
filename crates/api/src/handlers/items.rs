@@ -342,6 +342,25 @@ fn filter_day_summaries(
         .collect()
 }
 
+async fn fetch_item_ids_in_list(d1: &D1Database, list_id: &str) -> Result<Vec<String>> {
+    #[derive(serde::Deserialize)]
+    struct ItemIdRow {
+        id: String,
+    }
+
+    let result = d1
+        .prepare("SELECT id FROM items WHERE list_id = ?1 ORDER BY position ASC, created_at ASC")
+        .bind(&[list_id.into()])?
+        .all()
+        .await?;
+
+    Ok(result
+        .results::<ItemIdRow>()?
+        .into_iter()
+        .map(|row| row.id)
+        .collect())
+}
+
 #[instrument(skip_all)]
 pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
@@ -353,7 +372,7 @@ pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Respon
     }
 
     let query = format!(
-        "SELECT {} FROM items WHERE list_id = ?1 ORDER BY completed ASC, position ASC, created_at ASC",
+        "SELECT {} FROM items WHERE list_id = ?1 ORDER BY position ASC, created_at ASC",
         ITEM_COLS
     );
     let result = d1.prepare(&query).bind(&[list_id.into()])?.all().await?;
@@ -780,6 +799,36 @@ pub async fn move_item(mut req: Request, ctx: RouteContext<String>) -> Result<Re
         .ok_or_else(|| Error::from("Not found"))?;
 
     Response::from_json(&item)
+}
+
+#[instrument(skip_all, fields(action = "reorder_items", list_id = tracing::field::Empty, item_count = tracing::field::Empty))]
+pub async fn reorder(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let list_id = require_param(&ctx, "list_id")?;
+    tracing::Span::current().record("list_id", tracing::field::display(&list_id));
+    let body: ReorderItemsRequest = req.json().await?;
+    tracing::Span::current().record("item_count", body.item_ids.len());
+
+    if let Err(code) = body.validate() {
+        return json_error(code, 400);
+    }
+
+    let d1 = ctx.env.d1("DB")?;
+
+    let Some(list_state) = get_owned_list_state(&d1, &list_id, &user_id).await? else {
+        return json_error("list_not_found", 404);
+    };
+    if list_state.archived {
+        return list_archived_response();
+    }
+
+    let current_ids = fetch_item_ids_in_list(&d1, &list_id).await?;
+    if !ids_match_exact_set(&current_ids, &body.item_ids) {
+        return json_error("invalid_item_reorder", 400);
+    }
+
+    apply_positions(&d1, "items", &body.item_ids).await?;
+    Ok(Response::empty()?.with_status(204))
 }
 
 /// GET /api/items/by-date?date=YYYY-MM-DD&date_field=deadline&include_overdue=true

@@ -7,6 +7,13 @@ pub async fn create_list(
     super::api_post(client, &format!("{}/lists", super::API_BASE), req).await
 }
 
+pub async fn reorder_lists(
+    client: &impl super::HttpClient,
+    req: &SetListPlacementRequest,
+) -> Result<(), super::ApiError> {
+    super::api_patch_empty(client, &format!("{}/lists/placement", super::API_BASE), req).await
+}
+
 pub async fn fetch_archived_lists(
     client: &impl super::HttpClient,
 ) -> Result<Vec<List>, super::ApiError> {

@@ -178,6 +178,19 @@ pub(crate) async fn api_patch<T: serde::de::DeserializeOwned>(
     parse_response(&resp)
 }
 
+pub(crate) async fn api_patch_empty(
+    client: &impl HttpClient,
+    url: &str,
+    body: &impl serde::Serialize,
+) -> Result<(), ApiError> {
+    let json = serde_json::to_string(body).map_err(|e| ApiError::Parse(e.to_string()))?;
+    let resp = client
+        .request(Method::Patch, url, Some(&json))
+        .await
+        .map_err(ApiError::Network)?;
+    parse_empty_response(&resp)
+}
+
 pub(crate) async fn api_delete(client: &impl HttpClient, url: &str) -> Result<(), ApiError> {
     let resp = client
         .request(Method::Delete, url, None)

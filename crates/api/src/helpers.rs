@@ -24,6 +24,19 @@ pub fn dedupe_ids(ids: &[String]) -> Vec<String> {
         .collect()
 }
 
+pub fn ids_match_exact_set(expected: &[String], actual: &[String]) -> bool {
+    if expected.len() != actual.len() {
+        return false;
+    }
+    if dedupe_ids(actual).len() != actual.len() {
+        return false;
+    }
+
+    let expected_ids: std::collections::HashSet<&str> =
+        expected.iter().map(String::as_str).collect();
+    actual.iter().all(|id| expected_ids.contains(id.as_str()))
+}
+
 /// Ensure a user row exists in the `users` table. Creates one if absent.
 /// If `initial_admin_email` is non-empty and matches the user's email,
 /// promotes the user to admin on first creation.
@@ -224,6 +237,19 @@ pub async fn next_position(
         .and_then(|v| v.get("max_pos")?.as_i64())
         .unwrap_or(-1);
     Ok((max_pos + 1) as i32)
+}
+
+pub async fn apply_positions(d1: &D1Database, table: &str, ids: &[String]) -> Result<()> {
+    for (position, id) in ids.iter().enumerate() {
+        d1.prepare(format!(
+            "UPDATE {table} SET position = ?1, updated_at = datetime('now') WHERE id = ?2"
+        ))
+        .bind(&[(position as i32).into(), id.clone().into()])?
+        .run()
+        .await?;
+    }
+
+    Ok(())
 }
 
 /// Convert `Option<String>` to `JsValue` (Some → string, None → NULL).

@@ -10,6 +10,18 @@ pub async fn fetch_containers(
     super::api_get(client, &format!("{}/containers", super::API_BASE)).await
 }
 
+pub async fn reorder_containers(
+    client: &impl super::HttpClient,
+    req: &ReorderContainersRequest,
+) -> Result<(), super::ApiError> {
+    super::api_patch_empty(
+        client,
+        &format!("{}/containers/reorder", super::API_BASE),
+        req,
+    )
+    .await
+}
+
 pub async fn create_container(
     client: &impl super::HttpClient,
     req: &CreateContainerRequest,

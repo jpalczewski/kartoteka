@@ -6,7 +6,9 @@ use crate::api::client::GlooClient;
 use crate::components::items::add_item_input::AddItemInput;
 use crate::components::items::item_actions::create_item_actions;
 use crate::components::items::item_row::ItemRow;
-use kartoteka_shared::{Item, ItemTagLink, List, Tag};
+use crate::state::item_mutations::run_optimistic_mutation;
+use crate::state::reorder::{apply_reorder, reorder_ids};
+use kartoteka_shared::{Item, ItemTagLink, List, ReorderItemsRequest, Tag};
 
 #[component]
 pub fn SublistSection(
@@ -25,6 +27,7 @@ pub fn SublistSection(
     let expanded = RwSignal::new(true);
     let items = RwSignal::new(Vec::<Item>::new());
     let (loading, set_loading) = signal(true);
+    let dragged_item_id = RwSignal::new(Option::<String>::None);
 
     let sublist_id = sublist.id.clone();
     let sublist_name = sublist.name.clone();
@@ -67,13 +70,49 @@ pub fn SublistSection(
         });
     });
 
+    let on_reorder_drop = Callback::new(move |before_id: Option<String>| {
+        let Some(dragged_id) = dragged_item_id.get_untracked() else {
+            return;
+        };
+        let current_ids: Vec<String> = items
+            .get_untracked()
+            .into_iter()
+            .map(|item| item.id)
+            .collect();
+        let Some(next_ids) = reorder_ids(&current_ids, &dragged_id, before_id.as_deref()) else {
+            dragged_item_id.set(None);
+            return;
+        };
+
+        let request = ReorderItemsRequest {
+            item_ids: next_ids.clone(),
+        };
+        let dragged_id_for_mutation = dragged_id.clone();
+        let before_id_for_mutation = before_id.clone();
+        let client = client.clone();
+        let sublist_id_for_request = sublist_id.clone();
+        run_optimistic_mutation(
+            items,
+            move |items| {
+                let current_ids: Vec<String> = items.iter().map(|item| item.id.clone()).collect();
+                let Some(next_ids) = reorder_ids(
+                    &current_ids,
+                    &dragged_id_for_mutation,
+                    before_id_for_mutation.as_deref(),
+                ) else {
+                    return false;
+                };
+                apply_reorder(items, &next_ids, |item| item.id.as_str())
+            },
+            move || async move { api::reorder_items(&client, &sublist_id_for_request, &request).await },
+            |_| {},
+        );
+        dragged_item_id.set(None);
+    });
+
     let sorted_items = move || {
         let mut list = items.get();
-        list.sort_by(|a, b| {
-            a.completed
-                .cmp(&b.completed)
-                .then(a.position.cmp(&b.position))
-        });
+        list.sort_by(|a, b| a.position.cmp(&b.position));
         list
     };
 
@@ -112,6 +151,8 @@ pub fn SublistSection(
                             <div>
                                 {move || sorted_items().iter().map(|item| {
                                     let item_id = item.id.clone();
+                                    let drop_before_id = item.id.clone();
+                                    let drag_id = item.id.clone();
                                     let item_tags: Vec<String> = item_tag_links_clone.iter()
                                         .filter(|l| l.item_id == item.id)
                                         .map(|l| l.tag_id.clone())
@@ -123,21 +164,70 @@ pub fn SublistSection(
                                     });
                                     let mt = move_targets.get_value();
                                     view! {
-                                        <ItemRow
-                                            item=item.clone()
-                                            on_toggle=on_toggle
-                                            on_delete=on_delete
-                                            all_tags=tags_clone
-                                            item_tag_ids=item_tags
-                                            on_tag_toggle=item_tag_toggle
-                                            on_description_save=on_description_save
-                                            has_quantity=has_quantity
-                                            on_quantity_change=on_quantity_change
-                                            move_targets=mt
-                                            on_move=on_move
-                                        />
+                                        <div class="flex flex-col gap-2">
+                                            <div
+                                                class=move || {
+                                                    if dragged_item_id.get().is_some() {
+                                                        "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
+                                                    } else {
+                                                        "h-2 rounded border border-dashed border-transparent transition-colors"
+                                                    }
+                                                }
+                                                on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
+                                                on:drop=move |ev: web_sys::DragEvent| {
+                                                    ev.prevent_default();
+                                                    on_reorder_drop.run(Some(drop_before_id.clone()));
+                                                }
+                                            ></div>
+                                            <div class="flex items-start gap-2">
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-ghost btn-sm cursor-grab active:cursor-grabbing mt-2"
+                                                    draggable="true"
+                                                    aria-label="Przestaw pozycję"
+                                                    on:dragstart=move |ev: web_sys::DragEvent| {
+                                                        if let Some(data_transfer) = ev.data_transfer() {
+                                                            let _ = data_transfer.set_data("text/plain", &drag_id);
+                                                        }
+                                                        dragged_item_id.set(Some(drag_id.clone()));
+                                                    }
+                                                    on:dragend=move |_| dragged_item_id.set(None)
+                                                >
+                                                    "⋮⋮"
+                                                </button>
+                                                <div class="flex-1">
+                                                    <ItemRow
+                                                        item=item.clone()
+                                                        on_toggle=on_toggle
+                                                        on_delete=on_delete
+                                                        all_tags=tags_clone
+                                                        item_tag_ids=item_tags
+                                                        on_tag_toggle=item_tag_toggle
+                                                        on_description_save=on_description_save
+                                                        has_quantity=has_quantity
+                                                        on_quantity_change=on_quantity_change
+                                                        move_targets=mt
+                                                        on_move=on_move
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
                                     }
                                 }).collect::<Vec<_>>()}
+                                <div
+                                    class=move || {
+                                        if dragged_item_id.get().is_some() {
+                                            "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
+                                        } else {
+                                            "h-2 rounded border border-dashed border-transparent transition-colors"
+                                        }
+                                    }
+                                    on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
+                                    on:drop=move |ev: web_sys::DragEvent| {
+                                        ev.prevent_default();
+                                        on_reorder_drop.run(None);
+                                    }
+                                ></div>
                                 <div class="mt-2">
                                     <AddItemInput on_submit=on_add has_quantity=has_quantity deadlines_config=deadlines_config.clone() />
                                 </div>

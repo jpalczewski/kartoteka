@@ -1,6 +1,6 @@
 use kartoteka_shared::{
     Container, ContainerDetail, ContainerStatus, CreateContainerRequest, CreateListRequest, List,
-    UpdateContainerRequest,
+    ReorderContainersRequest, SetListPlacementRequest, UpdateContainerRequest,
 };
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -18,11 +18,23 @@ use crate::components::confirm_delete_modal::ConfirmDeleteModal;
 use crate::components::container_card::ContainerCard;
 use crate::components::create_entity_input::CreateEntityInput;
 use crate::components::list_card::ListCard;
+use crate::state::item_mutations::run_optimistic_mutation;
+use crate::state::reorder::{apply_reorder, reorder_ids};
 
 #[component]
 pub fn ContainerPage() -> impl IntoView {
     let params = use_params_map();
+    let params_for_container_reorder = params.clone();
+    let params_for_list_reorder = params.clone();
     let container_id = move || params.read().get("id").unwrap_or_default();
+    let reorder_container_parent_id = move || {
+        params_for_container_reorder
+            .read()
+            .get("id")
+            .unwrap_or_default()
+    };
+    let reorder_list_container_id =
+        move || params_for_list_reorder.read().get("id").unwrap_or_default();
 
     let client = use_context::<GlooClient>().expect("GlooClient not provided");
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
@@ -34,6 +46,8 @@ pub fn ContainerPage() -> impl IntoView {
     let breadcrumbs = RwSignal::new(Vec::<BreadcrumbCrumb>::new());
     let (loading, set_loading) = signal(true);
     let pending_delete_list = RwSignal::new(Option::<(String, String)>::None);
+    let dragged_container_id = RwSignal::new(Option::<String>::None);
+    let dragged_list_id = RwSignal::new(Option::<String>::None);
 
     // Reactive effect: re-runs whenever container_id or refresh changes.
     // This ensures navigating folder→folder (same route, different :id) re-fetches data.
@@ -102,6 +116,99 @@ pub fn ContainerPage() -> impl IntoView {
                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
                 }
             });
+        })
+    };
+
+    let on_subcontainer_drop = {
+        let client = client.clone();
+        Callback::new(move |before_id: Option<String>| {
+            let Some(dragged_id) = dragged_container_id.get_untracked() else {
+                return;
+            };
+            let current_ids: Vec<String> = sub_containers
+                .get_untracked()
+                .into_iter()
+                .map(|container| container.id)
+                .collect();
+            let Some(next_ids) = reorder_ids(&current_ids, &dragged_id, before_id.as_deref())
+            else {
+                dragged_container_id.set(None);
+                return;
+            };
+
+            let request = ReorderContainersRequest {
+                container_ids: next_ids.clone(),
+                parent_container_id: Some(reorder_container_parent_id()),
+            };
+            let dragged_id_for_mutation = dragged_id.clone();
+            let before_id_for_mutation = before_id.clone();
+            let client = client.clone();
+            run_optimistic_mutation(
+                sub_containers,
+                move |containers| {
+                    let current_ids: Vec<String> = containers
+                        .iter()
+                        .map(|container| container.id.clone())
+                        .collect();
+                    let Some(next_ids) = reorder_ids(
+                        &current_ids,
+                        &dragged_id_for_mutation,
+                        before_id_for_mutation.as_deref(),
+                    ) else {
+                        return false;
+                    };
+                    apply_reorder(containers, &next_ids, |container| container.id.as_str())
+                },
+                move || async move { api::reorder_containers(&client, &request).await },
+                move |error| toast.push(error.to_string(), ToastKind::Error),
+            );
+            dragged_container_id.set(None);
+        })
+    };
+
+    let on_sublist_drop = {
+        let client = client.clone();
+        Callback::new(move |before_id: Option<String>| {
+            let Some(dragged_id) = dragged_list_id.get_untracked() else {
+                return;
+            };
+            let current_ids: Vec<String> = sub_lists
+                .get_untracked()
+                .into_iter()
+                .map(|list| list.id)
+                .collect();
+            let Some(next_ids) = reorder_ids(&current_ids, &dragged_id, before_id.as_deref())
+            else {
+                dragged_list_id.set(None);
+                return;
+            };
+
+            let request = SetListPlacementRequest {
+                list_ids: next_ids.clone(),
+                parent_list_id: None,
+                container_id: Some(reorder_list_container_id()),
+            };
+            let dragged_id_for_mutation = dragged_id.clone();
+            let before_id_for_mutation = before_id.clone();
+            let client = client.clone();
+            run_optimistic_mutation(
+                sub_lists,
+                move |lists| {
+                    let current_ids: Vec<String> =
+                        lists.iter().map(|list| list.id.clone()).collect();
+                    let Some(next_ids) = reorder_ids(
+                        &current_ids,
+                        &dragged_id_for_mutation,
+                        before_id_for_mutation.as_deref(),
+                    ) else {
+                        return false;
+                    };
+                    apply_reorder(lists, &next_ids, |list| list.id.as_str())
+                },
+                move || async move { api::reorder_lists(&client, &request).await },
+                move |error| toast.push(error.to_string(), ToastKind::Error),
+            );
+            dragged_list_id.set(None);
         })
     };
 
@@ -279,27 +386,78 @@ pub fn ContainerPage() -> impl IntoView {
                                         <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">"Kontenery"</h3>
                                         <div class="flex flex-col gap-3">
                                             {scs.into_iter().map(|c| {
+                                                let drop_before_id = c.id.clone();
+                                                let drag_id = c.id.clone();
                                                 let cid_del = c.id.clone();
                                                 let client_del = client_sc.clone();
                                                 view! {
-                                                    <ContainerCard
-                                                        container=c
-                                                        on_delete=Callback::new(move |_: String| {
-                                                            let cid = cid_del.clone();
-                                                            let client_d = client_del.clone();
-                                                            leptos::task::spawn_local(async move {
-                                                                match api::delete_container(&client_d, &cid).await {
-                                                                    Ok(()) => {
-                                                                        sub_containers.update(|cs| cs.retain(|c| c.id != cid));
-                                                                        toast.push("Kontener usunięty".into(), ToastKind::Success);
-                                                                    }
-                                                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                    <div class="flex flex-col gap-2">
+                                                        <div
+                                                            class=move || {
+                                                                if dragged_container_id.get().is_some() {
+                                                                    "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
+                                                                } else {
+                                                                    "h-2 rounded border border-dashed border-transparent transition-colors"
                                                                 }
-                                                            });
-                                                        })
-                                                    />
+                                                            }
+                                                            on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
+                                                            on:drop=move |ev: web_sys::DragEvent| {
+                                                                ev.prevent_default();
+                                                                on_subcontainer_drop.run(Some(drop_before_id.clone()));
+                                                            }
+                                                        ></div>
+                                                        <div class="flex items-stretch gap-2">
+                                                            <button
+                                                                type="button"
+                                                                class="btn btn-ghost btn-sm cursor-grab active:cursor-grabbing"
+                                                                draggable="true"
+                                                                aria-label="Przestaw kontener"
+                                                                on:dragstart=move |ev: web_sys::DragEvent| {
+                                                                    if let Some(data_transfer) = ev.data_transfer() {
+                                                                        let _ = data_transfer.set_data("text/plain", &drag_id);
+                                                                    }
+                                                                    dragged_container_id.set(Some(drag_id.clone()));
+                                                                }
+                                                                on:dragend=move |_| dragged_container_id.set(None)
+                                                            >
+                                                                "⋮⋮"
+                                                            </button>
+                                                            <div class="flex-1">
+                                                                <ContainerCard
+                                                                    container=c
+                                                                    on_delete=Callback::new(move |_: String| {
+                                                                        let cid = cid_del.clone();
+                                                                        let client_d = client_del.clone();
+                                                                        leptos::task::spawn_local(async move {
+                                                                            match api::delete_container(&client_d, &cid).await {
+                                                                                Ok(()) => {
+                                                                                    sub_containers.update(|cs| cs.retain(|c| c.id != cid));
+                                                                                    toast.push("Kontener usunięty".into(), ToastKind::Success);
+                                                                                }
+                                                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                                            }
+                                                                        });
+                                                                    })
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 }
                                             }).collect::<Vec<_>>()}
+                                            <div
+                                                class=move || {
+                                                    if dragged_container_id.get().is_some() {
+                                                        "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
+                                                    } else {
+                                                        "h-2 rounded border border-dashed border-transparent transition-colors"
+                                                    }
+                                                }
+                                                on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
+                                                on:drop=move |ev: web_sys::DragEvent| {
+                                                    ev.prevent_default();
+                                                    on_subcontainer_drop.run(None);
+                                                }
+                                            ></div>
                                         </div>
                                     </div>
                                 }.into_any()
@@ -317,17 +475,68 @@ pub fn ContainerPage() -> impl IntoView {
                                         <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">"Listy"</h3>
                                         <div class="flex flex-col gap-3">
                                             {lists.into_iter().map(|list| {
+                                                let drag_id = list.id.clone();
+                                                let drop_before_id = list.id.clone();
                                                 let lid_del = list.id.clone();
                                                 let lname_del = list.name.clone();
                                                 view! {
-                                                    <ListCard
-                                                        list
-                                                        on_delete=Callback::new(move |_: String| {
-                                                            pending_delete_list.set(Some((lid_del.clone(), lname_del.clone())));
-                                                        })
-                                                    />
+                                                    <div class="flex flex-col gap-2">
+                                                        <div
+                                                            class=move || {
+                                                                if dragged_list_id.get().is_some() {
+                                                                    "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
+                                                                } else {
+                                                                    "h-2 rounded border border-dashed border-transparent transition-colors"
+                                                                }
+                                                            }
+                                                            on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
+                                                            on:drop=move |ev: web_sys::DragEvent| {
+                                                                ev.prevent_default();
+                                                                on_sublist_drop.run(Some(drop_before_id.clone()));
+                                                            }
+                                                        ></div>
+                                                        <div class="flex items-stretch gap-2">
+                                                            <button
+                                                                type="button"
+                                                                class="btn btn-ghost btn-sm cursor-grab active:cursor-grabbing"
+                                                                draggable="true"
+                                                                aria-label="Przestaw listę"
+                                                                on:dragstart=move |ev: web_sys::DragEvent| {
+                                                                    if let Some(data_transfer) = ev.data_transfer() {
+                                                                        let _ = data_transfer.set_data("text/plain", &drag_id);
+                                                                    }
+                                                                    dragged_list_id.set(Some(drag_id.clone()));
+                                                                }
+                                                                on:dragend=move |_| dragged_list_id.set(None)
+                                                            >
+                                                                "⋮⋮"
+                                                            </button>
+                                                            <div class="flex-1">
+                                                                <ListCard
+                                                                    list
+                                                                    on_delete=Callback::new(move |_: String| {
+                                                                        pending_delete_list.set(Some((lid_del.clone(), lname_del.clone())));
+                                                                    })
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 }
                                             }).collect::<Vec<_>>()}
+                                            <div
+                                                class=move || {
+                                                    if dragged_list_id.get().is_some() {
+                                                        "h-2 rounded border border-dashed border-primary/50 bg-primary/10 transition-colors"
+                                                    } else {
+                                                        "h-2 rounded border border-dashed border-transparent transition-colors"
+                                                    }
+                                                }
+                                                on:dragover=move |ev: web_sys::DragEvent| ev.prevent_default()
+                                                on:drop=move |ev: web_sys::DragEvent| {
+                                                    ev.prevent_default();
+                                                    on_sublist_drop.run(None);
+                                                }
+                                            ></div>
                                         </div>
                                     </div>
                                 }.into_any()
