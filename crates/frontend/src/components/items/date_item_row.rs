@@ -23,6 +23,8 @@ pub fn DateItemRow(
     on_date_save: Option<Callback<(String, String, String, Option<String>)>>,
 ) -> impl IntoView {
     let item_for_editor = item.clone();
+    let item_href = format!("/lists/{}/items/{}", item.list_id, item.id);
+    let item_title = item.title.clone();
     let id_toggle = item.id.clone();
     let id_delete = item.id.clone();
     let id_for_editor = item.id.clone();
@@ -89,7 +91,12 @@ pub fn DateItemRow(
                     checked=completed
                     on:change=move |_| on_toggle.run(id_toggle.clone())
                 />
-                <span class=title_class>{item.title}</span>
+                <a
+                    href=item_href
+                    class=format!("{title_class} hover:text-primary transition-colors no-underline")
+                >
+                    {item_title}
+                </a>
 
                 // Primary date (clickable for editing)
                 {if on_date_save.is_some() {
