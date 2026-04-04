@@ -255,7 +255,6 @@ pub async fn apply_positions(d1: &D1Database, table: &str, ids: &[String]) -> Re
 
 /// Fetch ordered IDs from a query. Runs the query and deserializes results into `Vec<String>`.
 /// The query should return rows with an `id` column and be ordered appropriately.
-#[allow(dead_code)]
 pub async fn fetch_ordered_ids(
     d1: &D1Database,
     query: &str,
