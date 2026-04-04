@@ -829,7 +829,149 @@ git commit -m "refactor: migrate containers to fetch_ordered_ids helper"
 
 ---
 
-### Task 16: Final verification
+### Task 16: Add tests for pure functions
+
+Add tests for currently-untested pure functions. All tests run on native target (`cargo test -p kartoteka-api`), no D1 runtime needed.
+
+**Files:**
+- Modify: `crates/api/src/handlers/lists/mod.rs` — add `#[cfg(test)] mod tests` for `placement_filter`
+- Modify: `crates/api/src/handlers/items/calendar.rs` — extend `#[cfg(test)] mod tests` with `keep_item_for_day`, `filter_day_summaries`
+
+- [ ] **Step 1: Add tests for `placement_filter` in lists/mod.rs**
+
+Append to `lists/mod.rs`:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn placement_filter_with_parent_list_id() {
+        let (filter, params) = placement_filter(Some("parent-1"), None);
+        assert_eq!(filter, "parent_list_id = ?1");
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn placement_filter_with_container_id() {
+        let (filter, params) = placement_filter(None, Some("container-1"));
+        assert_eq!(filter, "parent_list_id IS NULL AND container_id = ?1");
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn placement_filter_with_neither() {
+        let (filter, params) = placement_filter(None, None);
+        assert_eq!(filter, "parent_list_id IS NULL AND container_id IS NULL");
+        assert_eq!(params.len(), 0);
+    }
+}
+```
+
+- [ ] **Step 2: Add tests for `keep_item_for_day` and `filter_day_summaries` in items/calendar.rs**
+
+Add to the existing `#[cfg(test)] mod tests` block in `calendar.rs`:
+
+```rust
+    #[test]
+    fn keep_item_for_day_matches_exact_date() {
+        let item = make_deadline_item("2026-04-10", false);
+        let target = chrono::NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
+        assert!(keep_item_for_day(&item, DateFieldSelector::One(DateField::Deadline), target, false));
+    }
+
+    #[test]
+    fn keep_item_for_day_includes_overdue_incomplete() {
+        let item = make_deadline_item("2026-04-08", false);
+        let target = chrono::NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
+        assert!(keep_item_for_day(&item, DateFieldSelector::One(DateField::Deadline), target, true));
+    }
+
+    #[test]
+    fn keep_item_for_day_excludes_overdue_completed() {
+        let item = make_deadline_item("2026-04-08", true);
+        let target = chrono::NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
+        assert!(!keep_item_for_day(&item, DateFieldSelector::One(DateField::Deadline), target, true));
+    }
+
+    #[test]
+    fn keep_item_for_day_excludes_overdue_when_flag_false() {
+        let item = make_deadline_item("2026-04-08", false);
+        let target = chrono::NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
+        assert!(!keep_item_for_day(&item, DateFieldSelector::One(DateField::Deadline), target, false));
+    }
+
+    #[test]
+    fn filter_day_summaries_removes_out_of_range() {
+        let summaries = vec![
+            DaySummary { date: "2026-04-05".into(), total: 2, completed: 1 },
+            DaySummary { date: "2026-04-10".into(), total: 3, completed: 0 },
+            DaySummary { date: "2026-04-15".into(), total: 1, completed: 1 },
+        ];
+        let from = chrono::NaiveDate::from_ymd_opt(2026, 4, 8).unwrap();
+        let to = chrono::NaiveDate::from_ymd_opt(2026, 4, 12).unwrap();
+        let result = filter_day_summaries(summaries, from, to);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].date, "2026-04-10");
+    }
+
+    #[test]
+    fn filter_day_summaries_includes_boundary_dates() {
+        let summaries = vec![
+            DaySummary { date: "2026-04-08".into(), total: 1, completed: 0 },
+            DaySummary { date: "2026-04-12".into(), total: 1, completed: 1 },
+        ];
+        let from = chrono::NaiveDate::from_ymd_opt(2026, 4, 8).unwrap();
+        let to = chrono::NaiveDate::from_ymd_opt(2026, 4, 12).unwrap();
+        let result = filter_day_summaries(summaries, from, to);
+        assert_eq!(result.len(), 2);
+    }
+```
+
+Add a private helper in the test module for constructing `DateItem`:
+
+```rust
+    fn make_deadline_item(deadline: &str, completed: bool) -> DateItem {
+        DateItem {
+            id: "item-1".into(),
+            list_id: "list-1".into(),
+            title: "Test".into(),
+            description: None,
+            completed,
+            position: 0,
+            quantity: None,
+            actual_quantity: None,
+            unit: None,
+            start_date: None,
+            start_time: None,
+            deadline: Some(deadline.into()),
+            deadline_time: None,
+            hard_deadline: None,
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+            list_name: "List".into(),
+            list_type: ListType::Checklist,
+            date_type: Some("deadline".into()),
+        }
+    }
+```
+
+- [ ] **Step 3: Run tests**
+
+Run: `cargo test -p kartoteka-api 2>&1 | tail -20`
+Expected: all new tests pass (should be ~10 new tests total)
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add crates/api/src/handlers/lists/mod.rs crates/api/src/handlers/items/calendar.rs
+git commit -m "test: add unit tests for placement_filter and calendar helpers"
+```
+
+---
+
+### Task 17: Final verification
 
 - [ ] **Step 1: Full CI check**
 

@@ -24,47 +24,6 @@ async fn fetch_lists_by_ids(
     Ok(lists)
 }
 
-async fn fetch_list_ids_in_scope(
-    d1: &D1Database,
-    user_id: &str,
-    parent_list_id: Option<&str>,
-    container_id: Option<&str>,
-) -> worker::Result<Vec<String>> {
-    match (parent_list_id, container_id) {
-        (Some(parent_id), None) => {
-            fetch_ordered_ids(
-                d1,
-                "SELECT id FROM lists \
-                 WHERE user_id = ?1 AND parent_list_id = ?2 \
-                 ORDER BY position ASC, created_at ASC",
-                &[user_id.into(), parent_id.into()],
-            )
-            .await
-        }
-        (None, Some(cid)) => {
-            fetch_ordered_ids(
-                d1,
-                "SELECT id FROM lists \
-                 WHERE user_id = ?1 AND parent_list_id IS NULL AND container_id = ?2 AND archived = 0 \
-                 ORDER BY position ASC, created_at ASC",
-                &[user_id.into(), cid.into()],
-            )
-            .await
-        }
-        (None, None) => {
-            fetch_ordered_ids(
-                d1,
-                "SELECT id FROM lists \
-                 WHERE user_id = ?1 AND parent_list_id IS NULL AND container_id IS NULL AND archived = 0 \
-                 ORDER BY position ASC, created_at ASC",
-                &[user_id.into()],
-            )
-            .await
-        }
-        (Some(_), Some(_)) => unreachable!("validated earlier"),
-    }
-}
-
 async fn apply_list_placement(
     d1: &D1Database,
     user_id: &str,
@@ -182,13 +141,39 @@ pub async fn set_placement(mut req: Request, ctx: RouteContext<String>) -> Resul
         return json_error("container_not_found", 404);
     }
 
-    let current_ids = fetch_list_ids_in_scope(
-        &d1,
-        &user_id,
-        body.parent_list_id.as_deref(),
-        body.container_id.as_deref(),
-    )
-    .await?;
+    let current_ids = match (body.parent_list_id.as_deref(), body.container_id.as_deref()) {
+        (Some(parent_id), None) => {
+            fetch_ordered_ids(
+                &d1,
+                "SELECT id FROM lists \
+                 WHERE user_id = ?1 AND parent_list_id = ?2 \
+                 ORDER BY position ASC, created_at ASC",
+                &[user_id.clone().into(), parent_id.into()],
+            )
+            .await?
+        }
+        (None, Some(cid)) => {
+            fetch_ordered_ids(
+                &d1,
+                "SELECT id FROM lists \
+                 WHERE user_id = ?1 AND parent_list_id IS NULL AND container_id = ?2 AND archived = 0 \
+                 ORDER BY position ASC, created_at ASC",
+                &[user_id.clone().into(), cid.into()],
+            )
+            .await?
+        }
+        (None, None) => {
+            fetch_ordered_ids(
+                &d1,
+                "SELECT id FROM lists \
+                 WHERE user_id = ?1 AND parent_list_id IS NULL AND container_id IS NULL AND archived = 0 \
+                 ORDER BY position ASC, created_at ASC",
+                &[user_id.clone().into()],
+            )
+            .await?
+        }
+        (Some(_), Some(_)) => unreachable!("validated earlier"),
+    };
     if !ids_match_exact_set(&current_ids, &body.list_ids) {
         return json_error("invalid_list_reorder", 400);
     }
