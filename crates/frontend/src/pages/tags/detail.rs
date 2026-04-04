@@ -3,10 +3,11 @@ use crate::api::client::GlooClient;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::editable_color::EditableColor;
 use crate::components::editable_title::EditableTitle;
+use crate::components::items::item_date_summary::ItemDateSummary;
 use crate::components::tag_tree::{
     TagTreeRow, build_breadcrumb, build_subtree, get_descendant_ids,
 };
-use kartoteka_shared::{DateItem, Tag, UpdateTagRequest};
+use kartoteka_shared::{DateItem, Item, Tag, UpdateTagRequest};
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
 use leptos_router::components::A;
@@ -361,17 +362,35 @@ pub fn TagDetailPage() -> impl IntoView {
                                                             </A>
                                                         </h4>
                                                         {group_items.into_iter().map(|item| {
-                                                            let title = item.title.clone();
+                                                            let detail_href = format!("/lists/{}/items/{}", item.list_id, item.id);
                                                             let completed = item.completed;
+                                                            let title = item.title.clone();
+                                                            let item: Item = item.into();
                                                             view! {
-                                                                <div class="flex items-center gap-2 py-1 pl-2">
-                                                                    <span class=if completed { "text-base-content/40" } else { "" }>
-                                                                        {if completed { "\u{2611}" } else { "\u{2610}" }}
-                                                                    </span>
-                                                                    <span class=if completed { "line-through text-base-content/40" } else { "" }>
-                                                                        {title}
-                                                                    </span>
-                                                                </div>
+                                                                <A
+                                                                    href=detail_href
+                                                                    attr:class="block rounded-box border border-transparent px-3 py-2 transition-colors hover:border-base-300 hover:bg-base-200/60"
+                                                                >
+                                                                    <div class="flex items-start gap-2">
+                                                                        <span class=if completed {
+                                                                            "pt-0.5 text-base-content/40"
+                                                                        } else {
+                                                                            "pt-0.5 text-base-content/70"
+                                                                        }>
+                                                                            {if completed { "\u{2611}" } else { "\u{2610}" }}
+                                                                        </span>
+                                                                        <div class="min-w-0 flex-1">
+                                                                            <div class=if completed {
+                                                                                "truncate line-through text-base-content/40"
+                                                                            } else {
+                                                                                "truncate text-base-content"
+                                                                            }>
+                                                                                {title}
+                                                                            </div>
+                                                                            <ItemDateSummary item=item/>
+                                                                        </div>
+                                                                    </div>
+                                                                </A>
                                                             }
                                                         }).collect::<Vec<_>>()}
                                                     </div>
