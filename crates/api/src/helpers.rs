@@ -253,6 +253,27 @@ pub async fn apply_positions(d1: &D1Database, table: &str, ids: &[String]) -> Re
     Ok(())
 }
 
+/// Fetch ordered IDs from a query. Runs the query and deserializes results into `Vec<String>`.
+/// The query should return rows with an `id` column and be ordered appropriately.
+#[allow(dead_code)]
+pub async fn fetch_ordered_ids(
+    d1: &D1Database,
+    query: &str,
+    params: &[JsValue],
+) -> Result<Vec<String>> {
+    #[derive(serde::Deserialize)]
+    struct IdRow {
+        id: String,
+    }
+
+    let result = d1.prepare(query).bind(params)?.all().await?;
+    Ok(result
+        .results::<IdRow>()?
+        .into_iter()
+        .map(|row| row.id)
+        .collect())
+}
+
 /// Convert `Option<String>` to `JsValue` (Some → string, None → NULL).
 pub fn opt_str_to_js(opt: &Option<String>) -> JsValue {
     match opt {
