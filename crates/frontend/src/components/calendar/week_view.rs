@@ -2,10 +2,12 @@ use leptos::prelude::*;
 
 use crate::api;
 use crate::api::client::GlooClient;
+use crate::app::{ToastContext, ToastKind};
 use crate::components::common::date_utils::{
     add_days, format_date_short, polish_day_of_week, week_range,
 };
 use crate::components::items::date_item_row::DateItemRow;
+use crate::state::item_mutations::run_optimistic_mutation;
 use kartoteka_shared::*;
 
 #[component]
@@ -18,6 +20,7 @@ pub fn WeekView(
     start_date: String,
 ) -> impl IntoView {
     let client = use_context::<GlooClient>().expect("GlooClient not provided");
+    let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let (monday, _sunday) = week_range(&start_date);
 
     // Build 7 days starting from monday
@@ -67,64 +70,83 @@ pub fn WeekView(
                                 let toggle_item_id = item_id.clone();
                                 let target_date = date.clone();
                                 let client_toggle = client.clone();
+                                let toast_toggle = toast.clone();
                                 let on_toggle = Callback::new(move |_id: String| {
                                     let lid = toggle_list_id.clone();
                                     let iid = toggle_item_id.clone();
                                     let td = target_date.clone();
                                     let client_t = client_toggle.clone();
-                                    let previous = items_signal.get_untracked();
-                                    let new_completed = previous
+                                    let new_completed = items_signal
+                                        .get_untracked()
                                         .iter()
                                         .find(|d| d.date == td)
                                         .and_then(|d| d.items.iter().find(|i| i.id == iid))
                                         .map(|i| !i.completed);
                                     let Some(new_completed) = new_completed else { return };
-                                    items_signal.update(|days| {
-                                        if let Some(day) = days.iter_mut().find(|d| d.date == td) {
-                                            if let Some(item) =
-                                                day.items.iter_mut().find(|i| i.id == iid)
-                                            {
-                                                item.completed = new_completed;
-                                            }
-                                        }
-                                    });
-                                    leptos::task::spawn_local(async move {
-                                        let req = UpdateItemRequest {
-                                            completed: Some(new_completed),
-                                            ..Default::default()
-                                        };
-                                        if api::update_item(&client_t, &lid, &iid, &req)
-                                            .await
-                                            .is_err()
-                                        {
-                                            items_signal.set(previous); // rollback
-                                        }
-                                    });
+                                    let td_for_mutation = td.clone();
+                                    let iid_for_mutation = iid.clone();
+                                    let iid_for_request = iid.clone();
+                                    run_optimistic_mutation(
+                                        items_signal,
+                                        move |days| {
+                                            let Some(day) = days
+                                                .iter_mut()
+                                                .find(|day| day.date == td_for_mutation)
+                                            else {
+                                                return false;
+                                            };
+                                            let Some(item) = day
+                                                .items
+                                                .iter_mut()
+                                                .find(|item| item.id == iid_for_mutation)
+                                            else {
+                                                return false;
+                                            };
+                                            item.completed = new_completed;
+                                            true
+                                        },
+                                        move || async move {
+                                            let req = UpdateItemRequest {
+                                                completed: Some(new_completed),
+                                                ..Default::default()
+                                            };
+                                            api::update_item(&client_t, &lid, &iid_for_request, &req)
+                                                .await
+                                                .map(|_| ())
+                                        },
+                                        move |e| toast_toggle.push(format!("Błąd: {e}"), ToastKind::Error),
+                                    );
                                 });
 
                                 let delete_list_id = item_list_id.clone();
                                 let delete_item_id = item_id.clone();
                                 let delete_date = date.clone();
                                 let client_delete = client.clone();
+                                let toast_delete = toast.clone();
                                 let on_delete = Callback::new(move |_id: String| {
                                     let lid = delete_list_id.clone();
                                     let iid = delete_item_id.clone();
                                     let dd = delete_date.clone();
                                     let client_d = client_delete.clone();
-                                    let previous = items_signal.get_untracked();
-                                    items_signal.update(|days| {
-                                        if let Some(day) = days.iter_mut().find(|d| d.date == dd) {
-                                            day.items.retain(|i| i.id != iid);
-                                        }
-                                    });
-                                    leptos::task::spawn_local(async move {
-                                        if api::delete_item(&client_d, &lid, &iid)
-                                            .await
-                                            .is_err()
-                                        {
-                                            items_signal.set(previous); // rollback
-                                        }
-                                    });
+                                    let dd_for_mutation = dd.clone();
+                                    let iid_for_mutation = iid.clone();
+                                    let iid_for_request = iid.clone();
+                                    run_optimistic_mutation(
+                                        items_signal,
+                                        move |days| {
+                                            let Some(day) = days
+                                                .iter_mut()
+                                                .find(|day| day.date == dd_for_mutation)
+                                            else {
+                                                return false;
+                                            };
+                                            let before_len = day.items.len();
+                                            day.items.retain(|item| item.id != iid_for_mutation);
+                                            day.items.len() != before_len
+                                        },
+                                        move || async move { api::delete_item(&client_d, &lid, &iid_for_request).await },
+                                        move |e| toast_delete.push(format!("Błąd: {e}"), ToastKind::Error),
+                                    );
                                 });
 
                                 view! {

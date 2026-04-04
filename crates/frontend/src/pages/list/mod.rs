@@ -1,9 +1,10 @@
 mod date_view;
 mod normal_view;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::api;
@@ -12,18 +13,29 @@ use crate::app::{ToastContext, ToastKind};
 use crate::components::common::breadcrumbs::{
     BreadcrumbCrumb, Breadcrumbs, build_container_breadcrumbs, build_list_ancestor_breadcrumbs,
 };
+use crate::components::common::dnd::{
+    DragHandleButton, DragHandleLabel, DragShell, DragSurface, ReorderDropTarget,
+};
 use crate::components::common::editable_description::EditableDescription;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::items::add_item_input::AddItemInput;
-use crate::components::items::item_actions::create_item_actions;
 use crate::components::lists::add_group_input::AddGroupInput;
 use crate::components::lists::list_header::ListHeader;
 use crate::components::lists::list_tag_bar::ListTagBar;
 use crate::components::lists::sublist_section::SublistSection;
 use crate::components::tags::tag_filter_bar::TagFilterBar;
 use crate::components::tags::tag_tree::build_tag_filter_options;
+use crate::state::dnd::{
+    DndState, DraggedItem, DropTarget, ItemDndState, ItemDropPlan, ItemDropTarget,
+    build_item_drop_plan, reorder_ids_for_target,
+};
+use crate::state::item_mutations::{
+    ItemDateField, apply_date_change_to_items, build_date_update_request, run_optimistic_mutation,
+};
+use crate::state::reorder::apply_reorder;
 use kartoteka_shared::{
-    FEATURE_DEADLINES, FEATURE_QUANTITY, Item, ItemTagLink, List, ListFeature, ListTagLink, Tag,
+    CreateItemRequest, FEATURE_DEADLINES, FEATURE_QUANTITY, Item, ItemTagLink, List, ListFeature,
+    ListTagLink, ReorderItemsRequest, SetListPlacementRequest, Tag, UpdateItemRequest,
     UpdateListRequest,
 };
 
@@ -80,7 +92,7 @@ async fn resolve_list_breadcrumbs(client: &GlooClient, list: &List) -> Vec<Bread
 #[component]
 pub fn ListPage() -> impl IntoView {
     let params = use_params_map();
-    let list_id = move || params.read().get("id").unwrap_or_default();
+    let list_id = move || params.get_untracked().get("id").unwrap_or_default();
 
     let client = use_context::<GlooClient>().expect("GlooClient not provided");
 
@@ -98,6 +110,9 @@ pub fn ListPage() -> impl IntoView {
     let list_description = RwSignal::new(Option::<String>::None);
     let list_features = RwSignal::new(Vec::<ListFeature>::new());
     let sublists = RwSignal::new(Vec::<List>::new());
+    let sublist_items = RwSignal::new(HashMap::<String, Vec<Item>>::new());
+    let item_dnd_state = RwSignal::new(ItemDndState::default());
+    let sublist_dnd_state = RwSignal::new(DndState::default());
 
     let lid = list_id();
     let client_init = client.clone();
@@ -119,7 +134,14 @@ pub fn ListPage() -> impl IntoView {
             item_tag_links.set(links);
         }
         if let Ok(fetched_sublists) = api::fetch_sublists(&client_init, &lid).await {
+            let mut fetched_sublist_items = HashMap::new();
+            for sublist in &fetched_sublists {
+                if let Ok(fetched) = api::fetch_items(&client_init, &sublist.id).await {
+                    fetched_sublist_items.insert(sublist.id.clone(), fetched);
+                }
+            }
             sublists.set(fetched_sublists);
+            sublist_items.set(fetched_sublist_items);
         }
         if let Ok(links) = api::fetch_list_tag_links(&client_init).await {
             let filtered: Vec<ListTagLink> =
@@ -129,25 +151,51 @@ pub fn ListPage() -> impl IntoView {
         set_loading.set(false);
     });
 
-    let actions = create_item_actions(client.clone(), items, list_id(), Some(set_error));
-    let on_add = actions.on_add;
-    let on_toggle = actions.on_toggle;
-    let on_delete = actions.on_delete;
-    let on_description_save = actions.on_description_save;
-    let on_quantity_change = actions.on_quantity_change;
-    let on_date_save = actions.on_date_save;
-
     let on_tag_toggle = make_item_tag_toggle(client.clone(), item_tag_links);
     let lid_for_tag = list_id();
     let on_list_tag_toggle = make_list_tag_toggle(client.clone(), list_tag_links, lid_for_tag);
-    let on_move_main = make_move_callback(client.clone(), items);
+    let main_list_id = list_id();
 
-    let parent_lid = list_id();
-    let on_item_moved_out = Callback::new(move |(moved_item, target_list_id): (Item, String)| {
-        if target_list_id == parent_lid {
-            items.update(|list| list.push(moved_item));
-        }
-    });
+    let apply_item_drop_plan = {
+        let client = client.clone();
+        let main_list_id = main_list_id.clone();
+        Callback::new(move |plan: ItemDropPlan| {
+            let client = client.clone();
+            let main_list_id = main_list_id.clone();
+            let request_plan = plan.clone();
+            run_item_store_mutation(
+                items,
+                sublist_items,
+                move |main_items, sub_items| {
+                    apply_item_drop_plan_locally(&main_list_id, main_items, sub_items, &plan)
+                },
+                move || async move {
+                    match request_plan {
+                        ItemDropPlan::Reorder { list_id, item_ids } => {
+                            api::reorder_items(&client, &list_id, &ReorderItemsRequest { item_ids })
+                                .await
+                        }
+                        ItemDropPlan::Move { item_id, request } => {
+                            api::set_item_placement(&client, &item_id, &request)
+                                .await
+                                .map(|_| ())
+                        }
+                    }
+                },
+                move |error| set_error.set(Some(error.to_string())),
+            );
+        })
+    };
+
+    let main_item_callbacks = build_scoped_item_callbacks(
+        client.clone(),
+        main_list_id.clone(),
+        main_list_id.clone(),
+        items,
+        sublist_items,
+        set_error,
+        apply_item_drop_plan.clone(),
+    );
 
     let on_delete_list = {
         let navigate = navigate.clone();
@@ -159,7 +207,10 @@ pub fn ListPage() -> impl IntoView {
             leptos::task::spawn_local(async move {
                 match api::delete_list(&client, &lid).await {
                     Ok(()) => {
-                        toast.push("Lista usunięta".into(), ToastKind::Success);
+                        toast.push(
+                            move_tr!("lists-toast-list-deleted").get(),
+                            ToastKind::Success,
+                        );
                         nav("/", Default::default());
                     }
                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
@@ -178,7 +229,10 @@ pub fn ListPage() -> impl IntoView {
             leptos::task::spawn_local(async move {
                 match api::archive_list(&client, &lid).await {
                     Ok(_) => {
-                        toast.push("Lista zarchiwizowana".into(), ToastKind::Success);
+                        toast.push(
+                            move_tr!("lists-toast-list-archived").get(),
+                            ToastKind::Success,
+                        );
                         nav("/", Default::default());
                     }
                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
@@ -201,7 +255,7 @@ pub fn ListPage() -> impl IntoView {
                                 item.actual_quantity = Some(0);
                             }
                         });
-                        toast.push("Lista zresetowana".into(), ToastKind::Success);
+                        toast.push(move_tr!("lists-toast-list-reset").get(), ToastKind::Success);
                     }
                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
                 }
@@ -216,26 +270,79 @@ pub fn ListPage() -> impl IntoView {
             let client = client.clone();
             leptos::task::spawn_local(async move {
                 if let Ok(sl) = api::create_sublist(&client, &lid, &name).await {
+                    let sublist_id = sl.id.clone();
                     sublists.update(|list| list.push(sl));
+                    sublist_items.update(|items_by_scope| {
+                        items_by_scope.entry(sublist_id).or_default();
+                    });
                 }
             });
         })
     };
 
-    let (active_tag_filter, set_active_tag_filter) = signal(Option::<String>::None);
-
-    let sorted_items = move || {
-        let mut list = items.get();
-        list.sort_by(|a, b| {
-            a.completed
-                .cmp(&b.completed)
-                .then(a.position.cmp(&b.position))
-        });
-        list
+    let on_main_item_drop = {
+        let main_list_id = main_list_id.clone();
+        let apply_item_drop_plan = apply_item_drop_plan.clone();
+        Callback::new(move |target: ItemDropTarget| {
+            let Some(dragged_item) = item_dnd_state.get_untracked().dragged_item.clone() else {
+                return;
+            };
+            let item_ids_by_scope = collect_item_ids_by_scope(&main_list_id, items, sublist_items);
+            let Some(plan) = build_item_drop_plan(&item_ids_by_scope, &dragged_item, &target)
+            else {
+                return;
+            };
+            apply_item_drop_plan.run(plan);
+        })
     };
 
+    let on_sublist_drop = {
+        let client = client.clone();
+        Callback::new(move |target: DropTarget| {
+            let Some(dragged_id) = sublist_dnd_state.get_untracked().dragged_id.clone() else {
+                return;
+            };
+            let current_ids: Vec<String> = sublists
+                .get_untracked()
+                .into_iter()
+                .map(|list| list.id)
+                .collect();
+            let Some(next_ids) = reorder_ids_for_target(&current_ids, &dragged_id, &target) else {
+                return;
+            };
+
+            let request = SetListPlacementRequest {
+                list_ids: next_ids.clone(),
+                parent_list_id: Some(list_id()),
+                container_id: None,
+            };
+            let dragged_id_for_mutation = dragged_id.clone();
+            let target_for_mutation = target.clone();
+            let client = client.clone();
+            run_optimistic_mutation(
+                sublists,
+                move |lists| {
+                    let current_ids: Vec<String> =
+                        lists.iter().map(|list| list.id.clone()).collect();
+                    let Some(next_ids) = reorder_ids_for_target(
+                        &current_ids,
+                        &dragged_id_for_mutation,
+                        &target_for_mutation,
+                    ) else {
+                        return false;
+                    };
+                    apply_reorder(lists, &next_ids, |list| list.id.as_str())
+                },
+                move || async move { api::reorder_lists(&client, &request).await },
+                move |error| toast.push(error.to_string(), ToastKind::Error),
+            );
+        })
+    };
+
+    let (active_tag_filter, set_active_tag_filter) = signal(Option::<String>::None);
+
     let filtered_items = move || {
-        let items = sorted_items();
+        let items = items.get();
         match active_tag_filter.get() {
             None => items,
             Some(tid) => {
@@ -398,7 +505,13 @@ pub fn ListPage() -> impl IntoView {
             {move || {
                 let feats = list_features.get();
                 let deadlines_config = get_deadlines_config(&feats);
-                view! { <AddItemInput on_submit=on_add has_quantity=feats.iter().any(|f| f.name == FEATURE_QUANTITY) deadlines_config=deadlines_config /> }
+                view! {
+                    <AddItemInput
+                        on_submit=main_item_callbacks.on_add
+                        has_quantity=feats.iter().any(|f| f.name == FEATURE_QUANTITY)
+                        deadlines_config=deadlines_config
+                    />
+                }
             }}
 
             {move || {
@@ -412,71 +525,171 @@ pub fn ListPage() -> impl IntoView {
             }}
 
             {move || {
+                let main_list_id_for_view = main_list_id.clone();
+                let main_item_callbacks_for_view = main_item_callbacks.clone();
+                let on_main_item_drop_for_view = on_main_item_drop.clone();
+                let apply_item_drop_plan_for_view = apply_item_drop_plan.clone();
+                let main_list_id_for_main_view = main_list_id_for_view.clone();
+                let main_list_id_for_sublist_view = main_list_id_for_view.clone();
                 if loading.get() {
                     view! { <LoadingSpinner/> }.into_any()
                 } else if let Some(e) = error.get() {
-                    view! { <p style="color: red;">{format!("B\u{0142}\u{0105}d: {e}")}</p> }.into_any()
+                    let error_detail = e.clone();
+                    view! {
+                        <p style="color: red;">
+                            {move_tr!("lists-inline-error", { "detail" => error_detail.clone() }).get()}
+                        </p>
+                    }
+                    .into_any()
                 } else if items.read().is_empty() && sublists.read().is_empty() {
-                    view! { <div class="text-center text-base-content/50 py-12">"Lista jest pusta"</div> }.into_any()
+                    view! { <div class="text-center text-base-content/50 py-12">{move_tr!("lists-empty")}</div> }.into_any()
                 } else {
                     view! {
                         <div>
                             {move || {
+                                let main_list_id_for_main_section = main_list_id_for_main_view.clone();
                                 let feats = list_features.get();
+                                let enable_item_dnd = active_tag_filter.get().is_none()
+                                    && !feats.iter().any(|feature| feature.name == FEATURE_DEADLINES);
                                 if feats.iter().any(|f| f.name == FEATURE_DEADLINES) {
-                                    render_date_view(filtered_items(), all_tags.get(), item_tag_links.get(), on_toggle, on_delete, on_tag_toggle, on_date_save).into_any()
+                                    render_date_view(
+                                        filtered_items(),
+                                        all_tags.get(),
+                                        item_tag_links.get(),
+                                        main_item_callbacks_for_view.on_toggle,
+                                        main_item_callbacks_for_view.on_delete,
+                                        on_tag_toggle,
+                                        main_item_callbacks_for_view.on_date_save,
+                                    )
+                                    .into_any()
                                 } else {
                                     render_normal_view(NormalViewProps {
+                                        list_id: main_list_id_for_main_section,
                                         items: filtered_items(),
                                         tags: all_tags.get(),
                                         item_tag_links,
                                         sublists: sublists.get(),
-                                        on_toggle, on_delete, on_tag_toggle,
-                                        on_description_save, on_quantity_change,
+                                        on_toggle: main_item_callbacks_for_view.on_toggle,
+                                        on_delete: main_item_callbacks_for_view.on_delete,
+                                        on_tag_toggle,
+                                        on_description_save: main_item_callbacks_for_view.on_description_save,
+                                        on_quantity_change: main_item_callbacks_for_view.on_quantity_change,
                                         has_quantity: feats.iter().any(|f| f.name == FEATURE_QUANTITY),
-                                        on_move: on_move_main,
-                                        on_date_save,
+                                        on_move: main_item_callbacks_for_view.on_move,
+                                        on_date_save: main_item_callbacks_for_view.on_date_save,
                                         deadlines_config: get_deadlines_config(&feats),
+                                        enable_item_dnd,
+                                        item_dnd_state,
+                                        on_item_drop: on_main_item_drop_for_view.clone(),
                                     }).into_any()
                                 }
                             }}
 
                             {move || {
+                                let main_list_id_for_subsections = main_list_id_for_sublist_view.clone();
                                 let subs = sublists.get();
                                 if subs.is_empty() {
                                     ().into_any()
                                 } else {
+                                    let sublists_for_render = subs.clone();
                                     view! {
                                         <div class="mt-6">
-                                            {subs.iter().map(|sl| {
+                                            {sublists_for_render.into_iter().map(|sl| {
+                                                let drag_id = sl.id.clone();
+                                                let drop_target = DropTarget::before(sl.id.clone());
+                                                let drop_target_for_marker = drop_target.clone();
+                                                let drop_target_for_surface = drop_target.clone();
+                                                let drag_id_for_handle = drag_id.clone();
+                                                let drag_id_for_shell = drag_id.clone();
+                                                let drag_id_for_surface = drag_id.clone();
                                                 let tags = all_tags.get();
                                                 let links = item_tag_links.get();
                                                 let lid = list_id();
                                                 let lname = list_name.get();
                                                 let sl_id = sl.id.clone();
+                                                let sublist_id = sl.id.clone();
+                                                let sibling_sublists = subs.clone();
                                                 let mut mt: Vec<(String, String)> = vec![
-                                                    (lid, format!("{lname} (g\u{0142}\u{00F3}wna)"))
+                                                    (
+                                                        lid,
+                                                        move_tr!(
+                                                            "lists-main-move-target",
+                                                            { "name" => lname.clone() }
+                                                        )
+                                                        .get(),
+                                                    )
                                                 ];
                                                 mt.extend(
-                                                    subs.iter()
+                                                    sibling_sublists.iter()
                                                         .filter(|s| s.id != sl_id)
                                                         .map(|s| (s.id.clone(), s.name.clone()))
                                                 );
                                                 let feats = list_features.get();
                                                 let deadlines_config = get_deadlines_config(&feats);
+                                                let enable_item_dnd = active_tag_filter.get().is_none()
+                                                    && !feats.iter().any(|feature| feature.name == FEATURE_DEADLINES);
+                                                let scoped_callbacks = build_scoped_item_callbacks(
+                                                    client.clone(),
+                                                    main_list_id_for_subsections.clone(),
+                                                    sublist_id.clone(),
+                                                    items,
+                                                    sublist_items,
+                                                    set_error,
+                                                    apply_item_drop_plan_for_view.clone(),
+                                                );
+                                                let sublist_scope_items = sublist_items
+                                                    .get()
+                                                    .get(&sublist_id)
+                                                    .cloned()
+                                                    .unwrap_or_default();
                                                 view! {
-                                                    <SublistSection
-                                                        sublist=sl.clone()
-                                                        has_quantity=feats.iter().any(|f| f.name == FEATURE_QUANTITY)
-                                                        deadlines_config=deadlines_config
-                                                        all_tags=tags
-                                                        item_tag_links=links
-                                                        on_tag_toggle=on_tag_toggle
-                                                        move_targets=mt
-                                                        on_item_moved_out=on_item_moved_out
-                                                    />
+                                                    <div class="flex flex-col gap-2">
+                                                        <ReorderDropTarget
+                                                            dnd_state=sublist_dnd_state
+                                                            target=drop_target_for_marker
+                                                            on_drop=on_sublist_drop.clone()
+                                                        />
+                                                        <DragShell dnd_state=sublist_dnd_state dragged_id=drag_id_for_shell>
+                                                            <DragHandleButton
+                                                                dnd_state=sublist_dnd_state
+                                                                dragged_id=drag_id_for_handle
+                                                                label=DragHandleLabel::ReorderGroup
+                                                            />
+                                                            <DragSurface
+                                                                dnd_state=sublist_dnd_state
+                                                                dragged_id=drag_id_for_surface
+                                                                hover_target=drop_target_for_surface
+                                                            >
+                                                                <SublistSection
+                                                                    sublist=sl.clone()
+                                                                    items=sublist_scope_items
+                                                                    enable_item_dnd=enable_item_dnd
+                                                                    item_dnd_state=item_dnd_state
+                                                                    on_item_drop=on_main_item_drop_for_view.clone()
+                                                                    on_add=scoped_callbacks.on_add
+                                                                    on_toggle=scoped_callbacks.on_toggle
+                                                                    on_delete=scoped_callbacks.on_delete
+                                                                    on_description_save=scoped_callbacks.on_description_save
+                                                                    has_quantity=feats.iter().any(|f| f.name == FEATURE_QUANTITY)
+                                                                    on_quantity_change=scoped_callbacks.on_quantity_change
+                                                                    deadlines_config=deadlines_config
+                                                                    all_tags=tags
+                                                                    item_tag_links=links
+                                                                    on_tag_toggle=on_tag_toggle
+                                                                    move_targets=mt
+                                                                    on_move=scoped_callbacks.on_move
+                                                                    on_date_save=scoped_callbacks.on_date_save
+                                                                />
+                                                            </DragSurface>
+                                                        </DragShell>
+                                                    </div>
                                                 }
                                             }).collect::<Vec<_>>()}
+                                            <ReorderDropTarget
+                                                dnd_state=sublist_dnd_state
+                                                target=DropTarget::end()
+                                                on_drop=on_sublist_drop
+                                            />
                                         </div>
                                     }.into_any()
                                 }
@@ -558,15 +771,507 @@ fn make_list_tag_toggle(
     })
 }
 
-fn make_move_callback(
-    client: GlooClient,
+#[derive(Clone)]
+struct ScopedItemCallbacks {
+    on_add: Callback<CreateItemRequest>,
+    on_toggle: Callback<String>,
+    on_delete: Callback<String>,
+    on_description_save: Callback<(String, String)>,
+    on_quantity_change: Callback<(String, i32)>,
+    on_move: Callback<(String, String)>,
+    on_date_save: Callback<(String, String, String, Option<String>)>,
+}
+
+fn run_item_store_mutation<Mutate, Request, RequestFuture, OnError>(
     items: RwSignal<Vec<Item>>,
-) -> Callback<(String, String)> {
-    Callback::new(move |(item_id, target_list_id): (String, String)| {
-        items.update(|list| list.retain(|i| i.id != item_id));
-        let client = client.clone();
+    sublist_items: RwSignal<HashMap<String, Vec<Item>>>,
+    mutate: Mutate,
+    request: Request,
+    on_error: OnError,
+) where
+    Mutate: FnOnce(&mut Vec<Item>, &mut HashMap<String, Vec<Item>>) -> bool + 'static,
+    Request: FnOnce() -> RequestFuture + 'static,
+    RequestFuture: std::future::Future<Output = Result<(), crate::api::ApiError>> + 'static,
+    OnError: FnOnce(crate::api::ApiError) + 'static,
+{
+    let previous_main = items.get_untracked();
+    let previous_sub = sublist_items.get_untracked();
+
+    let mut next_main = previous_main.clone();
+    let mut next_sub = previous_sub.clone();
+    if !mutate(&mut next_main, &mut next_sub) {
+        return;
+    }
+
+    items.set(next_main);
+    sublist_items.set(next_sub);
+
+    leptos::task::spawn_local(async move {
+        if let Err(error) = request().await {
+            items.set(previous_main);
+            sublist_items.set(previous_sub);
+            on_error(error);
+        }
+    });
+}
+
+fn mutate_scope_items<F>(
+    main_list_id: &str,
+    scope_list_id: &str,
+    items: &mut Vec<Item>,
+    sublist_items: &mut HashMap<String, Vec<Item>>,
+    mutate: F,
+) -> bool
+where
+    F: FnOnce(&mut Vec<Item>) -> bool,
+{
+    if scope_list_id == main_list_id {
+        mutate(items)
+    } else {
+        let scope_items = sublist_items.entry(scope_list_id.to_string()).or_default();
+        mutate(scope_items)
+    }
+}
+
+fn collect_item_ids_by_scope(
+    main_list_id: &str,
+    items: RwSignal<Vec<Item>>,
+    sublist_items: RwSignal<HashMap<String, Vec<Item>>>,
+) -> HashMap<String, Vec<String>> {
+    let mut scopes = HashMap::from([(
+        main_list_id.to_string(),
+        items
+            .get_untracked()
+            .into_iter()
+            .map(|item| item.id)
+            .collect(),
+    )]);
+    for (scope_id, scope_items) in sublist_items.get_untracked() {
+        scopes.insert(
+            scope_id,
+            scope_items.into_iter().map(|item| item.id).collect(),
+        );
+    }
+    scopes
+}
+
+fn apply_item_drop_plan_locally(
+    main_list_id: &str,
+    items: &mut Vec<Item>,
+    sublist_items: &mut HashMap<String, Vec<Item>>,
+    plan: &ItemDropPlan,
+) -> bool {
+    match plan {
+        ItemDropPlan::Reorder { list_id, item_ids } => {
+            mutate_scope_items(main_list_id, list_id, items, sublist_items, |scope_items| {
+                apply_reorder(scope_items, item_ids, |item| item.id.as_str())
+            })
+        }
+        ItemDropPlan::Move { item_id, request } => {
+            let source_list_id = request.source_list_id.as_str();
+            let target_list_id = request.target_list_id.as_str();
+
+            let removed_item = if source_list_id == main_list_id {
+                let source_index = items.iter().position(|item| item.id == *item_id);
+                source_index.map(|index| items.remove(index))
+            } else {
+                let Some(source_items) = sublist_items.get_mut(source_list_id) else {
+                    return false;
+                };
+                let Some(source_index) = source_items.iter().position(|item| item.id == *item_id)
+                else {
+                    return false;
+                };
+                Some(source_items.remove(source_index))
+            };
+
+            let Some(mut moved_item) = removed_item else {
+                return false;
+            };
+            moved_item.list_id = request.target_list_id.clone();
+
+            if target_list_id == main_list_id {
+                items.push(moved_item);
+            } else {
+                sublist_items
+                    .entry(request.target_list_id.clone())
+                    .or_default()
+                    .push(moved_item);
+            }
+
+            let source_changed = mutate_scope_items(
+                main_list_id,
+                source_list_id,
+                items,
+                sublist_items,
+                |scope_items| {
+                    let current_ids: Vec<String> =
+                        scope_items.iter().map(|item| item.id.clone()).collect();
+                    current_ids == request.source_item_ids
+                        || apply_reorder(scope_items, &request.source_item_ids, |item| {
+                            item.id.as_str()
+                        })
+                },
+            );
+            let target_changed = mutate_scope_items(
+                main_list_id,
+                target_list_id,
+                items,
+                sublist_items,
+                |scope_items| {
+                    apply_reorder(scope_items, &request.target_item_ids, |item| {
+                        item.id.as_str()
+                    })
+                },
+            );
+
+            source_changed || target_changed
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_scoped_item_callbacks(
+    client: GlooClient,
+    main_list_id: String,
+    scope_list_id: String,
+    items: RwSignal<Vec<Item>>,
+    sublist_items: RwSignal<HashMap<String, Vec<Item>>>,
+    set_error: WriteSignal<Option<String>>,
+    apply_item_drop_plan: Callback<ItemDropPlan>,
+) -> ScopedItemCallbacks {
+    let scope_list_id_for_add = scope_list_id.clone();
+    let client_for_add = client.clone();
+    let main_list_id_for_add = main_list_id.clone();
+    let on_add = Callback::new(move |req: CreateItemRequest| {
+        let client = client_for_add.clone();
+        let scope_list_id = scope_list_id_for_add.clone();
+        let main_list_id = main_list_id_for_add.clone();
         leptos::task::spawn_local(async move {
-            let _ = api::move_item(&client, &item_id, &target_list_id).await;
+            match api::create_item(&client, &scope_list_id, &req).await {
+                Ok(item) => {
+                    run_item_store_mutation(
+                        items,
+                        sublist_items,
+                        move |main_items, sub_items| {
+                            mutate_scope_items(
+                                &main_list_id,
+                                &scope_list_id,
+                                main_items,
+                                sub_items,
+                                |scope_items| {
+                                    scope_items.push(item.clone());
+                                    true
+                                },
+                            )
+                        },
+                        || async { Ok(()) },
+                        |_| {},
+                    );
+                }
+                Err(error) => set_error.set(Some(error.to_string())),
+            }
         });
-    })
+    });
+
+    let scope_list_id_for_toggle = scope_list_id.clone();
+    let client_for_toggle = client.clone();
+    let main_list_id_for_toggle = main_list_id.clone();
+    let on_toggle = Callback::new(move |item_id: String| {
+        let current_items = if scope_list_id_for_toggle == main_list_id_for_toggle {
+            items.get_untracked()
+        } else {
+            sublist_items
+                .get_untracked()
+                .get(&scope_list_id_for_toggle)
+                .cloned()
+                .unwrap_or_default()
+        };
+        let (_next_items, new_completed) =
+            crate::state::transforms::with_item_toggled(&current_items, &item_id);
+        let Some(new_completed) = new_completed else {
+            return;
+        };
+
+        let client = client_for_toggle.clone();
+        let item_id_for_mutation = item_id.clone();
+        let item_id_for_request = item_id.clone();
+        let scope_list_id = scope_list_id_for_toggle.clone();
+        let scope_list_id_for_request = scope_list_id.clone();
+        let main_list_id = main_list_id_for_toggle.clone();
+        run_item_store_mutation(
+            items,
+            sublist_items,
+            move |main_items, sub_items| {
+                mutate_scope_items(
+                    &main_list_id,
+                    &scope_list_id,
+                    main_items,
+                    sub_items,
+                    |scope_items| {
+                        let (next_items, changed_completed) =
+                            crate::state::transforms::with_item_toggled(
+                                scope_items,
+                                &item_id_for_mutation,
+                            );
+                        if changed_completed.is_none() {
+                            return false;
+                        }
+                        *scope_items = next_items;
+                        true
+                    },
+                )
+            },
+            move || async move {
+                let body = UpdateItemRequest {
+                    completed: Some(new_completed),
+                    ..Default::default()
+                };
+                api::update_item(
+                    &client,
+                    &scope_list_id_for_request,
+                    &item_id_for_request,
+                    &body,
+                )
+                .await
+                .map(|_| ())
+            },
+            move |error| set_error.set(Some(error.to_string())),
+        );
+    });
+
+    let scope_list_id_for_delete = scope_list_id.clone();
+    let client_for_delete = client.clone();
+    let main_list_id_for_delete = main_list_id.clone();
+    let on_delete = Callback::new(move |item_id: String| {
+        let client = client_for_delete.clone();
+        let item_id_for_mutation = item_id.clone();
+        let item_id_for_request = item_id.clone();
+        let scope_list_id = scope_list_id_for_delete.clone();
+        let scope_list_id_for_request = scope_list_id.clone();
+        let main_list_id = main_list_id_for_delete.clone();
+        run_item_store_mutation(
+            items,
+            sublist_items,
+            move |main_items, sub_items| {
+                mutate_scope_items(
+                    &main_list_id,
+                    &scope_list_id,
+                    main_items,
+                    sub_items,
+                    |scope_items| {
+                        let next_items = crate::state::transforms::without_item(
+                            scope_items,
+                            &item_id_for_mutation,
+                        );
+                        if next_items.len() == scope_items.len() {
+                            return false;
+                        }
+                        *scope_items = next_items;
+                        true
+                    },
+                )
+            },
+            move || async move {
+                api::delete_item(&client, &scope_list_id_for_request, &item_id_for_request).await
+            },
+            move |error| set_error.set(Some(error.to_string())),
+        );
+    });
+
+    let scope_list_id_for_description = scope_list_id.clone();
+    let client_for_description = client.clone();
+    let main_list_id_for_description = main_list_id.clone();
+    let on_description_save = Callback::new(move |(item_id, new_desc): (String, String)| {
+        let client = client_for_description.clone();
+        let next_description = if new_desc.is_empty() {
+            None
+        } else {
+            Some(new_desc.clone())
+        };
+        let item_id_for_mutation = item_id.clone();
+        let item_id_for_request = item_id.clone();
+        let scope_list_id = scope_list_id_for_description.clone();
+        let scope_list_id_for_request = scope_list_id.clone();
+        let main_list_id = main_list_id_for_description.clone();
+        run_item_store_mutation(
+            items,
+            sublist_items,
+            move |main_items, sub_items| {
+                mutate_scope_items(
+                    &main_list_id,
+                    &scope_list_id,
+                    main_items,
+                    sub_items,
+                    |scope_items| {
+                        let Some(item) = scope_items
+                            .iter_mut()
+                            .find(|item| item.id == item_id_for_mutation)
+                        else {
+                            return false;
+                        };
+                        item.description = next_description.clone();
+                        true
+                    },
+                )
+            },
+            move || async move {
+                let req = UpdateItemRequest {
+                    description: Some(if new_desc.is_empty() {
+                        None
+                    } else {
+                        Some(new_desc)
+                    }),
+                    ..Default::default()
+                };
+                api::update_item(
+                    &client,
+                    &scope_list_id_for_request,
+                    &item_id_for_request,
+                    &req,
+                )
+                .await
+                .map(|_| ())
+            },
+            move |error| set_error.set(Some(error.to_string())),
+        );
+    });
+
+    let scope_list_id_for_quantity = scope_list_id.clone();
+    let client_for_quantity = client.clone();
+    let main_list_id_for_quantity = main_list_id.clone();
+    let on_quantity_change = Callback::new(move |(item_id, new_actual): (String, i32)| {
+        let client = client_for_quantity.clone();
+        let item_id_for_request = item_id.clone();
+        let scope_list_id = scope_list_id_for_quantity.clone();
+        let scope_list_id_for_request = scope_list_id.clone();
+        let main_list_id = main_list_id_for_quantity.clone();
+        run_item_store_mutation(
+            items,
+            sublist_items,
+            move |main_items, sub_items| {
+                mutate_scope_items(
+                    &main_list_id,
+                    &scope_list_id,
+                    main_items,
+                    sub_items,
+                    |scope_items| {
+                        let Some(item) = scope_items.iter_mut().find(|item| item.id == item_id)
+                        else {
+                            return false;
+                        };
+                        item.actual_quantity = Some(new_actual);
+                        if let Some(target_quantity) = item.quantity {
+                            item.completed = new_actual >= target_quantity;
+                        }
+                        true
+                    },
+                )
+            },
+            move || async move {
+                let req = UpdateItemRequest {
+                    actual_quantity: Some(new_actual),
+                    ..Default::default()
+                };
+                api::update_item(
+                    &client,
+                    &scope_list_id_for_request,
+                    &item_id_for_request,
+                    &req,
+                )
+                .await
+                .map(|_| ())
+            },
+            move |error| set_error.set(Some(error.to_string())),
+        );
+    });
+
+    let scope_list_id_for_move = scope_list_id.clone();
+    let main_list_id_for_move = main_list_id.clone();
+    let on_move = Callback::new(move |(item_id, target_list_id): (String, String)| {
+        let dragged_item = DraggedItem {
+            item_id,
+            source_list_id: scope_list_id_for_move.clone(),
+        };
+        let item_ids_by_scope =
+            collect_item_ids_by_scope(&main_list_id_for_move, items, sublist_items);
+        let Some(plan) = build_item_drop_plan(
+            &item_ids_by_scope,
+            &dragged_item,
+            &ItemDropTarget::end(target_list_id),
+        ) else {
+            return;
+        };
+        apply_item_drop_plan.run(plan);
+    });
+
+    let scope_list_id_for_date = scope_list_id;
+    let client_for_date = client;
+    let main_list_id_for_date = main_list_id;
+    let on_date_save = Callback::new(
+        move |(item_id, date_type, date_val, time_val): (
+            String,
+            String,
+            String,
+            Option<String>,
+        )| {
+            let Some(field) = ItemDateField::parse(&date_type) else {
+                return;
+            };
+            let Some(request) = build_date_update_request(&date_type, &date_val, time_val.clone())
+            else {
+                return;
+            };
+
+            let client = client_for_date.clone();
+            let item_id_for_mutation = item_id.clone();
+            let item_id_for_request = item_id.clone();
+            let time_for_mutation = time_val.clone();
+            let scope_list_id = scope_list_id_for_date.clone();
+            let scope_list_id_for_request = scope_list_id.clone();
+            let main_list_id = main_list_id_for_date.clone();
+            run_item_store_mutation(
+                items,
+                sublist_items,
+                move |main_items, sub_items| {
+                    mutate_scope_items(
+                        &main_list_id,
+                        &scope_list_id,
+                        main_items,
+                        sub_items,
+                        |scope_items| {
+                            apply_date_change_to_items(
+                                scope_items,
+                                &item_id_for_mutation,
+                                field,
+                                &date_val,
+                                time_for_mutation.as_deref(),
+                            )
+                        },
+                    )
+                },
+                move || async move {
+                    api::update_item(
+                        &client,
+                        &scope_list_id_for_request,
+                        &item_id_for_request,
+                        &request,
+                    )
+                    .await
+                    .map(|_| ())
+                },
+                move |error| set_error.set(Some(error.to_string())),
+            );
+        },
+    );
+
+    ScopedItemCallbacks {
+        on_add,
+        on_toggle,
+        on_delete,
+        on_description_save,
+        on_quantity_change,
+        on_move,
+        on_date_save,
+    }
 }

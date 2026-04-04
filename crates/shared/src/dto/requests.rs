@@ -57,6 +57,21 @@ pub struct MoveContainerRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReorderContainersRequest {
+    pub container_ids: Vec<String>,
+    pub parent_container_id: Option<String>,
+}
+
+impl ReorderContainersRequest {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.container_ids.is_empty() {
+            return Err("container_ids must not be empty");
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateListRequest {
     pub name: String,
     pub list_type: ListType,
@@ -107,6 +122,43 @@ pub struct CreateItemRequest {
     pub deadline: Option<String>,
     pub deadline_time: Option<String>,
     pub hard_deadline: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReorderItemsRequest {
+    pub item_ids: Vec<String>,
+}
+
+impl ReorderItemsRequest {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.item_ids.is_empty() {
+            return Err("item_ids must not be empty");
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetItemPlacementRequest {
+    pub source_list_id: String,
+    pub target_list_id: String,
+    pub source_item_ids: Vec<String>,
+    pub target_item_ids: Vec<String>,
+}
+
+impl SetItemPlacementRequest {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.source_list_id.is_empty() {
+            return Err("source_list_id must not be empty");
+        }
+        if self.target_list_id.is_empty() {
+            return Err("target_list_id must not be empty");
+        }
+        if self.source_list_id == self.target_list_id {
+            return Err("source_list_id and target_list_id must differ");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

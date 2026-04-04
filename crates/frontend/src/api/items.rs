@@ -36,6 +36,19 @@ pub async fn create_item(
     .await
 }
 
+pub async fn reorder_items(
+    client: &impl super::HttpClient,
+    list_id: &str,
+    req: &ReorderItemsRequest,
+) -> Result<(), super::ApiError> {
+    super::api_patch_empty(
+        client,
+        &format!("{}/lists/{list_id}/items/reorder", super::API_BASE),
+        req,
+    )
+    .await
+}
+
 pub async fn update_item(
     client: &impl super::HttpClient,
     list_id: &str,
@@ -62,6 +75,7 @@ pub async fn delete_item(
     .await
 }
 
+#[allow(dead_code)]
 pub async fn move_item(
     client: &impl super::HttpClient,
     item_id: &str,
@@ -72,6 +86,19 @@ pub async fn move_item(
         client,
         &format!("{}/items/{item_id}/move", super::API_BASE),
         &body,
+    )
+    .await
+}
+
+pub async fn set_item_placement(
+    client: &impl super::HttpClient,
+    item_id: &str,
+    req: &SetItemPlacementRequest,
+) -> Result<Item, super::ApiError> {
+    super::api_patch(
+        client,
+        &format!("{}/items/{item_id}/placement", super::API_BASE),
+        req,
     )
     .await
 }

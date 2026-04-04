@@ -1,7 +1,12 @@
+#![allow(dead_code)]
+
 use leptos::prelude::*;
 
 use crate::api;
 use crate::api::client::GlooClient;
+use crate::state::item_mutations::{
+    ItemDateField, apply_date_change_to_items, build_date_update_request, run_optimistic_mutation,
+};
 use kartoteka_shared::{CreateItemRequest, Item, UpdateItemRequest};
 
 /// All item-level callbacks for a list or sublist.
@@ -44,103 +49,152 @@ pub fn create_item_actions(
     let lid_toggle = list_id.clone();
     let client_toggle = client.clone();
     let on_toggle = Callback::new(move |item_id: String| {
-        let previous = items.get_untracked();
-        let (new_items, new_completed) =
-            crate::state::transforms::with_item_toggled(&previous, &item_id);
+        let current_items = items.get_untracked();
+        let (_next_items, new_completed) =
+            crate::state::transforms::with_item_toggled(&current_items, &item_id);
         let Some(new_completed) = new_completed else {
             return;
         }; // item not found — skip
-        items.set(new_items);
 
         let lid = lid_toggle.clone();
         let client = client_toggle.clone();
-        leptos::task::spawn_local(async move {
-            let body = UpdateItemRequest {
-                completed: Some(new_completed),
-                ..Default::default()
-            };
-            if api::update_item(&client, &lid, &item_id, &body)
-                .await
-                .is_err()
-            {
-                items.set(previous); // rollback
-            }
-        });
+        let item_id_for_mutation = item_id.clone();
+        let item_id_for_request = item_id.clone();
+        let set_err = on_error;
+        run_optimistic_mutation(
+            items,
+            move |list| {
+                let (next_items, changed_completed) =
+                    crate::state::transforms::with_item_toggled(list, &item_id_for_mutation);
+                if changed_completed.is_none() {
+                    return false;
+                }
+                *list = next_items;
+                true
+            },
+            move || async move {
+                let body = UpdateItemRequest {
+                    completed: Some(new_completed),
+                    ..Default::default()
+                };
+                api::update_item(&client, &lid, &item_id_for_request, &body)
+                    .await
+                    .map(|_| ())
+            },
+            move |e| {
+                if let Some(set_err) = set_err {
+                    set_err.set(Some(e.to_string()));
+                }
+            },
+        );
     });
 
     let lid_delete = list_id.clone();
     let client_delete = client.clone();
     let on_delete = Callback::new(move |item_id: String| {
-        let previous = items.get_untracked();
-        items.set(crate::state::transforms::without_item(&previous, &item_id));
-
         let lid = lid_delete.clone();
         let client = client_delete.clone();
-        leptos::task::spawn_local(async move {
-            if api::delete_item(&client, &lid, &item_id).await.is_err() {
-                items.set(previous); // rollback
-            }
-        });
+        let item_id_for_mutation = item_id.clone();
+        let item_id_for_request = item_id.clone();
+        let set_err = on_error;
+        run_optimistic_mutation(
+            items,
+            move |list| {
+                let next_items =
+                    crate::state::transforms::without_item(list, &item_id_for_mutation);
+                if next_items.len() == list.len() {
+                    return false;
+                }
+                *list = next_items;
+                true
+            },
+            move || async move { api::delete_item(&client, &lid, &item_id_for_request).await },
+            move |e| {
+                if let Some(set_err) = set_err {
+                    set_err.set(Some(e.to_string()));
+                }
+            },
+        );
     });
 
     let lid_desc = list_id.clone();
     let client_desc = client.clone();
     let on_description_save = Callback::new(move |(item_id, new_desc): (String, String)| {
-        let previous = items.get_untracked();
-        items.update(|list| {
-            if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
-                item.description = if new_desc.is_empty() {
-                    None
-                } else {
-                    Some(new_desc.clone())
-                };
-            }
-        });
         let lid = lid_desc.clone();
         let client = client_desc.clone();
-        leptos::task::spawn_local(async move {
-            let req = UpdateItemRequest {
-                description: Some(if new_desc.is_empty() {
-                    None
-                } else {
-                    Some(new_desc)
-                }),
-                ..Default::default()
-            };
-            if api::update_item(&client, &lid, &item_id, &req)
-                .await
-                .is_err()
-            {
-                items.set(previous); // rollback
-            }
-        });
+        let next_description = if new_desc.is_empty() {
+            None
+        } else {
+            Some(new_desc.clone())
+        };
+        let item_id_for_mutation = item_id.clone();
+        let item_id_for_request = item_id.clone();
+        let set_err = on_error;
+        run_optimistic_mutation(
+            items,
+            move |list| {
+                let Some(item) = list.iter_mut().find(|item| item.id == item_id_for_mutation)
+                else {
+                    return false;
+                };
+                item.description = next_description.clone();
+                true
+            },
+            move || async move {
+                let req = UpdateItemRequest {
+                    description: Some(if new_desc.is_empty() {
+                        None
+                    } else {
+                        Some(new_desc)
+                    }),
+                    ..Default::default()
+                };
+                api::update_item(&client, &lid, &item_id_for_request, &req)
+                    .await
+                    .map(|_| ())
+            },
+            move |e| {
+                if let Some(set_err) = set_err {
+                    set_err.set(Some(e.to_string()));
+                }
+            },
+        );
     });
 
     let lid_qty = list_id.clone();
     let client_qty = client.clone();
     let on_quantity_change = Callback::new(move |(item_id, new_actual): (String, i32)| {
-        let previous = items.get_untracked();
-        items.update(|list| {
-            if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
+        let lid = lid_qty.clone();
+        let iid = item_id.clone();
+        let client = client_qty.clone();
+        let set_err = on_error;
+        run_optimistic_mutation(
+            items,
+            move |list| {
+                let Some(item) = list.iter_mut().find(|item| item.id == item_id) else {
+                    return false;
+                };
                 item.actual_quantity = Some(new_actual);
                 if let Some(target) = item.quantity {
                     item.completed = new_actual >= target;
                 }
-            }
-        });
-
-        let lid = lid_qty.clone();
-        let iid = item_id.clone();
-        let client = client_qty.clone();
-        leptos::task::spawn_local(async move {
-            let req = UpdateItemRequest {
-                actual_quantity: Some(new_actual),
-                ..Default::default()
-            };
-            if api::update_item(&client, &lid, &iid, &req).await.is_err() {
-                items.set(previous); // rollback
-            }
-        });
+                true
+            },
+            move || async move {
+                let req = UpdateItemRequest {
+                    actual_quantity: Some(new_actual),
+                    ..Default::default()
+                };
+                api::update_item(&client, &lid, &iid, &req)
+                    .await
+                    .map(|_| ())
+            },
+            move |e| {
+                if let Some(set_err) = set_err {
+                    set_err.set(Some(e.to_string()));
+                }
+            },
+        );
     });
 
     let lid_date = list_id.clone();
@@ -152,67 +206,42 @@ pub fn create_item_actions(
             String,
             Option<String>,
         )| {
-            let date_opt = if date_val.is_empty() {
-                Some(None) // clear
-            } else {
-                Some(Some(date_val.clone()))
+            let Some(field) = ItemDateField::parse(&date_type) else {
+                return;
             };
-            let time_opt = if date_val.is_empty() {
-                Some(None) // clear time too
-            } else {
-                time_val.clone().map(Some) // Some(Some("HH:MM")) or None (don't change)
+            let Some(req) = build_date_update_request(&date_type, &date_val, time_val.clone())
+            else {
+                return;
             };
-
-            let previous = items.get_untracked();
-            // Optimistic update
-            items.update(|list| {
-                if let Some(item) = list.iter_mut().find(|i| i.id == item_id) {
-                    let d = if date_val.is_empty() {
-                        None
-                    } else {
-                        Some(date_val.clone())
-                    };
-                    match date_type.as_str() {
-                        "start" => {
-                            item.start_date = d;
-                            item.start_time = time_val.clone();
-                        }
-                        "deadline" => {
-                            item.deadline = d;
-                            item.deadline_time = time_val.clone();
-                        }
-                        "hard_deadline" => {
-                            item.hard_deadline = d;
-                        }
-                        _ => {}
-                    }
-                }
-            });
 
             let lid = lid_date.clone();
             let iid = item_id.clone();
-            let dt = date_type.clone();
             let client = client_date.clone();
-            leptos::task::spawn_local(async move {
-                let mut req = UpdateItemRequest::default();
-                match dt.as_str() {
-                    "start" => {
-                        req.start_date = date_opt;
-                        req.start_time = time_opt;
+            let item_id_for_mutation = item_id.clone();
+            let time_for_mutation = time_val.clone();
+            let set_err = on_error;
+            run_optimistic_mutation(
+                items,
+                move |list| {
+                    apply_date_change_to_items(
+                        list,
+                        &item_id_for_mutation,
+                        field,
+                        &date_val,
+                        time_for_mutation.as_deref(),
+                    )
+                },
+                move || async move {
+                    api::update_item(&client, &lid, &iid, &req)
+                        .await
+                        .map(|_| ())
+                },
+                move |e| {
+                    if let Some(set_err) = set_err {
+                        set_err.set(Some(e.to_string()));
                     }
-                    "deadline" => {
-                        req.deadline = date_opt;
-                        req.deadline_time = time_opt;
-                    }
-                    "hard_deadline" => {
-                        req.hard_deadline = date_opt;
-                    }
-                    _ => {}
-                }
-                if api::update_item(&client, &lid, &iid, &req).await.is_err() {
-                    items.set(previous); // rollback
-                }
-            });
+                },
+            );
         },
     );
 

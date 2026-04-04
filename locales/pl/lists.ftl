@@ -58,3 +58,27 @@ lists-confirm-delete-loading = Wczytywanie szczegółów…
 lists-confirm-delete-message = Czy na pewno chcesz usunąć listę { $name }? Zawiera { $count } elementów. Operacja jest nieodwracalna.
 lists-confirm-delete-message-unknown = Czy na pewno chcesz usunąć listę { $name }? Operacja jest nieodwracalna.
 lists-confirm-delete-button = Usuń listę
+
+# Drag and drop
+lists-dnd-drop-here = Upuść tutaj
+lists-dnd-drop-at-end = Upuść na końcu
+lists-dnd-reorder-aria = Przeciągnij, aby zmienić kolejność
+lists-dnd-reorder-group-aria = Przeciągnij, aby zmienić kolejność grupy
+
+# Strona kontenera i list
+lists-container-status-option-active = Aktywny
+lists-container-status-option-done = Ukończony
+lists-container-status-option-paused = Wstrzymany
+lists-completed-lists-progress = Listy ukończone: { $completed }/{ $total }
+lists-containers-heading = Kontenery
+lists-lists-heading = Listy
+lists-container-empty = Brak list w tym kontenerze.
+lists-empty = Lista jest pusta
+lists-inline-error = Błąd: { $detail }
+lists-main-move-target = { $name } (główna)
+
+# Toasty
+lists-toast-container-deleted = Kontener usunięty
+lists-toast-list-deleted = Lista usunięta
+lists-toast-list-archived = Lista zarchiwizowana
+lists-toast-list-reset = Lista zresetowana
