@@ -59,3 +59,7 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
 - lokalny smoke test API/shared: `cargo test -p kartoteka-api` i `cargo test -p kartoteka-shared`
 - gateway: `cd gateway && npm run typecheck`
 - pełniejszy lokalny check: `just ci`
+
+## Git / Commits
+
+- każdy commit musi używać formatu Conventional Commits, np. `feat: ...`, `fix: ...`, `chore: ...`
