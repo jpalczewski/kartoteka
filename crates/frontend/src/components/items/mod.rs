@@ -5,5 +5,6 @@ pub mod date_editor;
 pub mod date_item_row;
 pub mod inline_date_editor_section;
 pub mod item_actions;
+pub mod item_date_summary;
 pub mod item_row;
 pub mod quantity_stepper;
