@@ -1,4 +1,5 @@
 use crate::error::json_error;
+use kartoteka_shared::ContainerStatus;
 use serde::de::DeserializeOwned;
 use wasm_bindgen::JsValue;
 use worker::*;
@@ -287,6 +288,44 @@ pub fn require_param(ctx: &RouteContext<String>, name: &str) -> Result<String> {
         .map(|s| s.to_string())
 }
 
+/// Validate that a parent container exists, belongs to user, and is not a project.
+/// Returns `Ok(None)` if valid, `Ok(Some(error_response))` if validation fails.
+pub async fn validate_parent_container(
+    d1: &D1Database,
+    parent_id: &str,
+    user_id: &str,
+) -> Result<Option<Response>> {
+    let parent = d1
+        .prepare("SELECT status FROM containers WHERE id = ?1 AND user_id = ?2")
+        .bind(&[parent_id.into(), user_id.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+    match parent {
+        None => Ok(Some(json_error("container_not_found", 404)?)),
+        Some(ref p) => {
+            if !p.get("status").map(|v| v.is_null()).unwrap_or(true) {
+                Ok(Some(json_error("invalid_container_hierarchy", 400)?))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+}
+
+/// Convert `Option<ContainerStatus>` to a `JsValue` suitable for D1 binding.
+pub fn container_status_to_js(status: &Option<ContainerStatus>) -> JsValue {
+    match status {
+        Some(s) => {
+            let s_str = serde_json::to_value(s)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| "active".to_string());
+            JsValue::from(s_str.as_str())
+        }
+        None => JsValue::NULL,
+    }
+}
+
 pub async fn parse_json_body<T: DeserializeOwned>(
     req: &mut Request,
 ) -> std::result::Result<T, Response> {
@@ -310,4 +349,85 @@ pub async fn get_list_features(d1: &D1Database, list_id: &str) -> Result<Vec<Str
         .iter()
         .filter_map(|r| r.get("feature_name")?.as_str().map(String::from))
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ids(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    // --- dedupe_ids ---
+
+    #[test]
+    fn dedupe_ids_removes_duplicates() {
+        let result = dedupe_ids(&ids(&["a", "b", "a", "c"]));
+        assert_eq!(result, ids(&["a", "b", "c"]));
+    }
+
+    #[test]
+    fn dedupe_ids_preserves_order() {
+        let result = dedupe_ids(&ids(&["c", "a", "b"]));
+        assert_eq!(result, ids(&["c", "a", "b"]));
+    }
+
+    #[test]
+    fn dedupe_ids_empty_input() {
+        assert_eq!(dedupe_ids(&[]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn dedupe_ids_all_same() {
+        let result = dedupe_ids(&ids(&["x", "x", "x"]));
+        assert_eq!(result, ids(&["x"]));
+    }
+
+    // --- ids_match_exact_set ---
+
+    #[test]
+    fn ids_match_exact_set_identical_order() {
+        assert!(ids_match_exact_set(
+            &ids(&["a", "b", "c"]),
+            &ids(&["a", "b", "c"])
+        ));
+    }
+
+    #[test]
+    fn ids_match_exact_set_different_order() {
+        assert!(ids_match_exact_set(
+            &ids(&["a", "b", "c"]),
+            &ids(&["c", "a", "b"])
+        ));
+    }
+
+    #[test]
+    fn ids_match_exact_set_length_mismatch() {
+        assert!(!ids_match_exact_set(
+            &ids(&["a", "b"]),
+            &ids(&["a", "b", "c"])
+        ));
+    }
+
+    #[test]
+    fn ids_match_exact_set_content_mismatch() {
+        assert!(!ids_match_exact_set(
+            &ids(&["a", "b", "c"]),
+            &ids(&["a", "b", "d"])
+        ));
+    }
+
+    #[test]
+    fn ids_match_exact_set_duplicates_in_actual_rejected() {
+        assert!(!ids_match_exact_set(
+            &ids(&["a", "b", "c"]),
+            &ids(&["a", "a", "b"])
+        ));
+    }
+
+    #[test]
+    fn ids_match_exact_set_empty_both() {
+        assert!(ids_match_exact_set(&[], &[]));
+    }
 }
