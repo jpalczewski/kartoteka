@@ -19,6 +19,7 @@ pub fn DateItemRow(
     #[prop(default = vec![])] item_tag_ids: Vec<String>,
     #[prop(optional)] on_tag_toggle: Option<Callback<String>>,
     #[prop(optional)] date_type: Option<String>,
+    #[prop(default = false)] compact: bool,
     /// (item_id, date_type, date_value, time_value)
     #[prop(optional)]
     on_date_save: Option<Callback<(String, String, String, Option<String>)>>,
@@ -34,17 +35,17 @@ pub fn DateItemRow(
     let overdue = is_overdue(&item, &today);
 
     let row_class = if completed {
-        "flex items-center gap-3 py-2 opacity-50"
+        "flex flex-wrap items-start gap-2 py-2 opacity-50"
     } else if overdue {
-        "flex items-center gap-3 py-2 text-error"
+        "flex flex-wrap items-start gap-2 py-2 text-error"
     } else {
-        "flex items-center gap-3 py-2"
+        "flex flex-wrap items-start gap-2 py-2"
     };
 
     let title_class = if completed {
-        "flex-1 min-w-0 line-through text-base-content/50"
+        "block min-w-0 break-words line-through text-base-content/50"
     } else {
-        "flex-1 min-w-0"
+        "block min-w-0 break-words"
     };
 
     let primary_dt = date_type.as_deref().unwrap_or("deadline");
@@ -58,12 +59,18 @@ pub fn DateItemRow(
     let relative = display_date.as_ref().map(|d| relative_date(d, &today));
     let time_display = display_time;
 
-    let date_color = if completed {
-        "text-right text-sm text-base-content/40 shrink-0"
+    let date_color = if compact && completed {
+        "pt-1 text-left text-xs leading-tight text-base-content/40"
+    } else if compact && overdue {
+        "pt-1 text-left text-xs leading-tight text-error"
+    } else if compact {
+        "pt-1 text-left text-xs leading-tight text-base-content/60"
+    } else if completed {
+        "ml-auto shrink-0 text-right text-sm text-base-content/40"
     } else if overdue {
-        "text-right text-sm text-error shrink-0"
+        "ml-auto shrink-0 text-right text-sm text-error"
     } else {
-        "text-right text-sm text-base-content/60 shrink-0"
+        "ml-auto shrink-0 text-right text-sm text-base-content/60"
     };
 
     let primary_icon = match primary_dt {
@@ -85,61 +92,128 @@ pub fn DateItemRow(
     view! {
         <div class="border-b border-base-300">
             // Row 1: checkbox + title + primary date + delete
-            <div class=row_class>
-                <input
-                    type="checkbox"
-                    class="checkbox checkbox-secondary"
-                    checked=completed
-                    on:change=move |_| on_toggle.run(id_toggle.clone())
-                />
-                <A
-                    href=item_href
-                    attr:class=format!("{title_class} text-left hover:text-primary transition-colors no-underline")
-                >
-                    {item_title}
-                </A>
-
-                // Primary date (clickable for editing)
-                {if on_date_save.is_some() {
-                    let pdt = primary_dt_str.clone();
-                    view! {
-                        <button type="button" class=format!("{date_color} cursor-pointer hover:opacity-80")
-                            on:click=move |_| {
-                                let current = editing_date.get();
-                                if current.as_deref() == Some(pdt.as_str()) {
-                                    editing_date.set(None);
-                                } else {
-                                    editing_date.set(Some(pdt.clone()));
-                                }
-                            }
-                        >
-                            {date_display.as_ref().map(|d| view! {
-                                <div class="flex items-center gap-1 justify-end">
-                                    <span class="opacity-60">{primary_icon}</span>
-                                    <span class="font-medium">{d.clone()}</span>
-                                </div>
-                            })}
-                            {relative.as_ref().map(|r| view! { <div class="text-xs">{r.clone()}</div> })}
-                            {time_display.as_ref().map(|t| view! { <div class="text-xs">{t.clone()}</div> })}
-                        </button>
-                    }.into_any()
-                } else {
-                    view! {
-                        <div class=date_color>
-                            {date_display.map(|d| view! {
-                                <div class="flex items-center gap-1 justify-end">
-                                    <span class="opacity-60">{primary_icon}</span>
-                                    <span class="font-medium">{d}</span>
-                                </div>
-                            })}
-                            {relative.map(|r| view! { <div class="text-xs">{r}</div> })}
-                            {time_display.map(|t| view! { <div class="text-xs">{t}</div> })}
+            {if compact {
+                view! {
+                    <div class="py-2">
+                        <div class="flex items-start gap-2">
+                            <input
+                                type="checkbox"
+                                class="checkbox checkbox-secondary checkbox-sm mt-1 shrink-0"
+                                checked=completed
+                                on:change=move |_| on_toggle.run(id_toggle.clone())
+                            />
+                            <A
+                                href=item_href
+                                attr:class=format!("{title_class} flex-1 text-left hover:text-primary transition-colors no-underline")
+                            >
+                                {item_title.clone()}
+                            </A>
+                            <div class="shrink-0 self-start">
+                                <InlineConfirmButton on_confirm=Callback::new(move |()| on_delete.run(id_delete.clone())) />
+                            </div>
                         </div>
-                    }.into_any()
-                }}
 
-                <InlineConfirmButton on_confirm=Callback::new(move |()| on_delete.run(id_delete.clone())) />
-            </div>
+                        {if on_date_save.is_some() {
+                            let pdt = primary_dt_str.clone();
+                            view! {
+                                <button
+                                    type="button"
+                                    class=format!("ml-10 {date_color} cursor-pointer hover:opacity-80")
+                                    on:click=move |_| {
+                                        let current = editing_date.get();
+                                        if current.as_deref() == Some(pdt.as_str()) {
+                                            editing_date.set(None);
+                                        } else {
+                                            editing_date.set(Some(pdt.clone()));
+                                        }
+                                    }
+                                >
+                                    {date_display.as_ref().map(|d| view! {
+                                        <div class="flex items-center gap-1 justify-start">
+                                            <span class="opacity-60">{primary_icon}</span>
+                                            <span class="font-medium">{d.clone()}</span>
+                                        </div>
+                                    })}
+                                    {relative.as_ref().map(|r| view! { <div class="text-xs">{r.clone()}</div> })}
+                                    {time_display.as_ref().map(|t| view! { <div class="text-xs">{t.clone()}</div> })}
+                                </button>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <div class=format!("ml-10 {date_color}")>
+                                    {date_display.map(|d| view! {
+                                        <div class="flex items-center gap-1 justify-start">
+                                            <span class="opacity-60">{primary_icon}</span>
+                                            <span class="font-medium">{d}</span>
+                                        </div>
+                                    })}
+                                    {relative.map(|r| view! { <div class="text-xs">{r}</div> })}
+                                    {time_display.map(|t| view! { <div class="text-xs">{t}</div> })}
+                                </div>
+                            }.into_any()
+                        }}
+                    </div>
+                }.into_any()
+            } else {
+                view! {
+                    <div class=row_class>
+                        <input
+                            type="checkbox"
+                            class="checkbox checkbox-secondary checkbox-sm mt-1"
+                            checked=completed
+                            on:change=move |_| on_toggle.run(id_toggle.clone())
+                        />
+                        <A
+                            href=item_href
+                            attr:class=format!(
+                                "{title_class} flex-1 text-left hover:text-primary transition-colors no-underline"
+                            )
+                        >
+                            {item_title}
+                        </A>
+
+                        {if on_date_save.is_some() {
+                            let pdt = primary_dt_str.clone();
+                            view! {
+                                <button type="button" class=format!("{date_color} cursor-pointer hover:opacity-80")
+                                    on:click=move |_| {
+                                        let current = editing_date.get();
+                                        if current.as_deref() == Some(pdt.as_str()) {
+                                            editing_date.set(None);
+                                        } else {
+                                            editing_date.set(Some(pdt.clone()));
+                                        }
+                                    }
+                                >
+                                    {date_display.as_ref().map(|d| view! {
+                                        <div class="flex items-center gap-1 justify-end">
+                                            <span class="opacity-60">{primary_icon}</span>
+                                            <span class="font-medium">{d.clone()}</span>
+                                        </div>
+                                    })}
+                                    {relative.as_ref().map(|r| view! { <div class="text-xs">{r.clone()}</div> })}
+                                    {time_display.as_ref().map(|t| view! { <div class="text-xs">{t.clone()}</div> })}
+                                </button>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <div class=date_color>
+                                    {date_display.map(|d| view! {
+                                        <div class="flex items-center gap-1 justify-end">
+                                            <span class="opacity-60">{primary_icon}</span>
+                                            <span class="font-medium">{d}</span>
+                                        </div>
+                                    })}
+                                    {relative.map(|r| view! { <div class="text-xs">{r}</div> })}
+                                    {time_display.map(|t| view! { <div class="text-xs">{t}</div> })}
+                                </div>
+                            }.into_any()
+                        }}
+
+                        <InlineConfirmButton on_confirm=Callback::new(move |()| on_delete.run(id_delete.clone())) />
+                    </div>
+                }.into_any()
+            }}
 
             // Row 2: tags + secondary date badges (clickable)
             {if has_secondary {

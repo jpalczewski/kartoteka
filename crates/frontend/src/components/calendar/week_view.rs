@@ -27,11 +27,12 @@ pub fn WeekView(
 
     // Build 7 days starting from monday
     let week_dates: Vec<String> = (0..7).map(|i| add_days(&monday, i)).collect();
+    let highlight_today = selected_date == today;
 
     view! {
         <div class="grid grid-cols-1 md:grid-cols-7 gap-2">
             {week_dates.into_iter().enumerate().map(|(dow, date)| {
-                let is_today = date == today;
+                let is_today = highlight_today && date == today;
                 let is_selected = date == selected_date;
                 let day_items: Vec<DateItem> = days.iter()
                     .find(|d| d.date == date)
@@ -162,6 +163,7 @@ pub fn WeekView(
                                 view! {
                                     <DateItemRow
                                         item=item
+                                        compact=true
                                         on_toggle=on_toggle
                                         on_delete=on_delete
                                         all_tags=tags.clone()
