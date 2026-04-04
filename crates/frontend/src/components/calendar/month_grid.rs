@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use leptos::prelude::*;
-use leptos_router::hooks::use_navigate;
 
 use crate::components::common::date_utils::{
     add_days, day_of_week, days_in_month, polish_day_of_week,
@@ -9,9 +8,14 @@ use crate::components::common::date_utils::{
 use kartoteka_shared::DaySummary;
 
 #[component]
-pub fn MonthGrid(counts: Vec<DaySummary>, year: i32, month: u32, today: String) -> impl IntoView {
-    let navigate = use_navigate();
-
+pub fn MonthGrid(
+    counts: Vec<DaySummary>,
+    year: i32,
+    month: u32,
+    today: String,
+    selected_date: String,
+    on_select: Callback<String>,
+) -> impl IntoView {
     // Build lookup: date -> (total, completed)
     let count_map: HashMap<String, (u32, u32)> = counts
         .into_iter()
@@ -60,20 +64,22 @@ pub fn MonthGrid(counts: Vec<DaySummary>, year: i32, month: u32, today: String) 
                 {dates.into_iter().map(|date| {
                     let is_current_month = date.starts_with(&month_prefix);
                     let is_today = date == today_for_cells;
+                    let is_selected = date == selected_date;
                     let day_num: u32 = date.split('-').nth(2).and_then(|d| d.parse().ok()).unwrap_or(0);
                     let counts = count_map.get(&date).copied();
                     let today_cmp = today_for_cells.clone();
                     let date_cmp = date.clone();
-
-                    let navigate = navigate.clone();
                     let date_for_click = date.clone();
+                    let on_select = on_select.clone();
 
                     let cell_class = move || {
-                        let mut cls = "flex flex-col items-center justify-center p-1 min-h-12 rounded-lg cursor-pointer hover:bg-base-200 transition-colors".to_string();
+                        let mut cls = "flex min-h-12 cursor-pointer flex-col items-center justify-center rounded-lg p-1 transition-colors hover:bg-base-200".to_string();
                         if !is_current_month {
                             cls.push_str(" opacity-30");
                         }
-                        if is_today {
+                        if is_selected {
+                            cls.push_str(" bg-primary text-primary-content shadow-sm");
+                        } else if is_today {
                             cls.push_str(" ring-2 ring-primary");
                         }
                         cls
@@ -105,10 +111,7 @@ pub fn MonthGrid(counts: Vec<DaySummary>, year: i32, month: u32, today: String) 
                     view! {
                         <div
                             class=cell_class
-                            on:click=move |_| {
-                                let nav = navigate.clone();
-                                nav(&format!("/calendar/{}", date_for_click), Default::default());
-                            }
+                            on:click=move |_| on_select.run(date_for_click.clone())
                         >
                             <span class="text-sm">{day_num}</span>
                             {indicator}

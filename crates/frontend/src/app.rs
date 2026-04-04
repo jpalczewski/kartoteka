@@ -12,11 +12,11 @@ use crate::components::pwa_runtime::PwaRuntime;
 use crate::components::sync_locale::SyncLocale;
 use crate::components::toast_container::ToastContainer;
 use crate::pages::{
-    admin::AdminPage, calendar::CalendarPage, calendar::day::CalendarDayPage,
-    container::ContainerPage, home::HomePage, item_detail::ItemDetailPage, list::ListPage,
-    login::LoginPage, oauth_consent::OAuthConsentPage, settings::McpRedirect,
-    settings::SettingsPage, signup::SignupPage, tags::TagsPage, tags::detail::TagDetailPage,
-    today::TodayPage,
+    admin::AdminPage, calendar::CalendarPage, calendar::CalendarRootRedirect,
+    calendar::day::CalendarLegacyDayRedirect, container::ContainerPage, home::HomePage,
+    item_detail::ItemDetailPage, list::ListPage, login::LoginPage, oauth_consent::OAuthConsentPage,
+    settings::McpRedirect, settings::SettingsPage, signup::SignupPage, tags::TagsPage,
+    tags::detail::TagDetailPage, today::TodayPage,
 };
 use crate::state::AdminContext;
 
@@ -133,8 +133,9 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/settings") view=SettingsPage/>
                         <Route path=path!("/mcp") view=McpRedirect/>
                         <Route path=path!("/oauth/consent") view=OAuthConsentPage/>
-                        <Route path=path!("/calendar") view=CalendarPage/>
-                        <Route path=path!("/calendar/:date") view=CalendarDayPage/>
+                        <Route path=path!("/calendar") view=CalendarRootRedirect/>
+                        <Route path=path!("/calendar/:date") view=CalendarLegacyDayRedirect/>
+                        <Route path=path!("/calendar/:year/:month/:day") view=CalendarPage/>
                         <Route path=path!("/tags") view=TagsPage/>
                         <Route path=path!("/tags/:id") view=TagDetailPage/>
                         <Route path=path!("/lists/:list_id/items/:id") view=ItemDetailPage/>

@@ -3,8 +3,8 @@ use kartoteka_shared::Item;
 
 // Re-export shared date_utils for backward compatibility
 pub use kartoteka_shared::date_utils::{
-    add_days, days_between, days_in_month, is_overdue_for_date_type, month_grid_range, next_month,
-    parse_date, prev_month, sort_by_deadline, week_range,
+    add_days, days_between, days_in_month, is_overdue_for_date_type, month_grid_range, parse_date,
+    sort_by_deadline, week_range,
 };
 
 /// Get today's date as "YYYY-MM-DD" using JS Date
