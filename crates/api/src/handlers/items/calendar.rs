@@ -425,6 +425,30 @@ pub async fn calendar(req: Request, ctx: RouteContext<String>) -> Result<Respons
 mod tests {
     use super::*;
 
+    fn make_deadline_item(deadline: &str, completed: bool) -> DateItem {
+        DateItem {
+            id: "item-1".into(),
+            list_id: "list-1".into(),
+            title: "Test".into(),
+            description: None,
+            completed,
+            position: 0,
+            quantity: None,
+            actual_quantity: None,
+            unit: None,
+            start_date: None,
+            start_time: None,
+            deadline: Some(deadline.into()),
+            deadline_time: None,
+            hard_deadline: None,
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+            list_name: "List".into(),
+            list_type: ListType::Checklist,
+            date_type: Some("deadline".into()),
+        }
+    }
+
     #[test]
     fn all_selector_uses_start_date_date_type() {
         let item = DateItem {
@@ -459,5 +483,99 @@ mod tests {
             chrono::NaiveDate::from_ymd_opt(2026, 4, 12).unwrap(),
             true,
         ));
+    }
+
+    #[test]
+    fn keep_item_for_day_matches_exact_date() {
+        let item = make_deadline_item("2026-04-10", false);
+        let target = chrono::NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
+        assert!(keep_item_for_day(
+            &item,
+            DateFieldSelector::One(DateField::Deadline),
+            target,
+            false
+        ));
+    }
+
+    #[test]
+    fn keep_item_for_day_includes_overdue_incomplete() {
+        let item = make_deadline_item("2026-04-08", false);
+        let target = chrono::NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
+        assert!(keep_item_for_day(
+            &item,
+            DateFieldSelector::One(DateField::Deadline),
+            target,
+            true
+        ));
+    }
+
+    #[test]
+    fn keep_item_for_day_excludes_overdue_completed() {
+        let item = make_deadline_item("2026-04-08", true);
+        let target = chrono::NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
+        assert!(!keep_item_for_day(
+            &item,
+            DateFieldSelector::One(DateField::Deadline),
+            target,
+            true
+        ));
+    }
+
+    #[test]
+    fn keep_item_for_day_excludes_overdue_when_flag_false() {
+        let item = make_deadline_item("2026-04-08", false);
+        let target = chrono::NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
+        assert!(!keep_item_for_day(
+            &item,
+            DateFieldSelector::One(DateField::Deadline),
+            target,
+            false
+        ));
+    }
+
+    #[test]
+    fn filter_day_summaries_removes_out_of_range() {
+        let summaries = vec![
+            DaySummary {
+                date: "2026-04-05".into(),
+                total: 2,
+                completed: 1,
+            },
+            DaySummary {
+                date: "2026-04-10".into(),
+                total: 3,
+                completed: 0,
+            },
+            DaySummary {
+                date: "2026-04-15".into(),
+                total: 1,
+                completed: 1,
+            },
+        ];
+        let from = chrono::NaiveDate::from_ymd_opt(2026, 4, 8).unwrap();
+        let to = chrono::NaiveDate::from_ymd_opt(2026, 4, 12).unwrap();
+        let result = filter_day_summaries(summaries, from, to);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].date, "2026-04-10");
+    }
+
+    #[test]
+    fn filter_day_summaries_includes_boundary_dates() {
+        let summaries = vec![
+            DaySummary {
+                date: "2026-04-08".into(),
+                total: 1,
+                completed: 0,
+            },
+            DaySummary {
+                date: "2026-04-12".into(),
+                total: 1,
+                completed: 1,
+            },
+        ];
+        let from = chrono::NaiveDate::from_ymd_opt(2026, 4, 8).unwrap();
+        let to = chrono::NaiveDate::from_ymd_opt(2026, 4, 12).unwrap();
+        let result = filter_day_summaries(summaries, from, to);
+        assert_eq!(result.len(), 2);
     }
 }
