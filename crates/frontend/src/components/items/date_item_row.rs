@@ -1,5 +1,6 @@
 use kartoteka_shared::{Item, Tag};
 use leptos::prelude::*;
+use leptos_router::components::A;
 
 use crate::components::common::date_utils::{
     format_date_short, get_today_string, is_overdue, item_date_badges, relative_date,
@@ -91,12 +92,12 @@ pub fn DateItemRow(
                     checked=completed
                     on:change=move |_| on_toggle.run(id_toggle.clone())
                 />
-                <a
+                <A
                     href=item_href
-                    class=format!("{title_class} hover:text-primary transition-colors no-underline")
+                    attr:class=format!("{title_class} text-left hover:text-primary transition-colors no-underline")
                 >
                     {item_title}
-                </a>
+                </A>
 
                 // Primary date (clickable for editing)
                 {if on_date_save.is_some() {

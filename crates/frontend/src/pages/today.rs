@@ -143,15 +143,35 @@ pub fn TodayPage() -> impl IntoView {
                 }
 
                 let client_render = use_context::<GlooClient>().expect("GlooClient not provided");
+                let on_toggle_list = Callback::new(move |list_id: String| {
+                    hidden_lists.update(|lists| {
+                        if !lists.remove(&list_id) {
+                            lists.insert(list_id);
+                        }
+                    });
+                });
+                let on_toggle_tag = Callback::new(move |tag_id: String| {
+                    hidden_tags.update(|tags| {
+                        if !tags.remove(&tag_id) {
+                            tags.insert(tag_id);
+                        }
+                    });
+                });
+                let on_toggle_show_completed = Callback::new(move |_: ()| {
+                    show_completed.update(|value| *value = !*value);
+                });
 
                 view! {
                     <div>
                         <FilterChips
                             unique_lists=unique_lists
                             relevant_tags=relevant_tags
-                            hidden_lists=hidden_lists
-                            hidden_tags=hidden_tags
-                            show_completed=show_completed
+                            hidden_lists=hidden_lists.get()
+                            hidden_tags=hidden_tags.get()
+                            show_completed=show_completed.get()
+                            on_toggle_list=on_toggle_list
+                            on_toggle_tag=on_toggle_tag
+                            on_toggle_show_completed=on_toggle_show_completed
                         />
 
                         // Overdue section
