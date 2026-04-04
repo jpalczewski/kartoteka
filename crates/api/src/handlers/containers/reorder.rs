@@ -4,7 +4,7 @@ use kartoteka_shared::{Container, MoveContainerRequest, ReorderContainersRequest
 use tracing::instrument;
 use worker::*;
 
-use super::{CONTAINER_SELECT, fetch_container_ids_in_scope};
+use super::CONTAINER_SELECT;
 
 #[instrument(skip_all, fields(action = "reorder_containers", container_count = tracing::field::Empty))]
 pub async fn reorder(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
@@ -24,8 +24,28 @@ pub async fn reorder(mut req: Request, ctx: RouteContext<String>) -> Result<Resp
         }
     }
 
-    let current_ids =
-        fetch_container_ids_in_scope(&d1, &user_id, body.parent_container_id.as_deref()).await?;
+    let current_ids = match body.parent_container_id.as_deref() {
+        Some(parent_id) => {
+            fetch_ordered_ids(
+                &d1,
+                "SELECT id FROM containers \
+                 WHERE user_id = ?1 AND parent_container_id = ?2 \
+                 ORDER BY position ASC, created_at ASC",
+                &[user_id.clone().into(), parent_id.into()],
+            )
+            .await?
+        }
+        None => {
+            fetch_ordered_ids(
+                &d1,
+                "SELECT id FROM containers \
+                 WHERE user_id = ?1 AND parent_container_id IS NULL \
+                 ORDER BY position ASC, created_at ASC",
+                &[user_id.clone().into()],
+            )
+            .await?
+        }
+    };
     if !ids_match_exact_set(&current_ids, &body.container_ids) {
         return json_error("invalid_container_reorder", 400);
     }
