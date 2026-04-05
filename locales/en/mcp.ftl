@@ -9,9 +9,12 @@ tool-set-list-placement = Move one or more lists between root, containers, and p
 # Items
 tool-get-items = Get items in a specific list, optionally filtered by completion, deadline presence, or date range
 tool-add-item = Add a new item to a list
+tool-add-items = Add multiple items to a list in one call
 tool-update-item = Update an existing item
 tool-toggle-item = Toggle the completed state of an item
 tool-move-item = Move an item to a different list
+tool-move-items = Move multiple items to a different list in one call
+tool-set-items-completed = Set the completed state for multiple items in one call
 
 # Containers
 tool-list-containers = List all containers for the current user

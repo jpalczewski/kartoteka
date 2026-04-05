@@ -7,6 +7,17 @@ import { tr } from "../i18n";
 const itemTitleSchema = z.string().trim().min(1).max(255);
 const quantitySchema = z.number().int().positive();
 const actualQuantitySchema = z.number().int().nonnegative();
+const itemPayloadSchema = z.object({
+  title: itemTitleSchema.describe("Item title"),
+  description: z.string().optional().describe("Item description"),
+  quantity: quantitySchema.optional().describe("Target quantity"),
+  unit: z.string().optional().describe("Unit of measurement"),
+  start_date: z.string().optional().describe("Start date YYYY-MM-DD"),
+  start_time: z.string().optional().describe("Start time HH:MM"),
+  deadline: z.string().optional().describe("Deadline YYYY-MM-DD"),
+  deadline_time: z.string().optional().describe("Deadline time HH:MM"),
+  hard_deadline: z.string().optional().describe("Hard deadline YYYY-MM-DD"),
+});
 
 export function registerItemTools(server: McpServer, api: ApiContext, locale: string): void {
   server.registerTool("get_list_items", {
@@ -39,19 +50,23 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
     description: tr("tool-add-item", locale),
     inputSchema: {
       list_id: z.string().describe("The list ID"),
-      title: itemTitleSchema.describe("Item title"),
-      description: z.string().optional().describe("Item description"),
-      quantity: quantitySchema.optional().describe("Target quantity"),
-      unit: z.string().optional().describe("Unit of measurement"),
-      start_date: z.string().optional().describe("Start date YYYY-MM-DD"),
-      start_time: z.string().optional().describe("Start time HH:MM"),
-      deadline: z.string().optional().describe("Deadline YYYY-MM-DD"),
-      deadline_time: z.string().optional().describe("Deadline time HH:MM"),
-      hard_deadline: z.string().optional().describe("Hard deadline YYYY-MM-DD"),
+      ...itemPayloadSchema.shape,
     },
   }, async ({ list_id, ...fields }) => {
     return withAutoEnable(api, list_id, fields, (f) =>
       apiCall(api, "POST", `/api/lists/${list_id}/items`, f)
+    );
+  });
+
+  server.registerTool("add_items", {
+    description: tr("tool-add-items", locale),
+    inputSchema: {
+      list_id: z.string().describe("The list ID"),
+      items: z.array(itemPayloadSchema).min(1).describe("Items to create in order"),
+    },
+  }, async ({ list_id, items }) => {
+    return withAutoEnable(api, list_id, { items }, (f) =>
+      apiCall(api, "POST", `/api/lists/${list_id}/items/batch`, f)
     );
   });
 
@@ -96,6 +111,24 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
     },
   }, ({ item_id, target_list_id }) =>
     callTool(api, "PATCH", `/api/items/${item_id}/move`, { target_list_id }));
+
+  server.registerTool("move_items", {
+    description: tr("tool-move-items", locale),
+    inputSchema: {
+      item_ids: z.array(z.string()).min(1).describe("Item IDs to move"),
+      target_list_id: z.string().describe("Target list ID"),
+    },
+  }, ({ item_ids, target_list_id }) =>
+    callTool(api, "PATCH", "/api/items/move", { item_ids, target_list_id }));
+
+  server.registerTool("set_items_completed", {
+    description: tr("tool-set-items-completed", locale),
+    inputSchema: {
+      item_ids: z.array(z.string()).min(1).describe("Item IDs to update"),
+      completed: z.boolean().describe("Completed state to apply"),
+    },
+  }, ({ item_ids, completed }) =>
+    callTool(api, "PATCH", "/api/items/completed", { item_ids, completed }));
 
   async function withAutoEnable(
     api: ApiContext,
