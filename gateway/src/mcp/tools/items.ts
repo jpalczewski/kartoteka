@@ -13,8 +13,27 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
     description: tr("tool-get-items", locale),
     inputSchema: {
       list_id: z.string().describe("The list ID"),
+      completed: z.boolean().optional().describe("Filter by completion state"),
+      has_deadline: z.boolean().optional().describe("Filter by presence of deadline"),
+      from: z.string().optional().describe("Keep items dated on or after YYYY-MM-DD"),
+      to: z.string().optional().describe("Keep items dated on or before YYYY-MM-DD"),
+      field: z.enum(["all", "start_date", "deadline", "hard_deadline"]).optional()
+        .describe("Date field to use with from/to (default: all)"),
     },
-  }, ({ list_id }) => callTool(api, "GET", `/api/lists/${list_id}/items`));
+  }, ({ list_id, completed, has_deadline, from, to, field }) => {
+    const params = new URLSearchParams();
+    if (completed !== undefined) params.set("completed", String(completed));
+    if (has_deadline !== undefined) params.set("has_deadline", String(has_deadline));
+    if (from) params.set("date_from", from);
+    if (to) params.set("date_to", to);
+    if (field) params.set("date_field", field);
+
+    const query = params.toString();
+    const path = query
+      ? `/api/lists/${list_id}/items?${query}`
+      : `/api/lists/${list_id}/items`;
+    return callTool(api, "GET", path);
+  });
 
   server.registerTool("add_item", {
     description: tr("tool-add-item", locale),

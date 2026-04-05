@@ -7,25 +7,212 @@ use worker::*;
 
 use super::validation::{
     ItemQuantityState, ItemTemporalState, derive_completed_from_quantity_state, normalize_title,
-    validate_item_quantity_state, validate_item_temporal_state,
+    validate_item_quantity_state, validate_item_temporal_state, validation_field,
 };
 use super::{ITEM_COLS, check_item_features, list_archived_response};
 
-#[instrument(skip_all)]
-pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ListItemsDateFieldSelector {
+    All,
+    One(DateField),
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct ListItemsFilters {
+    completed: Option<bool>,
+    has_deadline: Option<bool>,
+    date_from: Option<chrono::NaiveDate>,
+    date_to: Option<chrono::NaiveDate>,
+    date_field: Option<ListItemsDateFieldSelector>,
+}
+
+fn query_param(url: &Url, key: &str) -> Option<String> {
+    url.query_pairs()
+        .find(|(k, _)| k == key)
+        .map(|(_, value)| value.to_string())
+}
+
+fn parse_optional_bool_query(
+    field: &str,
+    value: Option<String>,
+) -> std::result::Result<Option<bool>, Vec<ValidationFieldError>> {
+    match value.as_deref() {
+        None => Ok(None),
+        Some("true") => Ok(Some(true)),
+        Some("false") => Ok(Some(false)),
+        Some(_) => Err(vec![validation_field(field, "invalid_boolean")]),
+    }
+}
+
+fn parse_optional_query_date(
+    field: &str,
+    value: Option<String>,
+) -> std::result::Result<Option<chrono::NaiveDate>, Vec<ValidationFieldError>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    match validate_business_date(&value) {
+        Ok(date) => Ok(Some(date)),
+        Err(DateValidationError::Invalid) => Err(vec![validation_field(field, "invalid_date")]),
+        Err(DateValidationError::OutOfRange) => {
+            Err(vec![validation_field(field, "date_out_of_range")])
+        }
+    }
+}
+
+fn parse_list_items_date_field(
+    value: &str,
+) -> std::result::Result<ListItemsDateFieldSelector, Vec<ValidationFieldError>> {
+    match value {
+        "all" => Ok(ListItemsDateFieldSelector::All),
+        "start_date" => Ok(ListItemsDateFieldSelector::One(DateField::StartDate)),
+        "deadline" => Ok(ListItemsDateFieldSelector::One(DateField::Deadline)),
+        "hard_deadline" => Ok(ListItemsDateFieldSelector::One(DateField::HardDeadline)),
+        _ => Err(vec![validation_field("date_field", "invalid_date_field")]),
+    }
+}
+
+fn parse_list_items_filters(
+    url: &Url,
+) -> std::result::Result<ListItemsFilters, Vec<ValidationFieldError>> {
+    let completed = parse_optional_bool_query("completed", query_param(url, "completed"))?;
+    let has_deadline = parse_optional_bool_query("has_deadline", query_param(url, "has_deadline"))?;
+    let date_from = parse_optional_query_date("date_from", query_param(url, "date_from"))?;
+    let date_to = parse_optional_query_date("date_to", query_param(url, "date_to"))?;
+    let date_field = match query_param(url, "date_field") {
+        Some(value) => Some(parse_list_items_date_field(&value)?),
+        None => None,
+    };
+
+    if date_from.is_none() && date_to.is_none() {
+        if date_field.is_some() {
+            return Err(vec![validation_field("date_field", "requires_date_range")]);
+        }
+        return Ok(ListItemsFilters {
+            completed,
+            has_deadline,
+            date_from,
+            date_to,
+            date_field: None,
+        });
+    }
+
+    if let (Some(date_from), Some(date_to)) = (date_from, date_to)
+        && date_from > date_to
+    {
+        return Err(vec![validation_field("date_from", "range_start_after_end")]);
+    }
+
+    Ok(ListItemsFilters {
+        completed,
+        has_deadline,
+        date_from,
+        date_to,
+        date_field: Some(date_field.unwrap_or(ListItemsDateFieldSelector::All)),
+    })
+}
+
+fn build_single_field_date_clause(
+    column: &str,
+    from_placeholder: Option<&str>,
+    to_placeholder: Option<&str>,
+) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(placeholder) = from_placeholder {
+        parts.push(format!("{column} >= {placeholder}"));
+    }
+    if let Some(placeholder) = to_placeholder {
+        parts.push(format!("{column} <= {placeholder}"));
+    }
+
+    if parts.is_empty() {
+        None
+    } else {
+        Some(format!("({})", parts.join(" AND ")))
+    }
+}
+
+fn build_date_filter_clause(
+    selector: ListItemsDateFieldSelector,
+    from_placeholder: Option<&str>,
+    to_placeholder: Option<&str>,
+) -> Option<String> {
+    match selector {
+        ListItemsDateFieldSelector::All => {
+            let clauses = ["start_date", "deadline", "hard_deadline"]
+                .into_iter()
+                .filter_map(|column| {
+                    build_single_field_date_clause(column, from_placeholder, to_placeholder)
+                })
+                .collect::<Vec<_>>();
+
+            if clauses.is_empty() {
+                None
+            } else {
+                Some(format!("({})", clauses.join(" OR ")))
+            }
+        }
+        ListItemsDateFieldSelector::One(field) => {
+            build_single_field_date_clause(field.column_name(), from_placeholder, to_placeholder)
+        }
+    }
+}
+
+#[instrument(skip_all, fields(action = "list_items", list_id = tracing::field::Empty))]
+pub async fn list_all(req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
     let list_id = require_param(&ctx, "list_id")?;
+    tracing::Span::current().record("list_id", tracing::field::display(&list_id));
+    let url = req.url()?;
+    let filters = match parse_list_items_filters(&url) {
+        Ok(filters) => filters,
+        Err(fields) => return validation_error("Invalid query parameters.", fields),
+    };
     let d1 = ctx.env.d1("DB")?;
 
     if !check_ownership(&d1, "lists", &list_id, &user_id).await? {
         return json_error("list_not_found", 404);
     }
 
-    let query = format!(
-        "SELECT {} FROM items WHERE list_id = ?1 ORDER BY position ASC, created_at ASC",
-        ITEM_COLS
-    );
-    let result = d1.prepare(&query).bind(&[list_id.into()])?.all().await?;
+    let mut query = format!("SELECT {} FROM items WHERE list_id = ?1", ITEM_COLS);
+    let mut params: Vec<JsValue> = vec![list_id.into()];
+
+    if let Some(completed) = filters.completed {
+        query.push_str(&format!(" AND completed = ?{}", params.len() + 1));
+        params.push(JsValue::from(if completed { 1 } else { 0 }));
+    }
+
+    if let Some(has_deadline) = filters.has_deadline {
+        query.push_str(if has_deadline {
+            " AND deadline IS NOT NULL"
+        } else {
+            " AND deadline IS NULL"
+        });
+    }
+
+    if let Some(selector) = filters.date_field {
+        let from_placeholder = filters.date_from.as_ref().map(|date_from| {
+            params.push(format_date(date_from).into());
+            format!("?{}", params.len())
+        });
+        let to_placeholder = filters.date_to.as_ref().map(|date_to| {
+            params.push(format_date(date_to).into());
+            format!("?{}", params.len())
+        });
+
+        if let Some(date_clause) = build_date_filter_clause(
+            selector,
+            from_placeholder.as_deref(),
+            to_placeholder.as_deref(),
+        ) {
+            query.push_str(" AND ");
+            query.push_str(&date_clause);
+        }
+    }
+
+    query.push_str(" ORDER BY position ASC, created_at ASC");
+    let result = d1.prepare(&query).bind(&params)?.all().await?;
     let items = result.results::<Item>()?;
     Response::from_json(&items)
 }
@@ -362,4 +549,100 @@ pub async fn delete(_req: Request, ctx: RouteContext<String>) -> Result<Response
         .run()
         .await?;
     Ok(Response::empty()?.with_status(204))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_filters(
+        query: &str,
+    ) -> std::result::Result<ListItemsFilters, Vec<ValidationFieldError>> {
+        let url = Url::parse(&format!(
+            "https://example.com/api/lists/list-1/items{query}"
+        ))
+        .expect("valid url");
+        parse_list_items_filters(&url)
+    }
+
+    #[test]
+    fn list_items_filters_parse_boolean_fields() {
+        let filters =
+            parse_filters("?completed=true&has_deadline=false").expect("filters should parse");
+
+        assert_eq!(
+            filters,
+            ListItemsFilters {
+                completed: Some(true),
+                has_deadline: Some(false),
+                date_from: None,
+                date_to: None,
+                date_field: None,
+            }
+        );
+    }
+
+    #[test]
+    fn list_items_filters_reject_invalid_boolean() {
+        let errors = parse_filters("?completed=yes").expect_err("should reject invalid boolean");
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].field, "completed");
+        assert_eq!(errors[0].code, "invalid_boolean");
+    }
+
+    #[test]
+    fn list_items_filters_default_date_field_to_all_for_open_range() {
+        let filters = parse_filters("?date_from=2026-01-01").expect("filters should parse");
+
+        assert_eq!(
+            filters.date_from,
+            Some(validate_business_date("2026-01-01").unwrap())
+        );
+        assert_eq!(filters.date_field, Some(ListItemsDateFieldSelector::All));
+    }
+
+    #[test]
+    fn list_items_filters_reject_date_field_without_bounds() {
+        let errors =
+            parse_filters("?date_field=deadline").expect_err("should reject date field alone");
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].field, "date_field");
+        assert_eq!(errors[0].code, "requires_date_range");
+    }
+
+    #[test]
+    fn list_items_filters_reject_inverted_date_range() {
+        let errors = parse_filters("?date_from=2026-02-01&date_to=2026-01-01")
+            .expect_err("should reject invalid range");
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].field, "date_from");
+        assert_eq!(errors[0].code, "range_start_after_end");
+    }
+
+    #[test]
+    fn build_date_filter_clause_for_all_uses_or_across_fields() {
+        let clause =
+            build_date_filter_clause(ListItemsDateFieldSelector::All, Some("?2"), Some("?3"))
+                .expect("clause should be built");
+
+        assert!(clause.contains("start_date >= ?2"));
+        assert!(clause.contains("deadline >= ?2"));
+        assert!(clause.contains("hard_deadline <= ?3"));
+        assert!(clause.contains(" OR "));
+    }
+
+    #[test]
+    fn build_date_filter_clause_for_single_field_uses_selected_column() {
+        let clause = build_date_filter_clause(
+            ListItemsDateFieldSelector::One(DateField::Deadline),
+            None,
+            Some("?2"),
+        )
+        .expect("clause should be built");
+
+        assert_eq!(clause, "(deadline <= ?2)");
+    }
 }
