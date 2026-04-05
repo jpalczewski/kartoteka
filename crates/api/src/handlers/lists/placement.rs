@@ -24,47 +24,6 @@ async fn fetch_lists_by_ids(
     Ok(lists)
 }
 
-async fn fetch_list_ids_in_scope(
-    d1: &D1Database,
-    user_id: &str,
-    parent_list_id: Option<&str>,
-    container_id: Option<&str>,
-) -> worker::Result<Vec<String>> {
-    match (parent_list_id, container_id) {
-        (Some(parent_id), None) => {
-            fetch_ordered_ids(
-                d1,
-                "SELECT id FROM lists \
-                 WHERE user_id = ?1 AND parent_list_id = ?2 \
-                 ORDER BY position ASC, created_at ASC",
-                &[user_id.into(), parent_id.into()],
-            )
-            .await
-        }
-        (None, Some(cid)) => {
-            fetch_ordered_ids(
-                d1,
-                "SELECT id FROM lists \
-                 WHERE user_id = ?1 AND parent_list_id IS NULL AND container_id = ?2 AND archived = 0 \
-                 ORDER BY position ASC, created_at ASC",
-                &[user_id.into(), cid.into()],
-            )
-            .await
-        }
-        (None, None) => {
-            fetch_ordered_ids(
-                d1,
-                "SELECT id FROM lists \
-                 WHERE user_id = ?1 AND parent_list_id IS NULL AND container_id IS NULL AND archived = 0 \
-                 ORDER BY position ASC, created_at ASC",
-                &[user_id.into()],
-            )
-            .await
-        }
-        (Some(_), Some(_)) => unreachable!("validated earlier"),
-    }
-}
-
 async fn apply_list_placement(
     d1: &D1Database,
     user_id: &str,
@@ -170,29 +129,20 @@ pub async fn set_placement(mut req: Request, ctx: RouteContext<String>) -> Resul
     }
     let d1 = ctx.env.d1("DB")?;
 
-    if let Some(ref parent_id) = body.parent_list_id
-        && !ensure_parent_list_target(&d1, parent_id, &user_id).await?
-    {
-        return json_error("list_not_found", 404);
-    }
-
-    if let Some(ref target_container_id) = body.container_id
-        && !check_ownership(&d1, "containers", target_container_id, &user_id).await?
-    {
-        return json_error("container_not_found", 404);
-    }
-
-    let current_ids = fetch_list_ids_in_scope(
+    match apply_list_placement(
         &d1,
         &user_id,
-        body.parent_list_id.as_deref(),
-        body.container_id.as_deref(),
+        &body.list_ids,
+        body.parent_list_id,
+        body.container_id,
     )
-    .await?;
-    if !ids_match_exact_set(&current_ids, &body.list_ids) {
-        return json_error("invalid_list_reorder", 400);
+    .await
+    {
+        Ok(lists) => Response::from_json(&serde_json::json!({ "moved_lists": lists })),
+        Err(err) if err.to_string() == "list_not_found" => json_error("list_not_found", 404),
+        Err(err) if err.to_string() == "container_not_found" => {
+            json_error("container_not_found", 404)
+        }
+        Err(err) => json_error(err.to_string().as_str(), 400),
     }
-
-    apply_positions(&d1, "lists", &body.list_ids).await?;
-    Ok(Response::empty()?.with_status(204))
 }

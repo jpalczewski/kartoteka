@@ -41,19 +41,8 @@ export function registerListTools(server: McpServer, api: ApiContext, locale: st
       list_id: z.string().describe("The list ID"),
       container_id: z.string().nullable().describe("Container ID (null to remove from container)"),
     },
-  }, async ({ list_id, container_id }) => {
-    const result = await setListPlacement(api, {
-      list_ids: [list_id],
-      container_id,
-    });
-    if (result.isError) return result;
-    try {
-      const parsed = JSON.parse(result.content[0].text) as { moved_lists?: unknown[] };
-      return jsonResult(parsed.moved_lists?.[0] ?? null);
-    } catch {
-      return errorResult("Failed to parse list placement response.");
-    }
-  });
+  }, ({ list_id, container_id }) =>
+    callTool(api, "PATCH", `/api/lists/${list_id}/container`, { container_id }));
 
   server.registerTool("get_list_sublists", {
     description: tr("tool-get-list-sublists", locale),
