@@ -63,6 +63,7 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         // Items
         .get_async("/api/lists/:list_id/items", items::list_all)
         .post_async("/api/lists/:list_id/items", items::create)
+        .post_async("/api/lists/:list_id/items/batch", items::create_batch)
         .patch_async("/api/lists/:list_id/items/reorder", items::reorder)
         .get_async("/api/lists/:list_id/items/:id", items::get_one)
         .put_async("/api/lists/:list_id/items/:id", items::update)
@@ -70,6 +71,8 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         // Cross-list queries
         .get_async("/api/items/by-date", items::by_date)
         .get_async("/api/items/calendar", items::calendar)
+        .patch_async("/api/items/move", items::move_batch)
+        .patch_async("/api/items/completed", items::set_completed)
         // List container + pin
         .patch_async("/api/lists/:id/container", lists::move_list)
         .patch_async("/api/lists/:id/pin", lists::toggle_pin)

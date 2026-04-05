@@ -125,6 +125,20 @@ pub struct CreateItemRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateItemsRequest {
+    pub items: Vec<CreateItemRequest>,
+}
+
+impl CreateItemsRequest {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.items.is_empty() {
+            return Err("items must not be empty");
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReorderItemsRequest {
     pub item_ids: Vec<String>,
 }
@@ -133,6 +147,24 @@ impl ReorderItemsRequest {
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.item_ids.is_empty() {
             return Err("item_ids must not be empty");
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MoveItemsRequest {
+    pub item_ids: Vec<String>,
+    pub target_list_id: String,
+}
+
+impl MoveItemsRequest {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.item_ids.is_empty() {
+            return Err("item_ids must not be empty");
+        }
+        if self.target_list_id.is_empty() {
+            return Err("target_list_id must not be empty");
         }
         Ok(())
     }
@@ -215,6 +247,21 @@ pub struct UpdateItemRequest {
         skip_serializing_if = "Option::is_none"
     )]
     pub hard_deadline: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetItemsCompletedRequest {
+    pub item_ids: Vec<String>,
+    pub completed: bool,
+}
+
+impl SetItemsCompletedRequest {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.item_ids.is_empty() {
+            return Err("item_ids must not be empty");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

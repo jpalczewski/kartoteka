@@ -159,6 +159,151 @@ fn build_date_filter_clause(
     }
 }
 
+fn create_item_has_date_field(body: &CreateItemRequest) -> bool {
+    body.start_date.is_some()
+        || body.deadline.is_some()
+        || body.hard_deadline.is_some()
+        || body.start_time.is_some()
+        || body.deadline_time.is_some()
+}
+
+fn create_item_has_quantity_field(body: &CreateItemRequest) -> bool {
+    body.quantity.is_some() || body.unit.is_some()
+}
+
+async fn fetch_item_by_id(d1: &D1Database, item_id: &str) -> Result<Item> {
+    let select_query = format!("SELECT {} FROM items WHERE id = ?1", ITEM_COLS);
+    d1.prepare(&select_query)
+        .bind(&[item_id.into()])?
+        .first::<Item>(None)
+        .await?
+        .ok_or_else(|| Error::from("Not found"))
+}
+
+async fn create_items_for_list(
+    d1: &D1Database,
+    list_id: &str,
+    feature_names: &[String],
+    bodies: &[CreateItemRequest],
+) -> Result<std::result::Result<Vec<Item>, Response>> {
+    let base_position = next_position(d1, "items", "list_id = ?1", &[list_id.into()]).await?;
+    let mut prepared = Vec::with_capacity(bodies.len());
+
+    for (offset, body) in bodies.iter().enumerate() {
+        if let Some(err_resp) = check_item_features(
+            feature_names,
+            create_item_has_date_field(body),
+            create_item_has_quantity_field(body),
+        )? {
+            return Ok(Err(err_resp));
+        }
+
+        let mut validation_errors =
+            validate_item_temporal_state(&ItemTemporalState::from_create(body));
+        let quantity_state = ItemQuantityState::from_create(body);
+        validate_item_quantity_state(&quantity_state, &mut validation_errors);
+        let Some(title) = normalize_title(&body.title, "title", &mut validation_errors) else {
+            return validation_error("Invalid item payload.", validation_errors).map(Err);
+        };
+        if !validation_errors.is_empty() {
+            return validation_error("Invalid item payload.", validation_errors).map(Err);
+        }
+
+        prepared.push((
+            uuid::Uuid::new_v4().to_string(),
+            title,
+            quantity_state,
+            body.clone(),
+            base_position + offset as i32,
+        ));
+    }
+
+    let mut created = Vec::with_capacity(prepared.len());
+    for (id, title, quantity_state, body, position) in prepared {
+        let desc_val = opt_str_to_js(&body.description);
+        let quantity_val: JsValue = match body.quantity {
+            Some(q) => q.into(),
+            None => JsValue::NULL,
+        };
+        let actual_quantity_val: JsValue = match quantity_state.actual_quantity {
+            Some(actual_quantity) => actual_quantity.into(),
+            None => JsValue::NULL,
+        };
+        let completed_val: i32 = if derive_completed_from_quantity_state(&quantity_state) {
+            1
+        } else {
+            0
+        };
+        let unit_val = opt_str_to_js(&body.unit);
+        let start_date_val = opt_str_to_js(&body.start_date);
+        let start_time_val = opt_str_to_js(&body.start_time);
+        let deadline_val = opt_str_to_js(&body.deadline);
+        let deadline_time_val = opt_str_to_js(&body.deadline_time);
+        let hard_deadline_val = opt_str_to_js(&body.hard_deadline);
+
+        d1.prepare(
+            "INSERT INTO items (id, list_id, title, description, completed, position, quantity, actual_quantity, unit, start_date, start_time, deadline, deadline_time, hard_deadline) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        )
+        .bind(&[
+            id.clone().into(),
+            list_id.into(),
+            title.into(),
+            desc_val,
+            completed_val.into(),
+            position.into(),
+            quantity_val,
+            actual_quantity_val,
+            unit_val,
+            start_date_val,
+            start_time_val,
+            deadline_val,
+            deadline_time_val,
+            hard_deadline_val,
+        ])?
+        .run()
+        .await?;
+
+        created.push(fetch_item_by_id(d1, &id).await?);
+    }
+
+    Ok(Ok(created))
+}
+
+async fn set_items_completed(
+    d1: &D1Database,
+    user_id: &str,
+    body: SetItemsCompletedRequest,
+) -> Result<std::result::Result<Vec<Item>, Response>> {
+    if let Err(code) = body.validate() {
+        return json_error(code, 400).map(Err);
+    }
+
+    let item_ids = dedupe_ids(&body.item_ids);
+    let completed_val: i32 = if body.completed { 1 } else { 0 };
+    let mut items = Vec::with_capacity(item_ids.len());
+
+    for item_id in &item_ids {
+        let item_state = match get_owned_item_state(d1, item_id, user_id).await? {
+            Some(item_state) => item_state,
+            None => return json_error("item_not_found", 404).map(Err),
+        };
+        if item_state.list_archived {
+            return list_archived_response().map(Err);
+        }
+    }
+
+    for item_id in &item_ids {
+        d1.prepare("UPDATE items SET completed = ?1, updated_at = datetime('now') WHERE id = ?2")
+            .bind(&[completed_val.into(), item_id.clone().into()])?
+            .run()
+            .await?;
+        items.push(fetch_item_by_id(d1, item_id).await?);
+    }
+
+    Ok(Ok(items))
+}
+
 #[instrument(skip_all, fields(action = "list_items", list_id = tracing::field::Empty))]
 pub async fn list_all(req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.clone();
@@ -289,86 +434,52 @@ pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         return list_archived_response();
     }
 
-    let position = next_position(&d1, "items", "list_id = ?1", &[list_id.clone().into()]).await?;
-
     let feature_names = get_list_features(&d1, &list_id).await?;
-
-    let has_date_field = body.start_date.is_some()
-        || body.deadline.is_some()
-        || body.hard_deadline.is_some()
-        || body.start_time.is_some()
-        || body.deadline_time.is_some();
-    let has_quantity_field = body.quantity.is_some() || body.unit.is_some();
-
-    if let Some(err_resp) = check_item_features(&feature_names, has_date_field, has_quantity_field)?
-    {
-        return Ok(err_resp);
-    }
-
-    let mut validation_errors =
-        validate_item_temporal_state(&ItemTemporalState::from_create(&body));
-    let quantity_state = ItemQuantityState::from_create(&body);
-    validate_item_quantity_state(&quantity_state, &mut validation_errors);
-    let Some(title) = normalize_title(&body.title, "title", &mut validation_errors) else {
-        return validation_error("Invalid item payload.", validation_errors);
+    let item = match create_items_for_list(&d1, &list_id, &feature_names, &[body]).await? {
+        Ok(mut items) => items
+            .pop()
+            .ok_or_else(|| Error::from("Failed to create item"))?,
+        Err(resp) => return Ok(resp),
     };
-    if !validation_errors.is_empty() {
-        return validation_error("Invalid item payload.", validation_errors);
-    }
 
-    let desc_val = opt_str_to_js(&body.description);
-    let quantity_val: JsValue = match body.quantity {
-        Some(q) => q.into(),
-        None => JsValue::NULL,
-    };
-    let actual_quantity_val: JsValue = match quantity_state.actual_quantity {
-        Some(actual_quantity) => actual_quantity.into(),
-        None => JsValue::NULL,
-    };
-    let completed_val: i32 = if derive_completed_from_quantity_state(&quantity_state) {
-        1
-    } else {
-        0
-    };
-    let unit_val = opt_str_to_js(&body.unit);
-    let start_date_val = opt_str_to_js(&body.start_date);
-    let start_time_val = opt_str_to_js(&body.start_time);
-    let deadline_val = opt_str_to_js(&body.deadline);
-    let deadline_time_val = opt_str_to_js(&body.deadline_time);
-    let hard_deadline_val = opt_str_to_js(&body.hard_deadline);
-
-    d1.prepare(
-        "INSERT INTO items (id, list_id, title, description, completed, position, quantity, actual_quantity, unit, start_date, start_time, deadline, deadline_time, hard_deadline) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-    )
-    .bind(&[
-        id.clone().into(),
-        list_id.into(),
-        title.into(),
-        desc_val,
-        completed_val.into(),
-        position.into(),
-        quantity_val,
-        actual_quantity_val,
-        unit_val,
-        start_date_val,
-        start_time_val,
-        deadline_val,
-        deadline_time_val,
-        hard_deadline_val,
-    ])?
-    .run()
-    .await?;
-
-    let select_query = format!("SELECT {} FROM items WHERE id = ?1", ITEM_COLS);
-    let item = d1
-        .prepare(&select_query)
-        .bind(&[id.into()])?
-        .first::<Item>(None)
-        .await?
-        .ok_or_else(|| Error::from("Failed to create item"))?;
+    tracing::Span::current().record("item_id", tracing::field::display(item.id.as_str()));
 
     let mut resp = Response::from_json(&item)?;
+    resp = resp.with_status(201);
+    Ok(resp)
+}
+
+#[instrument(skip_all, fields(action = "create_items", list_id = tracing::field::Empty, item_count = tracing::field::Empty))]
+pub async fn create_batch(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let list_id = require_param(&ctx, "list_id")?;
+    tracing::Span::current().record("list_id", tracing::field::display(list_id.as_str()));
+    let body: CreateItemsRequest = match parse_json_body(&mut req).await {
+        Ok(body) => body,
+        Err(resp) => return Ok(resp),
+    };
+    tracing::Span::current().record("item_count", body.items.len());
+
+    if let Err(code) = body.validate() {
+        return json_error(code, 400);
+    }
+
+    let d1 = ctx.env.d1("DB")?;
+
+    let Some(list_state) = get_owned_list_state(&d1, &list_id, &user_id).await? else {
+        return json_error("list_not_found", 404);
+    };
+    if list_state.archived {
+        return list_archived_response();
+    }
+
+    let feature_names = get_list_features(&d1, &list_id).await?;
+    let items = match create_items_for_list(&d1, &list_id, &feature_names, &body.items).await? {
+        Ok(items) => items,
+        Err(resp) => return Ok(resp),
+    };
+
+    let mut resp = Response::from_json(&items)?;
     resp = resp.with_status(201);
     Ok(resp)
 }
@@ -526,6 +637,22 @@ pub async fn update(mut req: Request, ctx: RouteContext<String>) -> Result<Respo
         .ok_or_else(|| Error::from("Not found"))?;
 
     Response::from_json(&item)
+}
+
+#[instrument(skip_all, fields(action = "set_items_completed", item_count = tracing::field::Empty))]
+pub async fn set_completed(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let body: SetItemsCompletedRequest = match parse_json_body(&mut req).await {
+        Ok(body) => body,
+        Err(resp) => return Ok(resp),
+    };
+    tracing::Span::current().record("item_count", body.item_ids.len());
+
+    let d1 = ctx.env.d1("DB")?;
+    match set_items_completed(&d1, &user_id, body).await? {
+        Ok(items) => Response::from_json(&items),
+        Err(resp) => Ok(resp),
+    }
 }
 
 #[instrument(skip_all, fields(action = "delete_item", item_id = tracing::field::Empty))]

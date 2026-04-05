@@ -22,6 +22,30 @@ fn update_item_value_field_is_some_some() {
 }
 
 #[test]
+fn create_items_request_requires_items() {
+    let req = CreateItemsRequest { items: vec![] };
+    assert_eq!(req.validate(), Err("items must not be empty"));
+}
+
+#[test]
+fn create_items_request_accepts_non_empty_items() {
+    let req = CreateItemsRequest {
+        items: vec![CreateItemRequest {
+            title: "Buy milk".into(),
+            description: None,
+            quantity: None,
+            unit: None,
+            start_date: None,
+            start_time: None,
+            deadline: None,
+            deadline_time: None,
+            hard_deadline: None,
+        }],
+    };
+    assert!(req.validate().is_ok());
+}
+
+#[test]
 fn reorder_items_request_requires_ids() {
     let req = ReorderItemsRequest { item_ids: vec![] };
     assert_eq!(req.validate(), Err("item_ids must not be empty"));
@@ -31,6 +55,33 @@ fn reorder_items_request_requires_ids() {
 fn reorder_items_request_accepts_non_empty_ids() {
     let req = ReorderItemsRequest {
         item_ids: vec!["i1".into(), "i2".into()],
+    };
+    assert!(req.validate().is_ok());
+}
+
+#[test]
+fn move_items_request_requires_ids() {
+    let req = MoveItemsRequest {
+        item_ids: vec![],
+        target_list_id: "list-2".into(),
+    };
+    assert_eq!(req.validate(), Err("item_ids must not be empty"));
+}
+
+#[test]
+fn move_items_request_requires_target_list_id() {
+    let req = MoveItemsRequest {
+        item_ids: vec!["i1".into()],
+        target_list_id: String::new(),
+    };
+    assert_eq!(req.validate(), Err("target_list_id must not be empty"));
+}
+
+#[test]
+fn move_items_request_accepts_valid_payload() {
+    let req = MoveItemsRequest {
+        item_ids: vec!["i1".into(), "i2".into()],
+        target_list_id: "list-2".into(),
     };
     assert!(req.validate().is_ok());
 }
@@ -125,6 +176,24 @@ fn update_item_unit_null_clears_field() {
 fn update_item_unit_value_is_some_some() {
     let req: UpdateItemRequest = serde_json::from_str(r#"{"unit": "kg"}"#).unwrap();
     assert!(matches!(req.unit, Some(Some(ref unit)) if unit == "kg"));
+}
+
+#[test]
+fn set_items_completed_request_requires_ids() {
+    let req = SetItemsCompletedRequest {
+        item_ids: vec![],
+        completed: true,
+    };
+    assert_eq!(req.validate(), Err("item_ids must not be empty"));
+}
+
+#[test]
+fn set_items_completed_request_accepts_valid_payload() {
+    let req = SetItemsCompletedRequest {
+        item_ids: vec!["i1".into()],
+        completed: false,
+    };
+    assert!(req.validate().is_ok());
 }
 
 // --- DateItem -> Item conversion ---

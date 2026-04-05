@@ -4,8 +4,8 @@ mod placement;
 mod validation;
 
 pub use calendar::{by_date, calendar};
-pub use crud::{create, delete, get_one, list_all, update};
-pub use placement::{move_item, reorder, set_placement};
+pub use crud::{create, create_batch, delete, get_one, list_all, set_completed, update};
+pub use placement::{move_batch, move_item, reorder, set_placement};
 
 use crate::error::json_error;
 use kartoteka_shared::*;
