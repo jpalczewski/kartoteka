@@ -56,20 +56,57 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
       to: z.string().optional().describe("Keep items dated on or before YYYY-MM-DD"),
       field: z.enum(["all", "start_date", "deadline", "hard_deadline"]).optional()
         .describe("Date field to use with from/to (default: all)"),
+      limit: z.number().int().positive().max(100).optional().describe("Maximum number of items to return"),
     },
-  }, ({ list_id, completed, has_deadline, from, to, field }) => {
+  }, ({ list_id, completed, has_deadline, from, to, field, limit }) => {
     const params = new URLSearchParams();
     if (completed !== undefined) params.set("completed", String(completed));
     if (has_deadline !== undefined) params.set("has_deadline", String(has_deadline));
     if (from) params.set("date_from", from);
     if (to) params.set("date_to", to);
     if (field) params.set("date_field", field);
+    if (limit !== undefined) params.set("limit", String(limit));
 
     const query = params.toString();
     const path = query
       ? `/api/lists/${list_id}/items?${query}`
       : `/api/lists/${list_id}/items`;
     return callTool(api, "GET", path);
+  });
+
+  server.registerTool("search_items", {
+    description: tr("tool-search-items", locale),
+    inputSchema: {
+      query: z.string().optional().describe("Plain-text query for item title/description"),
+      search_title: z.boolean().optional().describe("Search title text"),
+      search_description: z.boolean().optional().describe("Search description text"),
+      tag_ids: z.array(z.string()).min(1).optional().describe("Filter by item tags"),
+      recursive_tags: z.boolean().optional().describe("Include descendant tags"),
+      completed: z.boolean().optional().describe("Filter by completion state"),
+      include_archived: z.boolean().optional().describe("Include archived lists"),
+      limit: z.number().int().positive().max(100).optional().describe("Maximum number of results"),
+    },
+  }, ({ query, search_title, search_description, tag_ids, recursive_tags, completed, include_archived, limit }) => {
+    const trimmedQuery = query?.trim();
+    const normalizedTagIds = tag_ids?.filter((value, index, all) => value.trim().length > 0 && all.indexOf(value) === index) ?? [];
+    if (!trimmedQuery && normalizedTagIds.length === 0 && completed === undefined) {
+      return errorResult("Provide query, tag_ids, or completed.");
+    }
+    if (trimmedQuery && search_title === false && search_description === false) {
+      return errorResult("Enable search_title or search_description when query is provided.");
+    }
+
+    const params = new URLSearchParams();
+    if (trimmedQuery) params.set("query", trimmedQuery);
+    if (search_title !== undefined) params.set("search_title", String(search_title));
+    if (search_description !== undefined) params.set("search_description", String(search_description));
+    for (const tagId of normalizedTagIds) params.append("tag_id", tagId);
+    if (recursive_tags !== undefined) params.set("recursive_tags", String(recursive_tags));
+    if (completed !== undefined) params.set("completed", String(completed));
+    if (include_archived !== undefined) params.set("include_archived", String(include_archived));
+    if (limit !== undefined) params.set("limit", String(limit));
+
+    return callTool(api, "GET", `/api/items/search?${params.toString()}`);
   });
 
   server.registerTool("add_item", {

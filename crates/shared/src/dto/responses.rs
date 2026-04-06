@@ -2,6 +2,12 @@ use crate::models::{Container, Item, List, ListFeature};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CursorPage<T> {
+    pub items: Vec<T>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationFieldError {
     pub field: String,
     pub code: String,

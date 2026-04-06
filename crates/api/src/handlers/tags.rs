@@ -1,6 +1,7 @@
 use crate::error::json_error;
 use crate::helpers::*;
 use kartoteka_shared::*;
+use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use wasm_bindgen::JsValue;
 use worker::*;
@@ -8,6 +9,96 @@ use worker::*;
 const TAG_ITEM_COLS: &str = "i.id, i.list_id, i.title, i.description, i.completed, i.position, \
     i.quantity, i.actual_quantity, i.unit, i.start_date, i.start_time, i.deadline, i.deadline_time, i.hard_deadline, \
     i.created_at, i.updated_at, l.name as list_name, l.list_type";
+
+const DEFAULT_LIMIT: u32 = 100;
+const MAX_LIMIT: u32 = 100;
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TagsCursorParams {}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TagsCursorLast {
+    pub name_sort: String,
+    pub id: String,
+}
+
+fn query_param(url: &Url, key: &str) -> Option<String> {
+    url.query_pairs()
+        .find(|(k, _)| k == key)
+        .map(|(_, value)| value.to_string())
+}
+
+fn parse_limit_query(value: Option<String>) -> Result<u32> {
+    let Some(value) = value else {
+        return Ok(DEFAULT_LIMIT);
+    };
+    let parsed = value
+        .parse::<u32>()
+        .map_err(|_| Error::from("invalid limit"))?;
+    if parsed == 0 {
+        return Err(Error::from("invalid limit"));
+    }
+    Ok(parsed.min(MAX_LIMIT))
+}
+
+pub(crate) async fn list_all_page(
+    d1: &D1Database,
+    user_id: &str,
+    limit: u32,
+    cursor: Option<&TagsCursorLast>,
+) -> Result<CursorPage<Tag>> {
+    let mut sql =
+        "SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE user_id = ?1"
+            .to_string();
+    let mut params: Vec<JsValue> = vec![user_id.into()];
+
+    if let Some(cursor) = cursor {
+        sql.push_str(&format!(
+            " AND ((LOWER(name) > ?{}) OR (LOWER(name) = ?{} AND id > ?{}))",
+            params.len() + 1,
+            params.len() + 2,
+            params.len() + 3,
+        ));
+        params.push(cursor.name_sort.clone().into());
+        params.push(cursor.name_sort.clone().into());
+        params.push(cursor.id.clone().into());
+    }
+
+    params.push(((limit + 1) as i32).into());
+    sql.push_str(&format!(
+        " ORDER BY LOWER(name) ASC, id ASC LIMIT ?{}",
+        params.len()
+    ));
+
+    let mut items = d1
+        .prepare(&sql)
+        .bind(&params)?
+        .all()
+        .await?
+        .results::<Tag>()?;
+    let next_cursor = if items.len() > limit as usize {
+        items.truncate(limit as usize);
+        items
+            .last()
+            .map(|last| {
+                crate::cursor::encode_cursor(
+                    "tags",
+                    limit,
+                    &TagsCursorParams::default(),
+                    &TagsCursorLast {
+                        name_sort: last.name.to_lowercase(),
+                        id: last.id.clone(),
+                    },
+                )
+            })
+            .transpose()
+            .map_err(|e| Error::from(e.to_string()))?
+    } else {
+        None
+    };
+
+    Ok(CursorPage { items, next_cursor })
+}
 
 async fn apply_tag_links(
     d1: &D1Database,
@@ -136,16 +227,12 @@ async fn apply_tag_links(
 
 /// GET /api/tags
 #[instrument(skip_all)]
-pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
+pub async fn list_all(req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.as_str();
+    let limit = parse_limit_query(query_param(&req.url()?, "limit"))?;
     let d1 = ctx.env.d1("DB")?;
-    let result = d1
-        .prepare("SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE user_id = ?1 ORDER BY name")
-        .bind(&[user_id.into()])?
-        .all()
-        .await?;
-    let tags = result.results::<Tag>()?;
-    Response::from_json(&tags)
+    let page = list_all_page(&d1, user_id, limit, None).await?;
+    Response::from_json(&page)
 }
 
 /// POST /api/tags

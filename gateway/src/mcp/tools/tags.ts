@@ -8,8 +8,13 @@ import { callJsonTool, dedupeIds, validateExclusiveTargets } from "./common";
 export function registerTagTools(server: McpServer, api: ApiContext, locale: string): void {
   server.registerTool("list_tags", {
     description: tr("tool-list-tags", locale),
-    inputSchema: {},
-  }, () => callTool(api, "GET", "/api/tags"));
+    inputSchema: {
+      limit: z.number().int().positive().max(100).optional().describe("Maximum number of tags to return"),
+    },
+  }, ({ limit }) => {
+    const query = limit !== undefined ? `?limit=${limit}` : "";
+    return callTool(api, "GET", `/api/tags${query}`);
+  });
 
   server.registerTool("create_tag", {
     description: tr("tool-create-tag", locale),

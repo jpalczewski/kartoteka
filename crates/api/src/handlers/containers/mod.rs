@@ -5,6 +5,7 @@ mod pin;
 mod reorder;
 
 pub use children::get_children;
+pub(crate) use crud::{ContainersCursorLast, list_all_page};
 pub use crud::{create, delete, get_one, list_all, update};
 pub use home::home;
 pub use pin::toggle_pin;

@@ -1,6 +1,8 @@
 app-title = Kartoteka
 nav-today = Today
 nav-calendar = Calendar
+nav-search = Search
+nav-search-placeholder = Search items...
 nav-tags = Tags
 nav-settings = Settings
 nav-logout = Log out

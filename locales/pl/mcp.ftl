@@ -8,6 +8,8 @@ tool-set-list-placement = Przenieś jedną lub wiele list między root, kontener
 
 # Elementy
 tool-get-items = Pobierz elementy z konkretnej listy, opcjonalnie filtrując po ukończeniu, obecności deadline albo zakresie dat
+tool-search-items = Wyszukaj elementy globalnie po tytule, opisie i tagach
+tool-next-cursor-page = Pobierz następną stronę dla wcześniej zwróconego kursora paginacji
 tool-add-item = Dodaj jeden lub wiele elementów do listy
 tool-update-item = Zaktualizuj istniejący element
 tool-toggle-item = Ustaw stan ukończenia jednego lub wielu elementów

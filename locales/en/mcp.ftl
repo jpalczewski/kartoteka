@@ -8,6 +8,8 @@ tool-set-list-placement = Move one or more lists between root, containers, and p
 
 # Items
 tool-get-items = Get items in a specific list, optionally filtered by completion, deadline presence, or date range
+tool-search-items = Search items globally by title, description, and tags
+tool-next-cursor-page = Fetch the next page for a previously returned paginated cursor
 tool-add-item = Add one or more items to a list
 tool-update-item = Update an existing item
 tool-toggle-item = Set the completed state for one or more items

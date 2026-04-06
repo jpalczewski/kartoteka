@@ -7,8 +7,13 @@ import { tr } from "../i18n";
 export function registerContainerTools(server: McpServer, api: ApiContext, locale: string): void {
   server.registerTool("list_containers", {
     description: tr("tool-list-containers", locale),
-    inputSchema: {},
-  }, () => callTool(api, "GET", "/api/containers"));
+    inputSchema: {
+      limit: z.number().int().positive().max(100).optional().describe("Maximum number of containers to return"),
+    },
+  }, ({ limit }) => {
+    const query = limit !== undefined ? `?limit=${limit}` : "";
+    return callTool(api, "GET", `/api/containers${query}`);
+  });
 
   server.registerTool("create_container", {
     description: tr("tool-create-container", locale),

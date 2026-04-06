@@ -1,6 +1,7 @@
 use crate::error::{json_error, validation_error};
 use crate::helpers::*;
 use kartoteka_shared::*;
+use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use wasm_bindgen::JsValue;
 use worker::*;
@@ -10,6 +11,9 @@ use super::validation::{
     validate_item_quantity_state, validate_item_temporal_state, validation_field,
 };
 use super::{ITEM_COLS, check_item_features, list_archived_response};
+
+const DEFAULT_LIMIT: u32 = 100;
+const MAX_LIMIT: u32 = 100;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ListItemsDateFieldSelector {
@@ -24,6 +28,23 @@ struct ListItemsFilters {
     date_from: Option<chrono::NaiveDate>,
     date_to: Option<chrono::NaiveDate>,
     date_field: Option<ListItemsDateFieldSelector>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct ListItemsCursorParams {
+    list_id: String,
+    completed: Option<bool>,
+    has_deadline: Option<bool>,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    date_field: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct ListItemsCursorLast {
+    position: i32,
+    created_at: String,
+    id: String,
 }
 
 fn query_param(url: &Url, key: &str) -> Option<String> {
@@ -42,6 +63,21 @@ fn parse_optional_bool_query(
         Some("false") => Ok(Some(false)),
         Some(_) => Err(vec![validation_field(field, "invalid_boolean")]),
     }
+}
+
+fn parse_limit_query(value: Option<String>) -> std::result::Result<u32, Vec<ValidationFieldError>> {
+    let Some(value) = value else {
+        return Ok(DEFAULT_LIMIT);
+    };
+
+    let parsed = value
+        .parse::<u32>()
+        .map_err(|_| vec![validation_field("limit", "invalid_integer")])?;
+    if parsed == 0 {
+        return Err(vec![validation_field("limit", "must_be_positive")]);
+    }
+
+    Ok(parsed.min(MAX_LIMIT))
 }
 
 fn parse_optional_query_date(
@@ -98,9 +134,11 @@ fn parse_list_items_filters(
         });
     }
 
-    if let (Some(date_from), Some(date_to)) = (date_from, date_to)
-        && date_from > date_to
-    {
+    let range_invalid = matches!(
+        (&date_from, &date_to),
+        (Some(date_from), Some(date_to)) if date_from > date_to
+    );
+    if range_invalid {
         return Err(vec![validation_field("date_from", "range_start_after_end")]);
     }
 
@@ -110,6 +148,76 @@ fn parse_list_items_filters(
         date_from,
         date_to,
         date_field: Some(date_field.unwrap_or(ListItemsDateFieldSelector::All)),
+    })
+}
+
+fn date_field_query_value(value: ListItemsDateFieldSelector) -> &'static str {
+    match value {
+        ListItemsDateFieldSelector::All => "all",
+        ListItemsDateFieldSelector::One(DateField::StartDate) => "start_date",
+        ListItemsDateFieldSelector::One(DateField::Deadline) => "deadline",
+        ListItemsDateFieldSelector::One(DateField::HardDeadline) => "hard_deadline",
+    }
+}
+
+fn filters_to_cursor_params(list_id: String, filters: &ListItemsFilters) -> ListItemsCursorParams {
+    ListItemsCursorParams {
+        list_id,
+        completed: filters.completed,
+        has_deadline: filters.has_deadline,
+        date_from: filters.date_from.map(|date| format_date(&date)),
+        date_to: filters.date_to.map(|date| format_date(&date)),
+        date_field: filters
+            .date_field
+            .map(date_field_query_value)
+            .map(str::to_string),
+    }
+}
+
+fn cursor_params_to_filters(
+    params: &ListItemsCursorParams,
+) -> std::result::Result<ListItemsFilters, Vec<ValidationFieldError>> {
+    let date_from = match &params.date_from {
+        Some(value) => Some(validate_business_date(value).map_err(|err| match err {
+            DateValidationError::Invalid => vec![validation_field("date_from", "invalid_date")],
+            DateValidationError::OutOfRange => {
+                vec![validation_field("date_from", "date_out_of_range")]
+            }
+        })?),
+        None => None,
+    };
+    let date_to = match &params.date_to {
+        Some(value) => Some(validate_business_date(value).map_err(|err| match err {
+            DateValidationError::Invalid => vec![validation_field("date_to", "invalid_date")],
+            DateValidationError::OutOfRange => {
+                vec![validation_field("date_to", "date_out_of_range")]
+            }
+        })?),
+        None => None,
+    };
+    let date_field = match params.date_field.as_deref() {
+        Some(value) => Some(parse_list_items_date_field(value)?),
+        None => None,
+    };
+
+    let range_invalid = matches!(
+        (&date_from, &date_to),
+        (Some(date_from), Some(date_to)) if date_from > date_to
+    );
+    if range_invalid {
+        return Err(vec![validation_field("date_from", "range_start_after_end")]);
+    }
+
+    Ok(ListItemsFilters {
+        completed: params.completed,
+        has_deadline: params.has_deadline,
+        date_from,
+        date_to,
+        date_field: if date_from.is_some() || date_to.is_some() {
+            Some(date_field.unwrap_or(ListItemsDateFieldSelector::All))
+        } else {
+            None
+        },
     })
 }
 
@@ -169,6 +277,133 @@ fn create_item_has_date_field(body: &CreateItemRequest) -> bool {
 
 fn create_item_has_quantity_field(body: &CreateItemRequest) -> bool {
     body.quantity.is_some() || body.unit.is_some()
+}
+
+fn build_list_items_query(
+    list_id: &str,
+    filters: &ListItemsFilters,
+    limit: u32,
+    cursor: Option<&ListItemsCursorLast>,
+) -> (String, Vec<JsValue>) {
+    let mut query = format!("SELECT {} FROM items WHERE list_id = ?1", ITEM_COLS);
+    let mut params: Vec<JsValue> = vec![list_id.into()];
+
+    if let Some(completed) = filters.completed {
+        query.push_str(&format!(" AND completed = ?{}", params.len() + 1));
+        params.push(JsValue::from(if completed { 1 } else { 0 }));
+    }
+
+    if let Some(has_deadline) = filters.has_deadline {
+        query.push_str(if has_deadline {
+            " AND deadline IS NOT NULL"
+        } else {
+            " AND deadline IS NULL"
+        });
+    }
+
+    if let Some(selector) = filters.date_field {
+        let from_placeholder = filters.date_from.as_ref().map(|date_from| {
+            params.push(format_date(date_from).into());
+            format!("?{}", params.len())
+        });
+        let to_placeholder = filters.date_to.as_ref().map(|date_to| {
+            params.push(format_date(date_to).into());
+            format!("?{}", params.len())
+        });
+
+        if let Some(date_clause) = build_date_filter_clause(
+            selector,
+            from_placeholder.as_deref(),
+            to_placeholder.as_deref(),
+        ) {
+            query.push_str(" AND ");
+            query.push_str(&date_clause);
+        }
+    }
+
+    if let Some(cursor) = cursor {
+        query.push_str(&format!(
+            " AND (position > ?{} OR (position = ?{} AND created_at > ?{}) OR (position = ?{} AND created_at = ?{} AND id > ?{}))",
+            params.len() + 1,
+            params.len() + 2,
+            params.len() + 3,
+            params.len() + 4,
+            params.len() + 5,
+            params.len() + 6,
+        ));
+        params.push(cursor.position.into());
+        params.push(cursor.position.into());
+        params.push(cursor.created_at.clone().into());
+        params.push(cursor.position.into());
+        params.push(cursor.created_at.clone().into());
+        params.push(cursor.id.clone().into());
+    }
+
+    params.push(((limit + 1) as i32).into());
+    query.push_str(&format!(
+        " ORDER BY position ASC, created_at ASC, id ASC LIMIT ?{}",
+        params.len()
+    ));
+
+    (query, params)
+}
+
+fn build_list_items_page(
+    list_id: &str,
+    limit: u32,
+    filters: &ListItemsFilters,
+    mut items: Vec<Item>,
+) -> Result<CursorPage<Item>> {
+    let next_cursor = if items.len() > limit as usize {
+        items.truncate(limit as usize);
+        items
+            .last()
+            .map(|last| {
+                crate::cursor::encode_cursor(
+                    "list_items",
+                    limit,
+                    &filters_to_cursor_params(list_id.to_string(), filters),
+                    &ListItemsCursorLast {
+                        position: last.position,
+                        created_at: last.created_at.clone(),
+                        id: last.id.clone(),
+                    },
+                )
+            })
+            .transpose()
+            .map_err(|e| Error::from(e.to_string()))?
+    } else {
+        None
+    };
+
+    Ok(CursorPage { items, next_cursor })
+}
+
+pub(crate) async fn next_list_items_page(
+    d1: &D1Database,
+    user_id: &str,
+    envelope: crate::cursor::PageCursorEnvelope,
+) -> Result<Response> {
+    let params: ListItemsCursorParams =
+        serde_json::from_value(envelope.params).map_err(|_| Error::from("invalid_cursor"))?;
+    let last: ListItemsCursorLast =
+        serde_json::from_value(envelope.last).map_err(|_| Error::from("invalid_cursor"))?;
+    let filters = cursor_params_to_filters(&params).map_err(|_| Error::from("invalid_cursor"))?;
+
+    if !check_ownership(d1, "lists", &params.list_id, user_id).await? {
+        return json_error("list_not_found", 404);
+    }
+
+    let (query, sql_params) =
+        build_list_items_query(&params.list_id, &filters, envelope.limit, Some(&last));
+    let items = d1
+        .prepare(&query)
+        .bind(&sql_params)?
+        .all()
+        .await?
+        .results::<Item>()?;
+    let page = build_list_items_page(&params.list_id, envelope.limit, &filters, items)?;
+    Response::from_json(&page)
 }
 
 async fn fetch_item_by_id(d1: &D1Database, item_id: &str) -> Result<Item> {
@@ -314,52 +549,25 @@ pub async fn list_all(req: Request, ctx: RouteContext<String>) -> Result<Respons
         Ok(filters) => filters,
         Err(fields) => return validation_error("Invalid query parameters.", fields),
     };
+    let limit = match parse_limit_query(query_param(&url, "limit")) {
+        Ok(limit) => limit,
+        Err(fields) => return validation_error("Invalid query parameters.", fields),
+    };
     let d1 = ctx.env.d1("DB")?;
 
     if !check_ownership(&d1, "lists", &list_id, &user_id).await? {
         return json_error("list_not_found", 404);
     }
 
-    let mut query = format!("SELECT {} FROM items WHERE list_id = ?1", ITEM_COLS);
-    let mut params: Vec<JsValue> = vec![list_id.into()];
-
-    if let Some(completed) = filters.completed {
-        query.push_str(&format!(" AND completed = ?{}", params.len() + 1));
-        params.push(JsValue::from(if completed { 1 } else { 0 }));
-    }
-
-    if let Some(has_deadline) = filters.has_deadline {
-        query.push_str(if has_deadline {
-            " AND deadline IS NOT NULL"
-        } else {
-            " AND deadline IS NULL"
-        });
-    }
-
-    if let Some(selector) = filters.date_field {
-        let from_placeholder = filters.date_from.as_ref().map(|date_from| {
-            params.push(format_date(date_from).into());
-            format!("?{}", params.len())
-        });
-        let to_placeholder = filters.date_to.as_ref().map(|date_to| {
-            params.push(format_date(date_to).into());
-            format!("?{}", params.len())
-        });
-
-        if let Some(date_clause) = build_date_filter_clause(
-            selector,
-            from_placeholder.as_deref(),
-            to_placeholder.as_deref(),
-        ) {
-            query.push_str(" AND ");
-            query.push_str(&date_clause);
-        }
-    }
-
-    query.push_str(" ORDER BY position ASC, created_at ASC");
-    let result = d1.prepare(&query).bind(&params)?.all().await?;
-    let items = result.results::<Item>()?;
-    Response::from_json(&items)
+    let (query, params) = build_list_items_query(&list_id, &filters, limit, None);
+    let items = d1
+        .prepare(&query)
+        .bind(&params)?
+        .all()
+        .await?
+        .results::<Item>()?;
+    let page = build_list_items_page(&list_id, limit, &filters, items)?;
+    Response::from_json(&page)
 }
 
 #[instrument(skip_all)]

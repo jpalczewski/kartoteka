@@ -5,6 +5,7 @@ mod pin;
 mod placement;
 
 pub use archive::{list_archived, toggle_archive};
+pub(crate) use crud::{RootListsCursorLast, list_all_page};
 pub use crud::{create, create_sublist, delete, get_one, list_all, list_sublists, reset, update};
 pub use features::{add_feature, remove_feature};
 pub use pin::toggle_pin;
@@ -50,36 +51,6 @@ pub(super) async fn ensure_parent_list_target(
         .first::<serde_json::Value>(None)
         .await?
         .is_some())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // JsValue::from(&str) panics on non-wasm32 targets, so tests that pass Some(...)
-    // to placement_filter are restricted to wasm32.
-    #[cfg(target_arch = "wasm32")]
-    #[test]
-    fn placement_filter_with_parent_list_id() {
-        let (filter, params) = placement_filter(Some("parent-1"), None);
-        assert_eq!(filter, "parent_list_id = ?1");
-        assert_eq!(params.len(), 1);
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[test]
-    fn placement_filter_with_container_id() {
-        let (filter, params) = placement_filter(None, Some("container-1"));
-        assert_eq!(filter, "parent_list_id IS NULL AND container_id = ?1");
-        assert_eq!(params.len(), 1);
-    }
-
-    #[test]
-    fn placement_filter_with_neither() {
-        let (filter, params) = placement_filter(None, None);
-        assert_eq!(filter, "parent_list_id IS NULL AND container_id IS NULL");
-        assert_eq!(params.len(), 0);
-    }
 }
 
 pub(super) async fn list_has_sublists(d1: &D1Database, list_id: &str) -> Result<bool> {
@@ -163,4 +134,34 @@ pub(super) async fn create_list_from_request(
         .ok_or_else(|| Error::from("Failed to create list"))?;
 
     Ok(Response::from_json(&list)?.with_status(201))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // JsValue::from(&str) panics on non-wasm32 targets, so tests that pass Some(...)
+    // to placement_filter are restricted to wasm32.
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn placement_filter_with_parent_list_id() {
+        let (filter, params) = placement_filter(Some("parent-1"), None);
+        assert_eq!(filter, "parent_list_id = ?1");
+        assert_eq!(params.len(), 1);
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn placement_filter_with_container_id() {
+        let (filter, params) = placement_filter(None, Some("container-1"));
+        assert_eq!(filter, "parent_list_id IS NULL AND container_id = ?1");
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn placement_filter_with_neither() {
+        let (filter, params) = placement_filter(None, None);
+        assert_eq!(filter, "parent_list_id IS NULL AND container_id IS NULL");
+        assert_eq!(params.len(), 0);
+    }
 }

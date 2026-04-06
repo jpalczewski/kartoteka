@@ -1,7 +1,9 @@
 use worker::*;
 
 use crate::auth;
-use crate::handlers::{admin, containers, items, lists, me, preferences, public, settings, tags};
+use crate::handlers::{
+    admin, containers, items, lists, me, pagination, preferences, public, settings, tags,
+};
 
 pub async fn handle(req: Request, env: Env) -> Result<Response> {
     let path = req.path();
@@ -32,6 +34,7 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
     router
         // Me
         .get_async("/api/me", me::get_me)
+        .get_async("/api/next-page", pagination::next_page)
         // Home
         .get_async("/api/home", containers::home)
         // Containers
@@ -71,6 +74,7 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         // Cross-list queries
         .get_async("/api/items/by-date", items::by_date)
         .get_async("/api/items/calendar", items::calendar)
+        .get_async("/api/items/search", items::search)
         .patch_async("/api/items/move", items::move_batch)
         .patch_async("/api/items/completed", items::set_completed)
         // List container + pin

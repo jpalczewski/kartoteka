@@ -15,8 +15,8 @@ use crate::pages::{
     admin::AdminPage, calendar::CalendarPage, calendar::CalendarRootRedirect,
     calendar::day::CalendarLegacyDayRedirect, container::ContainerPage, home::HomePage,
     item_detail::ItemDetailPage, list::ListPage, login::LoginPage, oauth_consent::OAuthConsentPage,
-    settings::McpRedirect, settings::SettingsPage, signup::SignupPage, tags::TagsPage,
-    tags::detail::TagDetailPage, today::TodayPage,
+    search::SearchPage, settings::McpRedirect, settings::SettingsPage, signup::SignupPage,
+    tags::TagsPage, tags::detail::TagDetailPage, today::TodayPage,
 };
 use crate::state::AdminContext;
 
@@ -128,6 +128,7 @@ pub fn App() -> impl IntoView {
                     <Routes fallback=|| view! { <p>"Nie znaleziono strony"</p> }>
                         <Route path=path!("/") view=HomePage/>
                         <Route path=path!("/today") view=TodayPage/>
+                        <Route path=path!("/search") view=SearchPage/>
                         <Route path=path!("/login") view=LoginPage/>
                         <Route path=path!("/signup") view=SignupPage/>
                         <Route path=path!("/settings") view=SettingsPage/>

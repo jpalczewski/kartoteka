@@ -3,6 +3,7 @@ pub mod containers;
 pub mod items;
 pub mod lists;
 pub mod me;
+pub mod pagination;
 pub mod preferences;
 pub mod public;
 pub mod settings;
