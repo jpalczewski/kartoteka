@@ -36,6 +36,20 @@ pub async fn create_item(
     .await
 }
 
+#[allow(dead_code)]
+pub async fn create_items(
+    client: &impl super::HttpClient,
+    list_id: &str,
+    req: &CreateItemsRequest,
+) -> Result<Vec<Item>, super::ApiError> {
+    super::api_post(
+        client,
+        &format!("{}/lists/{list_id}/items/batch", super::API_BASE),
+        req,
+    )
+    .await
+}
+
 pub async fn reorder_items(
     client: &impl super::HttpClient,
     list_id: &str,
@@ -81,13 +95,24 @@ pub async fn move_item(
     item_id: &str,
     target_list_id: &str,
 ) -> Result<Item, super::ApiError> {
-    let body = serde_json::json!({ "target_list_id": target_list_id });
+    let body = MoveItemsRequest {
+        item_ids: vec![item_id.to_string()],
+        target_list_id: target_list_id.to_string(),
+    };
     super::api_patch(
         client,
         &format!("{}/items/{item_id}/move", super::API_BASE),
         &body,
     )
     .await
+}
+
+#[allow(dead_code)]
+pub async fn move_items(
+    client: &impl super::HttpClient,
+    req: &MoveItemsRequest,
+) -> Result<Vec<Item>, super::ApiError> {
+    super::api_patch(client, &format!("{}/items/move", super::API_BASE), req).await
 }
 
 pub async fn set_item_placement(
@@ -101,6 +126,14 @@ pub async fn set_item_placement(
         req,
     )
     .await
+}
+
+#[allow(dead_code)]
+pub async fn set_items_completed(
+    client: &impl super::HttpClient,
+    req: &SetItemsCompletedRequest,
+) -> Result<Vec<Item>, super::ApiError> {
+    super::api_patch(client, &format!("{}/items/completed", super::API_BASE), req).await
 }
 
 pub async fn fetch_calendar_counts(

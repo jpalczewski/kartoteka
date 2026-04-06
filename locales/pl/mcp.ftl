@@ -7,11 +7,11 @@ tool-get-list-sublists = Pobierz bezpośrednie podlisty listy
 tool-set-list-placement = Przenieś jedną lub wiele list między root, kontenerami i listami-rodzicami
 
 # Elementy
-tool-get-items = Pobierz wszystkie elementy z konkretnej listy
-tool-add-item = Dodaj nowy element do listy
+tool-get-items = Pobierz elementy z konkretnej listy, opcjonalnie filtrując po ukończeniu, obecności deadline albo zakresie dat
+tool-add-item = Dodaj jeden lub wiele elementów do listy
 tool-update-item = Zaktualizuj istniejący element
-tool-toggle-item = Przełącz stan ukończenia elementu
-tool-move-item = Przenieś element do innej listy
+tool-toggle-item = Ustaw stan ukończenia jednego lub wielu elementów
+tool-move-item = Przenieś jeden lub wiele elementów do innej listy
 
 # Kontenery
 tool-list-containers = Wyświetl wszystkie kontenery użytkownika

@@ -7,11 +7,11 @@ tool-get-list-sublists = Get direct sublists of a list
 tool-set-list-placement = Move one or more lists between root, containers, and parent lists
 
 # Items
-tool-get-items = Get all items in a specific list
-tool-add-item = Add a new item to a list
+tool-get-items = Get items in a specific list, optionally filtered by completion, deadline presence, or date range
+tool-add-item = Add one or more items to a list
 tool-update-item = Update an existing item
-tool-toggle-item = Toggle the completed state of an item
-tool-move-item = Move an item to a different list
+tool-toggle-item = Set the completed state for one or more items
+tool-move-item = Move one or more items to a different list
 
 # Containers
 tool-list-containers = List all containers for the current user

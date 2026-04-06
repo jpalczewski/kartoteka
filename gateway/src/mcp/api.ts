@@ -11,6 +11,23 @@ export type ToolResult = {
   isError?: boolean;
 };
 
+function stripNullFields(value: unknown): unknown {
+  if (value === null) return null;
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => stripNullFields(entry));
+  }
+
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== null)
+      .map(([key, entry]) => [key, stripNullFields(entry)]);
+    return Object.fromEntries(entries);
+  }
+
+  return value;
+}
+
 export async function apiCall(
   api: ApiContext,
   method: string,
@@ -44,7 +61,7 @@ export async function callTool(
 }
 
 export function jsonResult(data: unknown): ToolResult {
-  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+  return { content: [{ type: "text", text: JSON.stringify(stripNullFields(data)) }] };
 }
 
 export function textResult(text: string): ToolResult {
