@@ -52,6 +52,23 @@ pub async fn fetch_tag_items(
     super::api_get(client, &url).await
 }
 
+pub async fn fetch_tag_entities(
+    client: &impl super::HttpClient,
+    tag_id: &str,
+    recursive: bool,
+    entity_type: Option<&str>,
+) -> Result<Vec<SearchEntityResult>, super::ApiError> {
+    let mut url = format!(
+        "{}/tags/{tag_id}/entities?recursive={recursive}",
+        super::API_BASE
+    );
+    if let Some(entity_type) = entity_type {
+        url.push_str("&entity_type=");
+        url.push_str(&super::encode_query_component(entity_type));
+    }
+    super::api_get(client, &url).await
+}
+
 pub async fn assign_tag_to_item(
     client: &impl super::HttpClient,
     item_id: &str,

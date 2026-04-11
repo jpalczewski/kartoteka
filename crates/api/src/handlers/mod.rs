@@ -6,5 +6,6 @@ pub mod me;
 pub mod pagination;
 pub mod preferences;
 pub mod public;
+pub mod search;
 pub mod settings;
 pub mod tags;

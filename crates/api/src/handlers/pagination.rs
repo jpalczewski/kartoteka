@@ -1,6 +1,6 @@
 use crate::cursor::decode_cursor;
 use crate::error::json_error;
-use crate::handlers::{containers, items, lists, tags};
+use crate::handlers::{containers, items, lists, search, tags};
 use tracing::instrument;
 use worker::*;
 
@@ -44,6 +44,7 @@ pub async fn next_page(req: Request, ctx: RouteContext<String>) -> Result<Respon
         }
         "list_items" => items::next_list_items_page(&d1, &user_id, envelope).await,
         "search_items" => items::next_search_page(&d1, &user_id, envelope).await,
+        "search_entities" => search::next_search_page(&d1, &user_id, envelope).await,
         _ => json_error("invalid_cursor", 400),
     }
 }

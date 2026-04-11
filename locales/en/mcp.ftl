@@ -9,6 +9,7 @@ tool-set-list-placement = Move one or more lists between root, containers, and p
 # Items
 tool-get-items = Get items in a specific list, optionally filtered by completion, deadline presence, or date range
 tool-search-items = Search items globally by title, description, and tags
+tool-search-entities = Search items, lists, and containers globally by name/title and description
 tool-next-cursor-page = Fetch the next page for a previously returned paginated cursor
 tool-add-item = Add one or more items to a list
 tool-update-item = Update an existing item
@@ -29,6 +30,7 @@ tool-assign-tag = Assign a tag to an item or list
 tool-remove-tag = Remove a tag from an item or list
 tool-set-tag-links = Assign or remove many tag links for items or lists in one call
 tool-get-tagged-items = Get all items tagged with a specific tag
+tool-get-tag-entities = Get items and lists linked to a tag, optionally filtered by entity type
 
 # Calendar
 tool-get-calendar = Get items with dates in a date range

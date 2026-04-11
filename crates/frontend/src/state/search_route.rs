@@ -9,6 +9,12 @@ pub enum CompletionFilter {
     Done,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchMode {
+    Global,
+    Items,
+}
+
 impl CompletionFilter {
     pub fn parse(value: Option<&str>) -> Self {
         match value {
@@ -61,6 +67,18 @@ impl Default for SearchRouteState {
 impl SearchRouteState {
     pub fn has_search(&self) -> bool {
         self.query.is_some() || !self.tag_ids.is_empty() || self.completed != CompletionFilter::All
+    }
+
+    pub fn mode(&self) -> SearchMode {
+        if self.tag_ids.is_empty()
+            && self.completed == CompletionFilter::All
+            && !self.include_archived
+            && self.query.is_some()
+        {
+            SearchMode::Global
+        } else {
+            SearchMode::Items
+        }
     }
 }
 
@@ -201,5 +219,26 @@ mod tests {
             href,
             "/search?query=milk%20bread&search_title=0&tag_ids=t1%2Ct2&completed=open&include_archived=1"
         );
+    }
+
+    #[test]
+    fn search_mode_is_global_for_plain_text_search() {
+        let state = SearchRouteState {
+            query: Some("milk".into()),
+            ..Default::default()
+        };
+
+        assert_eq!(state.mode(), SearchMode::Global);
+    }
+
+    #[test]
+    fn search_mode_is_items_when_tag_filter_is_present() {
+        let mut state = SearchRouteState {
+            query: Some("milk".into()),
+            ..Default::default()
+        };
+        state.tag_ids.insert("t1".into());
+
+        assert_eq!(state.mode(), SearchMode::Items);
     }
 }

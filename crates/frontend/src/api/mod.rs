@@ -4,12 +4,14 @@ mod containers;
 mod items;
 mod lists;
 pub mod preferences;
+mod search;
 mod settings;
 mod tags;
 
 pub use containers::*;
 pub use items::*;
 pub use lists::*;
+pub use search::*;
 pub use settings::*;
 pub use tags::*;
 

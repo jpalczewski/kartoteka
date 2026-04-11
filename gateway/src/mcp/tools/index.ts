@@ -6,6 +6,7 @@ import { registerContainerTools } from "./containers";
 import { registerTagTools } from "./tags";
 import { registerCalendarTools } from "./calendar";
 import { registerPaginationTools } from "./pagination";
+import { registerSearchTools } from "./search";
 
 export function registerTools(server: McpServer, api: ApiContext, locale: string): void {
   registerListTools(server, api, locale);
@@ -14,4 +15,5 @@ export function registerTools(server: McpServer, api: ApiContext, locale: string
   registerTagTools(server, api, locale);
   registerCalendarTools(server, api, locale);
   registerPaginationTools(server, api, locale);
+  registerSearchTools(server, api, locale);
 }
