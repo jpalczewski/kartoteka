@@ -156,6 +156,123 @@ pub async fn create(
     Ok(row_to_item(row))
 }
 
+#[tracing::instrument(skip(pool))]
+pub async fn update(
+    pool: &SqlitePool,
+    user_id: &str,
+    id: &str,
+    req: &UpdateItemRequest,
+) -> Result<Option<Item>, DomainError> {
+    let input = db::items::UpdateItemInput {
+        title: req.title.clone(),
+        description: req.description.clone(),
+        completed: req.completed,
+        quantity: req.quantity,
+        actual_quantity: req.actual_quantity,
+        unit: req.unit.clone(),
+        start_date: req.start_date.clone(),
+        start_time: req.start_time.clone(),
+        deadline: req.deadline.clone(),
+        deadline_time: req.deadline_time.clone(),
+        hard_deadline: req.hard_deadline.clone(),
+        estimated_duration: req.estimated_duration,
+    };
+    let found = db::items::update(pool, id, user_id, &input).await?;
+    if !found {
+        return Ok(None);
+    }
+    let item = match db::items::get_one(pool, id, user_id).await?.map(row_to_item) {
+        Some(i) => i,
+        None => return Ok(None),
+    };
+    // Auto-complete check
+    if !item.completed {
+        if let (Some(actual), Some(qty)) = (item.actual_quantity, item.quantity) {
+            if rules::items::should_auto_complete(actual, qty) {
+                db::items::set_completed(pool, id, true).await?;
+                return Ok(db::items::get_one(pool, id, user_id).await?.map(row_to_item));
+            }
+        }
+    }
+    Ok(Some(item))
+}
+
+#[tracing::instrument(skip(pool))]
+pub async fn delete(pool: &SqlitePool, user_id: &str, id: &str) -> Result<bool, DomainError> {
+    Ok(db::items::delete(pool, id, user_id).await?)
+}
+
+#[tracing::instrument(skip(pool))]
+pub async fn toggle_complete(
+    pool: &SqlitePool,
+    user_id: &str,
+    id: &str,
+) -> Result<Option<Item>, DomainError> {
+    let found = db::items::toggle_complete(pool, id, user_id).await?;
+    if !found {
+        return Ok(None);
+    }
+    Ok(db::items::get_one(pool, id, user_id).await?.map(row_to_item))
+}
+
+#[tracing::instrument(skip(pool))]
+pub async fn move_item(
+    pool: &SqlitePool,
+    user_id: &str,
+    id: &str,
+    req: &MoveItemRequest,
+) -> Result<Option<Item>, DomainError> {
+    // Phase 1 READ: validate target list if provided
+    if let Some(target_list_id) = &req.list_id {
+        if db::lists::get_one(pool, target_list_id, user_id)
+            .await?
+            .is_none()
+        {
+            return Err(DomainError::NotFound("list"));
+        }
+    }
+    // Phase 3 WRITE
+    let found =
+        db::items::move_item(pool, id, user_id, req.position, req.list_id.as_deref()).await?;
+    if !found {
+        return Ok(None);
+    }
+    Ok(db::items::get_one(pool, id, user_id).await?.map(row_to_item))
+}
+
+#[tracing::instrument(skip(pool))]
+pub async fn by_date(
+    pool: &SqlitePool,
+    user_id: &str,
+    date: &str,
+) -> Result<Vec<Item>, DomainError> {
+    let resolved = if date == "today" {
+        let tz_str = db::preferences::get_timezone(pool, user_id)
+            .await
+            .unwrap_or_else(|_| "UTC".to_string());
+        let tz: chrono_tz::Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
+        chrono::Utc::now()
+            .with_timezone(&tz)
+            .date_naive()
+            .format("%Y-%m-%d")
+            .to_string()
+    } else {
+        date.to_string()
+    };
+    let rows = db::items::by_date(pool, user_id, &resolved).await?;
+    Ok(rows.into_iter().map(row_to_item).collect())
+}
+
+#[tracing::instrument(skip(pool))]
+pub async fn calendar(
+    pool: &SqlitePool,
+    user_id: &str,
+    year_month: &str,
+) -> Result<Vec<Item>, DomainError> {
+    let rows = db::items::calendar(pool, user_id, year_month).await?;
+    Ok(rows.into_iter().map(row_to_item).collect())
+}
+
 // ── Integration tests ─────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -335,5 +452,235 @@ mod tests {
         let items = list_for_list(&pool, &list_id, &user_id).await.unwrap();
 
         assert_eq!(items.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn update_title() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &[]).await;
+
+        let item = create(&pool, &user_id, &list_id, &basic_req("Old title"))
+            .await
+            .unwrap();
+
+        let req = UpdateItemRequest {
+            title: Some("New".to_string()),
+            description: None,
+            completed: None,
+            quantity: None,
+            actual_quantity: None,
+            unit: None,
+            start_date: None,
+            start_time: None,
+            deadline: None,
+            deadline_time: None,
+            hard_deadline: None,
+            estimated_duration: None,
+        };
+
+        let updated = update(&pool, &user_id, &item.id, &req)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(updated.title, "New");
+    }
+
+    #[tokio::test]
+    async fn update_triggers_auto_complete() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &["quantity"]).await;
+
+        let item = create(
+            &pool,
+            &user_id,
+            &list_id,
+            &CreateItemRequest {
+                quantity: Some(5),
+                ..basic_req("Qty item")
+            },
+        )
+        .await
+        .unwrap();
+
+        let req = UpdateItemRequest {
+            actual_quantity: Some(Some(5)),
+            title: None,
+            description: None,
+            completed: None,
+            quantity: None,
+            unit: None,
+            start_date: None,
+            start_time: None,
+            deadline: None,
+            deadline_time: None,
+            hard_deadline: None,
+            estimated_duration: None,
+        };
+
+        let updated = update(&pool, &user_id, &item.id, &req)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(updated.completed);
+    }
+
+    #[tokio::test]
+    async fn update_does_not_auto_complete_when_below_target() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &["quantity"]).await;
+
+        let item = create(
+            &pool,
+            &user_id,
+            &list_id,
+            &CreateItemRequest {
+                quantity: Some(5),
+                ..basic_req("Qty item")
+            },
+        )
+        .await
+        .unwrap();
+
+        let req = UpdateItemRequest {
+            actual_quantity: Some(Some(4)),
+            title: None,
+            description: None,
+            completed: None,
+            quantity: None,
+            unit: None,
+            start_date: None,
+            start_time: None,
+            deadline: None,
+            deadline_time: None,
+            hard_deadline: None,
+            estimated_duration: None,
+        };
+
+        let updated = update(&pool, &user_id, &item.id, &req)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(!updated.completed);
+    }
+
+    #[tokio::test]
+    async fn delete_item() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &[]).await;
+
+        let item = create(&pool, &user_id, &list_id, &basic_req("Doomed"))
+            .await
+            .unwrap();
+
+        let deleted = delete(&pool, &user_id, &item.id).await.unwrap();
+        assert!(deleted);
+
+        let found = get_one(&pool, &item.id, &user_id).await.unwrap();
+        assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn toggle_complete_flips_completed() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &[]).await;
+
+        let item = create(&pool, &user_id, &list_id, &basic_req("Toggle me"))
+            .await
+            .unwrap();
+        assert!(!item.completed);
+
+        let toggled = toggle_complete(&pool, &user_id, &item.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(toggled.completed);
+
+        let toggled2 = toggle_complete(&pool, &user_id, &item.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!toggled2.completed);
+    }
+
+    #[tokio::test]
+    async fn move_item_changes_position() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &[]).await;
+
+        let item = create(&pool, &user_id, &list_id, &basic_req("Move me"))
+            .await
+            .unwrap();
+        assert_eq!(item.position, 0);
+
+        let req = MoveItemRequest {
+            position: 3,
+            list_id: None,
+        };
+        let moved = move_item(&pool, &user_id, &item.id, &req)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(moved.position, 3);
+    }
+
+    #[tokio::test]
+    async fn by_date_returns_items_on_date() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &["deadlines"]).await;
+
+        create(
+            &pool,
+            &user_id,
+            &list_id,
+            &CreateItemRequest {
+                deadline: Some("2026-06-01".to_string()),
+                ..basic_req("June item")
+            },
+        )
+        .await
+        .unwrap();
+
+        let items = by_date(&pool, &user_id, "2026-06-01").await.unwrap();
+        assert_eq!(items.len(), 1);
+
+        let items_empty = by_date(&pool, &user_id, "2026-06-02").await.unwrap();
+        assert_eq!(items_empty.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn calendar_returns_items_in_month() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &["deadlines"]).await;
+
+        create(
+            &pool,
+            &user_id,
+            &list_id,
+            &CreateItemRequest {
+                deadline: Some("2026-07-15".to_string()),
+                ..basic_req("July item")
+            },
+        )
+        .await
+        .unwrap();
+
+        let items = calendar(&pool, &user_id, "2026-07").await.unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].title, "July item");
+
+        let items_empty = calendar(&pool, &user_id, "2026-08").await.unwrap();
+        assert_eq!(items_empty.len(), 0);
     }
 }
