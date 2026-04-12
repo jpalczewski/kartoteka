@@ -43,10 +43,13 @@ async fn main() {
 
     let conf = leptos::config::get_configuration(None).expect("leptos config");
     let leptos_options = conf.leptos_options;
-    let bind_addr = leptos_options.site_addr.to_string();
+    let bind_addr = std::env::var("BIND_ADDR")
+        .unwrap_or_else(|_| leptos_options.site_addr.to_string());
     let app = kartoteka_server::router(pool, auth_layer, signing_secret, leptos_options);
 
     tracing::info!("listening on {bind_addr}");
-    let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(&bind_addr)
+        .await
+        .unwrap_or_else(|e| panic!("failed to bind {bind_addr}: {e}"));
+    axum::serve(listener, app).await.expect("server error");
 }
