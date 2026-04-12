@@ -152,6 +152,31 @@ impl AuthnBackend for KartotekaBackend {
     }
 }
 
+/// Look up a KartotekaUser by ID. Used by the POST /auth/2fa handler to complete login
+/// after TOTP verification, without requiring access to the private backend in AuthSession.
+pub async fn get_user_by_id(
+    pool: &SqlitePool,
+    user_id: &str,
+) -> Result<Option<KartotekaUser>, BackendError> {
+    let user_row = match db::users::find_by_id(pool, user_id).await? {
+        Some(row) => row,
+        None => return Ok(None),
+    };
+    let credential = db::auth_methods::find_by_user_and_provider(pool, &user_row.id, "password")
+        .await?
+        .and_then(|m| m.credential)
+        .unwrap_or_default();
+    let session_auth_hash = build_session_hash(&credential);
+    Ok(Some(KartotekaUser {
+        id: user_row.id,
+        email: user_row.email,
+        name: user_row.name,
+        avatar_url: user_row.avatar_url,
+        role: user_row.role,
+        session_auth_hash,
+    }))
+}
+
 pub type AuthSession = axum_login::AuthSession<KartotekaBackend>;
 
 #[cfg(test)]
@@ -230,5 +255,22 @@ mod tests {
             .await
             .unwrap()
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn get_user_by_id_finds_registered_user() {
+        let pool = test_pool().await;
+        let info = register(&pool, "user@example.com", "pass", Some("Bob"))
+            .await
+            .unwrap();
+        let user = get_user_by_id(&pool, &info.id).await.unwrap().unwrap();
+        assert_eq!(user.email, "user@example.com");
+        assert_eq!(user.name.as_deref(), Some("Bob"));
+    }
+
+    #[tokio::test]
+    async fn get_user_by_id_unknown_returns_none() {
+        let pool = test_pool().await;
+        assert!(get_user_by_id(&pool, "no-such-id").await.unwrap().is_none());
     }
 }
