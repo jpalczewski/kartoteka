@@ -33,6 +33,7 @@ tower-sessions.workspace = true
 tower-sessions-sqlx-store.workspace = true
 tower-http.workspace = true
 time.workspace = true
+chrono.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

@@ -16,6 +16,9 @@ use kartoteka_db::SqlitePool;
 #[derive(Clone)]
 pub struct AppState {
     pub pool: SqlitePool,
+    /// HMAC-SHA256 signing secret for JWT bearer tokens.
+    /// Set via OAUTH_SIGNING_SECRET env var. Must be at least 32 chars.
+    pub signing_secret: String,
 }
 
 /// Type alias to avoid verbose generic in function signatures.
@@ -24,11 +27,11 @@ pub type AuthLayer = axum_login::AuthManagerLayer<
     tower_sessions_sqlx_store::SqliteStore,
 >;
 
-pub fn router(pool: SqlitePool, auth_layer: AuthLayer) -> Router {
-    let state = AppState { pool };
+pub fn router(pool: SqlitePool, auth_layer: AuthLayer, signing_secret: String) -> Router {
+    let state = AppState { pool, signing_secret };
     Router::new()
         .nest("/auth", auth::auth_router())
-        .nest("/api", routes::routes())
+        .nest("/api", routes::routes(state.clone()))
         .layer(auth_layer)
         .with_state(state)
 }

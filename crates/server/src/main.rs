@@ -28,8 +28,11 @@ async fn main() {
     let backend = kartoteka_auth::KartotekaBackend::new(pool.clone());
     let auth_layer = axum_login::AuthManagerLayerBuilder::new(backend, session_layer).build();
 
+    let signing_secret = std::env::var("OAUTH_SIGNING_SECRET")
+        .expect("OAUTH_SIGNING_SECRET env var must be set (min 32 chars, random)");
+
     let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".into());
-    let app = kartoteka_server::router(pool, auth_layer);
+    let app = kartoteka_server::router(pool, auth_layer, signing_secret);
 
     tracing::info!("listening on {bind_addr}");
     let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();

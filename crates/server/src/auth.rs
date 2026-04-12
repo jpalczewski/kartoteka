@@ -48,11 +48,75 @@ pub struct TotpCodeRequest {
     pub code: String,
 }
 
+#[derive(Deserialize)]
+pub struct CreateTokenRequest {
+    pub name: String,
+    pub scope: Option<String>,
+    pub expires_at: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct TokenCreatedResponse {
+    pub id: String,
+    pub token: String,
+    pub name: String,
+    pub scope: String,
+}
+
+#[derive(Serialize)]
+pub struct TokenListItem {
+    pub id: String,
+    pub name: String,
+    pub scope: String,
+    pub last_used_at: Option<String>,
+    pub expires_at: Option<String>,
+    pub created_at: String,
+}
+
 const PENDING_USER_KEY: &str = "pending_user_id";
 const RETURN_TO_KEY: &str = "return_to";
 
-/// Require authenticated session. Inserts UserId into extensions. Returns 401 if not auth'd.
-pub async fn require_auth(auth_session: AuthSession, mut req: Request, next: Next) -> Response {
+/// Extract a bearer token from the Authorization header.
+fn extract_bearer_token(headers: &axum::http::HeaderMap) -> Option<&str> {
+    headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+}
+
+/// Unified auth middleware — Bearer JWT first, session fallback.
+///
+/// Bearer behaviour:
+///   Valid JWT + scope "full" → inject UserId, proceed
+///   Valid JWT + other scope → 403 (wrong scope for /api/*)
+///   Invalid/expired/revoked JWT → 401 (does NOT fall through to session)
+///
+/// Session behaviour (no Bearer header):
+///   Active session → inject UserId, proceed
+///   No session → 401
+pub async fn require_auth(
+    State(state): State<AppState>,
+    auth_session: AuthSession,
+    mut req: Request,
+    next: Next,
+) -> Response {
+    if let Some(token) = extract_bearer_token(req.headers()) {
+        return match kartoteka_domain::auth::validate_jwt(
+            &state.pool,
+            token,
+            &state.signing_secret,
+        )
+        .await
+        {
+            Ok(ctx) if ctx.scope == "full" => {
+                req.extensions_mut().insert(UserId(ctx.user_id));
+                next.run(req).await
+            }
+            Ok(_) => StatusCode::FORBIDDEN.into_response(),
+            Err(_) => StatusCode::UNAUTHORIZED.into_response(),
+        };
+    }
+
     match auth_session.user {
         Some(ref user) => {
             req.extensions_mut().insert(UserId(user.id.clone()));
@@ -279,6 +343,81 @@ pub async fn set_server_config(
     Ok(Json(ConfigEntry { key, value: req.value }))
 }
 
+/// POST /auth/tokens — create a personal access token (session auth required)
+#[tracing::instrument(skip(auth_session, state, req))]
+pub async fn create_token_handler(
+    auth_session: AuthSession,
+    State(state): State<AppState>,
+    Json(req): Json<CreateTokenRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let user = auth_session.user.ok_or(AppError::Unauthorized)?;
+    let scope = req.scope.as_deref().unwrap_or("full");
+
+    let expires_at = req
+        .expires_at
+        .as_deref()
+        .map(|s| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .map_err(|_| AppError::Validation("invalid expires_at: expected RFC3339".to_string()))
+        })
+        .transpose()?;
+
+    let created = kartoteka_domain::auth::create_token(
+        &state.pool,
+        &state.signing_secret,
+        &user.id,
+        &req.name,
+        scope,
+        expires_at,
+    )
+    .await?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(TokenCreatedResponse {
+            id: created.id,
+            token: created.token,
+            name: created.name,
+            scope: created.scope,
+        }),
+    ))
+}
+
+/// GET /auth/tokens — list tokens for authenticated user (session auth required)
+#[tracing::instrument(skip(auth_session, state))]
+pub async fn list_tokens_handler(
+    auth_session: AuthSession,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let user = auth_session.user.ok_or(AppError::Unauthorized)?;
+    let tokens = kartoteka_domain::auth::list_tokens(&state.pool, &user.id).await?;
+    let items: Vec<TokenListItem> = tokens
+        .into_iter()
+        .map(|row| TokenListItem {
+            id: row.id,
+            name: row.name,
+            scope: row.scope,
+            last_used_at: row.last_used_at,
+            expires_at: row.expires_at,
+            created_at: row.created_at,
+        })
+        .collect();
+    Ok(Json(items))
+}
+
+/// DELETE /auth/tokens/{id} — revoke a token (session auth required)
+#[tracing::instrument(skip(auth_session, state))]
+pub async fn delete_token_handler(
+    auth_session: AuthSession,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let user = auth_session.user.ok_or(AppError::Unauthorized)?;
+    kartoteka_domain::auth::revoke_token(&state.pool, &id, &user.id).await?;
+    Ok(Json(serde_json::json!({"status": "ok"})))
+}
+
 /// Router for /auth/* (public + self-guarded authenticated routes)
 pub fn auth_router() -> Router<AppState> {
     Router::new()
@@ -289,6 +428,8 @@ pub fn auth_router() -> Router<AppState> {
         .route("/totp/setup", post(totp_setup))
         .route("/totp/verify", post(totp_verify_setup))
         .route("/totp", delete(totp_delete))
+        .route("/tokens", post(create_token_handler).get(list_tokens_handler))
+        .route("/tokens/{id}", delete(delete_token_handler))
 }
 
 /// Router for /api/server-config (admin required — caller wraps with require_admin)
