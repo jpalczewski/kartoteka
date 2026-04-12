@@ -104,6 +104,24 @@ pub async fn get_create_item_context(
 
 This minimizes round-trips. Domain calls one context query, validates with rules::, then writes.
 
+### User timezone
+
+`user_settings` key `timezone` (default `"UTC"`). Domain layer uses `chrono-tz` to resolve "today" in user's timezone before querying db::. Example:
+
+```rust
+// domain/src/items.rs
+pub async fn by_date(pool, user_id, date, ...) -> Result<Vec<DateItem>> {
+    // If date == "today", resolve using user's timezone
+    let tz = db::preferences::get_timezone(pool, user_id).await?;
+    let resolved_date = chrono::Utc::now().with_timezone(&tz).date_naive();
+    db::items::by_date(pool, user_id, resolved_date, ...).await
+}
+```
+
+MCP tools and frontend use the same domain:: functions — timezone handling is centralized.
+
+`chrono-tz` added to `crates/domain` and `crates/shared` dependencies.
+
 ### Concurrent reads with tokio::join!
 
 For endpoints that need multiple independent queries (home, container detail):
@@ -131,7 +149,7 @@ crates/db/src/
   lists.rs            — CRUD + sublists + features queries + context queries
   tags.rs             — CRUD + recursive CTE + tag links
   settings.rs         — user_settings key-value
-  preferences.rs      — locale
+  preferences.rs      — locale, timezone
   home.rs             — composite home query (6 parallel SELECTs)
   helpers.rs          — check_ownership, next_position, toggle_bool, get_list_features
   users.rs            — User struct, create, find_by_email, find_by_id, count
