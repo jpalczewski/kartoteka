@@ -5,7 +5,9 @@ pub use sqlx::sqlite::SqlitePool;
 
 pub mod containers;
 pub mod home;
+pub mod items;
 pub mod lists;
+pub mod preferences;
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers;
 pub mod types;
