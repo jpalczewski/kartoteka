@@ -193,6 +193,20 @@ CREATE TABLE user_settings (
     PRIMARY KEY (user_id, key)
 );
 
+CREATE TABLE comments (
+    id TEXT PRIMARY KEY,
+    entity_type TEXT NOT NULL,    -- 'item', 'list', 'container'
+    entity_id TEXT NOT NULL,      -- FK resolved by domain:: (not DB-level, polymorphic)
+    content TEXT NOT NULL,
+    author_type TEXT NOT NULL DEFAULT 'user',  -- 'user' or 'assistant'
+    author_name TEXT,                           -- persona name for assistant, NULL for user
+    user_id TEXT NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+) STRICT;
+
+CREATE INDEX idx_comments_entity ON comments(entity_type, entity_id);
+
 -- No separate preferences table — locale, timezone etc. stored in user_settings
 
 -- Indexes for hot query paths

@@ -35,9 +35,9 @@ Claude Code → POST /mcp → 401
   → POST /mcp (Bearer: access_token) → tools work
 ```
 
-## MCP Tools (5, unchanged functionality)
+## MCP Tools (6 — 5 existing + add_comment)
 
-Same 5 tools as current TypeScript gateway. All call `domain::` (never db:: directly).
+5 existing tools + new `add_comment` tool. All call `domain::` (never db:: directly). `add_comment` supports items, lists, and containers with `author_type: "assistant"` and optional persona name.
 
 ```rust
 pub struct KartotekaTools {
@@ -68,7 +68,7 @@ impl KartotekaTools {
         Ok(CallToolResult::success(serde_json::to_value(items)?))
     }
 
-    // create_item, update_item, search_items — same pattern
+    // create_item, update_item, search_items, add_comment — same pattern
 }
 
 fn extract_user_id(parts: &http::request::Parts) -> Result<String, McpError> {

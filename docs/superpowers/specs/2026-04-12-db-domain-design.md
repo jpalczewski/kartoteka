@@ -174,6 +174,7 @@ crates/db/src/
   auth_methods.rs     — create, find_by_user_and_provider
   totp.rs             — upsert, find, mark_verified, delete
   server_config.rs    — get, set, is_registration_enabled
+  comments.rs        — polymorphic comments CRUD (entity_type: item/list/container, author_type: user/assistant)
   test_helpers.rs     — test_pool (in-memory), create_test_user
 ```
 

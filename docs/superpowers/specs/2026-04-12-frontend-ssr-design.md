@@ -257,7 +257,9 @@ crates/frontend/src/
     list/
     calendar/
     container.rs
-    item_detail.rs
+    item_detail.rs     — refactor: add comments section
+    container.rs       — add comments section
+    list/              — add comments section
     today.rs
     tags/
     login.rs           — zmiana: server function zamiast gloo-net
@@ -274,6 +276,9 @@ crates/frontend/src/
     tags/
     calendar/
     filters/
+    comments/          — NEW: reusable comments section
+      comment_list.rs  — chronological display, user vs assistant styling
+      add_comment.rs   — input form
     home/              — NEW: sekcje home page
       pinned_section.rs
       recent_section.rs
