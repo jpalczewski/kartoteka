@@ -12,6 +12,7 @@ kartoteka-shared = { path = "../shared" }
 kartoteka-db = { path = "../db" }
 thiserror.workspace = true
 sqlx.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

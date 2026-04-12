@@ -1,3 +1,4 @@
+pub mod containers;
 pub mod rules;
 
 #[derive(Debug, thiserror::Error)]
