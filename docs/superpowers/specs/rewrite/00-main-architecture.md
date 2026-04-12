@@ -262,6 +262,12 @@ CREATE TABLE template_items (
 
 CREATE INDEX idx_template_items_template ON template_items(template_id);
 
+CREATE TABLE container_tags (
+    container_id TEXT NOT NULL REFERENCES containers(id) ON DELETE CASCADE,
+    tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (container_id, tag_id)
+);
+
 CREATE TABLE template_tags (
     template_id TEXT NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
     tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
