@@ -53,13 +53,22 @@ pub async fn fetch_lists() -> Result<Vec<List>, String> {
     get(&format!("{API_BASE}/lists")).send().await?.json().await
 }
 
-// Po (SSR):
+// Po (SSR) — reads go to db:: directly:
 #[server]
 pub async fn fetch_lists() -> Result<Vec<List>, ServerFnError> {
     let pool = expect_context::<SqlitePool>();
     let auth: AuthSession = extract_with_state(&expect_context::<AppState>()).await?;
     let user = auth.user.ok_or(ServerFnError::new("unauthorized"))?;
     Ok(db::lists::list_all(&pool, &user.id).await?)
+}
+
+// Po (SSR) — writes go through domain::
+#[server]
+pub async fn create_list(req: CreateListRequest) -> Result<List, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth: AuthSession = extract_with_state(&expect_context::<AppState>()).await?;
+    let user = auth.user.ok_or(ServerFnError::new("unauthorized"))?;
+    Ok(domain::lists::create(&pool, &user.id, &req).await?)
 }
 ```
 
@@ -113,6 +122,22 @@ ssr = ["leptos/ssr", "leptos-fluent/ssr", "leptos-fluent/axum", "dep:kartoteka-d
 ```
 
 FTL files bez zmian.
+
+### Timezone
+
+User's timezone stored in `user_settings` (key: `timezone`, default: `"UTC"`). 
+
+- **Settings page:** timezone picker (dropdown with common timezones, e.g. `Europe/Warsaw`)
+- **Date display:** server functions use `domain::` which resolves dates in user's timezone via `chrono-tz`. Frontend receives already-resolved dates — no client-side timezone conversion needed.
+- **"Today" view / calendar:** `domain::items::by_date` resolves "today" using user's timezone from settings. Frontend just passes `"today"` or a date string.
+
+### Data flow: reads vs writes
+
+Server functions follow the domain layer boundary:
+- **Reads** (list_all, get_one, home, calendar) → call `db::` directly
+- **Writes** (create, update, delete, toggle, move, merge) → call `domain::` which validates then calls `db::`
+
+This is the same boundary used by REST handlers and MCP tools.
 
 ## Crate structure changes
 
@@ -236,7 +261,7 @@ crates/frontend/src/
     tags/
     login.rs           — zmiana: server function zamiast gloo-net
     signup.rs          — zmiana: server function zamiast gloo-net
-    settings.rs
+    settings.rs        — language, timezone, MCP URL, admin: registration toggle
     oauth_consent.rs
   components/          — bez zmian w strukturze, drobne refaktory
     common/
