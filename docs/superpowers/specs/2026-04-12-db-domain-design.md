@@ -167,7 +167,7 @@ crates/db/src/
   lists.rs            — CRUD + sublists + features queries + context queries
   tags.rs             — CRUD + recursive CTE + tag links
   settings.rs         — user_settings key-value
-  preferences.rs      — locale, timezone
+  preferences.rs      — locale, timezone (reads from user_settings table, no separate preferences table)
   home.rs             — composite home query (6 parallel SELECTs)
   helpers.rs          — check_ownership, next_position, toggle_bool, get_list_features
   users.rs            — User struct, create, find_by_email, find_by_id, count

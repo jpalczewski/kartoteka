@@ -147,7 +147,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 kartoteka-shared = { path = "../shared", version = "0.1.1" }
 kartoteka-i18n = { path = "../i18n", version = "0.1.1" }
-kartoteka-db = { path = "../db", optional = true }
+kartoteka-domain = { path = "../domain", optional = true }
 leptos = { version = "0.8", default-features = false }
 leptos_router = { version = "0.8", default-features = false }
 leptos_meta = { version = "0.8" }
@@ -187,7 +187,7 @@ ssr = [
     "dep:axum",
     "dep:axum-login",
     "dep:sqlx",
-    "dep:kartoteka-db",
+    "dep:kartoteka-domain",
 ]
 ```
 
@@ -295,6 +295,10 @@ crates/frontend/src/
 2. **`home.rs` (521 LOC)** → rozbić na `components/home/{pinned,recent,root}_section.rs`
 3. **`date_utils.rs`** → już w `crates/shared` (Leptos 0.8 branch, chrono)
 4. **state transforms** → z Leptos 0.8 branch (`with_item_toggled`, `without_item`)
+
+### New feature: "All items" view
+
+New page `/all` — cross-list view of all items across all lists. Like "Today" but without date filter. Grouped by list, searchable, filterable by tag. Uses `domain::items::list_all_for_user(pool, user_id, filters)` — new domain function.
 
 ### Czego NIE ruszamy
 

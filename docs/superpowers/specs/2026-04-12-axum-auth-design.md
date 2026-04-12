@@ -77,12 +77,12 @@ crates/server/
       middleware.rs       — admin_required
     api/
       mod.rs             — router composition, Require middleware
-      containers.rs      — thin wrappers on db::containers
-      lists.rs           — thin wrappers on db::lists
-      items.rs           — thin wrappers on db::items
-      tags.rs            — thin wrappers on db::tags
-      settings.rs        — thin wrappers on db::settings
-      preferences.rs     — thin wrappers on db::preferences
+      containers.rs      — thin wrappers on domain::containers
+      lists.rs           — thin wrappers on domain::lists
+      items.rs           — thin wrappers on domain::items
+      tags.rs            — thin wrappers on domain::tags
+      settings.rs        — thin wrappers on domain::settings
+      preferences.rs     — thin wrappers on domain::preferences
       home.rs            — thin wrapper on db::home
       server_config.rs   — admin-only GET/PUT
 ```
@@ -96,7 +96,7 @@ crates/server/
 
 ## REST API endpoints
 
-All current endpoints preserved 1:1. Same paths, same request/response shapes. Auth via `AuthSession` extractor. Each handler is 3-5 lines: extract user → call `db::` → return JSON.
+All current endpoints preserved 1:1. Same paths, same request/response shapes. Auth via `AuthSession` extractor. Each handler is 3-5 lines: extract user → call `domain::` → return JSON.
 
 Additional endpoints:
 - `POST /auth/register` — `{email, password, name?}`

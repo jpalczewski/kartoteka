@@ -19,7 +19,7 @@ Internet → Custom domain (DNS)
 
 Single binary serves:
   /           → Leptos SSR (HTML + hydration)
-  /api/*      → REST API (thin wrappers on db::)
+  /api/*      → REST API (thin wrappers on domain::)
   /auth/*     → Login, register, 2FA
   /mcp        → rmcp StreamableHTTP
   /oauth/*    → oxide-auth (MCP OAuth 2.1 + PKCE)
@@ -32,19 +32,22 @@ Single binary serves:
 crates/
   shared/       — models, DTOs, enums, date_utils, constants
                   deps: serde, chrono, schemars
-  db/           — sqlx queries + migrations, SqlitePool
-                  deps: shared, sqlx[sqlite]
+  db/           — sqlx queries + migrations, SqlitePool (internal to domain::)
+                  deps: shared, sqlx[sqlite,chrono]
+  domain/       — business logic, validation, orchestration — ONLY entry point for data access
+                  deps: shared, db, chrono-tz, tokio
   i18n/         — FTL files, leptos-fluent (unchanged)
-  mcp/          — rmcp tool_router, 5 tools
-                  deps: shared, db, rmcp, schemars
+  mcp/          — rmcp tool_router, 5 tools + OAuth provider
+                  deps: shared, domain, rmcp, schemars, oxide-auth, jsonwebtoken
   frontend/     — Leptos 0.8 SSR (cdylib + rlib)
-                  features: ssr [leptos/ssr, leptos_axum, dep:db]
+                  features: ssr [leptos/ssr, leptos_axum, dep:domain]
                             hydrate [leptos/hydrate, wasm-bindgen]
                   deps: shared, i18n, leptos, leptos_router, leptos_meta, leptos-fluent
+                  deps(ssr): domain, axum, axum-login, sqlx
   server/       — Axum binary, glue
-                  deps: shared, db, mcp, frontend(ssr)
+                  deps: shared, domain, mcp, frontend(ssr)
                         axum, axum-login, tower-sessions, argon2, totp-rs
-                        oxide-auth, oxide-auth-axum, tower-http
+                        tower-http
 ```
 
 ### What disappears
@@ -190,10 +193,41 @@ CREATE TABLE user_settings (
     PRIMARY KEY (user_id, key)
 );
 
-CREATE TABLE preferences (
-    user_id TEXT PRIMARY KEY REFERENCES users(id),
-    data TEXT NOT NULL DEFAULT '{}'
-);
+-- No separate preferences table — locale, timezone etc. stored in user_settings
+
+-- Indexes for hot query paths
+CREATE INDEX idx_items_list_id ON items(list_id);
+CREATE INDEX idx_items_deadline ON items(deadline) WHERE deadline IS NOT NULL;
+CREATE INDEX idx_items_start_date ON items(start_date) WHERE start_date IS NOT NULL;
+CREATE INDEX idx_lists_user_id ON lists(user_id);
+CREATE INDEX idx_lists_pinned ON lists(user_id, pinned) WHERE pinned = 1;
+CREATE INDEX idx_lists_container ON lists(container_id) WHERE container_id IS NOT NULL;
+CREATE INDEX idx_containers_user_id ON containers(user_id);
+CREATE INDEX idx_containers_pinned ON containers(user_id, pinned) WHERE pinned = 1;
+CREATE INDEX idx_auth_methods_user_provider ON auth_methods(user_id, provider);
+CREATE INDEX idx_tags_user_id ON tags(user_id);
+
+-- OAuth state tables (for MCP OAuth provider)
+CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
+    code TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL REFERENCES oauth_clients(client_id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    redirect_uri TEXT NOT NULL,
+    code_challenge TEXT NOT NULL,
+    code_challenge_method TEXT NOT NULL DEFAULT 'S256',
+    scopes TEXT,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+    token TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL REFERENCES oauth_clients(client_id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    scopes TEXT,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+) STRICT;
 
 -- Sessions: auto-created by tower-sessions SqliteStore::migrate()
 ```
@@ -427,20 +461,25 @@ Route-by-route. Server functions and old gloo-net calls can coexist during trans
 ```rust
 pub struct KartotekaTools {
     pool: SqlitePool,
-    user_id: String,
-    locale: String,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl KartotekaTools {
     #[tool(name = "list_lists", description = "List all lists")]
-    async fn list_lists(&self) -> Result<Json<Vec<List>>, McpError> {
-        Ok(Json(db::lists::list_all(&self.pool, &self.user_id).await?))
+    async fn list_lists(
+        &self,
+        Extension(parts): Extension<http::request::Parts>,
+    ) -> Result<CallToolResult, McpError> {
+        let user_id = extract_user_id(&parts)?;
+        let lists = domain::lists::list_all(&self.pool, &user_id).await?;
+        Ok(CallToolResult::success(serde_json::to_value(lists)?))
     }
-    // get_list_items, create_item, update_item, search_items
+    // get_list_items, create_item, update_item, search_items — same pattern
 }
 ```
+
+User ID extracted per-request from `http::request::Parts` extensions (injected by bearer auth middleware). Not stored in struct.
 
 ### Locale resolution
 
@@ -506,7 +545,7 @@ Impact:
 
 ## REST API
 
-Thin Axum wrappers on `db::` functions. Same endpoints as current (`/api/lists`, `/api/containers/:id`, etc.). Auth via `AuthSession` extractor. Not used by frontend (server functions), but available for external integrations, MCP Inspector, curl.
+Thin Axum wrappers on `domain::` functions. Same endpoints as current (`/api/lists`, `/api/containers/:id`, etc.). Auth via `AuthSession` extractor. Not used by frontend (server functions), but available for external integrations, MCP Inspector, curl.
 
 ```rust
 async fn list_all(
@@ -514,7 +553,7 @@ async fn list_all(
     auth: AuthSession<AuthBackend>,
 ) -> Result<Json<Vec<List>>, AppError> {
     let user = auth.user.ok_or(AppError::Unauthorized)?;
-    Ok(Json(db::lists::list_all(&pool, &user.id).await?))
+    Ok(Json(domain::lists::list_all(&pool, &user.id).await?))
 }
 ```
 
@@ -576,7 +615,7 @@ SQLite file locally, zero external dependencies. Full auth flow works locally.
 | 4 | MCP + OAuth | 1, 2 | `crates/mcp` — rmcp tools, oxide-auth, consent page, DCR |
 | 5 | Deploy | 1-4 | Caddy config, systemd, CI/CD, backup |
 
-Plans 3 and 4 can run in parallel after plan 2.
+Plans are sequential: 1+1a → 2 → 3 → 4 → 5. Plan 4 depends on Plan 3 (consent page is a Leptos SSR route).
 
 ## What's NOT Changing
 
@@ -585,9 +624,20 @@ Plans 3 and 4 can run in parallel after plan 2.
 - i18n: same FTL files, same PL/EN support
 - Data model: same tables, same relations
 
+## Security hardening (implement during relevant plans)
+
+- Rate limiting on `/auth/login`, `/auth/register`, `/oauth/register`, `/oauth/token` (tower-governor or custom middleware)
+- CSRF token on OAuth consent form POST
+- OAuth `state` parameter for authorization endpoint CSRF protection
+- DCR abuse prevention (limit clients per IP or require auth)
+- Refresh token rotation (new refresh token on each use, invalidate old)
+- Token scope enforcement in MCP tools
+- CORS policy configuration (allowed origins for REST API)
+- Expired OAuth authorization codes cleanup (background task like session cleanup)
+
 ## Future (out of scope)
 
-- SSR was the original ask from `start-axum` — already included
 - GitHub OAuth as additional auth method
 - Passkeys/WebAuthn
+- Personal access tokens / bearer tokens for REST API
 - Data migration from D1 (clean cut for now)

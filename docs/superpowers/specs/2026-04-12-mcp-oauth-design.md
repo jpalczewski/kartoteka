@@ -144,7 +144,7 @@ oxide-auth handles PKCE S256 verification natively. Required on all authorizatio
 
 ### Consent page
 
-Leptos SSR route at `/oauth/consent` (from Plan 3). Shows:
+Leptos SSR route rendered at `GET /oauth/authorize` (from Plan 3). Shows:
 - Client name (from DCR registration)
 - Requested scopes
 - Approve / Deny buttons
