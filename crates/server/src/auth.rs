@@ -5,11 +5,12 @@ use axum::{
     http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
 };
 use axum::extract::Request;
 use kartoteka_auth::{AuthSession, LoginCredentials};
 use serde::{Deserialize, Serialize};
+use tower_sessions::Session;
 
 #[derive(Deserialize)]
 pub struct RegisterRequest {
@@ -36,6 +37,20 @@ pub struct ConfigEntry {
     pub key: String,
     pub value: String,
 }
+
+#[derive(Deserialize)]
+pub struct TwoFaRequest {
+    pub code: String,
+}
+
+#[derive(Deserialize)]
+pub struct TotpCodeRequest {
+    pub code: String,
+}
+
+const PENDING_USER_KEY: &str = "pending_user_id";
+#[allow(dead_code)]
+const RETURN_TO_KEY: &str = "return_to";
 
 /// Require authenticated session. Inserts UserId into extensions. Returns 401 if not auth'd.
 pub async fn require_auth(auth_session: AuthSession, mut req: Request, next: Next) -> Response {
@@ -72,7 +87,6 @@ pub async fn register(
     )
     .await?;
 
-    // Auto-login after registration
     let creds = LoginCredentials { email: req.email, password: req.password };
     match auth_session.authenticate(creds).await {
         Ok(Some(user)) => {
@@ -93,33 +107,53 @@ pub async fn register(
 }
 
 /// POST /auth/login
-#[tracing::instrument(skip(auth_session, creds))]
+///
+/// If the user has TOTP enabled, stores `pending_user_id` in the raw session and
+/// returns `{"status": "2fa_required"}`. Client must then POST /auth/2fa to complete.
+#[tracing::instrument(skip(auth_session, session, state, creds))]
 pub async fn login(
     mut auth_session: AuthSession,
+    session: Session,
+    State(state): State<AppState>,
     Json(creds): Json<LoginCredentials>,
 ) -> impl IntoResponse {
-    match auth_session.authenticate(creds).await {
-        Ok(Some(user)) => {
-            if let Err(e) = auth_session.login(&user).await {
-                tracing::error!("session write failed during login: {e}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-            Json(serde_json::json!({
-                "status": "ok",
-                "user": {
-                    "id": user.id,
-                    "email": user.email,
-                    "name": user.name,
-                    "role": user.role,
-                }
-            })).into_response()
-        }
-        Ok(None) => (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "invalid credentials"}))).into_response(),
+    let user = match auth_session.authenticate(creds).await {
+        Ok(Some(user)) => user,
+        Ok(None) => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "invalid_credentials"}))).into_response(),
         Err(e) => {
             tracing::error!("auth backend error: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    match kartoteka_domain::auth::is_totp_enabled(&state.pool, &user.id).await {
+        Ok(true) => {
+            if let Err(e) = session.insert(PENDING_USER_KEY, &user.id).await {
+                tracing::error!("session insert failed: {e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+            return Json(serde_json::json!({"status": "2fa_required"})).into_response();
+        }
+        Ok(false) => {}
+        Err(e) => {
+            tracing::error!("totp check failed: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
+
+    if let Err(e) = auth_session.login(&user).await {
+        tracing::error!("session write failed during login: {e}");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+    Json(serde_json::json!({
+        "status": "ok",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "role": user.role,
+        }
+    })).into_response()
 }
 
 /// POST /auth/logout
@@ -130,6 +164,102 @@ pub async fn logout(mut auth_session: AuthSession) -> impl IntoResponse {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     Json(serde_json::json!({"status": "ok"})).into_response()
+}
+
+/// POST /auth/2fa
+///
+/// Reads `pending_user_id` from session, verifies TOTP code, completes login.
+#[tracing::instrument(skip(auth_session, session, state, req))]
+pub async fn verify_2fa(
+    mut auth_session: AuthSession,
+    session: Session,
+    State(state): State<AppState>,
+    Json(req): Json<TwoFaRequest>,
+) -> impl IntoResponse {
+    let user_id: String = match session.get(PENDING_USER_KEY).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "no_pending_2fa"}))).into_response(),
+        Err(e) => {
+            tracing::error!("session read failed: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    match kartoteka_domain::auth::check_totp_code(&state.pool, &user_id, &req.code).await {
+        Ok(true) => {}
+        Ok(false) => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "invalid_code"}))).into_response(),
+        Err(e) => {
+            tracing::error!("totp check error: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    }
+
+    let user = match kartoteka_auth::get_user_by_id(&state.pool, &user_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "user_not_found"}))).into_response(),
+        Err(e) => {
+            tracing::error!("user lookup failed: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    if let Err(e) = session.remove::<String>(PENDING_USER_KEY).await {
+        tracing::warn!("failed to remove {PENDING_USER_KEY} from session: {e}");
+    }
+    let return_to: Option<String> = session.remove(RETURN_TO_KEY).await.unwrap_or(None);
+
+    if let Err(e) = auth_session.login(&user).await {
+        tracing::error!("session write failed during 2fa login: {e}");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    Json(serde_json::json!({
+        "status": "ok",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "role": user.role,
+        },
+        "return_to": return_to,
+    })).into_response()
+}
+
+/// POST /auth/totp/setup (authenticated)
+#[tracing::instrument(skip(auth_session, state))]
+pub async fn totp_setup(
+    auth_session: AuthSession,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let user = auth_session.user.ok_or(AppError::Unauthorized)?;
+    let setup = kartoteka_domain::auth::setup_totp(&state.pool, &user.id, &user.email).await?;
+    Ok(Json(serde_json::json!({
+        "secret": setup.secret,
+        "otpauth_url": setup.otpauth_url,
+    })))
+}
+
+/// POST /auth/totp/verify (authenticated)
+#[tracing::instrument(skip(auth_session, state, req))]
+pub async fn totp_verify_setup(
+    auth_session: AuthSession,
+    State(state): State<AppState>,
+    Json(req): Json<TotpCodeRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let user = auth_session.user.ok_or(AppError::Unauthorized)?;
+    kartoteka_domain::auth::verify_totp_setup(&state.pool, &user.id, &req.code).await?;
+    Ok(Json(serde_json::json!({"status": "ok"})))
+}
+
+/// DELETE /auth/totp (authenticated)
+#[tracing::instrument(skip(auth_session, state))]
+pub async fn totp_delete(
+    auth_session: AuthSession,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let user = auth_session.user.ok_or(AppError::Unauthorized)?;
+    kartoteka_domain::auth::disable_totp(&state.pool, &user.id).await?;
+    Ok(Json(serde_json::json!({"status": "ok"})))
 }
 
 /// GET /api/server-config (admin only)
@@ -150,12 +280,16 @@ pub async fn set_server_config(
     Ok(Json(ConfigEntry { key, value: req.value }))
 }
 
-/// Router for /auth/* (no auth required)
+/// Router for /auth/* (public + self-guarded authenticated routes)
 pub fn auth_router() -> Router<AppState> {
     Router::new()
         .route("/register", post(register))
         .route("/login", post(login))
         .route("/logout", post(logout))
+        .route("/2fa", post(verify_2fa))
+        .route("/totp/setup", post(totp_setup))
+        .route("/totp/verify", post(totp_verify_setup))
+        .route("/totp", delete(totp_delete))
 }
 
 /// Router for /api/server-config (admin required — caller wraps with require_admin)
