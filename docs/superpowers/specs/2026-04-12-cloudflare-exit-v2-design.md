@@ -693,8 +693,27 @@ storage.push(SendNotificationJob {
 ### Future job types (not implemented now)
 
 - Deadline reminder notifications (scan items approaching deadline, enqueue SendNotificationJob)
-- iCal feed cache regeneration (issue #31)
-- Real-time SSE event dispatch (issue #30)
+- iCal feed cache regeneration (#31 — after item date mutations, regenerate .ics)
+- Real-time SSE event dispatch (#30)
+
+## Relation to existing issues
+
+### iCal feed (#31, #32, #34)
+
+The iCal feed (`GET /cal/{token}/feed.ics`) is a natural extension of this architecture:
+
+- **Auth:** `calendar_tokens` table with crypto-random bearer tokens — extends the bearer token auth pattern from Plan 2. Token in URL determines user + scope (single list or all lists). Same middleware pattern as OAuth bearer, separate token table.
+- **Domain:** `domain::calendar::generate_ical(pool, user_id, scope, reminder_settings)` — uses `icalendar` crate, calls `domain::items::by_date` for data. Reminder defaults (VALARM) from user settings (#31), per-list/per-item overrides (#32) from list_features/item fields.
+- **Background jobs:** `RegenerateIcalCacheJob` — enqueued by domain:: after item mutations with date fields. Cached .ics file per token, regenerated on change.
+- **Recurring items (#34):** RRULE generation in iCal events. Depends on recurrence model in domain.
+- **Endpoint:** Axum handler in `crates/server`, no session needed (token auth). Served alongside REST API.
+
+### Real-time updates (#30)
+
+SSE (Server-Sent Events) after VPS migration:
+- **Domain:** After mutations, domain:: enqueues `SseNotifyJob` or directly publishes to `tokio::sync::broadcast` channel.
+- **Axum:** SSE endpoint (`GET /api/events`) with `AuthSession`, streams events.
+- **Frontend:** `EventSource` (behind `#[cfg(feature = "hydrate")]`) subscribes, triggers Resource refetch on events.
 
 ## Security hardening (implement during relevant plans)
 

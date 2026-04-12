@@ -61,6 +61,29 @@ Auth middleware resolution order:
 
 This is NOT implemented in Plan 2 but the middleware architecture (Axum layers) allows inserting a bearer token check layer later without changing handlers.
 
+### Future: iCal calendar tokens (#31)
+
+`calendar_tokens` table — crypto-random URL-safe tokens scoped to user + optional list_id. Used for stateless iCal feed access (`GET /cal/{token}/feed.ics`). Different from personal bearer tokens:
+
+- **Scope:** read-only, calendar data only (not full API access)
+- **Auth:** token in URL path (not Authorization header) — required for calendar subscription URLs
+- **No session:** stateless, no cookie needed
+- **Revocable:** user can regenerate/revoke in settings page
+
+Architecture fits naturally: Axum handler extracts token from path, looks up `calendar_tokens` table via `domain::calendar::validate_token`, returns .ics. No middleware needed — token validation is in the handler itself.
+
+```sql
+CREATE TABLE IF NOT EXISTS calendar_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    list_id TEXT REFERENCES lists(id),  -- NULL = all user's lists
+    token TEXT UNIQUE NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+) STRICT;
+
+CREATE INDEX idx_calendar_tokens_token ON calendar_tokens(token);
+```
+
 ## Crate structure
 
 ```
