@@ -175,6 +175,7 @@ crates/db/src/
   totp.rs             — upsert, find, mark_verified, delete
   server_config.rs    — get, set, is_registration_enabled
   comments.rs        — polymorphic comments CRUD (entity_type: item/list/container, author_type: user/assistant)
+  relations.rs       — entity_relations CRUD, get_unresolved_blockers, bidirectional relates_to queries
   test_helpers.rs     — test_pool (in-memory), create_test_user
 ```
 
@@ -214,7 +215,7 @@ Zero I/O, zero async, zero dependencies beyond shared types. Testable with `#[te
 crates/domain/src/
   rules/
     mod.rs
-    items.rs        — validate_features, should_auto_complete
+    items.rs        — validate_features, should_auto_complete, validate_can_complete (blocker check)
     containers.rs   — validate_hierarchy, validate_move
     tags.rs         — validate_merge, validate_parent (self-reference check)
     lists.rs        — validate_list_type_features
@@ -272,10 +273,11 @@ pub fn determine_role(user_count: i64) -> &'static str {
 ```
 crates/domain/src/
   lib.rs            — DomainError, re-exports
-  items.rs          — create, update, move_item, delete
+  items.rs          — create, update, move_item, delete, toggle_complete (blocker check)
   containers.rs     — create, update, move_container, delete, toggle_pin
   lists.rs          — create, update, reset, toggle_pin, toggle_archive, add_feature, remove_feature
   tags.rs           — create, update, merge, delete, assign/remove links
+  relations.rs      — create, delete, get_for_entity (bidirectional), validate ownership
   auth.rs           — register, (future: social auth, bearer tokens)
   rules/            — (as above)
 ```

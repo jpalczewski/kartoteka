@@ -35,9 +35,9 @@ Claude Code → POST /mcp → 401
   → POST /mcp (Bearer: access_token) → tools work
 ```
 
-## MCP Tools (6 — 5 existing + add_comment)
+## MCP Tools (9 — 5 existing + add_comment + 3 relations)
 
-5 existing tools + new `add_comment` tool. All call `domain::` (never db:: directly). `add_comment` supports items, lists, and containers with `author_type: "assistant"` and optional persona name.
+5 existing + `add_comment` + 3 relation tools (`add_relation`, `remove_relation`, `get_relations`). All call `domain::` (never db:: directly). Comments support items/lists/containers with `author_type: "assistant"` and optional persona name. Relations support `blocks` (semantic: prevents completion) and `relates_to` (informational) between any entity types.
 
 ```rust
 pub struct KartotekaTools {
@@ -68,7 +68,8 @@ impl KartotekaTools {
         Ok(CallToolResult::success(serde_json::to_value(items)?))
     }
 
-    // create_item, update_item, search_items, add_comment — same pattern
+    // create_item, update_item, search_items, add_comment,
+    // add_relation, remove_relation, get_relations — same pattern
 }
 
 fn extract_user_id(parts: &http::request::Parts) -> Result<String, McpError> {

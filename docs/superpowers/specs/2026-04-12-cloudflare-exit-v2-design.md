@@ -207,6 +207,21 @@ CREATE TABLE comments (
 
 CREATE INDEX idx_comments_entity ON comments(entity_type, entity_id);
 
+CREATE TABLE entity_relations (
+    id TEXT PRIMARY KEY,
+    from_type TEXT NOT NULL,     -- 'item', 'list', 'container'
+    from_id TEXT NOT NULL,
+    to_type TEXT NOT NULL,       -- 'item', 'list', 'container'
+    to_id TEXT NOT NULL,
+    relation_type TEXT NOT NULL,  -- 'blocks', 'relates_to'
+    user_id TEXT NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(from_type, from_id, to_type, to_id, relation_type)
+) STRICT;
+
+CREATE INDEX idx_relations_from ON entity_relations(from_type, from_id);
+CREATE INDEX idx_relations_to ON entity_relations(to_type, to_id);
+
 -- No separate preferences table — locale, timezone etc. stored in user_settings
 
 -- Indexes for hot query paths

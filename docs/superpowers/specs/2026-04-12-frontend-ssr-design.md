@@ -279,6 +279,9 @@ crates/frontend/src/
     comments/          — NEW: reusable comments section
       comment_list.rs  — chronological display, user vs assistant styling
       add_comment.rs   — input form
+    relations/         — NEW: reusable related entities section
+      related_list.rs  — blockers + related items/lists/containers
+      add_relation.rs  — picker for entity type + search
     home/              — NEW: sekcje home page
       pinned_section.rs
       recent_section.rs
