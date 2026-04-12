@@ -12,7 +12,7 @@ async fn test_app() -> axum::Router {
     let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
     let backend = kartoteka_auth::KartotekaBackend::new(pool.clone());
     let auth_layer = axum_login::AuthManagerLayerBuilder::new(backend, session_layer).build();
-    kartoteka_server::router(pool, auth_layer)
+    kartoteka_server::router(pool, auth_layer, "test-secret-32-bytes-minimum!!!!".to_string())
 }
 
 fn json_body(json: serde_json::Value) -> Body {
@@ -46,6 +46,35 @@ fn generate_totp_code(secret_b32: &str) -> String {
     totp.generate_current().unwrap()
 }
 
+/// Register a user and return the session cookie after login.
+async fn register_and_login(app: axum::Router, email: &str, password: &str) -> String {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/register")
+                .header("content-type", "application/json")
+                .body(json_body(serde_json::json!({"email": email, "password": password})))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/login")
+                .header("content-type", "application/json")
+                .body(json_body(serde_json::json!({"email": email, "password": password})))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    extract_session_cookie(&resp).expect("session cookie after login")
+}
+
 // ── C1 tests (unchanged) ──────────────────────────────────────────────────
 
 #[tokio::test]
@@ -75,7 +104,7 @@ async fn login_wrong_password_returns_401() {
     let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
     let backend = kartoteka_auth::KartotekaBackend::new(pool.clone());
     let auth_layer = axum_login::AuthManagerLayerBuilder::new(backend, session_layer).build();
-    let app = kartoteka_server::router(pool, auth_layer);
+    let app = kartoteka_server::router(pool, auth_layer, "test-secret-32-bytes-minimum!!!!".to_string());
 
     let response = app.oneshot(
         Request::builder()
@@ -379,4 +408,218 @@ async fn delete_totp_disables_2fa() {
     let body = axum::body::to_bytes(login2_resp.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["status"], "ok");
+}
+
+// ── C3 tests: Bearer JWT tokens ──────────────────────────────────────────
+
+#[tokio::test]
+async fn create_token_and_use_bearer_on_api_route() {
+    let app = test_app().await;
+    let cookie = register_and_login(app.clone(), "user@example.com", "secret123").await;
+
+    // Create a token via session
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/tokens")
+                .header("content-type", "application/json")
+                .header("cookie", &cookie)
+                .body(json_body(serde_json::json!({"name": "My Token"})))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let body: serde_json::Value =
+        serde_json::from_slice(&axum::body::to_bytes(resp.into_body(), 1024 * 64).await.unwrap())
+            .unwrap();
+    let jwt = body["token"].as_str().unwrap().to_string();
+    assert!(!jwt.is_empty());
+    assert_eq!(body["scope"].as_str().unwrap(), "full");
+
+    // Use the JWT as Bearer on a protected API route
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/settings")
+                .header("authorization", format!("Bearer {jwt}"))
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn revoked_bearer_token_returns_401() {
+    let app = test_app().await;
+    let cookie = register_and_login(app.clone(), "user@example.com", "secret123").await;
+
+    // Create token
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/tokens")
+                .header("content-type", "application/json")
+                .header("cookie", &cookie)
+                .body(json_body(serde_json::json!({"name": "Temp Token"})))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body: serde_json::Value =
+        serde_json::from_slice(&axum::body::to_bytes(resp.into_body(), 1024 * 64).await.unwrap())
+            .unwrap();
+    let jwt = body["token"].as_str().unwrap().to_string();
+    let token_id = body["id"].as_str().unwrap().to_string();
+
+    // Revoke it
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/auth/tokens/{token_id}"))
+                .header("cookie", &cookie)
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Revoked token must fail
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/settings")
+                .header("authorization", format!("Bearer {jwt}"))
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn list_tokens_returns_created_tokens() {
+    let app = test_app().await;
+    let cookie = register_and_login(app.clone(), "user@example.com", "secret123").await;
+
+    // Initially empty
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/auth/tokens")
+                .header("cookie", &cookie)
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let list: serde_json::Value =
+        serde_json::from_slice(&axum::body::to_bytes(resp.into_body(), 1024 * 64).await.unwrap())
+            .unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 0);
+
+    // Create two tokens
+    for name in &["Token Alpha", "Token Beta"] {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/auth/tokens")
+                    .header("content-type", "application/json")
+                    .header("cookie", &cookie)
+                    .body(json_body(serde_json::json!({"name": name})))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/auth/tokens")
+                .header("cookie", &cookie)
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let list: serde_json::Value =
+        serde_json::from_slice(&axum::body::to_bytes(resp.into_body(), 1024 * 64).await.unwrap())
+            .unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 2);
+    // token strings are NOT returned in list
+    assert!(list[0].get("token").is_none());
+}
+
+#[tokio::test]
+async fn create_token_without_auth_returns_401() {
+    let app = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/tokens")
+                .header("content-type", "application/json")
+                .body(json_body(serde_json::json!({"name": "Unauthenticated Token"})))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn bearer_non_full_scope_rejected_on_api_routes() {
+    let app = test_app().await;
+    let cookie = register_and_login(app.clone(), "user@example.com", "secret123").await;
+
+    // Create a calendar-scope token
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/tokens")
+                .header("content-type", "application/json")
+                .header("cookie", &cookie)
+                .body(json_body(serde_json::json!({"name": "Cal Token", "scope": "calendar"})))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body: serde_json::Value =
+        serde_json::from_slice(&axum::body::to_bytes(resp.into_body(), 1024 * 64).await.unwrap())
+            .unwrap();
+    let jwt = body["token"].as_str().unwrap().to_string();
+
+    // calendar-scope token must be rejected on /api/* routes (only "full" scope allowed)
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/settings")
+                .header("authorization", format!("Bearer {jwt}"))
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
