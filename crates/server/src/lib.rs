@@ -46,6 +46,8 @@ pub enum AppError {
     BadRequest(String),
     #[error("unauthorized")]
     Unauthorized,
+    #[error("forbidden")]
+    Forbidden,
     #[error("internal: {0}")]
     Internal(String),
 }
@@ -59,6 +61,7 @@ impl IntoResponse for AppError {
                 StatusCode::UNAUTHORIZED,
                 "missing X-User-Id header".to_string(),
             ),
+            AppError::Forbidden => (StatusCode::FORBIDDEN, "forbidden".to_string()),
             AppError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m.clone()),
         };
         (status, msg).into_response()
@@ -72,7 +75,7 @@ impl From<kartoteka_domain::DomainError> for AppError {
             NotFound(_) => AppError::NotFound,
             Validation(msg) => AppError::BadRequest(msg.to_string()),
             FeatureRequired(f) => AppError::BadRequest(format!("feature required: {f}")),
-            Forbidden => AppError::BadRequest("forbidden".into()),
+            Forbidden => AppError::Forbidden,
             Internal(msg) => AppError::Internal(msg),
             Db(e) => AppError::Internal(e.to_string()),
         }
