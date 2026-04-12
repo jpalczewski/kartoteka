@@ -6,6 +6,14 @@ use argon2::{
 use kartoteka_db as db;
 use serde::Serialize;
 use sqlx::SqlitePool;
+use totp_rs::{Algorithm, Secret, TOTP};
+
+/// TOTP setup result — secret for manual entry, URL for QR code.
+#[derive(Debug, Clone, Serialize)]
+pub struct TotpSetup {
+    pub secret: String,
+    pub otpauth_url: String,
+}
 
 /// Minimal user info returned from register.
 #[derive(Debug, Clone, Serialize)]
@@ -44,6 +52,14 @@ pub async fn verify_password(password: String, hash: String) -> Result<bool, Dom
     })
     .await
     .map_err(|e| DomainError::Internal(format!("spawn_blocking: {e}")))?
+}
+
+fn make_totp(secret_b32: &str) -> Result<TOTP, DomainError> {
+    let bytes = Secret::Encoded(secret_b32.to_string())
+        .to_bytes()
+        .map_err(|e| DomainError::Internal(format!("totp secret decode: {e}")))?;
+    TOTP::new(Algorithm::SHA1, 6, 1, 30, bytes, None, String::new())
+        .map_err(|e| DomainError::Internal(format!("totp init: {e}")))
 }
 
 /// Update a server configuration key.
@@ -131,6 +147,86 @@ pub async fn register(
         name: user.name,
         role: user.role,
     })
+}
+
+/// Generate a new TOTP secret for the user and store it unverified.
+/// Returns base32 secret and otpauth:// URL for QR display.
+/// Calling again resets the secret and requires re-verification.
+#[tracing::instrument(skip(pool))]
+pub async fn setup_totp(
+    pool: &SqlitePool,
+    user_id: &str,
+    email: &str,
+) -> Result<TotpSetup, DomainError> {
+    let secret = Secret::generate_secret();
+    let bytes = secret
+        .to_bytes()
+        .map_err(|e| DomainError::Internal(format!("totp generate: {e}")))?;
+    let totp = TOTP::new(
+        Algorithm::SHA1,
+        6,
+        1,
+        30,
+        bytes,
+        Some("Kartoteka".to_string()),
+        email.to_string(),
+    )
+    .map_err(|e| DomainError::Internal(format!("totp init: {e}")))?;
+    let secret_b32 = totp.get_secret_base32();
+    let url = totp.get_url();
+    db::totp::upsert(pool, user_id, &secret_b32).await?;
+    Ok(TotpSetup { secret: secret_b32, otpauth_url: url })
+}
+
+/// Verify a TOTP code during initial setup. Marks the secret as verified on success.
+#[tracing::instrument(skip(pool, code))]
+pub async fn verify_totp_setup(
+    pool: &SqlitePool,
+    user_id: &str,
+    code: &str,
+) -> Result<(), DomainError> {
+    let row = db::totp::find(pool, user_id)
+        .await?
+        .ok_or(DomainError::NotFound("totp_secret"))?;
+    let totp = make_totp(&row.secret)?;
+    let valid = totp
+        .check_current(code)
+        .map_err(|e| DomainError::Internal(format!("system time: {e}")))?;
+    if !valid {
+        return Err(DomainError::Validation("invalid_totp_code"));
+    }
+    db::totp::mark_verified(pool, user_id).await?;
+    Ok(())
+}
+
+/// Disable TOTP for a user by deleting their secret.
+#[tracing::instrument(skip(pool))]
+pub async fn disable_totp(pool: &SqlitePool, user_id: &str) -> Result<(), DomainError> {
+    db::totp::delete(pool, user_id).await?;
+    Ok(())
+}
+
+/// Verify a TOTP code during login. Returns false if TOTP not enabled or code wrong.
+#[tracing::instrument(skip(pool, code))]
+pub async fn check_totp_code(
+    pool: &SqlitePool,
+    user_id: &str,
+    code: &str,
+) -> Result<bool, DomainError> {
+    let row = match db::totp::find(pool, user_id).await? {
+        Some(r) if r.verified => r,
+        _ => return Ok(false),
+    };
+    let totp = make_totp(&row.secret)?;
+    totp
+        .check_current(code)
+        .map_err(|e| DomainError::Internal(format!("system time: {e}")))
+}
+
+/// Returns true iff the user has a verified TOTP secret.
+#[tracing::instrument(skip(pool))]
+pub async fn is_totp_enabled(pool: &SqlitePool, user_id: &str) -> Result<bool, DomainError> {
+    Ok(db::totp::is_enabled(pool, user_id).await?)
 }
 
 #[cfg(test)]
@@ -221,5 +317,59 @@ mod tests {
             .await
             .unwrap();
         assert!(!is_registration_enabled(&pool).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn setup_totp_returns_secret_and_url() {
+        let pool = test_pool().await;
+        let user = register(&pool, "user@example.com", "pass", None).await.unwrap();
+        let setup = setup_totp(&pool, &user.id, &user.email).await.unwrap();
+        assert!(!setup.secret.is_empty());
+        assert!(setup.otpauth_url.starts_with("otpauth://totp/"));
+        assert!(setup.otpauth_url.contains("Kartoteka"));
+    }
+
+    #[tokio::test]
+    async fn verify_totp_setup_marks_verified() {
+        use totp_rs::{Algorithm, Secret, TOTP};
+        let pool = test_pool().await;
+        let user = register(&pool, "user@example.com", "pass", None).await.unwrap();
+        let setup = setup_totp(&pool, &user.id, &user.email).await.unwrap();
+        let bytes = Secret::Encoded(setup.secret.clone()).to_bytes().unwrap();
+        let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, bytes, None, String::new()).unwrap();
+        let code = totp.generate_current().unwrap();
+        verify_totp_setup(&pool, &user.id, &code).await.unwrap();
+        assert!(is_totp_enabled(&pool, &user.id).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn verify_totp_setup_with_wrong_code_returns_error() {
+        let pool = test_pool().await;
+        let user = register(&pool, "user@example.com", "pass", None).await.unwrap();
+        setup_totp(&pool, &user.id, &user.email).await.unwrap();
+        let err = verify_totp_setup(&pool, &user.id, "000000").await.unwrap_err();
+        assert!(matches!(err, DomainError::Validation("invalid_totp_code")));
+    }
+
+    #[tokio::test]
+    async fn disable_totp_removes_secret() {
+        use totp_rs::{Algorithm, Secret, TOTP};
+        let pool = test_pool().await;
+        let user = register(&pool, "user@example.com", "pass", None).await.unwrap();
+        let setup = setup_totp(&pool, &user.id, &user.email).await.unwrap();
+        let bytes = Secret::Encoded(setup.secret).to_bytes().unwrap();
+        let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, bytes, None, String::new()).unwrap();
+        let code = totp.generate_current().unwrap();
+        verify_totp_setup(&pool, &user.id, &code).await.unwrap();
+        disable_totp(&pool, &user.id).await.unwrap();
+        assert!(!is_totp_enabled(&pool, &user.id).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn check_totp_code_returns_false_when_totp_not_enabled() {
+        let pool = test_pool().await;
+        let user = register(&pool, "user@example.com", "pass", None).await.unwrap();
+        let result = check_totp_code(&pool, &user.id, "123456").await.unwrap();
+        assert!(!result);
     }
 }
