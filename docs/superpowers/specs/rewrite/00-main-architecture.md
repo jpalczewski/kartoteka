@@ -274,6 +274,18 @@ CREATE TABLE template_tags (
     PRIMARY KEY (template_id, tag_id)
 );
 
+CREATE TABLE personal_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    token_hash TEXT NOT NULL,
+    name TEXT NOT NULL,
+    last_used_at TEXT,
+    expires_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+) STRICT;
+
+CREATE INDEX idx_personal_tokens_hash ON personal_tokens(token_hash);
+
 -- No separate preferences table — locale, timezone etc. stored in user_settings
 
 -- Indexes for hot query paths

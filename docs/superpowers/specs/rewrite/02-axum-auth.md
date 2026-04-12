@@ -52,14 +52,23 @@ This way `Require` middleware works unchanged — user is only "logged in" after
 
 Separate `admin_required` middleware layer (not inline check). Checks `user.role == "admin"`. Applied to server config routes.
 
-### Future: Bearer token auth
+### Personal bearer tokens
+
+`personal_tokens` table — user generates named tokens in settings page (e.g. "laptop", "automation script"). Token shown once on creation, stored as hash (sha256).
 
 Auth middleware resolution order:
-1. `Authorization: Bearer <token>` header → look up `personal_tokens`, verify hash, get user_id
+1. `Authorization: Bearer <token>` header → look up `personal_tokens` by hash → get user_id
 2. Session cookie → axum-login `AuthSession`
 3. Neither → 401
 
-This is NOT implemented in Plan 2 but the middleware architecture (Axum layers) allows inserting a bearer token check layer later without changing handlers.
+Axum middleware (`bearer_or_session`) checks Bearer header first, falls back to session. Handlers don't care which auth method was used — both resolve to `UserId`.
+
+Endpoints:
+- `POST /auth/tokens` — create token `{name, expires_at?}` → returns `{id, token, name}` (token shown once)
+- `GET /auth/tokens` — list tokens (id, name, last_used_at, expires_at — no token value)
+- `DELETE /auth/tokens/:id` — revoke
+
+Domain: `domain::auth::create_personal_token`, `domain::auth::validate_bearer_token` (verify hash, check expiry, update last_used_at).
 
 ### Future: iCal calendar tokens (#31)
 
