@@ -1,3 +1,5 @@
+pub mod rules;
+
 #[derive(Debug, thiserror::Error)]
 pub enum DomainError {
     #[error("not found: {0}")]
