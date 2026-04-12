@@ -261,6 +261,8 @@ pub async fn delete(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, 
     Ok(rows.rows_affected() > 0)
 }
 
+/// NOTE: target list ownership is NOT checked here — caller must verify that
+/// `target_list_id` belongs to `user_id` before calling this function.
 #[tracing::instrument(skip(pool))]
 pub async fn move_item(
     pool: &SqlitePool,

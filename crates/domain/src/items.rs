@@ -247,9 +247,7 @@ pub async fn by_date(
     date: &str,
 ) -> Result<Vec<Item>, DomainError> {
     let resolved = if date == "today" {
-        let tz_str = db::preferences::get_timezone(pool, user_id)
-            .await
-            .unwrap_or_else(|_| "UTC".to_string());
+        let tz_str = db::preferences::get_timezone(pool, user_id).await?;
         let tz: chrono_tz::Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
         chrono::Utc::now()
             .with_timezone(&tz)
