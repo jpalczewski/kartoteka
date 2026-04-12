@@ -1,11 +1,11 @@
-# Plan 2: Axum Skeleton + Auth — Design Spec
+# Auth — Design Spec
 
-Parent: `docs/superpowers/specs/rewrite/00-main-architecture.md`
-Depends on: Plan 1 (crates/db)
+Parent: `00-overview.md`
+Crate: `crates/auth/` (depends: shared, domain, axum-login, tower-sessions, argon2, totp-rs, jsonwebtoken)
 
 ## Goal
 
-Standalone Axum binary with auth system and REST API placeholders. No frontend — JSON-only endpoints, testable via curl. Deliverable: `crates/server` that can run on VPS.
+Auth crate with email+password login, TOTP 2FA, session management, unified JWT bearer tokens. JSON-only endpoints, testable via curl. REST API placeholders in `crates/server/`.
 
 ## Auth Architecture
 

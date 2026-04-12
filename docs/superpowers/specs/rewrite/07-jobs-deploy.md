@@ -1,7 +1,7 @@
-# Plan 5: Deploy & Infrastructure — Design Spec
+# Background Jobs + Deploy — Design Spec
 
-Parent: `docs/superpowers/specs/rewrite/00-main-architecture.md`
-Depends on: Plans 1-4
+Parent: `00-overview.md`
+Jobs crate: `crates/jobs/` (depends: shared, domain, apalis, apalis-sqlite, apalis-cron, reqwest)
 
 ## Goal
 

@@ -1,6 +1,6 @@
-# Plan 1 + 1a: DB Layer + Domain Layer — Design Spec
+# DB + Domain Layer — Design Spec
 
-Parent: `docs/superpowers/specs/rewrite/00-main-architecture.md`
+Parent: `00-overview.md` | Schema: `01-schema.md`
 
 ## Goal
 

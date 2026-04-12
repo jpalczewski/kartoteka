@@ -1,7 +1,7 @@
-# Plan 3: Frontend SSR — Design Spec
+# Frontend SSR — Design Spec
 
-Parent: `docs/superpowers/specs/rewrite/00-main-architecture.md`
-Depends on: Plan 1 (crates/db), Plan 2 (crates/server)
+Parent: `00-overview.md`
+Crate: `crates/frontend/` (depends: shared, i18n; SSR deps: domain, auth, axum, leptos_axum, sqlx)
 
 ## Goal
 
