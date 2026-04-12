@@ -254,8 +254,8 @@ Business logic separated from data access. All mutations go through domain::, re
 
 ### Boundary
 
-- **db::** — pure queries. INSERT/UPDATE/DELETE with user_id enforcement (defense in depth). Zero business logic.
-- **domain::** — validation, orchestration, transactions. Calls db:: for data access.
+- **db::** — pure queries. INSERT/UPDATE/DELETE with user_id enforcement (defense in depth). Zero business logic. Internal to domain:: — consumers never call db:: directly.
+- **domain::** — the ONLY entry point for all data access. Reads are thin pass-throughs (hook for future access control). Writes include validation, orchestration, transactions.
 
 ### Functions in domain::
 
@@ -274,12 +274,12 @@ Business logic separated from data access. All mutations go through domain::, re
 
 ### Consumers
 
-Server functions, REST handlers, and MCP tools all call domain:: for writes, db:: for reads:
+Server functions, REST handlers, and MCP tools always call domain:: — never db:: directly:
 
 ```
-GET  /api/lists      → db::lists::list_all (no logic)
-POST /api/lists      → domain::lists::create (validation + transaction)
-PUT  /api/lists/:id  → domain::lists::update (validation)
+GET  /api/lists      → domain::lists::list_all (pass-through, hook for future access control)
+POST /api/lists      → domain::lists::create   (validation + transaction)
+PUT  /api/lists/:id  → domain::lists::update   (validation)
 ```
 
 ### Workspace structure (updated)

@@ -28,14 +28,32 @@ Axum request (tokio task)
 
 Each phase uses appropriate resources and releases them as fast as possible.
 
-### Reads vs writes
+### All access through domain::
+
+Consumers (server functions, REST handlers, MCP tools) NEVER call db:: directly. All access goes through domain::. This ensures:
+- Centralized access control (even for reads)
+- Single point for future field filtering, audit logging, sharing rules
+- Consistent API — no "is this a read or write?" decision at call site
 
 ```
-GET  /api/lists      → db::lists::list_all          (direct, no domain needed)
-POST /api/lists      → domain::lists::create         (validation + features + transaction)
-PUT  /api/lists/:id  → domain::lists::update         (validation)
-PATCH /api/items/:id/move → domain::items::move_item (ownership + position + validation)
+GET  /api/lists           → domain::lists::list_all     (pass-through now, hook for future)
+POST /api/lists           → domain::lists::create        (validation + features + transaction)
+GET  /api/lists/:id       → domain::lists::get_one       (pass-through now)
+PUT  /api/lists/:id       → domain::lists::update         (validation)
+PATCH /api/items/:id/move → domain::items::move_item      (ownership + position + validation)
 ```
+
+Read functions in domain:: are thin pass-throughs today:
+
+```rust
+// domain/src/lists.rs
+pub async fn list_all(pool: &SqlitePool, user_id: &str) -> Result<Vec<List>, DomainError> {
+    // Future: access control, field filtering, audit logging
+    Ok(db::lists::list_all(pool, user_id).await?)
+}
+```
+
+One line now, but a single expansion point for access control later.
 
 ## crates/db
 
@@ -444,9 +462,9 @@ async fn insert_returning_gives_item_back() {
 ## Consumers
 
 ```
-crates/frontend/  server functions  → domain:: (writes) / db:: (reads)
-crates/server/    REST handlers     → domain:: (writes) / db:: (reads)
-crates/mcp/       MCP tools         → domain:: (writes) / db:: (reads)
+crates/frontend/  server functions  → domain::  (always)
+crates/server/    REST handlers     → domain::  (always)
+crates/mcp/       MCP tools         → domain::  (always)
 ```
 
-All three use the same domain:: layer. Business logic tested once, used everywhere.
+All three use the same domain:: layer. Business logic tested once, used everywhere. db:: is an internal implementation detail of domain:: — consumers never import it.
