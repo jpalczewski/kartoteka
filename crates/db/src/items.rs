@@ -266,7 +266,7 @@ pub async fn move_item(
     pool: &SqlitePool,
     id: &str,
     user_id: &str,
-    position: i64,
+    position: i32,
     target_list_id: Option<&str>,
 ) -> Result<bool, DbError> {
     let rows = sqlx::query(
