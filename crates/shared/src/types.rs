@@ -114,3 +114,43 @@ impl<'de> Deserialize<'de> for FlexDate {
         FlexDate::from_str(&s).map_err(serde::de::Error::custom)
     }
 }
+
+// --- sqlx integration (enabled via "sqlx" feature) ---
+
+#[cfg(feature = "sqlx")]
+mod sqlx_impl {
+    use super::FlexDate;
+    use sqlx::encode::IsNull;
+    use sqlx::error::BoxDynError;
+    use sqlx::sqlite::{SqliteArgumentValue, SqliteTypeInfo, SqliteValueRef};
+    use sqlx::{Decode, Encode, Sqlite, Type};
+    use std::str::FromStr;
+
+    impl Type<Sqlite> for FlexDate {
+        fn type_info() -> SqliteTypeInfo {
+            <String as Type<Sqlite>>::type_info()
+        }
+
+        fn compatible(ty: &SqliteTypeInfo) -> bool {
+            <String as Type<Sqlite>>::compatible(ty)
+        }
+    }
+
+    impl Encode<'_, Sqlite> for FlexDate {
+        fn encode_by_ref(
+            &self,
+            args: &mut Vec<SqliteArgumentValue<'_>>,
+        ) -> Result<IsNull, BoxDynError> {
+            let s = self.to_string();
+            args.push(SqliteArgumentValue::Text(s.into()));
+            Ok(IsNull::No)
+        }
+    }
+
+    impl Decode<'_, Sqlite> for FlexDate {
+        fn decode(value: SqliteValueRef<'_>) -> Result<Self, BoxDynError> {
+            let s = <String as Decode<Sqlite>>::decode(value)?;
+            FlexDate::from_str(&s).map_err(|e| e.into())
+        }
+    }
+}

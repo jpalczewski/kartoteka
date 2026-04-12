@@ -8,7 +8,7 @@ publish = false
 workspace = true
 
 [dependencies]
-kartoteka-shared = { path = "../shared" }
+kartoteka-shared = { path = "../shared", features = ["sqlx"] }
 sqlx.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
