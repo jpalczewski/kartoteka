@@ -10,3 +10,17 @@ workspace = true
 [dependencies]
 kartoteka-shared = { path = "../shared" }
 kartoteka-domain = { path = "../domain" }
+kartoteka-db = { path = "../db" }
+axum-login.workspace = true
+tower-sessions.workspace = true
+argon2.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+kartoteka-db = { path = "../db", features = ["test-helpers"] }
