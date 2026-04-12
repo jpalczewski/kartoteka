@@ -4,7 +4,7 @@ use crate::DbError;
 // ── Row types (internal to db crate) ────────────────────────────────────────
 
 #[derive(sqlx::FromRow)]
-pub(crate) struct ListRow {
+pub struct ListRow {
     pub id: String,
     pub user_id: String,
     pub name: String,
@@ -66,6 +66,8 @@ pub async fn list_all(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListRow>, 
     .map_err(DbError::Sqlx)
 }
 
+/// Returns all archived lists for the user, including archived sublists.
+/// Note: unlike `list_all`, this does not filter by parent_list_id IS NULL.
 #[tracing::instrument(skip(pool))]
 pub async fn list_archived(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListRow>, DbError> {
     sqlx::query_as::<_, ListRow>(&format!(
@@ -170,6 +172,7 @@ pub async fn get_create_item_context(
 
 // ── Write queries (called in transaction) ────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip(tx))]
 pub async fn insert(
     tx: &mut SqliteConnection,
