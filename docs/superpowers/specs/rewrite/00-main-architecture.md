@@ -262,6 +262,12 @@ CREATE TABLE template_items (
 
 CREATE INDEX idx_template_items_template ON template_items(template_id);
 
+CREATE TABLE template_tags (
+    template_id TEXT NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+    tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (template_id, tag_id)
+);
+
 -- No separate preferences table — locale, timezone etc. stored in user_settings
 
 -- Indexes for hot query paths
