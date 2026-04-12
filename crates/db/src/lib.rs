@@ -1,6 +1,7 @@
 use sqlx::SqlitePool;
 
 pub mod lists;
+#[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers;
 
 pub use kartoteka_shared::types::FlexDate;
