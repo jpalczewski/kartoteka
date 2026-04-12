@@ -8,6 +8,7 @@ pub mod home;
 pub mod items;
 pub mod lists;
 pub mod preferences;
+pub mod settings;
 pub mod tags;
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers;
