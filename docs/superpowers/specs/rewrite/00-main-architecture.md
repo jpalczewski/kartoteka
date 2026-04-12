@@ -164,6 +164,8 @@ CREATE TABLE tags (
     name TEXT NOT NULL,
     color TEXT,
     parent_tag_id TEXT REFERENCES tags(id),
+    tag_type TEXT NOT NULL DEFAULT 'tag',  -- 'tag', 'location', 'priority'
+    metadata TEXT,                          -- JSON, type-specific (see below)
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -252,6 +254,7 @@ CREATE INDEX idx_containers_user_id ON containers(user_id);
 CREATE INDEX idx_containers_pinned ON containers(user_id, pinned) WHERE pinned = 1;
 CREATE INDEX idx_auth_methods_user_provider ON auth_methods(user_id, provider);
 CREATE INDEX idx_tags_user_id ON tags(user_id);
+CREATE INDEX idx_tags_user_type ON tags(user_id, tag_type);
 
 -- OAuth state tables (for MCP OAuth provider)
 CREATE TABLE IF NOT EXISTS oauth_authorization_codes (

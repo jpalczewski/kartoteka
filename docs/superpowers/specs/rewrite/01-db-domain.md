@@ -246,7 +246,7 @@ crates/domain/src/
     mod.rs
     items.rs        — validate_features, should_auto_complete, validate_can_complete (blocker check)
     containers.rs   — validate_hierarchy, validate_move
-    tags.rs         — validate_merge, validate_parent (self-reference check)
+    tags.rs         — validate_merge, validate_parent, validate_exclusive_type (priority=single), validate_location_hierarchy (country→city→address)
     lists.rs        — validate_list_type_features
     auth.rs         — determine_role, validate_password_strength
 ```
