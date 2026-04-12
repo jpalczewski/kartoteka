@@ -27,10 +27,19 @@ impl AuthUser for KartotekaUser {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct LoginCredentials {
     pub email: String,
     pub password: String,
+}
+
+impl std::fmt::Debug for LoginCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoginCredentials")
+            .field("email", &self.email)
+            .field("password", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

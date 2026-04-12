@@ -58,6 +58,7 @@ pub async fn require_admin(auth_session: AuthSession, req: Request, next: Next) 
 }
 
 /// POST /auth/register
+#[tracing::instrument(skip(state, auth_session, req))]
 pub async fn register(
     State(state): State<AppState>,
     mut auth_session: AuthSession,
@@ -73,8 +74,14 @@ pub async fn register(
 
     // Auto-login after registration
     let creds = LoginCredentials { email: req.email, password: req.password };
-    if let Ok(Some(user)) = auth_session.authenticate(creds).await {
-        let _ = auth_session.login(&user).await;
+    match auth_session.authenticate(creds).await {
+        Ok(Some(user)) => {
+            if let Err(e) = auth_session.login(&user).await {
+                tracing::warn!("auto-login after registration failed: {e}");
+            }
+        }
+        Ok(None) => tracing::warn!("auto-login after registration: user not found immediately after creation"),
+        Err(e) => tracing::warn!("auto-login after registration: auth error: {e}"),
     }
 
     Ok((StatusCode::CREATED, Json(UserResponse {
@@ -86,6 +93,7 @@ pub async fn register(
 }
 
 /// POST /auth/login
+#[tracing::instrument(skip(auth_session, creds))]
 pub async fn login(
     mut auth_session: AuthSession,
     Json(creds): Json<LoginCredentials>,
@@ -112,26 +120,27 @@ pub async fn login(
 }
 
 /// POST /auth/logout
+#[tracing::instrument(skip(auth_session))]
 pub async fn logout(mut auth_session: AuthSession) -> impl IntoResponse {
     let _ = auth_session.logout().await;
     Json(serde_json::json!({"status": "ok"}))
 }
 
 /// GET /api/server-config (admin only)
+#[tracing::instrument(skip(state))]
 pub async fn get_server_config(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     let enabled = kartoteka_domain::auth::is_registration_enabled(&state.pool).await?;
     Ok(Json(serde_json::json!({"registration_enabled": enabled})))
 }
 
 /// PUT /api/server-config/{key} (admin only)
+#[tracing::instrument(skip(state, req))]
 pub async fn set_server_config(
     State(state): State<AppState>,
     Path(key): Path<String>,
     Json(req): Json<SetConfigValueRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    kartoteka_db::server_config::set(&state.pool, &key, &req.value)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    kartoteka_domain::auth::set_server_config(&state.pool, &key, &req.value).await?;
     Ok(Json(ConfigEntry { key, value: req.value }))
 }
 

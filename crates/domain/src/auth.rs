@@ -46,6 +46,13 @@ pub async fn verify_password(password: String, hash: String) -> Result<bool, Dom
     .map_err(|e| DomainError::Internal(format!("spawn_blocking: {e}")))?
 }
 
+/// Update a server configuration key.
+#[tracing::instrument(skip(pool))]
+pub async fn set_server_config(pool: &SqlitePool, key: &str, value: &str) -> Result<(), DomainError> {
+    kartoteka_db::server_config::set(pool, key, value).await?;
+    Ok(())
+}
+
 /// Check whether new registrations are currently allowed.
 /// Reads `registration_enabled` from server_config; defaults to true if key is missing.
 #[tracing::instrument(skip(pool))]
