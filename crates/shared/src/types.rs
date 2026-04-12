@@ -115,6 +115,74 @@ impl<'de> Deserialize<'de> for FlexDate {
     }
 }
 
+// =====================================================================
+// Rewrite domain types — new SQLite-based API
+// These live in shared::types (not shared:: root) to avoid conflict
+// with the Cloudflare Workers types in shared/src/lib.rs
+// =====================================================================
+
+/// Domain type for a container (folder or project).
+/// status = None → folder; status = Some("active"|"done"|"paused") → project.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Container {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    /// None = folder; Some("active"|"done"|"paused"|...) = project
+    pub status: Option<String>,
+    pub parent_container_id: Option<String>,
+    pub position: i32,
+    pub pinned: bool,
+    pub last_opened_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateContainerRequest {
+    pub name: String,
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    /// None = folder. Some("active") = project with status.
+    pub status: Option<String>,
+    pub parent_container_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateContainerRequest {
+    /// None = no change
+    pub name: Option<String>,
+    /// None = no change; Some(None) = clear; Some(Some(v)) = set
+    pub icon: Option<Option<String>>,
+    pub description: Option<Option<String>>,
+    pub status: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MoveContainerRequest {
+    /// None = move to root; Some(id) = move under that parent
+    pub parent_container_id: Option<String>,
+    /// None = append to end (server computes next_position)
+    pub position: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ContainerProgress {
+    pub total_lists: i64,
+    pub total_items: i64,
+    pub completed_items: i64,
+}
+
+/// Home page data (container-only in B1; B2 adds list fields).
+#[derive(Debug, Clone, Serialize)]
+pub struct HomeData {
+    pub pinned_containers: Vec<Container>,
+    pub recent_containers: Vec<Container>,
+    pub root_containers: Vec<Container>,
+}
+
 // --- sqlx integration (enabled via "sqlx" feature) ---
 
 #[cfg(feature = "sqlx")]
