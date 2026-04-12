@@ -2,6 +2,7 @@ pub mod error;
 pub mod extractors;
 pub mod items;
 pub mod lists;
+pub mod tags;
 pub mod routes;
 
 pub use error::AppError;
