@@ -47,11 +47,31 @@ dev:
     just dev-tunnel &
     wait
 
+# Tailwind 4 CSS compilation (watch mode)
+dev-tailwind:
+    npx @tailwindcss/cli -i crates/frontend-v2/style/input.css -o crates/frontend-v2/style/main.css --watch
+
+# SSR server: cargo-leptos hot reload
+dev-leptos:
+    OAUTH_SIGNING_SECRET="${OAUTH_SIGNING_SECRET:-dev-secret-min-32-chars-abcdefgh}" cargo leptos watch
+
+# Run SSR server + Tailwind CSS watcher together
+dev-ssr:
+    #!/usr/bin/env bash
+    trap 'kill 0' EXIT
+    just dev-tailwind &
+    just dev-leptos &
+    wait
+
 # === BUILD ===
 
 # Sprawdź kompilację workspace
 check:
     cargo check --workspace
+
+# Build check for SSR server (fast, no WASM)
+check-ssr:
+    cargo check -p kartoteka-server -p kartoteka-frontend-v2 --features ssr
 
 build: build-api build-frontend build-gateway
 
