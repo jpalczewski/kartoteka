@@ -624,6 +624,34 @@ Plans are sequential: 1+1a → 2 → 3 → 4 → 5. Plan 4 depends on Plan 3 (co
 - i18n: same FTL files, same PL/EN support
 - Data model: same tables, same relations
 
+## Performance
+
+### HTTP compression
+
+`tower_http::CompressionLayer` on the Axum router — automatic gzip/brotli on responses (HTML, JSON, CSS). Single layer, handles Accept-Encoding negotiation.
+
+### Static file caching
+
+cargo-leptos config:
+```toml
+hash-files = true                               # content-hashed filenames → immutable caching
+wasm-opt-features = ["-Oz", "--enable-bulk-memory"]  # WASM size optimization
+```
+
+Build: `cargo leptos build --release --precompress` — pre-generates .gz + .br files.
+
+Caddy config for static files:
+```
+@static path /pkg/*
+header @static Cache-Control "public, max-age=31536000, immutable"
+```
+
+Hashed filenames mean infinite cache — browser never re-downloads unchanged assets.
+
+### SQLite tuning
+
+See db-domain spec for full details. Key pragmas: WAL, mmap_size=256MB, busy_timeout=5000, synchronous=NORMAL.
+
 ## Security hardening (implement during relevant plans)
 
 - Rate limiting on `/auth/login`, `/auth/register`, `/oauth/register`, `/oauth/token` (tower-governor or custom middleware)

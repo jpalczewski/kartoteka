@@ -31,7 +31,11 @@ bin-features = ["ssr"]
 lib-features = ["hydrate"]
 assets-dir = "crates/frontend/public"
 style-file = "crates/frontend/style/main.css"
+hash-files = true
+wasm-opt-features = ["-Oz", "--enable-bulk-memory"]
 ```
+
+Build: `cargo leptos build --release --precompress` generates .gz + .br for all static assets. Hashed filenames enable immutable caching.
 
 ### Tailwind 4 + DaisyUI 5
 
