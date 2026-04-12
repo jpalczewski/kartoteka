@@ -1,4 +1,4 @@
-use crate::{types::ItemRow, DbError};
+use crate::{DbError, types::ItemRow};
 use sqlx::SqlitePool;
 
 // ── Input types ───────────────────────────────────────────────────────────────
@@ -231,11 +231,7 @@ pub async fn set_completed(pool: &SqlitePool, id: &str, completed: bool) -> Resu
 }
 
 #[tracing::instrument(skip(pool))]
-pub async fn toggle_complete(
-    pool: &SqlitePool,
-    id: &str,
-    user_id: &str,
-) -> Result<bool, DbError> {
+pub async fn toggle_complete(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, DbError> {
     let rows = sqlx::query(
         "UPDATE items SET completed = 1 - completed, updated_at = datetime('now') \
          WHERE id = ? AND list_id IN (SELECT id FROM lists WHERE user_id = ?)",

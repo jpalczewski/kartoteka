@@ -1,4 +1,4 @@
-use crate::{rules, DomainError};
+use crate::{DomainError, rules};
 use kartoteka_db as db;
 use kartoteka_shared::types::FlexDate;
 use serde::{Deserialize, Serialize};
@@ -110,7 +110,9 @@ pub async fn get_one(
     id: &str,
     user_id: &str,
 ) -> Result<Option<Item>, DomainError> {
-    Ok(db::items::get_one(pool, id, user_id).await?.map(row_to_item))
+    Ok(db::items::get_one(pool, id, user_id)
+        .await?
+        .map(row_to_item))
 }
 
 #[tracing::instrument(skip(pool))]
@@ -181,7 +183,10 @@ pub async fn update(
     if !found {
         return Ok(None);
     }
-    let item = match db::items::get_one(pool, id, user_id).await?.map(row_to_item) {
+    let item = match db::items::get_one(pool, id, user_id)
+        .await?
+        .map(row_to_item)
+    {
         Some(i) => i,
         None => return Ok(None),
     };
@@ -190,7 +195,9 @@ pub async fn update(
         if let (Some(actual), Some(qty)) = (item.actual_quantity, item.quantity) {
             if rules::items::should_auto_complete(actual, qty) {
                 db::items::set_completed(pool, id, true).await?;
-                return Ok(db::items::get_one(pool, id, user_id).await?.map(row_to_item));
+                return Ok(db::items::get_one(pool, id, user_id)
+                    .await?
+                    .map(row_to_item));
             }
         }
     }
@@ -212,7 +219,9 @@ pub async fn toggle_complete(
     if !found {
         return Ok(None);
     }
-    Ok(db::items::get_one(pool, id, user_id).await?.map(row_to_item))
+    Ok(db::items::get_one(pool, id, user_id)
+        .await?
+        .map(row_to_item))
 }
 
 #[tracing::instrument(skip(pool))]
@@ -237,7 +246,9 @@ pub async fn move_item(
     if !found {
         return Ok(None);
     }
-    Ok(db::items::get_one(pool, id, user_id).await?.map(row_to_item))
+    Ok(db::items::get_one(pool, id, user_id)
+        .await?
+        .map(row_to_item))
 }
 
 #[tracing::instrument(skip(pool))]
@@ -287,14 +298,12 @@ mod tests {
             .await
             .unwrap();
         for feature in features {
-            sqlx::query(
-                "INSERT INTO list_features (list_id, feature_name) VALUES (?, ?)",
-            )
-            .bind(&list_id)
-            .bind(feature)
-            .execute(pool)
-            .await
-            .unwrap();
+            sqlx::query("INSERT INTO list_features (list_id, feature_name) VALUES (?, ?)")
+                .bind(&list_id)
+                .bind(feature)
+                .execute(pool)
+                .await
+                .unwrap();
         }
         list_id
     }
@@ -375,9 +384,7 @@ mod tests {
             ..basic_req("Deadline item")
         };
 
-        let err = create(&pool, &user_id, &list_id, &req)
-            .await
-            .unwrap_err();
+        let err = create(&pool, &user_id, &list_id, &req).await.unwrap_err();
 
         assert!(matches!(err, DomainError::FeatureRequired("deadlines")));
     }
@@ -409,9 +416,7 @@ mod tests {
             ..basic_req("Qty item")
         };
 
-        let err = create(&pool, &user_id, &list_id, &req)
-            .await
-            .unwrap_err();
+        let err = create(&pool, &user_id, &list_id, &req).await.unwrap_err();
 
         assert!(matches!(err, DomainError::FeatureRequired("quantity")));
     }

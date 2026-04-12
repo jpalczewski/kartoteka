@@ -30,6 +30,10 @@ async fn main() {
 
     let signing_secret = std::env::var("OAUTH_SIGNING_SECRET")
         .expect("OAUTH_SIGNING_SECRET env var must be set (min 32 chars, random)");
+    assert!(
+        signing_secret.len() >= 32,
+        "OAUTH_SIGNING_SECRET must be at least 32 characters"
+    );
 
     let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".into());
     let app = kartoteka_server::router(pool, auth_layer, signing_secret);
