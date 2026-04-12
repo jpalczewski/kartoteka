@@ -35,9 +35,13 @@ Claude Code → POST /mcp → 401
   → POST /mcp (Bearer: access_token) → tools work
 ```
 
-## MCP Tools (9 — 5 existing + add_comment + 3 relations)
+## MCP Tools (13 — 5 existing + add_comment + 3 relations + 4 time tracking)
 
-5 existing + `add_comment` + 3 relation tools (`add_relation`, `remove_relation`, `get_relations`). All call `domain::` (never db:: directly). Comments support items/lists/containers with `author_type: "assistant"` and optional persona name. Relations support `blocks` (semantic: prevents completion) and `relates_to` (informational) between any entity types.
+5 existing + `add_comment` + 3 relation tools + 4 time tracking tools. All call `domain::` (never db:: directly).
+
+- **Comments:** items/lists/containers with `author_type: "assistant"` and optional persona name
+- **Relations:** `blocks` (semantic: prevents completion) and `relates_to` (informational) between any entity types
+- **Time tracking:** `start_timer` (auto-stops previous), `stop_timer`, `log_time` (retrospective entry, with or without item_id), `get_time_summary` (per item/list/day)
 
 ```rust
 pub struct KartotekaTools {
@@ -69,7 +73,8 @@ impl KartotekaTools {
     }
 
     // create_item, update_item, search_items, add_comment,
-    // add_relation, remove_relation, get_relations — same pattern
+    // add_relation, remove_relation, get_relations,
+    // start_timer, stop_timer, log_time, get_time_summary — same pattern
 }
 
 fn extract_user_id(parts: &http::request::Parts) -> Result<String, McpError> {

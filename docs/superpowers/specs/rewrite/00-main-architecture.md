@@ -153,6 +153,7 @@ CREATE TABLE items (
     deadline TEXT,
     deadline_time TEXT,
     hard_deadline TEXT,
+    estimated_duration INTEGER,    -- minutes (#47)
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -221,6 +222,22 @@ CREATE TABLE entity_relations (
 
 CREATE INDEX idx_relations_from ON entity_relations(from_type, from_id);
 CREATE INDEX idx_relations_to ON entity_relations(to_type, to_id);
+
+CREATE TABLE time_entries (
+    id TEXT PRIMARY KEY,
+    item_id TEXT REFERENCES items(id) ON DELETE SET NULL,  -- NULL = inbox (unassigned)
+    user_id TEXT NOT NULL REFERENCES users(id),
+    description TEXT,              -- what was done (for inbox/unassigned entries)
+    started_at TEXT NOT NULL,
+    ended_at TEXT,                 -- NULL = running timer
+    duration INTEGER,              -- minutes, for manual entries without start/end
+    source TEXT NOT NULL,          -- 'timer', 'manual', 'api', 'import'
+    mode TEXT,                     -- 'pomodoro', 'stopwatch' (only for timer source)
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+) STRICT;
+
+CREATE INDEX idx_time_entries_item ON time_entries(item_id) WHERE item_id IS NOT NULL;
+CREATE INDEX idx_time_entries_user_unassigned ON time_entries(user_id) WHERE item_id IS NULL;
 
 -- No separate preferences table — locale, timezone etc. stored in user_settings
 
