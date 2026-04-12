@@ -88,11 +88,16 @@ pub async fn get_one(
 
 /// Returns IDs of all ancestors of `tag_id`, walking up via parent_tag_id.
 /// Empty vec if tag has no parent. Used for cycle detection before re-parenting.
+/// Only traverses tags belonging to `user_id` (anchor filter prevents cross-user graph leakage).
 #[tracing::instrument(skip(pool))]
-pub async fn get_ancestors(pool: &SqlitePool, tag_id: &str) -> Result<Vec<String>, DbError> {
+pub async fn get_ancestors(
+    pool: &SqlitePool,
+    tag_id: &str,
+    user_id: &str,
+) -> Result<Vec<String>, DbError> {
     let rows: Vec<(String,)> = sqlx::query_as(
         "WITH RECURSIVE anc(id) AS (\
-            SELECT parent_tag_id FROM tags WHERE id = ? \
+            SELECT parent_tag_id FROM tags WHERE id = ? AND user_id = ? \
             UNION ALL \
             SELECT t.parent_tag_id FROM tags t INNER JOIN anc ON t.id = anc.id \
             WHERE anc.id IS NOT NULL \
@@ -100,6 +105,7 @@ pub async fn get_ancestors(pool: &SqlitePool, tag_id: &str) -> Result<Vec<String
          SELECT id FROM anc WHERE id IS NOT NULL",
     )
     .bind(tag_id)
+    .bind(user_id)
     .fetch_all(pool)
     .await
     .map_err(DbError::Sqlx)?;
@@ -586,12 +592,12 @@ mod tests {
         let city = insert_tag(&pool, &uid, "Warsaw", Some(&country.id), "city").await;
         let addr = insert_tag(&pool, &uid, "Main St", Some(&city.id), "address").await;
 
-        let ancestors = get_ancestors(&pool, &addr.id).await.unwrap();
+        let ancestors = get_ancestors(&pool, &addr.id, &uid).await.unwrap();
         assert_eq!(ancestors.len(), 2);
         assert!(ancestors.contains(&city.id));
         assert!(ancestors.contains(&country.id));
 
-        assert!(get_ancestors(&pool, &country.id).await.unwrap().is_empty());
+        assert!(get_ancestors(&pool, &country.id, &uid).await.unwrap().is_empty());
     }
 
     #[tokio::test]

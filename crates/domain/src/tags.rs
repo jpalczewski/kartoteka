@@ -148,7 +148,7 @@ pub async fn update(
     match &req.parent_tag_id {
         Some(Some(new_parent_id)) => {
             // Cycle detection
-            let ancestors = db::tags::get_ancestors(pool, new_parent_id).await?;
+            let ancestors = db::tags::get_ancestors(pool, new_parent_id, user_id).await?;
             rules::tags::validate_parent(id, new_parent_id, &ancestors)?;
             // Location hierarchy with new parent
             let parent = db::tags::get_one(pool, new_parent_id, user_id)
