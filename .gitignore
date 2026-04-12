@@ -6,6 +6,7 @@
 crates/frontend/dist/
 crates/frontend/hanko-init.js
 crates/frontend/style/main.css
+crates/frontend-v2/style/main.css
 crates/frontend/node_modules/
 crates/frontend/package-lock.json
 
