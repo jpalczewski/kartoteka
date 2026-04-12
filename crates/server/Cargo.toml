@@ -19,7 +19,10 @@ kartoteka-auth = { path = "../auth" }
 kartoteka-mcp = { path = "../mcp" }
 kartoteka-oauth = { path = "../oauth" }
 kartoteka-jobs = { path = "../jobs" }
-kartoteka-frontend-v2 = { path = "../frontend-v2" }
+kartoteka-frontend-v2 = { path = "../frontend-v2", features = ["ssr"] }
+leptos = { workspace = true, features = ["ssr"] }
+leptos_axum = { workspace = true }
+axum-macros = { workspace = true }
 axum.workspace = true
 tokio.workspace = true
 serde.workspace = true

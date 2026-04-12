@@ -35,8 +35,10 @@ async fn main() {
         "OAUTH_SIGNING_SECRET must be at least 32 characters"
     );
 
-    let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".into());
-    let app = kartoteka_server::router(pool, auth_layer, signing_secret);
+    let conf = leptos::config::get_configuration(None).unwrap();
+    let leptos_options = conf.leptos_options;
+    let bind_addr = leptos_options.site_addr.to_string();
+    let app = kartoteka_server::router(pool, auth_layer, signing_secret, leptos_options);
 
     tracing::info!("listening on {bind_addr}");
     let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();
