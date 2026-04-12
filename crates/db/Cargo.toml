@@ -11,13 +11,14 @@ workspace = true
 test-helpers = []
 
 [dependencies]
-kartoteka-shared = { path = "../shared" }
+kartoteka-shared = { path = "../shared", features = ["sqlx"] }
 sqlx.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 serde_json.workspace = true
+tokio = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]
 tokio.workspace = true

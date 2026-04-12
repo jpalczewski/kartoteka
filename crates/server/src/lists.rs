@@ -47,7 +47,7 @@ async fn get_one(
     kartoteka_domain::lists::get_one(&state.pool, &id, &uid)
         .await?
         .map(Json)
-        .ok_or(AppError::NotFound)
+        .ok_or(AppError::NotFound("list"))
 }
 
 async fn sublists(
@@ -77,7 +77,7 @@ async fn update(
     kartoteka_domain::lists::update(&state.pool, &id, &uid, &req)
         .await?
         .map(Json)
-        .ok_or(AppError::NotFound)
+        .ok_or(AppError::NotFound("list"))
 }
 
 async fn delete_list(
@@ -89,7 +89,7 @@ async fn delete_list(
     if deleted {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(AppError::NotFound)
+        Err(AppError::NotFound("list"))
     }
 }
 
@@ -101,7 +101,7 @@ async fn toggle_archive(
     kartoteka_domain::lists::toggle_archive(&state.pool, &id, &uid)
         .await?
         .map(Json)
-        .ok_or(AppError::NotFound)
+        .ok_or(AppError::NotFound("list"))
 }
 
 async fn toggle_pin(
@@ -112,7 +112,7 @@ async fn toggle_pin(
     kartoteka_domain::lists::toggle_pin(&state.pool, &id, &uid)
         .await?
         .map(Json)
-        .ok_or(AppError::NotFound)
+        .ok_or(AppError::NotFound("list"))
 }
 
 async fn reset(
@@ -133,7 +133,7 @@ async fn move_list(
     kartoteka_domain::lists::move_list(&state.pool, &id, &uid, &req)
         .await?
         .map(Json)
-        .ok_or(AppError::NotFound)
+        .ok_or(AppError::NotFound("list"))
 }
 
 async fn set_features(
@@ -145,5 +145,5 @@ async fn set_features(
     kartoteka_domain::lists::set_features(&state.pool, &id, &uid, &req)
         .await?
         .map(Json)
-        .ok_or(AppError::NotFound)
+        .ok_or(AppError::NotFound("list"))
 }

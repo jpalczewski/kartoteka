@@ -1,6 +1,3 @@
-use axum::Router;
-use kartoteka_server::{AppState, api_router};
-
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -21,11 +18,10 @@ async fn main() {
         .await
         .expect("migrations");
 
-    let state = AppState { pool };
-    let app = Router::new().nest("/api", api_router()).with_state(state);
+    let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".into());
+    let app = kartoteka_server::router(pool);
 
-    let addr = "0.0.0.0:3000";
-    tracing::info!("listening on {addr}");
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    tracing::info!("listening on {bind_addr}");
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }

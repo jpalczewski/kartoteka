@@ -20,11 +20,11 @@ kartoteka-mcp = { path = "../mcp" }
 kartoteka-oauth = { path = "../oauth" }
 kartoteka-jobs = { path = "../jobs" }
 kartoteka-frontend-v2 = { path = "../frontend-v2" }
-axum = "0.8"
-sqlx.workspace = true
-serde = { version = "1", features = ["derive"] }
-serde_json.workspace = true
+axum.workspace = true
 tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
 tracing.workspace = true
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber.workspace = true
 thiserror.workspace = true

@@ -57,3 +57,48 @@ fn is_fuzzy() {
     assert!(week.is_fuzzy());
     assert!(month.is_fuzzy());
 }
+
+#[test]
+fn matches_day_exact() {
+    let d = FlexDate::Day(NaiveDate::from_ymd_opt(2026, 5, 15).unwrap());
+    assert!(d.matches_day(NaiveDate::from_ymd_opt(2026, 5, 15).unwrap()));
+    assert!(!d.matches_day(NaiveDate::from_ymd_opt(2026, 5, 16).unwrap()));
+}
+
+#[test]
+fn matches_day_week_range() {
+    let w = FlexDate::Week(2026, 20);
+    let start = w.start();
+    let end = w.end();
+    assert!(w.matches_day(start));
+    assert!(w.matches_day(end));
+    assert!(!w.matches_day(start - chrono::Duration::days(1)));
+}
+
+#[test]
+fn display_formats() {
+    let d = FlexDate::Day(NaiveDate::from_ymd_opt(2026, 5, 15).unwrap());
+    assert_eq!(d.to_string(), "2026-05-15");
+    let w = FlexDate::Week(2026, 5);
+    assert_eq!(w.to_string(), "2026-W05");
+    let m = FlexDate::Month(2026, 5);
+    assert_eq!(m.to_string(), "2026-05");
+}
+
+#[test]
+fn parse_from_str() {
+    use std::str::FromStr;
+    assert_eq!(
+        FlexDate::from_str("2026-05-15").unwrap(),
+        FlexDate::Day(NaiveDate::from_ymd_opt(2026, 5, 15).unwrap())
+    );
+    assert_eq!(
+        FlexDate::from_str("2026-W20").unwrap(),
+        FlexDate::Week(2026, 20)
+    );
+    assert_eq!(
+        FlexDate::from_str("2026-05").unwrap(),
+        FlexDate::Month(2026, 5)
+    );
+    assert!(FlexDate::from_str("invalid").is_err());
+}
