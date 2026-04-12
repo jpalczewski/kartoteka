@@ -96,7 +96,9 @@ impl FromStr for FlexDate {
         } else if s.len() == 7 && s.as_bytes()[4] == b'-' {
             let parts: Vec<&str> = s.split('-').collect();
             let year: u16 = parts[0].parse().map_err(|e| format!("invalid year: {e}"))?;
-            let month: u8 = parts[1].parse().map_err(|e| format!("invalid month: {e}"))?;
+            let month: u8 = parts[1]
+                .parse()
+                .map_err(|e| format!("invalid month: {e}"))?;
             Ok(FlexDate::Month(year, month))
         } else {
             Err(format!("unrecognized date format: {s}"))

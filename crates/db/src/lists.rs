@@ -1,5 +1,5 @@
-use sqlx::{SqliteConnection, SqlitePool};
 use crate::DbError;
+use sqlx::{SqliteConnection, SqlitePool};
 
 // ── Row types (internal to db crate) ────────────────────────────────────────
 
@@ -83,7 +83,11 @@ pub async fn list_archived(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListR
 }
 
 #[tracing::instrument(skip(pool))]
-pub async fn get_one(pool: &SqlitePool, id: &str, user_id: &str) -> Result<Option<ListRow>, DbError> {
+pub async fn get_one(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+) -> Result<Option<ListRow>, DbError> {
     sqlx::query_as::<_, ListRow>(&format!(
         "SELECT l.*, {} FROM lists l WHERE l.id = ? AND l.user_id = ?",
         FEATURES_SUBQUERY
@@ -96,7 +100,11 @@ pub async fn get_one(pool: &SqlitePool, id: &str, user_id: &str) -> Result<Optio
 }
 
 #[tracing::instrument(skip(pool))]
-pub async fn sublists(pool: &SqlitePool, parent_id: &str, user_id: &str) -> Result<Vec<ListRow>, DbError> {
+pub async fn sublists(
+    pool: &SqlitePool,
+    parent_id: &str,
+    user_id: &str,
+) -> Result<Vec<ListRow>, DbError> {
     sqlx::query_as::<_, ListRow>(&format!(
         "SELECT l.*, {} FROM lists l \
          WHERE l.parent_list_id = ? AND l.user_id = ? \
@@ -120,7 +128,7 @@ pub async fn next_position(
 ) -> Result<i64, DbError> {
     let row: (i64,) = sqlx::query_as(
         "SELECT COALESCE(MAX(position) + 1, 0) FROM lists \
-         WHERE user_id = ? AND container_id IS ? AND parent_list_id IS ?"
+         WHERE user_id = ? AND container_id IS ? AND parent_list_id IS ?",
     )
     .bind(user_id)
     .bind(container_id)
@@ -150,7 +158,7 @@ pub async fn get_create_item_context(
          FROM lists l \
          LEFT JOIN items i ON i.list_id = l.id \
          WHERE l.id = ? AND l.user_id = ? \
-         GROUP BY l.id"
+         GROUP BY l.id",
     )
     .bind(list_id)
     .bind(user_id)
@@ -189,7 +197,7 @@ pub async fn insert(
     sqlx::query(
         "INSERT INTO lists (id, user_id, name, icon, description, list_type, \
                             container_id, parent_list_id, position) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(id)
     .bind(user_id)
@@ -221,7 +229,7 @@ pub async fn replace_features(
 
     for feature in features {
         sqlx::query(
-            "INSERT INTO list_features (list_id, feature_name, config) VALUES (?, ?, '{}')"
+            "INSERT INTO list_features (list_id, feature_name, config) VALUES (?, ?, '{}')",
         )
         .bind(list_id)
         .bind(feature)
@@ -251,7 +259,7 @@ pub async fn update(
              description = CASE WHEN ? = 1 THEN ? ELSE description END, \
              list_type = COALESCE(?, list_type), \
              updated_at = datetime('now') \
-         WHERE id = ? AND user_id = ?"
+         WHERE id = ? AND user_id = ?",
     )
     .bind(name)
     .bind(icon.is_some() as i32)
@@ -283,7 +291,7 @@ pub async fn toggle_archived(pool: &SqlitePool, id: &str, user_id: &str) -> Resu
     let rows = sqlx::query(
         "UPDATE lists SET archived = CASE WHEN archived = 0 THEN 1 ELSE 0 END, \
                           updated_at = datetime('now') \
-         WHERE id = ? AND user_id = ?"
+         WHERE id = ? AND user_id = ?",
     )
     .bind(id)
     .bind(user_id)
@@ -298,7 +306,7 @@ pub async fn toggle_pinned(pool: &SqlitePool, id: &str, user_id: &str) -> Result
     let rows = sqlx::query(
         "UPDATE lists SET pinned = CASE WHEN pinned = 0 THEN 1 ELSE 0 END, \
                           updated_at = datetime('now') \
-         WHERE id = ? AND user_id = ?"
+         WHERE id = ? AND user_id = ?",
     )
     .bind(id)
     .bind(user_id)
@@ -331,7 +339,7 @@ pub async fn move_list(
     let rows = sqlx::query(
         "UPDATE lists SET position = ?, container_id = ?, parent_list_id = ?, \
                           updated_at = datetime('now') \
-         WHERE id = ? AND user_id = ?"
+         WHERE id = ? AND user_id = ?",
     )
     .bind(position)
     .bind(container_id)
@@ -354,9 +362,20 @@ mod tests {
     async fn insert_test_list(pool: &SqlitePool, user_id: &str, name: &str) -> String {
         let id = uuid::Uuid::new_v4().to_string();
         let mut tx = pool.begin().await.unwrap();
-        insert(&mut tx, &id, user_id, 0, name, None, None, "checklist", None, None)
-            .await
-            .unwrap();
+        insert(
+            &mut tx,
+            &id,
+            user_id,
+            0,
+            name,
+            None,
+            None,
+            "checklist",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
         tx.commit().await.unwrap();
         id
     }
@@ -414,7 +433,8 @@ mod tests {
         let row = get_one(&pool, &id, &user_id).await.unwrap().unwrap();
         let features: Vec<serde_json::Value> = serde_json::from_str(&row.features_json).unwrap();
         assert_eq!(features.len(), 2);
-        let names: Vec<&str> = features.iter()
+        let names: Vec<&str> = features
+            .iter()
             .map(|f| f["feature_name"].as_str().unwrap())
             .collect();
         assert!(names.contains(&"deadlines"));
@@ -443,10 +463,15 @@ mod tests {
         let id = insert_test_list(&pool, &user_id, "Empty List").await;
 
         let mut tx = pool.begin().await.unwrap();
-        replace_features(&mut tx, &id, &["deadlines".into()]).await.unwrap();
+        replace_features(&mut tx, &id, &["deadlines".into()])
+            .await
+            .unwrap();
         tx.commit().await.unwrap();
 
-        let ctx = get_create_item_context(&pool, &id, &user_id).await.unwrap().unwrap();
+        let ctx = get_create_item_context(&pool, &id, &user_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(ctx.next_position, 0);
         assert_eq!(ctx.features, vec!["deadlines"]);
     }

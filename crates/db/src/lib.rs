@@ -15,7 +15,9 @@ pub enum DbError {
 }
 
 pub async fn create_pool(url: &str) -> Result<SqlitePool, DbError> {
-    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
+    use sqlx::sqlite::{
+        SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous,
+    };
     use std::str::FromStr;
 
     let options = SqliteConnectOptions::from_str(url)?
@@ -29,8 +31,12 @@ pub async fn create_pool(url: &str) -> Result<SqlitePool, DbError> {
         .min_connections(2)
         .after_connect(|conn, _meta| {
             Box::pin(async move {
-                sqlx::query("PRAGMA busy_timeout = 5000").execute(&mut *conn).await?;
-                sqlx::query("PRAGMA mmap_size = 268435456").execute(&mut *conn).await?;
+                sqlx::query("PRAGMA busy_timeout = 5000")
+                    .execute(&mut *conn)
+                    .await?;
+                sqlx::query("PRAGMA mmap_size = 268435456")
+                    .execute(&mut *conn)
+                    .await?;
                 Ok(())
             })
         })

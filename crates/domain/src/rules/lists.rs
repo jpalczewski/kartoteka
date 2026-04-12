@@ -44,7 +44,9 @@ mod tests {
 
     #[test]
     fn checklist_allows_any_features() {
-        assert!(validate_list_type_features("checklist", &features(&["deadlines", "quantity"])).is_ok());
+        assert!(
+            validate_list_type_features("checklist", &features(&["deadlines", "quantity"])).is_ok()
+        );
     }
 
     #[test]
@@ -55,7 +57,10 @@ mod tests {
     #[test]
     fn shopping_requires_quantity() {
         let err = validate_list_type_features("shopping", &[]).unwrap_err();
-        assert!(matches!(err, DomainError::Validation("shopping_lists_require_quantity")));
+        assert!(matches!(
+            err,
+            DomainError::Validation("shopping_lists_require_quantity")
+        ));
     }
 
     #[test]
@@ -65,13 +70,18 @@ mod tests {
 
     #[test]
     fn shopping_ok_with_quantity_and_more() {
-        assert!(validate_list_type_features("shopping", &features(&["quantity", "deadlines"])).is_ok());
+        assert!(
+            validate_list_type_features("shopping", &features(&["quantity", "deadlines"])).is_ok()
+        );
     }
 
     #[test]
     fn habits_requires_deadlines() {
         let err = validate_list_type_features("habits", &[]).unwrap_err();
-        assert!(matches!(err, DomainError::Validation("habits_lists_require_deadlines")));
+        assert!(matches!(
+            err,
+            DomainError::Validation("habits_lists_require_deadlines")
+        ));
     }
 
     #[test]
