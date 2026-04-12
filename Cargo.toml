@@ -41,6 +41,30 @@ async-trait = "0.1"
 tower = { version = "0.5", features = ["util"] }
 totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
 jsonwebtoken = "9"
+leptos = { version = "0.8", default-features = false }
+leptos_router = { version = "0.8", default-features = false }
+leptos_meta = { version = "0.8" }
+leptos_axum = { version = "0.8" }
+leptos-fluent = { version = "0.2" }
+wasm-bindgen = { version = "0.2" }
+web-sys = { version = "0.3" }
+console_error_panic_hook = { version = "0.1" }
+axum-macros = { version = "0.4" }
+
+[[workspace.metadata.leptos]]
+name = "kartoteka"
+bin-package = "kartoteka-server"
+lib-package = "kartoteka-frontend-v2"
+site-root = "target/site"
+site-pkg-dir = "pkg"
+site-addr = "127.0.0.1:3000"
+reload-port = 3001
+bin-features = ["ssr"]
+lib-features = ["hydrate"]
+assets-dir = "crates/frontend-v2/public"
+style-file = "crates/frontend-v2/style/main.css"
+hash-files = true
+wasm-opt-features = ["-Oz", "--enable-bulk-memory"]
 
 [workspace.lints.clippy]
 correctness = { level = "deny", priority = -1 }
