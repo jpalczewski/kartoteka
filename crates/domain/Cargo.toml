@@ -11,3 +11,11 @@ workspace = true
 kartoteka-shared = { path = "../shared" }
 kartoteka-db = { path = "../db" }
 thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+kartoteka-db = { path = "../db", features = ["test-helpers"] }
