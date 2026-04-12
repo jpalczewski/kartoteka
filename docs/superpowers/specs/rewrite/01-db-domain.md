@@ -1,6 +1,6 @@
 # Plan 1 + 1a: DB Layer + Domain Layer — Design Spec
 
-Parent: `docs/superpowers/specs/rewrite/2026-04-12-cloudflare-exit-v2-design.md`
+Parent: `docs/superpowers/specs/rewrite/00-main-architecture.md`
 
 ## Goal
 

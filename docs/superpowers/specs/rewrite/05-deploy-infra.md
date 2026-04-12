@@ -1,6 +1,6 @@
 # Plan 5: Deploy & Infrastructure — Design Spec
 
-Parent: `docs/superpowers/specs/rewrite/2026-04-12-cloudflare-exit-v2-design.md`
+Parent: `docs/superpowers/specs/rewrite/00-main-architecture.md`
 Depends on: Plans 1-4
 
 ## Goal

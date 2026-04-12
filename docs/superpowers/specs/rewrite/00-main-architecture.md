@@ -657,7 +657,7 @@ Plans are sequential: 1+1a → 2 → 3 → 4 → 5. Plan 4 depends on Plan 3 (co
 
 ## Performance, Background Jobs, Security
 
-See Plan 5 spec: `docs/superpowers/specs/rewrite/2026-04-12-deploy-infra-design.md`
+See Plan 5 spec: `docs/superpowers/specs/rewrite/05-deploy-infra.md`
 
 Key points:
 - HTTP compression (CompressionLayer), static file caching (hash-files + precompress)
