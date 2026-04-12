@@ -4,8 +4,55 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [lints]
 workspace = true
 
 [dependencies]
 kartoteka-shared = { path = "../shared" }
+kartoteka-i18n = { path = "../i18n" }
+leptos = { workspace = true }
+leptos_router = { workspace = true }
+leptos_meta = { workspace = true, optional = true }
+leptos-fluent = { workspace = true }
+serde = { workspace = true }
+serde_json = "1"
+chrono = { workspace = true }
+
+# Hydrate-only (compiled to WASM)
+wasm-bindgen = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true, features = [
+    "Storage", "Window", "Navigator", "Clipboard", "Location",
+] }
+console_error_panic_hook = { workspace = true, optional = true }
+
+# SSR-only (native, runs on server)
+leptos_axum = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+axum-login = { workspace = true, optional = true }
+sqlx = { workspace = true, optional = true }
+kartoteka-domain = { path = "../domain", optional = true }
+
+[features]
+default = []
+hydrate = [
+    "leptos/hydrate",
+    "leptos-fluent/hydrate",
+    "dep:wasm-bindgen",
+    "dep:web-sys",
+    "dep:console_error_panic_hook",
+]
+ssr = [
+    "leptos/ssr",
+    "leptos-fluent/ssr",
+    "leptos-fluent/axum",
+    "dep:leptos_meta",
+    "leptos_meta/ssr",
+    "dep:leptos_axum",
+    "dep:axum",
+    "dep:axum-login",
+    "dep:sqlx",
+    "dep:kartoteka-domain",
+]
