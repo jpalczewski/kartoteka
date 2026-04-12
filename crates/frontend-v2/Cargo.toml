@@ -1,0 +1,11 @@
+[package]
+name = "kartoteka-frontend-v2"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+kartoteka-shared = { path = "../shared" }

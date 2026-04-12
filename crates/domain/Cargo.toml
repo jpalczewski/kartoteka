@@ -1,0 +1,13 @@
+[package]
+name = "kartoteka-domain"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+kartoteka-shared = { path = "../shared" }
+kartoteka-db = { path = "../db" }
+thiserror.workspace = true
