@@ -3,6 +3,7 @@ pub mod home;
 pub mod items;
 pub mod lists;
 pub mod rules;
+pub mod tags;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DomainError {
