@@ -2,7 +2,9 @@ pub mod containers;
 pub mod home;
 pub mod items;
 pub mod lists;
+pub mod preferences;
 pub mod rules;
+pub mod settings;
 pub mod tags;
 
 #[derive(Debug, thiserror::Error)]
