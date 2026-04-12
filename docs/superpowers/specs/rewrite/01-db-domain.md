@@ -99,9 +99,37 @@ SqlitePoolOptions::new()
 - `datetime('now')` — server-side timestamps
 - `ON CONFLICT ... DO UPDATE` — upserts
 
-### chrono types
+### FlexDate type (chrono-based with fuzzy precision)
 
-Date fields use `chrono::NaiveDate` / `chrono::NaiveTime` instead of `Option<String>`. sqlx with `features = ["chrono"]` maps SQLite TEXT ↔ chrono natively.
+Date fields use `FlexDate` enum instead of `Option<String>` (#51):
+
+```rust
+// shared/src/types.rs
+pub enum FlexDate {
+    Day(chrono::NaiveDate),    // "2026-05-15"
+    Week(u16, u8),             // (2026, 20) → "2026-W20" (ISO week)
+    Month(u16, u8),            // (2026, 5) → "2026-05"
+}
+```
+
+SQLite storage: TEXT column. Format detection: 10 chars = day, 8 chars `YYYY-Wnn` = week, 7 chars `YYYY-MM` = month. Custom sqlx `Encode`/`Decode` (~30 LOC).
+
+chrono integration — `FlexDate` wraps chrono, not replaces it:
+
+```rust
+impl FlexDate {
+    pub fn start(&self) -> NaiveDate { /* first day of period */ }
+    pub fn end(&self) -> NaiveDate { /* last day of period */ }
+    pub fn is_fuzzy(&self) -> bool { !matches!(self, FlexDate::Day(_)) }
+    pub fn matches_day(&self, day: NaiveDate) -> bool { /* exact for Day, range for Week/Month */ }
+}
+```
+
+Sorting, comparisons, timezone conversion — all through chrono via `start()`/`end()`.
+
+Time fields (`start_time`, `deadline_time`) remain `Option<chrono::NaiveTime>` — times require precise dates.
+
+Serde: serializes to ISO 8601 string ("2026-05-15", "2026-W20", "2026-05"). Compatible with current JSON API for day-level dates.
 
 ### Context queries
 

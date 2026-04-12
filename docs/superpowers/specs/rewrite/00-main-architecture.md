@@ -273,7 +273,7 @@ pub async fn list_all(pool: &SqlitePool, user_id: &str) -> Result<Vec<List>> {
 
 Queries extracted 1:1 from current `crates/api/src/handlers/`. Same logic, different access layer (sqlx instead of D1 bindings). `bool_from_number` deserializer gone — sqlx maps INTEGER to bool natively.
 
-Date fields (`start_date`, `deadline`, `hard_deadline`, etc.) use `chrono::NaiveDate` / `chrono::NaiveTime` instead of `Option<String>`. sqlx with `features = ["chrono"]` maps SQLite TEXT ↔ chrono types natively. Serde serializes `NaiveDate` as `"2026-04-12"` — identical JSON format, but type-safe.
+Date fields (`start_date`, `deadline`, `hard_deadline`) use `FlexDate` enum — wraps `chrono::NaiveDate` for precise dates, supports week-level (`2026-W20`) and month-level (`2026-05`) fuzzy precision (#51). Time fields remain `Option<chrono::NaiveTime>`. See `01-db-domain.md` for full FlexDate spec.
 
 ## SQLite Optimization
 
