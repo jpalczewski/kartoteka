@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod containers;
 pub mod home;
 pub mod items;

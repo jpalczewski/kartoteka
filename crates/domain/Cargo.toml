@@ -20,6 +20,8 @@ chrono.workspace = true
 chrono-tz.workspace = true
 argon2.workspace = true
 async-trait.workspace = true
+tokio.workspace = true
+rand_core = { version = "0.6", features = ["getrandom"] }
 
 [dev-dependencies]
 tokio.workspace = true
