@@ -1,3 +1,5 @@
+pub mod types;
+
 use serde::{Deserialize, Deserializer, Serialize};
 
 fn bool_from_number<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {

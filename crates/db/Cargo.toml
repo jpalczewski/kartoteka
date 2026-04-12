@@ -1,0 +1,23 @@
+[package]
+name = "kartoteka-db"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+test-helpers = []
+
+[dependencies]
+kartoteka-shared = { path = "../shared" }
+sqlx.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

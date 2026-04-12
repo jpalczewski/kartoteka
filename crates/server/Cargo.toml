@@ -1,0 +1,18 @@
+[package]
+name = "kartoteka-server"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+kartoteka-shared = { path = "../shared" }
+kartoteka-db = { path = "../db" }
+kartoteka-domain = { path = "../domain" }
+kartoteka-auth = { path = "../auth" }
+kartoteka-mcp = { path = "../mcp" }
+kartoteka-oauth = { path = "../oauth" }
+kartoteka-jobs = { path = "../jobs" }
+kartoteka-frontend-v2 = { path = "../frontend-v2" }
