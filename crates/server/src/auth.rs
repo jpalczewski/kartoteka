@@ -49,7 +49,6 @@ pub struct TotpCodeRequest {
 }
 
 const PENDING_USER_KEY: &str = "pending_user_id";
-#[allow(dead_code)]
 const RETURN_TO_KEY: &str = "return_to";
 
 /// Require authenticated session. Inserts UserId into extensions. Returns 401 if not auth'd.
