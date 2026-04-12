@@ -6,6 +6,7 @@ pub use sqlx::sqlite::SqlitePool;
 pub mod auth_methods;
 pub mod containers;
 pub mod server_config;
+pub mod personal_tokens;
 pub mod totp;
 pub mod users;
 pub mod home;
