@@ -137,7 +137,7 @@ pub async fn create(
         &db::items::InsertItemInput {
             id: Uuid::new_v4().to_string(),
             list_id: list_id.to_string(),
-            position: ctx.next_position as i32,
+            position: i32::try_from(ctx.next_position).unwrap_or(i32::MAX),
             title: req.title.clone(),
             description: req.description.clone(),
             quantity: req.quantity,

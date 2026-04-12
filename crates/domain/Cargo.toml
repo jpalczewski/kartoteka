@@ -17,7 +17,6 @@ sqlx.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 chrono.workspace = true
-chrono-tz = "0.10"
 
 [dev-dependencies]
 tokio.workspace = true
