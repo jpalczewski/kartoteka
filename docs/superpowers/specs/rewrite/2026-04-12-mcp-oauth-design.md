@@ -1,6 +1,6 @@
 # Plan 4: MCP + OAuth — Design Spec
 
-Parent: `docs/superpowers/specs/2026-04-12-cloudflare-exit-v2-design.md`
+Parent: `docs/superpowers/specs/rewrite/2026-04-12-cloudflare-exit-v2-design.md`
 Depends on: Plan 1+1a (db + domain), Plan 2 (auth), Plan 3 (frontend SSR)
 
 ## Goal

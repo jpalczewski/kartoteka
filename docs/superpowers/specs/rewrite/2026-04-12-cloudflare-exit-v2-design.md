@@ -655,105 +655,15 @@ Plans are sequential: 1+1a → 2 → 3 → 4 → 5. Plan 4 depends on Plan 3 (co
 - i18n: same FTL files, same PL/EN support
 - Data model: same tables, same relations
 
-## Performance
+## Performance, Background Jobs, Security
 
-### HTTP compression
+See Plan 5 spec: `docs/superpowers/specs/rewrite/2026-04-12-deploy-infra-design.md`
 
-`tower_http::CompressionLayer` on the Axum router — automatic gzip/brotli on responses (HTML, JSON, CSS). Single layer, handles Accept-Encoding negotiation.
-
-### Static file caching
-
-cargo-leptos config:
-```toml
-hash-files = true                               # content-hashed filenames → immutable caching
-wasm-opt-features = ["-Oz", "--enable-bulk-memory"]  # WASM size optimization
-```
-
-Build: `cargo leptos build --release --precompress` — pre-generates .gz + .br files.
-
-Caddy config for static files:
-```
-@static path /pkg/*
-header @static Cache-Control "public, max-age=31536000, immutable"
-```
-
-Hashed filenames mean infinite cache — browser never re-downloads unchanged assets.
-
-### SQLite tuning
-
-See db-domain spec for full details. Key pragmas: WAL, mmap_size=256MB, busy_timeout=5000, synchronous=NORMAL.
-
-## Background Jobs (apalis)
-
-`apalis` + `apalis-sqlite` + `apalis-cron` — persistent job queue backed by SQLite. Tower-based middleware (retry, rate-limit, tracing).
-
-### Job types
-
-| Job | Schedule | Purpose |
-|-----|----------|---------|
-| `CleanupSessionsJob` | cron `0 * * * *` (hourly) | Delete expired sessions |
-| `CleanupOAuthCodesJob` | cron `0 * * * *` (hourly) | Delete expired auth codes + refresh tokens |
-| `MaintenanceJob` | cron `0 3 * * 0` (weekly Sun 3am) | SQLite VACUUM + ANALYZE |
-| `OptimizeJob` | cron `0 */6 * * *` (every 6h) | PRAGMA optimize |
-| `SendNotificationJob` | one-off, delayed | Send via Telegram/web push (retry with backoff) |
-
-### Architecture
-
-```
-crates/server/src/
-  jobs/
-    mod.rs              — apalis worker setup, register all job types
-    maintenance.rs      — VacuumJob, AnalyzeJob, CleanupExpiredJob
-    notifications.rs    — SendNotificationJob (one-off, retry)
-    channels/
-      telegram.rs       — Telegram Bot API call
-```
-
-Jobs persist in SQLite — survive restart. Domain layer can enqueue jobs:
-
-```rust
-// domain:: enqueues notification
-storage.push(SendNotificationJob {
-    user_id, channel: "telegram",
-    payload: "Deadline za 1h: Kup mleko",
-}).await?;
-```
-
-### Future job types (not implemented now)
-
-- Deadline reminder notifications (scan items approaching deadline, enqueue SendNotificationJob)
-- iCal feed cache regeneration (#31 — after item date mutations, regenerate .ics)
-- Real-time SSE event dispatch (#30)
-
-## Relation to existing issues
-
-### iCal feed (#31, #32, #34)
-
-The iCal feed (`GET /cal/{token}/feed.ics`) is a natural extension of this architecture:
-
-- **Auth:** `calendar_tokens` table with crypto-random bearer tokens — extends the bearer token auth pattern from Plan 2. Token in URL determines user + scope (single list or all lists). Same middleware pattern as OAuth bearer, separate token table.
-- **Domain:** `domain::calendar::generate_ical(pool, user_id, scope, reminder_settings)` — uses `icalendar` crate, calls `domain::items::by_date` for data. Reminder defaults (VALARM) from user settings (#31), per-list/per-item overrides (#32) from list_features/item fields.
-- **Background jobs:** `RegenerateIcalCacheJob` — enqueued by domain:: after item mutations with date fields. Cached .ics file per token, regenerated on change.
-- **Recurring items (#34):** RRULE generation in iCal events. Depends on recurrence model in domain.
-- **Endpoint:** Axum handler in `crates/server`, no session needed (token auth). Served alongside REST API.
-
-### Real-time updates (#30)
-
-SSE (Server-Sent Events) after VPS migration:
-- **Domain:** After mutations, domain:: enqueues `SseNotifyJob` or directly publishes to `tokio::sync::broadcast` channel.
-- **Axum:** SSE endpoint (`GET /api/events`) with `AuthSession`, streams events.
-- **Frontend:** `EventSource` (behind `#[cfg(feature = "hydrate")]`) subscribes, triggers Resource refetch on events.
-
-## Security hardening (implement during relevant plans)
-
-- Rate limiting on `/auth/login`, `/auth/register`, `/oauth/register`, `/oauth/token` (tower-governor or custom middleware)
-- CSRF token on OAuth consent form POST
-- OAuth `state` parameter for authorization endpoint CSRF protection
-- DCR abuse prevention (limit clients per IP or require auth)
-- Refresh token rotation (new refresh token on each use, invalidate old)
-- Token scope enforcement in MCP tools
-- CORS policy configuration (allowed origins for REST API)
-- Expired OAuth authorization codes cleanup (background task like session cleanup)
+Key points:
+- HTTP compression (CompressionLayer), static file caching (hash-files + precompress)
+- Background jobs via apalis + apalis-sqlite (maintenance, notifications, cleanup)
+- Security hardening checklist (rate limiting, CSRF, token rotation, CORS)
+- iCal feed (#31) and real-time SSE (#30) integration notes
 
 ## Future (out of scope)
 

@@ -1,6 +1,6 @@
 # Plan 2: Axum Skeleton + Auth — Design Spec
 
-Parent: `docs/superpowers/specs/2026-04-12-cloudflare-exit-v2-design.md`
+Parent: `docs/superpowers/specs/rewrite/2026-04-12-cloudflare-exit-v2-design.md`
 Depends on: Plan 1 (crates/db)
 
 ## Goal
