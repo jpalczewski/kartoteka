@@ -60,6 +60,7 @@ pub fn SearchPage() -> impl IntoView {
     let next_cursor = RwSignal::new(None::<String>);
     let search_loading = RwSignal::new(false);
     let search_error = RwSignal::new(None::<String>);
+    let search_version = RwSignal::new(0u64);
 
     Effect::new(move |_| {
         let state = route_state.get();
@@ -75,6 +76,8 @@ pub fn SearchPage() -> impl IntoView {
             return;
         }
 
+        search_version.update(|version| *version += 1);
+        let request_version = search_version.get_untracked();
         search_loading.set(true);
         let client = client.clone();
         leptos::task::spawn_local(async move {
@@ -83,11 +86,17 @@ pub fn SearchPage() -> impl IntoView {
                     let query = state.query.clone().unwrap_or_default();
                     match api::search_entities_page(&client, &query).await {
                         Ok(page) => {
+                            if search_version.get_untracked() != request_version {
+                                return;
+                            }
                             search_results.set(SearchResults::Global(page.items));
                             next_cursor.set(page.next_cursor);
                             search_error.set(None);
                         }
                         Err(error) => {
+                            if search_version.get_untracked() != request_version {
+                                return;
+                            }
                             search_results.set(SearchResults::Global(Vec::new()));
                             next_cursor.set(None);
                             search_error.set(Some(error.to_string()));
@@ -96,18 +105,26 @@ pub fn SearchPage() -> impl IntoView {
                 }
                 SearchMode::Items => match api::search_items_page(&client, &state).await {
                     Ok(page) => {
+                        if search_version.get_untracked() != request_version {
+                            return;
+                        }
                         search_results.set(SearchResults::Items(page.items));
                         next_cursor.set(page.next_cursor);
                         search_error.set(None);
                     }
                     Err(error) => {
+                        if search_version.get_untracked() != request_version {
+                            return;
+                        }
                         search_results.set(SearchResults::Items(Vec::new()));
                         next_cursor.set(None);
                         search_error.set(Some(error.to_string()));
                     }
                 },
             }
-            search_loading.set(false);
+            if search_version.get_untracked() == request_version {
+                search_loading.set(false);
+            }
         });
     });
 
@@ -130,6 +147,7 @@ pub fn SearchPage() -> impl IntoView {
             return;
         };
         let mode = route_state.get_untracked().mode();
+        let request_version = search_version.get_untracked();
         search_loading.set(true);
         let client = client.clone();
         leptos::task::spawn_local(async move {
@@ -137,6 +155,9 @@ pub fn SearchPage() -> impl IntoView {
                 SearchMode::Global => {
                     match api::fetch_next_page::<SearchEntityResult>(&client, &cursor).await {
                         Ok(page) => {
+                            if search_version.get_untracked() != request_version {
+                                return;
+                            }
                             search_results.update(|results| {
                                 if let SearchResults::Global(items) = results {
                                     items.extend(page.items);
@@ -146,6 +167,9 @@ pub fn SearchPage() -> impl IntoView {
                             search_error.set(None);
                         }
                         Err(error) => {
+                            if search_version.get_untracked() != request_version {
+                                return;
+                            }
                             search_error.set(Some(error.to_string()));
                         }
                     }
@@ -153,6 +177,9 @@ pub fn SearchPage() -> impl IntoView {
                 SearchMode::Items => {
                     match api::fetch_next_page::<SearchItemResult>(&client, &cursor).await {
                         Ok(page) => {
+                            if search_version.get_untracked() != request_version {
+                                return;
+                            }
                             search_results.update(|results| {
                                 if let SearchResults::Items(items) = results {
                                     items.extend(page.items);
@@ -162,12 +189,17 @@ pub fn SearchPage() -> impl IntoView {
                             search_error.set(None);
                         }
                         Err(error) => {
+                            if search_version.get_untracked() != request_version {
+                                return;
+                            }
                             search_error.set(Some(error.to_string()));
                         }
                     }
                 }
             }
-            search_loading.set(false);
+            if search_version.get_untracked() == request_version {
+                search_loading.set(false);
+            }
         });
     };
 
