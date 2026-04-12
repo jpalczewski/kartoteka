@@ -3,15 +3,21 @@ use tower_sessions_sqlx_store::SqliteStore;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                "kartoteka_server=debug,kartoteka_domain=debug,kartoteka_db=debug,tower_http=debug"
-                    .into()
-            }),
-        )
-        .pretty()
-        .init();
+    let default_filter = "kartoteka_server=debug,kartoteka_domain=debug,kartoteka_db=debug,tower_http=debug";
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| default_filter.into());
+
+    if std::env::var("APP_ENV").as_deref() == Ok("production") {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .json()
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .pretty()
+            .init();
+    }
 
     let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://data.db".into());
     let pool = kartoteka_db::create_pool(&db_url).await.expect("db connect");
@@ -35,7 +41,7 @@ async fn main() {
         "OAUTH_SIGNING_SECRET must be at least 32 characters"
     );
 
-    let conf = leptos::config::get_configuration(None).unwrap();
+    let conf = leptos::config::get_configuration(None).expect("leptos config");
     let leptos_options = conf.leptos_options;
     let bind_addr = leptos_options.site_addr.to_string();
     let app = kartoteka_server::router(pool, auth_layer, signing_secret, leptos_options);
