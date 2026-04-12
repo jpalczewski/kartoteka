@@ -494,6 +494,16 @@ let app = Router::new()
     .with_state(app_state);
 ```
 
+## User timezone
+
+Users can set their timezone in settings (e.g. `"Europe/Warsaw"`). Stored in `user_settings` as `timezone` key. Default: `"UTC"`.
+
+Impact:
+- **by-date / calendar queries:** "today" resolved using user's timezone, not server UTC. Domain layer converts user's "today" to UTC date range before querying.
+- **Frontend:** dates displayed in user's timezone (chrono-tz for conversion).
+- **MCP:** tool responses include dates in user's timezone.
+- **chrono-tz** crate needed in shared/domain for timezone-aware date operations.
+
 ## REST API
 
 Thin Axum wrappers on `db::` functions. Same endpoints as current (`/api/lists`, `/api/containers/:id`, etc.). Auth via `AuthSession` extractor. Not used by frontend (server functions), but available for external integrations, MCP Inspector, curl.
