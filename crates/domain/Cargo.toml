@@ -13,6 +13,7 @@ kartoteka-db = { path = "../db" }
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sqlx.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 
