@@ -44,3 +44,4 @@ kartoteka-db = { path = "../db", features = ["test-helpers"] }
 kartoteka-domain = { path = "../domain" }
 kartoteka-auth = { path = "../auth" }
 serde_json.workspace = true
+totp-rs.workspace = true
