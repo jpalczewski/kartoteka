@@ -286,6 +286,33 @@ CREATE TABLE personal_tokens (
 
 CREATE INDEX idx_personal_tokens_user ON personal_tokens(user_id);
 
+-- Full-text search (FTS5)
+CREATE VIRTUAL TABLE items_fts USING fts5(title, description, content=items, content_rowid=rowid);
+CREATE VIRTUAL TABLE comments_fts USING fts5(content, content=comments, content_rowid=rowid);
+
+-- FTS sync triggers (keep FTS index in sync with source tables)
+CREATE TRIGGER items_fts_insert AFTER INSERT ON items BEGIN
+    INSERT INTO items_fts(rowid, title, description) VALUES (new.rowid, new.title, new.description);
+END;
+CREATE TRIGGER items_fts_update AFTER UPDATE ON items BEGIN
+    INSERT INTO items_fts(items_fts, rowid, title, description) VALUES ('delete', old.rowid, old.title, old.description);
+    INSERT INTO items_fts(rowid, title, description) VALUES (new.rowid, new.title, new.description);
+END;
+CREATE TRIGGER items_fts_delete AFTER DELETE ON items BEGIN
+    INSERT INTO items_fts(items_fts, rowid, title, description) VALUES ('delete', old.rowid, old.title, old.description);
+END;
+
+CREATE TRIGGER comments_fts_insert AFTER INSERT ON comments BEGIN
+    INSERT INTO comments_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+CREATE TRIGGER comments_fts_update AFTER UPDATE ON comments BEGIN
+    INSERT INTO comments_fts(comments_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+    INSERT INTO comments_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+CREATE TRIGGER comments_fts_delete AFTER DELETE ON comments BEGIN
+    INSERT INTO comments_fts(comments_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+END;
+
 -- No separate preferences table — locale, timezone etc. stored in user_settings
 
 -- Indexes for hot query paths

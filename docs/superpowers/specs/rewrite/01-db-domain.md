@@ -98,6 +98,25 @@ SqlitePoolOptions::new()
 - `WITH RECURSIVE` — tag tree, cycle detection
 - `datetime('now')` — server-side timestamps
 - `ON CONFLICT ... DO UPDATE` — upserts
+- **FTS5** — full-text search on items (title, description) and comments (content). Virtual tables with triggers for sync. Ranked results via `bm25()`.
+
+```rust
+// db/src/search.rs
+pub async fn search_items(pool: &SqlitePool, user_id: &str, query: &str) -> Result<Vec<SearchResult>> {
+    sqlx::query_as(
+        "SELECT i.id, i.list_id, i.title, i.description, l.name as list_name, \
+         bm25(items_fts) as rank \
+         FROM items_fts \
+         JOIN items i ON i.rowid = items_fts.rowid \
+         JOIN lists l ON l.id = i.list_id \
+         WHERE l.user_id = ? AND items_fts MATCH ? \
+         ORDER BY rank \
+         LIMIT 50"
+    )
+    .bind(user_id).bind(query)
+    .fetch_all(pool).await
+}
+```
 
 ### FlexDate type (chrono-based with fuzzy precision)
 
@@ -207,6 +226,7 @@ crates/db/src/
   relations.rs       — entity_relations CRUD, get_unresolved_blockers, bidirectional relates_to queries
   time_entries.rs    — unified time log: CRUD, inbox (unassigned), running timer query, summary per item/list/day
   templates.rs       — templates + template_items CRUD, get_with_items
+  search.rs          — FTS5 search across items and comments, ranked results
   test_helpers.rs     — test_pool (in-memory), create_test_user
 ```
 

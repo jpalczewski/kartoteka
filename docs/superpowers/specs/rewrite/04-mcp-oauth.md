@@ -35,47 +35,81 @@ Claude Code → POST /mcp → 401
   → POST /mcp (Bearer: access_token) → tools work
 ```
 
-## MCP Tools (15 — 5 existing + add_comment + 3 relations + 4 time tracking + 2 templates)
+## MCP Resources (reads) + Tools (mutations)
 
-5 existing + `add_comment` + 3 relation tools + 4 time tracking tools. All call `domain::` (never db:: directly).
+Reads exposed as **resources** (data discovery), mutations as **tools**. Cleaner separation — Claude Code browses data through resources, acts through tools.
 
-- **Comments:** items/lists/containers with `author_type: "assistant"` and optional persona name
-- **Relations:** `blocks` (semantic: prevents completion) and `relates_to` (informational) between any entity types
-- **Time tracking:** `start_timer` (auto-stops previous), `stop_timer`, `log_time` (retrospective entry, with or without item_id), `get_time_summary` (per item/list/day)
+### Resources (8)
+
+| URI | Description |
+|-----|-------------|
+| `kartoteka://lists` | All lists for user |
+| `kartoteka://lists/{list_id}` | List detail with features |
+| `kartoteka://lists/{list_id}/items` | Items in a list |
+| `kartoteka://containers` | All containers |
+| `kartoteka://containers/{container_id}` | Container detail with children + progress |
+| `kartoteka://tags` | All tags (all types: tag, location, priority) |
+| `kartoteka://today` | Items due today (user timezone) |
+| `kartoteka://time/summary` | Time tracking summary (today/week) |
+
+Resource templates for dynamic URIs:
+```rust
+fn list_resource_templates(&self, ..) -> ListResourceTemplatesResult {
+    vec![
+        ResourceTemplate { uri_template: "kartoteka://lists/{list_id}", name: "List detail" },
+        ResourceTemplate { uri_template: "kartoteka://lists/{list_id}/items", name: "List items" },
+        ResourceTemplate { uri_template: "kartoteka://containers/{container_id}", name: "Container detail" },
+    ]
+}
+
+fn read_resource(&self, request: ReadResourceRequestParams, ..) -> ReadResourceResult {
+    let user_id = extract_user_id(&parts)?;
+    match parse_uri(&request.uri) {
+        Uri::Lists => domain::lists::list_all(&self.pool, &user_id).await,
+        Uri::ListItems(id) => domain::items::list_all(&self.pool, &user_id, &id).await,
+        // ...
+    }
+}
+```
+
+### Tools (11 — mutations + search)
+
+| Tool | Description |
+|------|-------------|
+| `search_items` | FTS5 full-text search across items (parametric, stays as tool) |
+| `create_item` | Create item in a list |
+| `update_item` | Update item fields |
+| `add_comment` | Add comment to item/list/container (author_type: assistant) |
+| `add_relation` | Create blocks/relates_to relation |
+| `remove_relation` | Remove relation |
+| `start_timer` | Start time tracking on item (auto-stops previous) |
+| `stop_timer` | Stop running timer |
+| `log_time` | Log retrospective time entry (with or without item_id) |
+| `create_list_from_template` | Create list from template(s) |
+| `save_as_template` | Snapshot list as template |
+
+All tools call `domain::` (never db:: directly). User ID from request Parts extensions.
 
 ```rust
-pub struct KartotekaTools {
+pub struct KartotekaServer {
     pool: SqlitePool,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
-impl KartotekaTools {
-    #[tool(name = "list_lists", description = "List all lists")]
-    async fn list_lists(
+impl KartotekaServer {
+    #[tool(name = "create_item", description = "Create a new item in a list")]
+    async fn create_item(
         &self,
         Extension(parts): Extension<http::request::Parts>,
+        Parameters(p): Parameters<CreateItemParams>,
     ) -> Result<CallToolResult, McpError> {
         let user_id = extract_user_id(&parts)?;
-        let lists = domain::lists::list_all(&self.pool, &user_id).await?;
-        Ok(CallToolResult::success(serde_json::to_value(lists)?))
+        let item = domain::items::create(&self.pool, &user_id, &p.list_id, &p.into()).await?;
+        Ok(CallToolResult::success(serde_json::to_value(item)?))
     }
 
-    #[tool(name = "get_list_items", description = "Get items for a list")]
-    async fn get_list_items(
-        &self,
-        Extension(parts): Extension<http::request::Parts>,
-        Parameters(p): Parameters<ListIdParam>,
-    ) -> Result<CallToolResult, McpError> {
-        let user_id = extract_user_id(&parts)?;
-        let items = domain::items::list_all(&self.pool, &user_id, &p.list_id).await?;
-        Ok(CallToolResult::success(serde_json::to_value(items)?))
-    }
-
-    // create_item, update_item, search_items, add_comment,
-    // add_relation, remove_relation, get_relations,
-    // start_timer, stop_timer, log_time, get_time_summary,
-    // create_list_from_template, save_as_template — same pattern
+    // other tools — same pattern
 }
 
 fn extract_user_id(parts: &http::request::Parts) -> Result<String, McpError> {
