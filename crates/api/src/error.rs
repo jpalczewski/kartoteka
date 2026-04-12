@@ -31,6 +31,7 @@ fn default_message_for_code(code: &str) -> String {
         "tag_cycle" => "Tag hierarchy would create a cycle.".to_string(),
         "invalid_container_hierarchy" => "Invalid container hierarchy.".to_string(),
         "invalid_container_move" => "Invalid container move.".to_string(),
+        "invalid_cursor" => "Invalid cursor.".to_string(),
         "unauthorized" => "Unauthorized.".to_string(),
         _ => fallback_message_for_code(code),
     }

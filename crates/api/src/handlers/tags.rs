@@ -1,6 +1,7 @@
 use crate::error::json_error;
 use crate::helpers::*;
 use kartoteka_shared::*;
+use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use wasm_bindgen::JsValue;
 use worker::*;
@@ -8,6 +9,114 @@ use worker::*;
 const TAG_ITEM_COLS: &str = "i.id, i.list_id, i.title, i.description, i.completed, i.position, \
     i.quantity, i.actual_quantity, i.unit, i.start_date, i.start_time, i.deadline, i.deadline_time, i.hard_deadline, \
     i.created_at, i.updated_at, l.name as list_name, l.list_type";
+
+const DEFAULT_LIMIT: u32 = 100;
+const MAX_LIMIT: u32 = 100;
+
+#[derive(Debug, Deserialize)]
+struct TagEntityListRow {
+    id: String,
+    name: String,
+    description: Option<String>,
+    updated_at: String,
+    list_type: ListType,
+    archived: serde_json::Value,
+    container_id: Option<String>,
+    parent_list_id: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TagEntityKind {
+    Item,
+    List,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TagsCursorParams {}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TagsCursorLast {
+    pub name_sort: String,
+    pub id: String,
+}
+
+fn query_param(url: &Url, key: &str) -> Option<String> {
+    url.query_pairs()
+        .find(|(k, _)| k == key)
+        .map(|(_, value)| value.to_string())
+}
+
+fn parse_limit_query(value: Option<String>) -> Result<u32> {
+    let Some(value) = value else {
+        return Ok(DEFAULT_LIMIT);
+    };
+    let parsed = value
+        .parse::<u32>()
+        .map_err(|_| Error::from("invalid limit"))?;
+    if parsed == 0 {
+        return Err(Error::from("invalid limit"));
+    }
+    Ok(parsed.min(MAX_LIMIT))
+}
+
+pub(crate) async fn list_all_page(
+    d1: &D1Database,
+    user_id: &str,
+    limit: u32,
+    cursor: Option<&TagsCursorLast>,
+) -> Result<CursorPage<Tag>> {
+    let mut sql =
+        "SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE user_id = ?1"
+            .to_string();
+    let mut params: Vec<JsValue> = vec![user_id.into()];
+
+    if let Some(cursor) = cursor {
+        sql.push_str(&format!(
+            " AND ((LOWER(name) > ?{}) OR (LOWER(name) = ?{} AND id > ?{}))",
+            params.len() + 1,
+            params.len() + 2,
+            params.len() + 3,
+        ));
+        params.push(cursor.name_sort.clone().into());
+        params.push(cursor.name_sort.clone().into());
+        params.push(cursor.id.clone().into());
+    }
+
+    params.push(((limit + 1) as i32).into());
+    sql.push_str(&format!(
+        " ORDER BY LOWER(name) ASC, id ASC LIMIT ?{}",
+        params.len()
+    ));
+
+    let mut items = d1
+        .prepare(&sql)
+        .bind(&params)?
+        .all()
+        .await?
+        .results::<Tag>()?;
+    let next_cursor = if items.len() > limit as usize {
+        items.truncate(limit as usize);
+        items
+            .last()
+            .map(|last| {
+                crate::cursor::encode_cursor(
+                    "tags",
+                    limit,
+                    &TagsCursorParams::default(),
+                    &TagsCursorLast {
+                        name_sort: last.name.to_lowercase(),
+                        id: last.id.clone(),
+                    },
+                )
+            })
+            .transpose()
+            .map_err(|e| Error::from(e.to_string()))?
+    } else {
+        None
+    };
+
+    Ok(CursorPage { items, next_cursor })
+}
 
 async fn apply_tag_links(
     d1: &D1Database,
@@ -136,16 +245,12 @@ async fn apply_tag_links(
 
 /// GET /api/tags
 #[instrument(skip_all)]
-pub async fn list_all(_req: Request, ctx: RouteContext<String>) -> Result<Response> {
+pub async fn list_all(req: Request, ctx: RouteContext<String>) -> Result<Response> {
     let user_id = ctx.data.as_str();
+    let limit = parse_limit_query(query_param(&req.url()?, "limit"))?;
     let d1 = ctx.env.d1("DB")?;
-    let result = d1
-        .prepare("SELECT id, user_id, name, color, parent_tag_id, created_at FROM tags WHERE user_id = ?1 ORDER BY name")
-        .bind(&[user_id.into()])?
-        .all()
-        .await?;
-    let tags = result.results::<Tag>()?;
-    Response::from_json(&tags)
+    let page = list_all_page(&d1, user_id, limit, None).await?;
+    Response::from_json(&page)
 }
 
 /// POST /api/tags
@@ -518,6 +623,176 @@ pub async fn tag_items(req: Request, ctx: RouteContext<String>) -> Result<Respon
     };
 
     Response::from_json(&rows)
+}
+
+fn parse_recursive_query(url: &Url) -> bool {
+    url.query_pairs()
+        .find(|(k, _)| k == "recursive")
+        .map(|(_, v)| v != "false")
+        .unwrap_or(true)
+}
+
+fn parse_entity_type_query(url: &Url) -> std::result::Result<Option<TagEntityKind>, &'static str> {
+    match url
+        .query_pairs()
+        .find(|(k, _)| k == "entity_type")
+        .map(|(_, value)| value.to_string())
+    {
+        None => Ok(None),
+        Some(value) if value == "item" => Ok(Some(TagEntityKind::Item)),
+        Some(value) if value == "list" => Ok(Some(TagEntityKind::List)),
+        Some(_) => Err("invalid_entity_type"),
+    }
+}
+
+fn tag_tree_cte_sql(recursive: bool) -> &'static str {
+    if recursive {
+        "WITH RECURSIVE tag_tree AS ( \
+         SELECT id FROM tags WHERE id = ?1 AND user_id = ?2 \
+         UNION ALL \
+         SELECT t.id FROM tags t JOIN tag_tree tt ON t.parent_tag_id = tt.id WHERE t.user_id = ?2 \
+         )"
+    } else {
+        "WITH tag_tree AS (SELECT id FROM tags WHERE id = ?1 AND user_id = ?2)"
+    }
+}
+
+async fn fetch_tag_item_entities(
+    d1: &D1Database,
+    user_id: &str,
+    tag_id: &str,
+    recursive: bool,
+) -> Result<Vec<SearchEntityResult>> {
+    let sql = format!(
+        "{tag_tree} \
+         SELECT DISTINCT {cols}, NULL as date_type \
+         FROM items i \
+         JOIN item_tags it ON it.item_id = i.id \
+         JOIN tag_tree tt ON it.tag_id = tt.id \
+         JOIN lists l ON l.id = i.list_id \
+         WHERE l.user_id = ?2 \
+         ORDER BY i.updated_at DESC, l.name ASC, i.id ASC",
+        tag_tree = tag_tree_cte_sql(recursive),
+        cols = TAG_ITEM_COLS,
+    );
+
+    let rows = d1
+        .prepare(&sql)
+        .bind(&[tag_id.into(), user_id.into()])?
+        .all()
+        .await?
+        .results::<DateItem>()?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| SearchEntityResult {
+            entity_type: SearchEntityType::Item,
+            id: row.id,
+            name: row.title,
+            description: row.description,
+            updated_at: row.updated_at,
+            list_id: Some(row.list_id),
+            list_name: Some(row.list_name),
+            list_type: Some(row.list_type),
+            archived: None,
+            completed: Some(row.completed),
+            container_id: None,
+            parent_list_id: None,
+            parent_container_id: None,
+            status: None,
+        })
+        .collect())
+}
+
+async fn fetch_tag_list_entities(
+    d1: &D1Database,
+    user_id: &str,
+    tag_id: &str,
+    recursive: bool,
+) -> Result<Vec<SearchEntityResult>> {
+    let sql = format!(
+        "{tag_tree} \
+         SELECT DISTINCT \
+            l.id, l.name, l.description, l.updated_at, l.list_type, l.archived, l.container_id, l.parent_list_id \
+         FROM lists l \
+         JOIN list_tags lt ON lt.list_id = l.id \
+         JOIN tag_tree tt ON lt.tag_id = tt.id \
+         WHERE l.user_id = ?2 \
+         ORDER BY l.updated_at DESC, l.name ASC, l.id ASC",
+        tag_tree = tag_tree_cte_sql(recursive),
+    );
+
+    let rows = d1
+        .prepare(&sql)
+        .bind(&[tag_id.into(), user_id.into()])?
+        .all()
+        .await?
+        .results::<TagEntityListRow>()?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| SearchEntityResult {
+            entity_type: SearchEntityType::List,
+            id: row.id,
+            name: row.name,
+            description: row.description,
+            updated_at: row.updated_at,
+            list_id: None,
+            list_name: None,
+            list_type: Some(row.list_type),
+            archived: match row.archived {
+                serde_json::Value::Bool(value) => Some(value),
+                serde_json::Value::Number(value) => Some(value.as_f64().unwrap_or(0.0) != 0.0),
+                _ => None,
+            },
+            completed: None,
+            container_id: row.container_id,
+            parent_list_id: row.parent_list_id,
+            parent_container_id: None,
+            status: None,
+        })
+        .collect())
+}
+
+/// GET /api/tags/:id/entities
+#[instrument(skip_all, fields(action = "get_tag_entities", tag_id = tracing::field::Empty))]
+pub async fn tag_entities(req: Request, ctx: RouteContext<String>) -> Result<Response> {
+    let user_id = ctx.data.clone();
+    let tag_id = require_param(&ctx, "id")?;
+    tracing::Span::current().record("tag_id", tracing::field::display(&tag_id));
+    let d1 = ctx.env.d1("DB")?;
+
+    if !check_ownership(&d1, "tags", &tag_id, &user_id).await? {
+        return json_error("tag_not_found", 404);
+    }
+
+    let url = req.url()?;
+    let recursive = parse_recursive_query(&url);
+    let entity_type = match parse_entity_type_query(&url) {
+        Ok(entity_type) => entity_type,
+        Err(code) => return json_error(code, 400),
+    };
+
+    let mut entities = Vec::new();
+    if entity_type != Some(TagEntityKind::List) {
+        entities.extend(fetch_tag_item_entities(&d1, &user_id, &tag_id, recursive).await?);
+    }
+    if entity_type != Some(TagEntityKind::Item) {
+        entities.extend(fetch_tag_list_entities(&d1, &user_id, &tag_id, recursive).await?);
+    }
+
+    entities.sort_by(|left, right| {
+        right
+            .updated_at
+            .cmp(&left.updated_at)
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+            .then_with(|| {
+                format!("{:?}", left.entity_type).cmp(&format!("{:?}", right.entity_type))
+            })
+            .then_with(|| left.id.cmp(&right.id))
+    });
+
+    Response::from_json(&entities)
 }
 
 /// GET /api/tag-links/items

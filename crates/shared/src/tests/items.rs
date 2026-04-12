@@ -291,6 +291,36 @@ fn date_item_deserializes_numeric_completed_and_missing_date_type() {
 }
 
 #[test]
+fn search_item_result_deserializes_d1_booleans() {
+    let json = r#"{
+        "id": "abc",
+        "list_id": "l1",
+        "title": "Test",
+        "description": "desc",
+        "completed": 1.0,
+        "position": 0,
+        "quantity": null,
+        "actual_quantity": null,
+        "unit": null,
+        "start_date": null,
+        "start_time": null,
+        "deadline": null,
+        "deadline_time": null,
+        "hard_deadline": null,
+        "created_at": "2024-01-01",
+        "updated_at": "2024-01-01",
+        "list_name": "Lista",
+        "list_type": "checklist",
+        "list_archived": 0.0,
+        "tag_ids": ["t1", "t2"]
+    }"#;
+    let item: SearchItemResult = serde_json::from_str(json).unwrap();
+    assert!(item.completed);
+    assert!(!item.list_archived);
+    assert_eq!(item.tag_ids.len(), 2);
+}
+
+#[test]
 fn validate_business_date_accepts_valid_date() {
     let parsed = validate_business_date("2026-03-31").unwrap();
     assert_eq!(format_date(&parsed), "2026-03-31");

@@ -1,14 +1,22 @@
 use kartoteka_shared::*;
 
-pub async fn fetch_items(
+pub async fn fetch_items_page(
     client: &impl super::HttpClient,
     list_id: &str,
-) -> Result<Vec<Item>, super::ApiError> {
+) -> Result<CursorPage<Item>, super::ApiError> {
     super::api_get(
         client,
         &format!("{}/lists/{list_id}/items", super::API_BASE),
     )
     .await
+}
+
+pub async fn fetch_items(
+    client: &impl super::HttpClient,
+    list_id: &str,
+) -> Result<Vec<Item>, super::ApiError> {
+    let page = fetch_items_page(client, list_id).await?;
+    super::collect_all_pages(client, page).await
 }
 
 pub async fn fetch_item_detail(
@@ -191,4 +199,39 @@ pub async fn fetch_items_by_date(
         ),
     )
     .await
+}
+
+pub async fn search_items_page(
+    client: &impl super::HttpClient,
+    state: &crate::state::search_route::SearchRouteState,
+) -> Result<CursorPage<SearchItemResult>, super::ApiError> {
+    let mut params = Vec::new();
+
+    if let Some(query) = &state.query {
+        params.push(format!("query={}", super::encode_query_component(query)));
+    }
+    if !state.search_title {
+        params.push("search_title=false".to_string());
+    }
+    if !state.search_description {
+        params.push("search_description=false".to_string());
+    }
+    for tag_id in state.tag_ids.iter() {
+        params.push(format!("tag_id={}", super::encode_query_component(tag_id)));
+    }
+    if let Some(completed) = state.completed.as_api_value() {
+        params.push(format!("completed={completed}"));
+    }
+    if state.include_archived {
+        params.push("include_archived=true".to_string());
+    }
+
+    let query = params.join("&");
+    let url = if query.is_empty() {
+        format!("{}/items/search", super::API_BASE)
+    } else {
+        format!("{}/items/search?{}", super::API_BASE, query)
+    };
+
+    super::api_get(client, &url).await
 }

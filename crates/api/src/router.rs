@@ -1,7 +1,9 @@
 use worker::*;
 
 use crate::auth;
-use crate::handlers::{admin, containers, items, lists, me, preferences, public, settings, tags};
+use crate::handlers::{
+    admin, containers, items, lists, me, pagination, preferences, public, search, settings, tags,
+};
 
 pub async fn handle(req: Request, env: Env) -> Result<Response> {
     let path = req.path();
@@ -32,8 +34,10 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
     router
         // Me
         .get_async("/api/me", me::get_me)
+        .get_async("/api/next-page", pagination::next_page)
         // Home
         .get_async("/api/home", containers::home)
+        .get_async("/api/search", search::search)
         // Containers
         .get_async("/api/containers", containers::list_all)
         .post_async("/api/containers", containers::create)
@@ -71,6 +75,7 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         // Cross-list queries
         .get_async("/api/items/by-date", items::by_date)
         .get_async("/api/items/calendar", items::calendar)
+        .get_async("/api/items/search", items::search)
         .patch_async("/api/items/move", items::move_batch)
         .patch_async("/api/items/completed", items::set_completed)
         // List container + pin
@@ -89,6 +94,7 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         // Tags CRUD
         .get_async("/api/tags", tags::list_all)
         .post_async("/api/tags", tags::create)
+        .get_async("/api/tags/:id/entities", tags::tag_entities)
         .get_async("/api/tags/:id/items", tags::tag_items)
         .put_async("/api/tags/:id", tags::update)
         .delete_async("/api/tags/:id", tags::delete)

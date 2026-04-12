@@ -8,8 +8,13 @@ import { callJsonTool, dedupeIds } from "./common";
 export function registerListTools(server: McpServer, api: ApiContext, locale: string): void {
   server.registerTool("list_lists", {
     description: tr("tool-list-lists", locale),
-    inputSchema: {},
-  }, () => callTool(api, "GET", "/api/lists"));
+    inputSchema: {
+      limit: z.number().int().positive().max(100).optional().describe("Maximum number of lists to return"),
+    },
+  }, ({ limit }) => {
+    const query = limit !== undefined ? `?limit=${limit}` : "";
+    return callTool(api, "GET", `/api/lists${query}`);
+  });
 
   server.registerTool("create_list", {
     description: tr("tool-create-list", locale),

@@ -8,8 +8,13 @@ import { callJsonTool, dedupeIds, validateExclusiveTargets } from "./common";
 export function registerTagTools(server: McpServer, api: ApiContext, locale: string): void {
   server.registerTool("list_tags", {
     description: tr("tool-list-tags", locale),
-    inputSchema: {},
-  }, () => callTool(api, "GET", "/api/tags"));
+    inputSchema: {
+      limit: z.number().int().positive().max(100).optional().describe("Maximum number of tags to return"),
+    },
+  }, ({ limit }) => {
+    const query = limit !== undefined ? `?limit=${limit}` : "";
+    return callTool(api, "GET", `/api/tags${query}`);
+  });
 
   server.registerTool("create_tag", {
     description: tr("tool-create-tag", locale),
@@ -81,6 +86,20 @@ export function registerTagTools(server: McpServer, api: ApiContext, locale: str
   }, ({ tag_id, recursive }) => {
     const params = `?recursive=${recursive ? "true" : "false"}`;
     return callTool(api, "GET", `/api/tags/${tag_id}/items${params}`);
+  });
+
+  server.registerTool("get_tag_entities", {
+    description: tr("tool-get-tag-entities", locale),
+    inputSchema: {
+      tag_id: z.string().describe("The tag ID"),
+      recursive: z.boolean().default(true).describe("Include entities from child tags"),
+      entity_type: z.enum(["item", "list"]).optional().describe("Optional entity type filter"),
+    },
+  }, ({ tag_id, recursive, entity_type }) => {
+    const params = new URLSearchParams();
+    params.set("recursive", recursive ? "true" : "false");
+    if (entity_type) params.set("entity_type", entity_type);
+    return callTool(api, "GET", `/api/tags/${tag_id}/entities?${params.toString()}`);
   });
 
   async function setTagLinks(

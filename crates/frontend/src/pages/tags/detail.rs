@@ -7,7 +7,7 @@ use crate::components::items::item_date_summary::ItemDateSummary;
 use crate::components::tag_tree::{
     TagTreeRow, build_breadcrumb, build_subtree, get_descendant_ids,
 };
-use kartoteka_shared::{DateItem, Item, Tag, UpdateTagRequest};
+use kartoteka_shared::{DateItem, Item, SearchEntityResult, Tag, UpdateTagRequest};
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
 use leptos_router::components::A;
@@ -30,6 +30,7 @@ pub fn TagDetailPage() -> impl IntoView {
     let all_tags = RwSignal::new(Vec::<Tag>::new());
     let tag = RwSignal::new(Option::<Tag>::None);
     let items = RwSignal::new(Vec::<DateItem>::new());
+    let lists = RwSignal::new(Vec::<SearchEntityResult>::new());
     let (loading, set_loading) = signal(true);
     let (recursive, set_recursive) = signal(true);
     let active_action = RwSignal::new(Option::<DetailAction>::None);
@@ -48,6 +49,10 @@ pub fn TagDetailPage() -> impl IntoView {
                 }
                 if let Ok(fetched) = api::fetch_tag_items(&client, &tid, rec).await {
                     items.set(fetched);
+                }
+                if let Ok(fetched) = api::fetch_tag_entities(&client, &tid, rec, Some("list")).await
+                {
+                    lists.set(fetched);
                 }
                 set_loading.set(false);
             }
@@ -76,6 +81,7 @@ pub fn TagDetailPage() -> impl IntoView {
                         let tags_for_breadcrumb = all_tags.get();
                         let breadcrumb = build_breadcrumb(&tags_for_breadcrumb, &t.id);
                         let all_items = items.get();
+                        let linked_lists = lists.get();
 
                         // Group items by list_name
                         let no_list_label = move_tr!("tags-no-list").get();
@@ -343,6 +349,54 @@ pub fn TagDetailPage() -> impl IntoView {
                                     view! {}.into_any()
                                 }}
 
+                                {if linked_lists.is_empty() {
+                                    view! {
+                                        <p class="text-center text-base-content/50 py-4">
+                                            {move_tr!("tags-no-lists")}
+                                        </p>
+                                    }.into_any()
+                                } else {
+                                    view! {
+                                        <div class="mb-8">
+                                            <h3 class="text-xs text-base-content/50 uppercase tracking-wider mb-3">{move_tr!("tags-lists-title")}</h3>
+                                            <div class="flex flex-col gap-3">
+                                                {linked_lists.into_iter().map(|list| {
+                                                    let archived = list.archived.unwrap_or(false);
+                                                    let type_label = match list.list_type.unwrap_or(kartoteka_shared::ListType::Custom) {
+                                                        kartoteka_shared::ListType::Checklist => move_tr!("lists-type-checklist"),
+                                                        kartoteka_shared::ListType::Zakupy => move_tr!("lists-type-shopping"),
+                                                        kartoteka_shared::ListType::Pakowanie => move_tr!("lists-type-packing"),
+                                                        kartoteka_shared::ListType::Terminarz => move_tr!("lists-type-schedule"),
+                                                        kartoteka_shared::ListType::Custom => move_tr!("lists-type-custom"),
+                                                    };
+                                                    view! {
+                                                        <article class="card bg-base-200 border border-base-300">
+                                                            <div class="card-body gap-3">
+                                                                <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                                                                    <div class="flex flex-col gap-1">
+                                                                        <A href=format!("/lists/{}", list.id) attr:class="text-lg font-semibold link link-hover text-primary">
+                                                                            {list.name.clone()}
+                                                                        </A>
+                                                                        <span class="text-sm text-base-content/60">{type_label}</span>
+                                                                    </div>
+                                                                    <div class="flex flex-wrap gap-2">
+                                                                        {archived.then(|| view! {
+                                                                            <span class="badge badge-warning">{move_tr!("search-status-archived")}</span>
+                                                                        })}
+                                                                    </div>
+                                                                </div>
+                                                                {list.description.as_ref().map(|description| view! {
+                                                                    <p class="text-sm text-base-content/70 whitespace-pre-wrap">{description.clone()}</p>
+                                                                })}
+                                                            </div>
+                                                        </article>
+                                                    }
+                                                }).collect_view()}
+                                            </div>
+                                        </div>
+                                    }.into_any()
+                                }}
+
                                 // Items grouped by list
                                 {if groups.is_empty() {
                                     view! {
@@ -353,6 +407,7 @@ pub fn TagDetailPage() -> impl IntoView {
                                 } else {
                                     view! {
                                         <div>
+                                            <h3 class="text-xs text-base-content/50 uppercase tracking-wider mb-3">{move_tr!("tags-items-title")}</h3>
                                             {groups.into_iter().map(|((list_id, list_name), group_items)| {
                                                 view! {
                                                     <div class="mb-6">

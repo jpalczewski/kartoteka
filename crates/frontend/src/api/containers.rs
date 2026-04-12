@@ -7,6 +7,13 @@ pub async fn fetch_home(client: &impl super::HttpClient) -> Result<HomeData, sup
 pub async fn fetch_containers(
     client: &impl super::HttpClient,
 ) -> Result<Vec<Container>, super::ApiError> {
+    let page = fetch_containers_page(client).await?;
+    super::collect_all_pages(client, page).await
+}
+
+pub async fn fetch_containers_page(
+    client: &impl super::HttpClient,
+) -> Result<CursorPage<Container>, super::ApiError> {
     super::api_get(client, &format!("{}/containers", super::API_BASE)).await
 }
 

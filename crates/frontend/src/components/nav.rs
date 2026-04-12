@@ -24,6 +24,32 @@ pub fn Nav() -> impl IntoView {
                 </a>
             </div>
 
+            <div class="navbar-center hidden lg:flex flex-1 px-4">
+                <Suspense fallback=|| view! { <span></span> }>
+                    {move || {
+                        session_res.get().and_then(|session| {
+                            session.as_ref().map(|_| {
+                                view! {
+                                    <form action="/search" method="get" class="w-full max-w-md">
+                                        <label class="input input-bordered flex items-center gap-2 w-full">
+                                            <input
+                                                type="search"
+                                                name="query"
+                                                class="grow"
+                                                placeholder=move_tr!("nav-search-placeholder")
+                                            />
+                                            <button type="submit" class="btn btn-primary btn-xs">
+                                                {move_tr!("nav-search")}
+                                            </button>
+                                        </label>
+                                    </form>
+                                }
+                            })
+                        })
+                    }}
+                </Suspense>
+            </div>
+
             <div class="navbar-end">
                 <Suspense fallback=|| view! { <span class="loading loading-spinner loading-sm"></span> }>
                     {move || {
@@ -34,6 +60,7 @@ pub fn Nav() -> impl IntoView {
                                     view! {
                                         <a href="/today" class="btn btn-ghost btn-sm">{move_tr!("nav-today")}</a>
                                         <a href="/calendar" class="btn btn-ghost btn-sm">{move_tr!("nav-calendar")}</a>
+                                        <a href="/search" class="btn btn-ghost btn-sm lg:hidden">{move_tr!("nav-search")}</a>
                                         <div class="relative">
                                             <button
                                                 class="btn btn-ghost btn-sm"
@@ -50,6 +77,7 @@ pub fn Nav() -> impl IntoView {
                                                         <li><a href="/admin">{move_tr!("nav-admin")}</a></li>
                                                     })
                                                 })}
+                                                <li><a href="/search">{move_tr!("nav-search")}</a></li>
                                                 <li><a href="/tags">{move_tr!("nav-tags")}</a></li>
                                                 <li><a href="/settings">{move_tr!("nav-settings")}</a></li>
                                                 <li><button type="button" on:click=on_logout>{move_tr!("nav-logout")}</button></li>

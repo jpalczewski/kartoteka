@@ -9,6 +9,18 @@ pub(crate) fn bool_from_number<'de, D: Deserializer<'de>>(d: D) -> Result<bool, 
     }
 }
 
+pub(crate) fn optional_bool_from_number<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Option<bool>, D::Error> {
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    match v {
+        Some(serde_json::Value::Bool(b)) => Ok(Some(b)),
+        Some(serde_json::Value::Number(n)) => Ok(Some(n.as_f64().unwrap_or(0.0) != 0.0)),
+        Some(serde_json::Value::Null) | None => Ok(None),
+        _ => Ok(None),
+    }
+}
+
 pub(crate) fn u32_from_number<'de, D: Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
     let v = serde_json::Value::deserialize(d)?;
     match v {

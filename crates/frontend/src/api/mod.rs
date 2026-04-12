@@ -4,16 +4,31 @@ mod containers;
 mod items;
 mod lists;
 pub mod preferences;
+mod search;
 mod settings;
 mod tags;
 
 pub use containers::*;
 pub use items::*;
 pub use lists::*;
+pub use search::*;
 pub use settings::*;
 pub use tags::*;
 
 pub(crate) use client::{HttpClient, HttpResponse, Method};
+
+pub(crate) fn encode_query_component(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(byte as char)
+            }
+            _ => encoded.push_str(&format!("%{:02X}", byte)),
+        }
+    }
+    encoded
+}
 
 /// Structured API error type for i18n-aware error display.
 #[derive(Debug, Clone)]
@@ -111,6 +126,30 @@ pub(crate) async fn api_get<T: serde::de::DeserializeOwned>(
         .await
         .map_err(ApiError::Network)?;
     parse_response(&resp)
+}
+
+pub(crate) async fn fetch_next_page<T: serde::de::DeserializeOwned>(
+    client: &impl HttpClient,
+    cursor: &str,
+) -> Result<kartoteka_shared::CursorPage<T>, ApiError> {
+    let encoded = encode_query_component(cursor);
+    api_get(client, &format!("{}/next-page?cursor={encoded}", API_BASE)).await
+}
+
+pub(crate) async fn collect_all_pages<T: serde::de::DeserializeOwned>(
+    client: &impl HttpClient,
+    mut page: kartoteka_shared::CursorPage<T>,
+) -> Result<Vec<T>, ApiError> {
+    let mut items = page.items;
+    let mut cursor = page.next_cursor;
+
+    while let Some(next_cursor) = cursor {
+        page = fetch_next_page(client, &next_cursor).await?;
+        items.extend(page.items);
+        cursor = page.next_cursor;
+    }
+
+    Ok(items)
 }
 
 pub(crate) async fn api_post<T: serde::de::DeserializeOwned>(

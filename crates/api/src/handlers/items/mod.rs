@@ -1,11 +1,15 @@
 mod calendar;
 mod crud;
 mod placement;
+mod search;
 mod validation;
 
 pub use calendar::{by_date, calendar};
+pub(crate) use crud::next_list_items_page;
 pub use crud::{create, create_batch, delete, get_one, list_all, set_completed, update};
 pub use placement::{move_batch, move_item, reorder, set_placement};
+pub(crate) use search::next_search_page;
+pub use search::search;
 
 use crate::error::json_error;
 use kartoteka_shared::*;
@@ -16,6 +20,10 @@ pub(super) const ITEM_COLS: &str = "id, list_id, title, description, completed, 
 pub(super) const DATE_ITEM_COLS: &str = "i.id, i.list_id, i.title, i.description, i.completed, i.position, \
     i.quantity, i.actual_quantity, i.unit, i.start_date, i.start_time, i.deadline, i.deadline_time, i.hard_deadline, \
     i.created_at, i.updated_at, l.name as list_name, l.list_type";
+
+pub(super) const SEARCH_ITEM_COLS: &str = "i.id, i.list_id, i.title, i.description, i.completed, i.position, \
+    i.quantity, i.actual_quantity, i.unit, i.start_date, i.start_time, i.deadline, i.deadline_time, i.hard_deadline, \
+    i.created_at, i.updated_at, l.name as list_name, l.list_type, l.archived as list_archived";
 
 pub(super) const MAX_ITEM_TITLE_LENGTH: usize = 255;
 

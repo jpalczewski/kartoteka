@@ -1,7 +1,14 @@
 use kartoteka_shared::*;
 
-pub async fn fetch_tags(client: &impl super::HttpClient) -> Result<Vec<Tag>, super::ApiError> {
+pub async fn fetch_tags_page(
+    client: &impl super::HttpClient,
+) -> Result<CursorPage<Tag>, super::ApiError> {
     super::api_get(client, &format!("{}/tags", super::API_BASE)).await
+}
+
+pub async fn fetch_tags(client: &impl super::HttpClient) -> Result<Vec<Tag>, super::ApiError> {
+    let page = fetch_tags_page(client).await?;
+    super::collect_all_pages(client, page).await
 }
 
 pub async fn create_tag(
@@ -42,6 +49,23 @@ pub async fn fetch_tag_items(
         "{}/tags/{tag_id}/items?recursive={recursive}",
         super::API_BASE
     );
+    super::api_get(client, &url).await
+}
+
+pub async fn fetch_tag_entities(
+    client: &impl super::HttpClient,
+    tag_id: &str,
+    recursive: bool,
+    entity_type: Option<&str>,
+) -> Result<Vec<SearchEntityResult>, super::ApiError> {
+    let mut url = format!(
+        "{}/tags/{tag_id}/entities?recursive={recursive}",
+        super::API_BASE
+    );
+    if let Some(entity_type) = entity_type {
+        url.push_str("&entity_type=");
+        url.push_str(&super::encode_query_component(entity_type));
+    }
     super::api_get(client, &url).await
 }
 

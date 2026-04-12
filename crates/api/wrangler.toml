@@ -4,7 +4,7 @@ compatibility_date = "2025-01-01"
 workers_dev = false
 
 [build]
-command = "cargo install -q worker-build && worker-build --release"
+command = "cargo install -q worker-build@^0.7 && worker-build --release"
 
 # === PROD (default) ===
 [[d1_databases]]
