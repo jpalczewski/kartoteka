@@ -1,4 +1,4 @@
-use crate::{types::TagRow, DbError};
+use crate::{DbError, types::TagRow};
 use sqlx::{SqliteConnection, SqlitePool};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -7,8 +7,7 @@ const TAG_COLS: &str =
     "id, user_id, name, icon, color, parent_tag_id, tag_type, metadata, created_at";
 
 /// Prefixed version for JOIN queries where tags is aliased as `t`.
-const TAG_COLS_T: &str =
-    "t.id, t.user_id, t.name, t.icon, t.color, t.parent_tag_id, t.tag_type, t.metadata, t.created_at";
+const TAG_COLS_T: &str = "t.id, t.user_id, t.name, t.icon, t.color, t.parent_tag_id, t.tag_type, t.metadata, t.created_at";
 
 // ── Input types ───────────────────────────────────────────────────────────────
 
@@ -59,11 +58,12 @@ pub async fn list_tree(pool: &SqlitePool, user_id: &str) -> Result<Vec<TagRow>, 
             UNION ALL \
             SELECT t.id, t.user_id, t.name, t.icon, t.color, t.parent_tag_id, \
                    t.tag_type, t.metadata, t.created_at, tree.path || '/' || t.name \
-            FROM tags t JOIN tree ON tree.id = t.parent_tag_id \
+            FROM tags t JOIN tree ON tree.id = t.parent_tag_id AND t.user_id = ? \
          ) \
          SELECT id, user_id, name, icon, color, parent_tag_id, tag_type, metadata, created_at \
          FROM tree ORDER BY path",
     )
+    .bind(user_id)
     .bind(user_id)
     .fetch_all(pool)
     .await
@@ -263,6 +263,7 @@ pub async fn delete(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, 
 // means delete_by_id(source) automatically removes all remaining source link rows.
 // reassign_* only need to INSERT OR IGNORE the target copies.
 
+#[tracing::instrument(skip(conn))]
 pub async fn reassign_item_links(
     conn: &mut SqliteConnection,
     source_id: &str,
@@ -280,6 +281,7 @@ pub async fn reassign_item_links(
     Ok(())
 }
 
+#[tracing::instrument(skip(conn))]
 pub async fn reassign_list_links(
     conn: &mut SqliteConnection,
     source_id: &str,
@@ -297,6 +299,7 @@ pub async fn reassign_list_links(
     Ok(())
 }
 
+#[tracing::instrument(skip(conn))]
 pub async fn reassign_container_links(
     conn: &mut SqliteConnection,
     source_id: &str,
@@ -316,6 +319,7 @@ pub async fn reassign_container_links(
 
 /// Reparent source's children to target before deleting source.
 /// Prevents FK violation when deleting a tag that still has children.
+#[tracing::instrument(skip(conn))]
 pub async fn reparent_children(
     conn: &mut SqliteConnection,
     source_id: &str,
@@ -332,6 +336,7 @@ pub async fn reparent_children(
 
 /// Delete without user_id check. Only call inside a merge transaction after
 /// ownership of both source and target has already been verified by domain.
+#[tracing::instrument(skip(conn))]
 pub async fn delete_by_id(conn: &mut SqliteConnection, id: &str) -> Result<(), DbError> {
     sqlx::query("DELETE FROM tags WHERE id = ?")
         .bind(id)
@@ -666,17 +671,23 @@ mod tests {
         let uid = create_test_user(&pool).await;
         let source = insert_tag(&pool, &uid, "Source", None, "tag").await;
         let target = insert_tag(&pool, &uid, "Target", None, "tag").await;
+        let list_id = new_id();
+        let item_id = new_id();
 
-        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES ('l1', ?, 'L')")
+        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES (?, ?, 'L')")
+            .bind(&list_id)
             .bind(&uid)
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO items (id, list_id, title) VALUES ('i1', 'l1', 'I')")
+        sqlx::query("INSERT INTO items (id, list_id, title) VALUES (?, ?, 'I')")
+            .bind(&item_id)
+            .bind(&list_id)
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO item_tags (item_id, tag_id) VALUES ('i1', ?)")
+        sqlx::query("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)")
+            .bind(&item_id)
             .bind(&source.id)
             .execute(&pool)
             .await
@@ -689,11 +700,11 @@ mod tests {
         delete_by_id(&mut tx, &source.id).await.unwrap();
         tx.commit().await.unwrap();
 
-        let rows: Vec<(String,)> =
-            sqlx::query_as("SELECT tag_id FROM item_tags WHERE item_id = 'i1'")
-                .fetch_all(&pool)
-                .await
-                .unwrap();
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT tag_id FROM item_tags WHERE item_id = ?")
+            .bind(&item_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].0, target.id);
 
@@ -705,27 +716,38 @@ mod tests {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
         let tag = insert_tag(&pool, &uid, "Work", None, "tag").await;
+        let list_id = new_id();
+        let item_id = new_id();
 
-        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES ('l1', ?, 'L')")
+        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES (?, ?, 'L')")
+            .bind(&list_id)
             .bind(&uid)
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO items (id, list_id, title) VALUES ('i1', 'l1', 'I')")
+        sqlx::query("INSERT INTO items (id, list_id, title) VALUES (?, ?, 'I')")
+            .bind(&item_id)
+            .bind(&list_id)
             .execute(&pool)
             .await
             .unwrap();
 
-        add_item_tag(&pool, "i1", &tag.id, &uid).await.unwrap();
-        let tags = get_tags_for_item(&pool, "i1", &uid).await.unwrap();
+        add_item_tag(&pool, &item_id, &tag.id, &uid).await.unwrap();
+        let tags = get_tags_for_item(&pool, &item_id, &uid).await.unwrap();
         assert_eq!(tags.len(), 1);
         assert_eq!(tags[0].name, "Work");
 
-        assert!(remove_item_tag(&pool, "i1", &tag.id, &uid).await.unwrap());
-        assert!(get_tags_for_item(&pool, "i1", &uid)
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(
+            remove_item_tag(&pool, &item_id, &tag.id, &uid)
+                .await
+                .unwrap()
+        );
+        assert!(
+            get_tags_for_item(&pool, &item_id, &uid)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -734,22 +756,31 @@ mod tests {
         let uid = create_test_user(&pool).await;
         let other = create_test_user(&pool).await;
         let tag = insert_tag(&pool, &uid, "Work", None, "tag").await;
+        let list_id = new_id();
+        let item_id = new_id();
 
-        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES ('l1', ?, 'L')")
+        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES (?, ?, 'L')")
+            .bind(&list_id)
             .bind(&uid)
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO items (id, list_id, title) VALUES ('i1', 'l1', 'I')")
+        sqlx::query("INSERT INTO items (id, list_id, title) VALUES (?, ?, 'I')")
+            .bind(&item_id)
+            .bind(&list_id)
             .execute(&pool)
             .await
             .unwrap();
 
-        add_item_tag(&pool, "i1", &tag.id, &other).await.unwrap();
-        assert!(get_tags_for_item(&pool, "i1", &uid)
+        add_item_tag(&pool, &item_id, &tag.id, &other)
             .await
-            .unwrap()
-            .is_empty());
+            .unwrap();
+        assert!(
+            get_tags_for_item(&pool, &item_id, &uid)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -757,29 +788,35 @@ mod tests {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
         let p_tag = insert_tag(&pool, &uid, "High", None, "priority").await;
+        let list_id = new_id();
+        let item_id = new_id();
 
-        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES ('l1', ?, 'L')")
+        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES (?, ?, 'L')")
+            .bind(&list_id)
             .bind(&uid)
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO items (id, list_id, title) VALUES ('i1', 'l1', 'I')")
+        sqlx::query("INSERT INTO items (id, list_id, title) VALUES (?, ?, 'I')")
+            .bind(&item_id)
+            .bind(&list_id)
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO item_tags (item_id, tag_id) VALUES ('i1', ?)")
+        sqlx::query("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)")
+            .bind(&item_id)
             .bind(&p_tag.id)
             .execute(&pool)
             .await
             .unwrap();
 
-        let found = get_exclusive_type_tag_for_item(&pool, "i1", "priority")
+        let found = get_exclusive_type_tag_for_item(&pool, &item_id, "priority")
             .await
             .unwrap();
         assert!(found.is_some());
         assert_eq!(found.unwrap().id, p_tag.id);
 
-        let none = get_exclusive_type_tag_for_item(&pool, "i1", "tag")
+        let none = get_exclusive_type_tag_for_item(&pool, &item_id, "tag")
             .await
             .unwrap();
         assert!(none.is_none());
