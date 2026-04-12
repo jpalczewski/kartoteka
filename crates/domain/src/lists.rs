@@ -1,8 +1,8 @@
+use crate::{DomainError, rules};
+use kartoteka_db as db;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use crate::{rules, DomainError};
-use kartoteka_db as db;
 
 // ── Public domain types ───────────────────────────────────────────────────────
 
@@ -19,9 +19,9 @@ impl ListType {
     pub fn as_str(&self) -> &'static str {
         match self {
             ListType::Checklist => "checklist",
-            ListType::Shopping  => "shopping",
-            ListType::Habits    => "habits",
-            ListType::Log       => "log",
+            ListType::Shopping => "shopping",
+            ListType::Habits => "habits",
+            ListType::Log => "log",
         }
     }
 }
@@ -31,10 +31,10 @@ impl TryFrom<&str> for ListType {
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         match s {
             "checklist" => Ok(ListType::Checklist),
-            "shopping"  => Ok(ListType::Shopping),
-            "habits"    => Ok(ListType::Habits),
-            "log"       => Ok(ListType::Log),
-            _           => Err(DomainError::Validation("unknown_list_type")),
+            "shopping" => Ok(ListType::Shopping),
+            "habits" => Ok(ListType::Habits),
+            "log" => Ok(ListType::Log),
+            _ => Err(DomainError::Validation("unknown_list_type")),
         }
     }
 }
@@ -69,18 +69,18 @@ pub struct List {
 #[derive(Debug, Deserialize)]
 pub struct CreateListRequest {
     pub name: String,
-    pub list_type: Option<String>,   // defaults to "checklist"
+    pub list_type: Option<String>, // defaults to "checklist"
     pub icon: Option<String>,
     pub description: Option<String>,
     pub container_id: Option<String>,
     pub parent_list_id: Option<String>,
-    pub features: Vec<String>,       // feature_name strings
+    pub features: Vec<String>, // feature_name strings
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateListRequest {
     pub name: Option<String>,
-    pub icon: Option<Option<String>>,         // Some(None) clears the field
+    pub icon: Option<Option<String>>, // Some(None) clears the field
     pub description: Option<Option<String>>,
     pub list_type: Option<String>,
 }
@@ -136,20 +136,33 @@ pub async fn list_archived(pool: &SqlitePool, user_id: &str) -> Result<Vec<List>
 }
 
 #[tracing::instrument(skip(pool))]
-pub async fn get_one(pool: &SqlitePool, id: &str, user_id: &str) -> Result<Option<List>, DomainError> {
-    db::lists::get_one(pool, id, user_id).await?
+pub async fn get_one(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+) -> Result<Option<List>, DomainError> {
+    db::lists::get_one(pool, id, user_id)
+        .await?
         .map(row_to_list)
         .transpose()
 }
 
 #[tracing::instrument(skip(pool))]
-pub async fn sublists(pool: &SqlitePool, parent_id: &str, user_id: &str) -> Result<Vec<List>, DomainError> {
+pub async fn sublists(
+    pool: &SqlitePool,
+    parent_id: &str,
+    user_id: &str,
+) -> Result<Vec<List>, DomainError> {
     let rows = db::lists::sublists(pool, parent_id, user_id).await?;
     rows.into_iter().map(row_to_list).collect()
 }
 
 #[tracing::instrument(skip(pool))]
-pub async fn create(pool: &SqlitePool, user_id: &str, req: &CreateListRequest) -> Result<List, DomainError> {
+pub async fn create(
+    pool: &SqlitePool,
+    user_id: &str,
+    req: &CreateListRequest,
+) -> Result<List, DomainError> {
     let list_type = req.list_type.as_deref().unwrap_or("checklist");
 
     // Phase 2: THINK
@@ -161,7 +174,8 @@ pub async fn create(pool: &SqlitePool, user_id: &str, req: &CreateListRequest) -
         user_id,
         req.container_id.as_deref(),
         req.parent_list_id.as_deref(),
-    ).await?;
+    )
+    .await?;
 
     // Phase 3: WRITE
     let list_id = Uuid::new_v4().to_string();
@@ -177,20 +191,27 @@ pub async fn create(pool: &SqlitePool, user_id: &str, req: &CreateListRequest) -
         list_type,
         req.container_id.as_deref(),
         req.parent_list_id.as_deref(),
-    ).await?;
+    )
+    .await?;
     if !req.features.is_empty() {
         db::lists::replace_features(&mut tx, &list_id, &req.features).await?;
     }
     tx.commit().await.map_err(db::DbError::Sqlx)?;
 
-    db::lists::get_one(pool, &list_id, user_id).await?
+    db::lists::get_one(pool, &list_id, user_id)
+        .await?
         .map(row_to_list)
         .transpose()?
         .ok_or_else(|| DomainError::Internal("list disappeared after create".into()))
 }
 
 #[tracing::instrument(skip(pool))]
-pub async fn update(pool: &SqlitePool, id: &str, user_id: &str, req: &UpdateListRequest) -> Result<Option<List>, DomainError> {
+pub async fn update(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    req: &UpdateListRequest,
+) -> Result<Option<List>, DomainError> {
     // Phase 1: READ — need current list to validate type change
     let current = match db::lists::get_one(pool, id, user_id).await? {
         Some(l) => l,
@@ -214,13 +235,15 @@ pub async fn update(pool: &SqlitePool, id: &str, user_id: &str, req: &UpdateList
         req.icon.as_ref().map(|v| v.as_deref()),
         req.description.as_ref().map(|v| v.as_deref()),
         req.list_type.as_deref(),
-    ).await?;
+    )
+    .await?;
 
     if !updated {
         return Ok(None);
     }
 
-    db::lists::get_one(pool, id, user_id).await?
+    db::lists::get_one(pool, id, user_id)
+        .await?
         .map(row_to_list)
         .transpose()
 }
@@ -231,23 +254,33 @@ pub async fn delete(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, 
 }
 
 #[tracing::instrument(skip(pool))]
-pub async fn toggle_archive(pool: &SqlitePool, id: &str, user_id: &str) -> Result<Option<List>, DomainError> {
+pub async fn toggle_archive(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+) -> Result<Option<List>, DomainError> {
     let toggled = db::lists::toggle_archived(pool, id, user_id).await?;
     if !toggled {
         return Ok(None);
     }
-    db::lists::get_one(pool, id, user_id).await?
+    db::lists::get_one(pool, id, user_id)
+        .await?
         .map(row_to_list)
         .transpose()
 }
 
 #[tracing::instrument(skip(pool))]
-pub async fn toggle_pin(pool: &SqlitePool, id: &str, user_id: &str) -> Result<Option<List>, DomainError> {
+pub async fn toggle_pin(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+) -> Result<Option<List>, DomainError> {
     let toggled = db::lists::toggle_pinned(pool, id, user_id).await?;
     if !toggled {
         return Ok(None);
     }
-    db::lists::get_one(pool, id, user_id).await?
+    db::lists::get_one(pool, id, user_id)
+        .await?
         .map(row_to_list)
         .transpose()
 }
@@ -256,30 +289,45 @@ pub async fn toggle_pin(pool: &SqlitePool, id: &str, user_id: &str) -> Result<Op
 #[tracing::instrument(skip(pool))]
 pub async fn reset(pool: &SqlitePool, id: &str, user_id: &str) -> Result<u64, DomainError> {
     // Verify ownership
-    db::lists::get_one(pool, id, user_id).await?
+    db::lists::get_one(pool, id, user_id)
+        .await?
         .ok_or(DomainError::NotFound("list"))?;
     Ok(db::lists::delete_items(pool, id).await?)
 }
 
 #[tracing::instrument(skip(pool))]
-pub async fn move_list(pool: &SqlitePool, id: &str, user_id: &str, req: &MoveListRequest) -> Result<Option<List>, DomainError> {
+pub async fn move_list(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    req: &MoveListRequest,
+) -> Result<Option<List>, DomainError> {
     let moved = db::lists::move_list(
-        pool, id, user_id,
+        pool,
+        id,
+        user_id,
         req.position,
         req.container_id.as_deref(),
         req.parent_list_id.as_deref(),
-    ).await?;
+    )
+    .await?;
     if !moved {
         return Ok(None);
     }
-    db::lists::get_one(pool, id, user_id).await?
+    db::lists::get_one(pool, id, user_id)
+        .await?
         .map(row_to_list)
         .transpose()
 }
 
 /// Replace all features for a list (validates against current list_type).
 #[tracing::instrument(skip(pool))]
-pub async fn set_features(pool: &SqlitePool, id: &str, user_id: &str, req: &SetFeaturesRequest) -> Result<Option<List>, DomainError> {
+pub async fn set_features(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    req: &SetFeaturesRequest,
+) -> Result<Option<List>, DomainError> {
     // Phase 1: READ
     let current = match db::lists::get_one(pool, id, user_id).await? {
         Some(l) => l,
@@ -294,7 +342,8 @@ pub async fn set_features(pool: &SqlitePool, id: &str, user_id: &str, req: &SetF
     db::lists::replace_features(&mut tx, id, &req.features).await?;
     tx.commit().await.map_err(db::DbError::Sqlx)?;
 
-    db::lists::get_one(pool, id, user_id).await?
+    db::lists::get_one(pool, id, user_id)
+        .await?
         .map(row_to_list)
         .transpose()
 }
@@ -357,7 +406,11 @@ mod tests {
         };
         let list = create(&pool, &uid, &req).await.unwrap();
         assert_eq!(list.features.len(), 2);
-        let names: Vec<&str> = list.features.iter().map(|f| f.feature_name.as_str()).collect();
+        let names: Vec<&str> = list
+            .features
+            .iter()
+            .map(|f| f.feature_name.as_str())
+            .collect();
         assert!(names.contains(&"deadlines"));
         assert!(names.contains(&"quantity"));
     }
@@ -370,10 +423,16 @@ mod tests {
             name: "Groceries".into(),
             list_type: Some("shopping".into()),
             features: vec![],
-            icon: None, description: None, container_id: None, parent_list_id: None,
+            icon: None,
+            description: None,
+            container_id: None,
+            parent_list_id: None,
         };
         let err = create(&pool, &uid, &req).await.unwrap_err();
-        assert!(matches!(err, DomainError::Validation("shopping_lists_require_quantity")));
+        assert!(matches!(
+            err,
+            DomainError::Validation("shopping_lists_require_quantity")
+        ));
     }
 
     #[tokio::test]
@@ -384,7 +443,10 @@ mod tests {
             name: "Groceries".into(),
             list_type: Some("shopping".into()),
             features: vec!["quantity".into()],
-            icon: None, description: None, container_id: None, parent_list_id: None,
+            icon: None,
+            description: None,
+            container_id: None,
+            parent_list_id: None,
         };
         let list = create(&pool, &uid, &req).await.unwrap();
         assert_eq!(list.list_type, "shopping");
@@ -395,12 +457,20 @@ mod tests {
     async fn toggle_archive_flips_and_returns_updated() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list = create(&pool, &uid, &checklist_req("Archivable")).await.unwrap();
+        let list = create(&pool, &uid, &checklist_req("Archivable"))
+            .await
+            .unwrap();
 
-        let updated = toggle_archive(&pool, &list.id, &uid).await.unwrap().unwrap();
+        let updated = toggle_archive(&pool, &list.id, &uid)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(updated.archived);
 
-        let updated2 = toggle_archive(&pool, &list.id, &uid).await.unwrap().unwrap();
+        let updated2 = toggle_archive(&pool, &list.id, &uid)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(!updated2.archived);
     }
 
@@ -408,7 +478,9 @@ mod tests {
     async fn reset_deletes_items_not_list() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list = create(&pool, &uid, &checklist_req("Resettable")).await.unwrap();
+        let list = create(&pool, &uid, &checklist_req("Resettable"))
+            .await
+            .unwrap();
 
         // Insert 2 items directly
         sqlx::query("INSERT INTO items (id, list_id, title) VALUES ('i1', ?, 'A'), ('i2', ?, 'B')")
@@ -453,15 +525,28 @@ mod tests {
             name: "Shop".into(),
             list_type: Some("shopping".into()),
             features: vec!["quantity".into()],
-            icon: None, description: None, container_id: None, parent_list_id: None,
+            icon: None,
+            description: None,
+            container_id: None,
+            parent_list_id: None,
         };
         let list = create(&pool, &uid, &req).await.unwrap();
 
         // Removing quantity from a shopping list → invalid
-        let err = set_features(&pool, &list.id, &uid, &SetFeaturesRequest {
-            features: vec!["deadlines".into()], // no quantity!
-        }).await.unwrap_err();
-        assert!(matches!(err, DomainError::Validation("shopping_lists_require_quantity")));
+        let err = set_features(
+            &pool,
+            &list.id,
+            &uid,
+            &SetFeaturesRequest {
+                features: vec!["deadlines".into()], // no quantity!
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            DomainError::Validation("shopping_lists_require_quantity")
+        ));
     }
 
     #[tokio::test]
@@ -469,7 +554,9 @@ mod tests {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
         let l1 = create(&pool, &uid, &checklist_req("Active")).await.unwrap();
-        create(&pool, &uid, &checklist_req("Active2")).await.unwrap();
+        create(&pool, &uid, &checklist_req("Active2"))
+            .await
+            .unwrap();
         toggle_archive(&pool, &l1.id, &uid).await.unwrap();
 
         let lists = list_all(&pool, &uid).await.unwrap();
