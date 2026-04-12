@@ -35,7 +35,7 @@ Claude Code → POST /mcp → 401
   → POST /mcp (Bearer: access_token) → tools work
 ```
 
-## MCP Tools (13 — 5 existing + add_comment + 3 relations + 4 time tracking)
+## MCP Tools (15 — 5 existing + add_comment + 3 relations + 4 time tracking + 2 templates)
 
 5 existing + `add_comment` + 3 relation tools + 4 time tracking tools. All call `domain::` (never db:: directly).
 
@@ -74,7 +74,8 @@ impl KartotekaTools {
 
     // create_item, update_item, search_items, add_comment,
     // add_relation, remove_relation, get_relations,
-    // start_timer, stop_timer, log_time, get_time_summary — same pattern
+    // start_timer, stop_timer, log_time, get_time_summary,
+    // create_list_from_template, save_as_template — same pattern
 }
 
 fn extract_user_id(parts: &http::request::Parts) -> Result<String, McpError> {

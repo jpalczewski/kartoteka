@@ -205,6 +205,7 @@ crates/db/src/
   comments.rs        — polymorphic comments CRUD (entity_type: item/list/container, author_type: user/assistant)
   relations.rs       — entity_relations CRUD, get_unresolved_blockers, bidirectional relates_to queries
   time_entries.rs    — unified time log: CRUD, inbox (unassigned), running timer query, summary per item/list/day
+  templates.rs       — templates + template_items CRUD, get_with_items
   test_helpers.rs     — test_pool (in-memory), create_test_user
 ```
 
@@ -308,6 +309,7 @@ crates/domain/src/
   tags.rs           — create, update, merge, delete, assign/remove links
   relations.rs      — create, delete, get_for_entity (bidirectional), validate ownership
   time_entries.rs   — start_timer (auto-stop previous), stop_timer, log_manual, assign_to_item, summary
+  templates.rs      — create_from_list (snapshot), create_list_from_templates (merge), CRUD
   auth.rs           — register, (future: social auth, bearer tokens)
   rules/            — (as above)
 ```

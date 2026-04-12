@@ -241,6 +241,27 @@ CREATE TABLE time_entries (
 CREATE INDEX idx_time_entries_item ON time_entries(item_id) WHERE item_id IS NOT NULL;
 CREATE INDEX idx_time_entries_user_unassigned ON time_entries(user_id) WHERE item_id IS NULL;
 
+CREATE TABLE templates (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+) STRICT;
+
+CREATE TABLE template_items (
+    id TEXT PRIMARY KEY,
+    template_id TEXT NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    position INTEGER NOT NULL DEFAULT 0,
+    quantity INTEGER,
+    unit TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+) STRICT;
+
+CREATE INDEX idx_template_items_template ON template_items(template_id);
+
 -- No separate preferences table — locale, timezone etc. stored in user_settings
 
 -- Indexes for hot query paths
