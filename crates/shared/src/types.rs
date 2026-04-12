@@ -140,7 +140,7 @@ pub struct Container {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct CreateContainerRequest {
     pub name: String,
     pub icon: Option<String>,
@@ -150,17 +150,19 @@ pub struct CreateContainerRequest {
     pub parent_container_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct UpdateContainerRequest {
     /// None = no change
     pub name: Option<String>,
     /// None = no change; Some(None) = clear; Some(Some(v)) = set
     pub icon: Option<Option<String>>,
+    /// None = no change; Some(None) = clear; Some(Some(v)) = set
     pub description: Option<Option<String>>,
+    /// None = no change; Some(None) = clear; Some(Some(v)) = set
     pub status: Option<Option<String>>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct MoveContainerRequest {
     /// None = move to root; Some(id) = move under that parent
     pub parent_container_id: Option<String>,
