@@ -141,9 +141,11 @@ async fn register_client(
 
 ### Tokens
 
-- **Access token:** JWT signed with HMAC-SHA256 (`OAUTH_SIGNING_SECRET` env var). Contains `sub` (user_id), `client_id`, `exp`, `iat`. Stateless — no token table needed.
-- **Refresh token:** Opaque random string stored in db, linked to user_id + client_id.
+- **Access token:** JWT with `scope: "mcp"`, short-lived (1h). Same unified JWT format as personal tokens (see Plan 2 auth spec). Stateless — no revocation check needed (short-lived).
+- **Refresh token:** Opaque random string stored in `oauth_refresh_tokens` table, linked to user_id + client_id.
 - **Authorization code:** Short-lived (5 min), stored in db with PKCE code_challenge, consumed on exchange.
+
+Same HMAC-SHA256 signing secret as personal tokens. Same bearer middleware validates both MCP and personal JWTs — differentiated by `scope` claim.
 
 ### PKCE
 

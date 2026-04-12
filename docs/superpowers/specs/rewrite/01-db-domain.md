@@ -202,7 +202,7 @@ crates/db/src/
   auth_methods.rs     — create, find_by_user_and_provider
   totp.rs             — upsert, find, mark_verified, delete
   server_config.rs    — get, set, is_registration_enabled
-  personal_tokens.rs  — create, find_by_hash, list_for_user, delete, update_last_used
+  personal_tokens.rs  — create, exists_by_jti, list_for_user, delete, touch_last_used
   comments.rs        — polymorphic comments CRUD (entity_type: item/list/container, author_type: user/assistant)
   relations.rs       — entity_relations CRUD, get_unresolved_blockers, bidirectional relates_to queries
   time_entries.rs    — unified time log: CRUD, inbox (unassigned), running timer query, summary per item/list/day
@@ -311,7 +311,7 @@ crates/domain/src/
   relations.rs      — create, delete, get_for_entity (bidirectional), validate ownership
   time_entries.rs   — start_timer (auto-stop previous), stop_timer, log_manual, assign_to_item, summary
   templates.rs      — create_from_list (snapshot), create_list_from_templates (merge), CRUD
-  auth.rs           — register, create_personal_token, validate_bearer_token (future: social auth)
+  auth.rs           — register, create_token (JWT with scope+jti), validate_jwt, revoke_token (future: social auth)
   rules/            — (as above)
 ```
 

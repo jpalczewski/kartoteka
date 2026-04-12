@@ -54,21 +54,43 @@ Separate `admin_required` middleware layer (not inline check). Checks `user.role
 
 ### Personal bearer tokens
 
-`personal_tokens` table — user generates named tokens in settings page (e.g. "laptop", "automation script"). Token shown once on creation, stored as hash (sha256).
+### Unified JWT token system
+
+All bearer tokens are JWTs signed with HMAC-SHA256 (`OAUTH_SIGNING_SECRET`). Same format for personal tokens, MCP OAuth tokens, calendar tokens.
+
+JWT claims:
+```json
+{
+  "sub": "user_id",
+  "scope": "full",
+  "jti": "token_id",
+  "exp": 1750000000,
+  "iat": 1712956800
+}
+```
+
+`personal_tokens` table stores metadata for long-lived tokens (name, revocation, last_used). No token hash — validation by JWT signature.
+
+| Token type | Scope | Expiry | Revocation check |
+|---|---|---|---|
+| Personal full API | `full` | configurable/none | yes (jti in db) |
+| Calendar feed | `calendar` or `calendar:list:<uuid>` | none | yes (jti in db) |
+| MCP access token | `mcp` | 1h | skip (short-lived) |
+| Future read-only | `read-only` | configurable | yes (jti in db) |
 
 Auth middleware resolution order:
-1. `Authorization: Bearer <token>` header → look up `personal_tokens` by hash → get user_id
+1. `Authorization: Bearer <jwt>` → verify signature → check exp → for long-lived: check jti not revoked → `AuthContext { user_id, scope }`
 2. Session cookie → axum-login `AuthSession`
 3. Neither → 401
 
-Axum middleware (`bearer_or_session`) checks Bearer header first, falls back to session. Handlers don't care which auth method was used — both resolve to `UserId`.
+One middleware, one signing secret, one format. Handlers receive `AuthContext` with scope — can check permissions if needed.
 
 Endpoints:
-- `POST /auth/tokens` — create token `{name, expires_at?}` → returns `{id, token, name}` (token shown once)
-- `GET /auth/tokens` — list tokens (id, name, last_used_at, expires_at — no token value)
-- `DELETE /auth/tokens/:id` — revoke
+- `POST /auth/tokens` — create token `{name, scope, expires_at?}` → returns `{id, token, name, scope}` (JWT shown once)
+- `GET /auth/tokens` — list tokens (id, name, scope, last_used_at, expires_at)
+- `DELETE /auth/tokens/:id` — revoke (delete from personal_tokens, jti check fails on next use)
 
-Domain: `domain::auth::create_personal_token`, `domain::auth::validate_bearer_token` (verify hash, check expiry, update last_used_at).
+Domain: `domain::auth::create_token(pool, user_id, name, scope, expires_at)`, `domain::auth::validate_jwt(token, signing_secret)` → `AuthContext`.
 
 ### iCal calendar tokens (#31) — unified with personal tokens
 

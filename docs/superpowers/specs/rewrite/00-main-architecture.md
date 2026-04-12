@@ -275,18 +275,16 @@ CREATE TABLE template_tags (
 );
 
 CREATE TABLE personal_tokens (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY,            -- JWT jti claim
     user_id TEXT NOT NULL REFERENCES users(id),
-    token_hash TEXT NOT NULL,
     name TEXT NOT NULL,
-    scope TEXT NOT NULL DEFAULT 'full',  -- 'full', 'calendar', 'calendar:list:<uuid>', 'read-only'
-    list_id TEXT REFERENCES lists(id),   -- for calendar per-list scope
+    scope TEXT NOT NULL DEFAULT 'full',  -- 'full', 'calendar', 'calendar:list:<uuid>', 'read-only', 'mcp'
     last_used_at TEXT,
     expires_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 ) STRICT;
 
-CREATE INDEX idx_personal_tokens_hash ON personal_tokens(token_hash);
+CREATE INDEX idx_personal_tokens_user ON personal_tokens(user_id);
 
 -- No separate preferences table — locale, timezone etc. stored in user_settings
 
