@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
+[[bin]]
+name = "kartoteka-server"
+path = "src/main.rs"
+
 [lints]
 workspace = true
 
@@ -16,3 +20,9 @@ kartoteka-mcp = { path = "../mcp" }
 kartoteka-oauth = { path = "../oauth" }
 kartoteka-jobs = { path = "../jobs" }
 kartoteka-frontend-v2 = { path = "../frontend-v2" }
+axum.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
