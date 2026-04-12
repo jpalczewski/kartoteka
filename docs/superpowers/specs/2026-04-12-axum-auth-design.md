@@ -130,6 +130,23 @@ Additional endpoints:
 - In-memory SQLite for test isolation
 - Test cases: register (first=admin, second=user), login, wrong password → 401, 2FA flow, admin middleware, registration disabled → 403
 
+## Background jobs (apalis)
+
+Plan 2 sets up the apalis infrastructure in `crates/server`:
+
+- `apalis-sqlite` storage (same SQLite db)
+- Worker registered in `main.rs`, runs alongside Axum server
+- Initial job types: `CleanupSessionsJob` (hourly), `MaintenanceJob` (weekly VACUUM/ANALYZE)
+- Future plans add: `SendNotificationJob`, `CleanupOAuthCodesJob`
+
+```toml
+# Additional deps in crates/server/Cargo.toml
+apalis = "1"
+apalis-sqlite = "1"
+apalis-cron = "1"
+reqwest = { version = "0.12", features = ["json"] }  # for external API calls
+```
+
 ## What this plan does NOT include
 
 - HTML pages (Plan 3 — Leptos SSR)

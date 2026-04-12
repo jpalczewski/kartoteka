@@ -399,6 +399,32 @@ Consumed by server::AppError which maps to HTTP status codes.
 
 Not needed. Bottleneck is SQLite I/O, not CPU. No batch data processing or parallel transforms. `spawn_blocking` sufficient for argon2.
 
+## Background job integration
+
+Domain layer can enqueue jobs via `apalis::SqliteStorage` (injected alongside pool):
+
+```rust
+// domain/src/items.rs
+pub async fn update(
+    pool: &SqlitePool,
+    job_storage: &SqliteStorage<SendNotificationJob>,
+    user_id: &str,
+    id: &str,
+    req: &UpdateItemRequest,
+) -> Result<Item, DomainError> {
+    // ... validation, update ...
+    
+    // If deadline approaching, schedule notification
+    if should_notify_deadline(&updated_item) {
+        job_storage.push(SendNotificationJob { ... }).await?;
+    }
+    
+    Ok(updated_item)
+}
+```
+
+Domain functions that need job enqueueing take `&SqliteStorage<T>` as parameter alongside `&SqlitePool`. Functions that don't need it don't take it (no unnecessary coupling).
+
 ## Testing strategy
 
 ### rules/ — unit tests

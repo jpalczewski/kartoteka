@@ -44,10 +44,10 @@ crates/
                             hydrate [leptos/hydrate, wasm-bindgen]
                   deps: shared, i18n, leptos, leptos_router, leptos_meta, leptos-fluent
                   deps(ssr): domain, axum, axum-login, sqlx
-  server/       — Axum binary, glue
+  server/       — Axum binary, glue + background jobs
                   deps: shared, domain, mcp, frontend(ssr)
                         axum, axum-login, tower-sessions, argon2, totp-rs
-                        tower-http
+                        tower-http, apalis, apalis-sqlite, apalis-cron, reqwest
 ```
 
 ### What disappears
@@ -601,6 +601,8 @@ SQLite file locally, zero external dependencies. Full auth flow works locally.
 | i18n | leptos-fluent 0.2 | Fluent translations, SSR support |
 | Logging | tracing + tracing-subscriber | Structured logging |
 | Static files | tower-http ServeDir | Serve WASM bundle |
+| Background jobs | apalis + apalis-sqlite + apalis-cron | Persistent job queue, cron, retry |
+| HTTP client | reqwest | External API calls (Telegram, web push) |
 | TLS | Caddy | Auto Let's Encrypt |
 
 ## Implementation Plans
@@ -651,6 +653,48 @@ Hashed filenames mean infinite cache — browser never re-downloads unchanged as
 ### SQLite tuning
 
 See db-domain spec for full details. Key pragmas: WAL, mmap_size=256MB, busy_timeout=5000, synchronous=NORMAL.
+
+## Background Jobs (apalis)
+
+`apalis` + `apalis-sqlite` + `apalis-cron` — persistent job queue backed by SQLite. Tower-based middleware (retry, rate-limit, tracing).
+
+### Job types
+
+| Job | Schedule | Purpose |
+|-----|----------|---------|
+| `CleanupSessionsJob` | cron `0 * * * *` (hourly) | Delete expired sessions |
+| `CleanupOAuthCodesJob` | cron `0 * * * *` (hourly) | Delete expired auth codes + refresh tokens |
+| `MaintenanceJob` | cron `0 3 * * 0` (weekly Sun 3am) | SQLite VACUUM + ANALYZE |
+| `OptimizeJob` | cron `0 */6 * * *` (every 6h) | PRAGMA optimize |
+| `SendNotificationJob` | one-off, delayed | Send via Telegram/web push (retry with backoff) |
+
+### Architecture
+
+```
+crates/server/src/
+  jobs/
+    mod.rs              — apalis worker setup, register all job types
+    maintenance.rs      — VacuumJob, AnalyzeJob, CleanupExpiredJob
+    notifications.rs    — SendNotificationJob (one-off, retry)
+    channels/
+      telegram.rs       — Telegram Bot API call
+```
+
+Jobs persist in SQLite — survive restart. Domain layer can enqueue jobs:
+
+```rust
+// domain:: enqueues notification
+storage.push(SendNotificationJob {
+    user_id, channel: "telegram",
+    payload: "Deadline za 1h: Kup mleko",
+}).await?;
+```
+
+### Future job types (not implemented now)
+
+- Deadline reminder notifications (scan items approaching deadline, enqueue SendNotificationJob)
+- iCal feed cache regeneration (issue #31)
+- Real-time SSE event dispatch (issue #30)
 
 ## Security hardening (implement during relevant plans)
 
