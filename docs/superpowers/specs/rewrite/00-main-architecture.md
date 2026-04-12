@@ -112,6 +112,7 @@ CREATE TABLE containers (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id),
     name TEXT NOT NULL,
+    icon TEXT,                      -- emoji "📦", future: "lucide:package", "img:id"
     description TEXT,
     status TEXT,  -- NULL=folder, 'active'/'done'/'paused'=project
     parent_container_id TEXT REFERENCES containers(id),
@@ -126,6 +127,7 @@ CREATE TABLE lists (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id),
     name TEXT NOT NULL,
+    icon TEXT,
     description TEXT,
     list_type TEXT NOT NULL DEFAULT 'checklist',
     parent_list_id TEXT REFERENCES lists(id),
@@ -162,6 +164,7 @@ CREATE TABLE tags (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id),
     name TEXT NOT NULL,
+    icon TEXT,
     color TEXT,
     parent_tag_id TEXT REFERENCES tags(id),
     tag_type TEXT NOT NULL DEFAULT 'tag',  -- 'tag', 'location', 'priority'
@@ -245,6 +248,7 @@ CREATE TABLE templates (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id),
     name TEXT NOT NULL,
+    icon TEXT,
     description TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 ) STRICT;
