@@ -1,10 +1,13 @@
 pub mod containers;
 pub mod home;
 
-use crate::AppState;
-use axum::Router;
+use crate::{AppState, auth};
+use axum::{Router, middleware};
 
 pub fn routes() -> Router<AppState> {
+    let admin_routes = crate::auth::server_config_router()
+        .route_layer(middleware::from_fn(auth::require_admin));
+
     Router::new()
         .nest("/containers", containers::routes())
         .merge(home::routes())
@@ -15,4 +18,6 @@ pub fn routes() -> Router<AppState> {
         .nest("/tag-links", crate::tags::tag_links_router())
         .nest("/settings", crate::settings::settings_router())
         .nest("/preferences", crate::settings::preferences_router())
+        .nest("/server-config", admin_routes)
+        .route_layer(middleware::from_fn(auth::require_auth))
 }

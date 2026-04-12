@@ -33,7 +33,7 @@ axum = { version = "0.8", features = ["json", "macros"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 axum-login = "0.17"
 tower-sessions = "0.14"
-tower-sessions-sqlx-store = { version = "0.14", features = ["sqlite"] }
+tower-sessions-sqlx-store = { version = "0.15", features = ["sqlite"] }
 argon2 = "0.5"
 time = "0.3"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
