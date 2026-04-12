@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 pub use sqlx::sqlite::SqlitePool;
 
+pub mod containers;
 pub mod test_helpers;
 pub mod types;
 
