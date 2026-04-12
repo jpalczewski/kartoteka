@@ -100,7 +100,10 @@ pub async fn login(
 ) -> impl IntoResponse {
     match auth_session.authenticate(creds).await {
         Ok(Some(user)) => {
-            let _ = auth_session.login(&user).await;
+            if let Err(e) = auth_session.login(&user).await {
+                tracing::error!("session write failed during login: {e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
             Json(serde_json::json!({
                 "status": "ok",
                 "user": {
@@ -122,8 +125,11 @@ pub async fn login(
 /// POST /auth/logout
 #[tracing::instrument(skip(auth_session))]
 pub async fn logout(mut auth_session: AuthSession) -> impl IntoResponse {
-    let _ = auth_session.logout().await;
-    Json(serde_json::json!({"status": "ok"}))
+    if let Err(e) = auth_session.logout().await {
+        tracing::error!("session invalidation failed during logout: {e}");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+    Json(serde_json::json!({"status": "ok"})).into_response()
 }
 
 /// GET /api/server-config (admin only)
