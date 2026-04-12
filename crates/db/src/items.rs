@@ -7,18 +7,18 @@ use sqlx::SqlitePool;
 pub struct InsertItemInput {
     pub id: String,
     pub list_id: String,
-    pub position: i64,
+    pub position: i32,
     pub title: String,
     pub description: Option<String>,
-    pub quantity: Option<i64>,
-    pub actual_quantity: Option<i64>,
+    pub quantity: Option<i32>,
+    pub actual_quantity: Option<i32>,
     pub unit: Option<String>,
     pub start_date: Option<String>,
     pub start_time: Option<String>,
     pub deadline: Option<String>,
     pub deadline_time: Option<String>,
     pub hard_deadline: Option<String>,
-    pub estimated_duration: Option<i64>,
+    pub estimated_duration: Option<i32>,
 }
 
 #[derive(Debug)]
@@ -26,15 +26,15 @@ pub struct UpdateItemInput {
     pub title: Option<String>,
     pub description: Option<Option<String>>,
     pub completed: Option<bool>,
-    pub quantity: Option<Option<i64>>,
-    pub actual_quantity: Option<Option<i64>>,
+    pub quantity: Option<Option<i32>>,
+    pub actual_quantity: Option<Option<i32>>,
     pub unit: Option<Option<String>>,
     pub start_date: Option<Option<String>>,
     pub start_time: Option<Option<String>>,
     pub deadline: Option<Option<String>>,
     pub deadline_time: Option<Option<String>>,
     pub hard_deadline: Option<Option<String>>,
-    pub estimated_duration: Option<Option<i64>>,
+    pub estimated_duration: Option<Option<i32>>,
 }
 
 // ── Column list constant ──────────────────────────────────────────────────────
@@ -215,7 +215,10 @@ pub async fn update(
     Ok(rows.rows_affected() > 0)
 }
 
-/// Update completed field by id (no user_id check — caller verifies ownership).
+/// Set completed status directly by item ID.
+/// **Ownership is NOT checked** — caller must verify the item belongs to user_id
+/// before calling this function. Only call after a successful `get_one` or `update`
+/// that already enforced ownership.
 #[tracing::instrument(skip(pool))]
 pub async fn set_completed(pool: &SqlitePool, id: &str, completed: bool) -> Result<(), DbError> {
     sqlx::query("UPDATE items SET completed = ?, updated_at = datetime('now') WHERE id = ?")
@@ -300,7 +303,7 @@ mod tests {
         list_id
     }
 
-    async fn make_item(pool: &SqlitePool, list_id: &str, title: &str, pos: i64) -> ItemRow {
+    async fn make_item(pool: &SqlitePool, list_id: &str, title: &str, pos: i32) -> ItemRow {
         insert(
             pool,
             &InsertItemInput {
@@ -409,6 +412,25 @@ mod tests {
 
         let items_empty = by_date(&pool, &user_id, "2026-05-16").await.unwrap();
         assert!(items_empty.is_empty());
+
+        // Also verify hard_deadline is matched
+        let hard_item_id = uuid::Uuid::new_v4().to_string();
+        insert(
+            &pool,
+            &InsertItemInput {
+                id: hard_item_id.clone(),
+                list_id: list_id.clone(),
+                position: 1,
+                title: "Hard deadline item".to_string(),
+                hard_deadline: Some("2026-05-15".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let items_two = by_date(&pool, &user_id, "2026-05-15").await.unwrap();
+        assert_eq!(items_two.len(), 2);
     }
 
     #[tokio::test]
@@ -438,6 +460,25 @@ mod tests {
 
         let items_empty = calendar(&pool, &user_id, "2026-06").await.unwrap();
         assert!(items_empty.is_empty());
+
+        // Also verify deadline column is matched
+        let deadline_item_id = uuid::Uuid::new_v4().to_string();
+        insert(
+            &pool,
+            &InsertItemInput {
+                id: deadline_item_id.clone(),
+                list_id: list_id.clone(),
+                position: 1,
+                title: "Deadline item".to_string(),
+                deadline: Some("2026-05-20".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let items_two = calendar(&pool, &user_id, "2026-05").await.unwrap();
+        assert_eq!(items_two.len(), 2);
     }
 
     #[tokio::test]
@@ -446,7 +487,20 @@ mod tests {
         let user_id = create_test_user(&pool).await;
         let list_id = setup_list(&pool, &user_id).await;
 
-        let item = make_item(&pool, &list_id, "Original", 0).await;
+        let item_id = uuid::Uuid::new_v4().to_string();
+        let item = insert(
+            &pool,
+            &InsertItemInput {
+                id: item_id.clone(),
+                list_id: list_id.clone(),
+                position: 0,
+                title: "Original".to_string(),
+                quantity: Some(5),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
 
         let changed = update(
             &pool,
@@ -474,6 +528,7 @@ mod tests {
         let updated = get_one(&pool, &item.id, &user_id).await.unwrap().unwrap();
         assert_eq!(updated.title, "Updated");
         assert!(!updated.completed);
+        assert_eq!(updated.quantity, Some(5));
     }
 
     #[tokio::test]
