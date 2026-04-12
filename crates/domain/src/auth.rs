@@ -17,6 +17,7 @@ pub struct UserInfo {
 }
 
 /// Hash a password using argon2id. Runs in a blocking thread to avoid blocking async executor.
+#[tracing::instrument(skip(password))]
 pub async fn hash_password(password: String) -> Result<String, DomainError> {
     tokio::task::spawn_blocking(move || {
         let salt = SaltString::generate(&mut OsRng);
@@ -30,6 +31,7 @@ pub async fn hash_password(password: String) -> Result<String, DomainError> {
 }
 
 /// Verify a password against an argon2 hash. Runs in a blocking thread.
+#[tracing::instrument(skip(password, hash))]
 pub async fn verify_password(password: String, hash: String) -> Result<bool, DomainError> {
     tokio::task::spawn_blocking(move || {
         let parsed = PasswordHash::new(&hash)
@@ -46,6 +48,7 @@ pub async fn verify_password(password: String, hash: String) -> Result<bool, Dom
 
 /// Check whether new registrations are currently allowed.
 /// Reads `registration_enabled` from server_config; defaults to true if key is missing.
+#[tracing::instrument(skip(pool))]
 pub async fn is_registration_enabled(pool: &SqlitePool) -> Result<bool, DomainError> {
     let val = db::server_config::get(pool, "registration_enabled").await?;
     Ok(val.as_deref() != Some("false"))
@@ -59,6 +62,7 @@ pub async fn is_registration_enabled(pool: &SqlitePool) -> Result<bool, DomainEr
 /// - First registered user gets role = "admin"; all subsequent get "user"
 /// - Password is hashed with argon2 in spawn_blocking
 /// - User row + auth_method row inserted in a transaction
+#[tracing::instrument(skip(pool, password))]
 pub async fn register(
     pool: &SqlitePool,
     email: &str,
@@ -106,7 +110,7 @@ pub async fn register(
     )
     .bind(&method_id)
     .bind(&user_id)
-    .bind(&user_id)
+    .bind(email)
     .bind(&hash)
     .execute(&mut *tx)
     .await
