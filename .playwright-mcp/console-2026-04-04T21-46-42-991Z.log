@@ -1,0 +1,10 @@
+[      41ms] [WARNING] The `integrity` attribute is currently ignored for preload destinations that do not support subresource integrity. See https://crbug.com/981419 for more information @ http://127.0.0.1:8080/calendar/2026/04/03?view=month:23
+[      78ms] [ERROR] Build failed: error from build pipeline
+
+Caused by:
+	0: HTML build pipeline failed (1 errors), showing first
+	1: error from asset pipeline
+	2: running cargo build
+	3: error during cargo build execution
+	4: cargo call to executable 'cargo' with args: '["build", "--target=wasm32-unknown-unknown", "--manifest-path", "/Users/erxyi/Projekty/kartoteka/crates/frontend/Cargo.toml"]' returned a bad status: exit status: 101
+ @ http://127.0.0.1:8080/calendar/2026/04/03?view=month:151

@@ -1,0 +1,93 @@
+- generic [active] [ref=e1]:
+  - navigation [ref=e2]:
+    - link "Kartoteka" [ref=e4] [cursor=pointer]:
+      - /url: /
+    - generic [ref=e5]:
+      - link "Dziś" [ref=e111] [cursor=pointer]:
+        - /url: /today
+      - link "Kalendarz" [ref=e112] [cursor=pointer]:
+        - /url: /calendar
+      - button "dev@local" [ref=e114] [cursor=pointer]
+  - main [ref=e6]:
+    - generic [ref=e132]:
+      - generic [ref=e133]:
+        - generic [ref=e134]:
+          - button "‹" [ref=e135] [cursor=pointer]
+          - heading "Kwiecień 2026" [level=2] [ref=e136]
+          - button "›" [ref=e137] [cursor=pointer]
+        - generic [ref=e138]:
+          - button "Dziś" [ref=e139] [cursor=pointer]
+          - generic [ref=e140]:
+            - radio "Miesiąc" [checked] [ref=e141] [cursor=pointer]
+            - radio "Tydzień" [ref=e142] [cursor=pointer]
+      - generic [ref=e144]:
+        - generic [ref=e145]:
+          - generic [ref=e146]: Pn
+          - generic [ref=e147]: Wt
+          - generic [ref=e148]: Śr
+          - generic [ref=e149]: Cz
+          - generic [ref=e150]: Pt
+          - generic [ref=e151]: Sb
+          - generic [ref=e152]: Nd
+        - generic [ref=e153]:
+          - generic [ref=e155] [cursor=pointer]: "30"
+          - generic [ref=e157] [cursor=pointer]: "31"
+          - generic [ref=e159] [cursor=pointer]: "1"
+          - generic [ref=e161] [cursor=pointer]: "2"
+          - generic [ref=e163] [cursor=pointer]: "3"
+          - generic [ref=e166] [cursor=pointer]: "4"
+          - generic [ref=e168] [cursor=pointer]: "5"
+          - generic [ref=e170] [cursor=pointer]: "6"
+          - generic [ref=e172] [cursor=pointer]: "7"
+          - generic [ref=e174] [cursor=pointer]: "8"
+          - generic [ref=e176] [cursor=pointer]: "9"
+          - generic [ref=e178] [cursor=pointer]: "10"
+          - generic [ref=e180] [cursor=pointer]: "11"
+          - generic [ref=e182] [cursor=pointer]: "12"
+          - generic [ref=e184] [cursor=pointer]: "13"
+          - generic [ref=e186] [cursor=pointer]: "14"
+          - generic [ref=e188] [cursor=pointer]: "15"
+          - generic [ref=e190] [cursor=pointer]: "16"
+          - generic [ref=e192] [cursor=pointer]: "17"
+          - generic [ref=e194] [cursor=pointer]: "18"
+          - generic [ref=e196] [cursor=pointer]: "19"
+          - generic [ref=e198] [cursor=pointer]: "20"
+          - generic [ref=e200] [cursor=pointer]: "21"
+          - generic [ref=e202] [cursor=pointer]: "22"
+          - generic [ref=e204] [cursor=pointer]: "23"
+          - generic [ref=e206] [cursor=pointer]: "24"
+          - generic [ref=e208] [cursor=pointer]: "25"
+          - generic [ref=e210] [cursor=pointer]: "26"
+          - generic [ref=e212] [cursor=pointer]: "27"
+          - generic [ref=e214] [cursor=pointer]: "28"
+          - generic [ref=e216] [cursor=pointer]: "29"
+          - generic [ref=e218] [cursor=pointer]: "30"
+          - generic [ref=e220] [cursor=pointer]: "1"
+          - generic [ref=e222] [cursor=pointer]: "2"
+          - generic [ref=e224] [cursor=pointer]: "3"
+      - generic [ref=e225]:
+        - button "bbcb" [ref=e227] [cursor=pointer]
+        - generic [ref=e228] [cursor=pointer]:
+          - checkbox "Ukończone" [checked] [ref=e229]
+          - generic [ref=e230]: Ukończone
+      - generic [ref=e231]:
+        - generic [ref=e232]:
+          - button "‹" [ref=e233] [cursor=pointer]
+          - generic [ref=e234]:
+            - heading "3 kwietnia 2026" [level=3] [ref=e235]
+            - text: piątek
+          - button "›" [ref=e236] [cursor=pointer]
+        - generic [ref=e238]:
+          - heading "bbcb" [level=4] [ref=e239]:
+            - link "bbcb" [ref=e240] [cursor=pointer]:
+              - /url: /lists/1039f275-c3f8-410a-925e-76a0996fd9fb
+          - generic [ref=e242]:
+            - checkbox [ref=e243] [cursor=pointer]
+            - link "a" [ref=e244] [cursor=pointer]:
+              - /url: /lists/1039f275-c3f8-410a-925e-76a0996fd9fb/items/f28aa3ce-568f-41fb-92ec-853312a5b353
+            - button "⏰ 3 kwi wczoraj" [ref=e245] [cursor=pointer]:
+              - generic [ref=e246]:
+                - generic [ref=e247]: ⏰
+                - generic [ref=e248]: 3 kwi
+              - generic [ref=e249]: wczoraj
+            - button "✕" [ref=e250] [cursor=pointer]

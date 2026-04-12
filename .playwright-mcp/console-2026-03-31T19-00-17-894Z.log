@@ -1,0 +1,18 @@
+[     170ms] [WARNING] The `integrity` attribute is currently ignored for preload destinations that do not support subresource integrity. See https://crbug.com/981419 for more information @ https://kartoteka.pages.dev/:17
+[     250ms] [ERROR] Manifest: Line: 1, column: 1, Syntax error. @ https://kartoteka.pages.dev/manifest.json:0
+[     252ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ https://kartoteka.pages.dev/:0
+[     893ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://kartoteka-gateway.jpalczewski.workers.dev/api/preferences:0
+[   14128ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ https://kartoteka.pages.dev/login:0
+[   35140ms] [WARNING] The `integrity` attribute is currently ignored for preload destinations that do not support subresource integrity. See https://crbug.com/981419 for more information @ https://kartoteka.pages.dev/:17
+[   35193ms] [ERROR] Manifest: Line: 1, column: 1, Syntax error. @ https://kartoteka.pages.dev/manifest.json:0
+[   35269ms] [ERROR] Manifest: Line: 1, column: 1, Syntax error. @ https://kartoteka.pages.dev/manifest.json:0
+[   35269ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ https://kartoteka.pages.dev/:0
+[   49690ms] [WARNING] The `integrity` attribute is currently ignored for preload destinations that do not support subresource integrity. See https://crbug.com/981419 for more information @ https://dev.kartoteka.pages.dev/:17
+[   49815ms] [ERROR] Manifest: Line: 1, column: 1, Syntax error. @ https://dev.kartoteka.pages.dev/manifest.json:0
+[   49854ms] [ERROR] Manifest: Line: 1, column: 1, Syntax error. @ https://dev.kartoteka.pages.dev/manifest.json:0
+[   49855ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ https://dev.kartoteka.pages.dev/:0
+[   50675ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://kartoteka-gateway-dev.jpalczewski.workers.dev/api/preferences:0
+[   52874ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ https://dev.kartoteka.pages.dev/login:0
+[   93432ms] [WARNING] The `integrity` attribute is currently ignored for preload destinations that do not support subresource integrity. See https://crbug.com/981419 for more information @ https://dev.kartoteka.pages.dev/:17
+[   93490ms] [ERROR] Manifest: Line: 1, column: 1, Syntax error. @ https://dev.kartoteka.pages.dev/manifest.json:0
+[   93502ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ https://dev.kartoteka.pages.dev/:0

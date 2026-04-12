@@ -1,0 +1,28 @@
+- generic [active] [ref=e1]:
+  - navigation [ref=e2]:
+    - link "Kartoteka" [ref=e4] [cursor=pointer]:
+      - /url: /
+    - generic [ref=e5]:
+      - link "Dziś" [ref=e9] [cursor=pointer]:
+        - /url: /today
+      - link "Kalendarz" [ref=e10] [cursor=pointer]:
+        - /url: /calendar
+      - button "jpalczewski@gmail.com" [ref=e12] [cursor=pointer]
+  - main [ref=e6]:
+    - generic [ref=e155]:
+      - generic [ref=e156]:
+        - generic "Kliknij aby zmienić nazwę" [ref=e158] [cursor=pointer]: Test kontrolny po błędzie taga
+        - generic [ref=e159]:
+          - button "Ustawienia (koło zębate)" [ref=e160] [cursor=pointer]
+          - button "Reset" [ref=e161] [cursor=pointer]
+          - button "Archiwizuj" [ref=e162] [cursor=pointer]
+          - button "Usuń listę" [ref=e163] [cursor=pointer]
+      - paragraph [ref=e164] [cursor=pointer]: Dodaj opis...
+      - button "＋" [ref=e168] [cursor=pointer]
+      - generic [ref=e169]:
+        - generic [ref=e171]:
+          - textbox "Nowy element..." [ref=e172]
+          - button "📝" [ref=e173] [cursor=pointer]
+        - button "Dodaj" [ref=e174] [cursor=pointer]
+      - generic [ref=e175]: Lista jest pusta
+      - button "+ Dodaj grupę" [ref=e177] [cursor=pointer]

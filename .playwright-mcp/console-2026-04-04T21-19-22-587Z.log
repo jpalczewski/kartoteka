@@ -1,0 +1,1 @@
+[      35ms] [WARNING] The `integrity` attribute is currently ignored for preload destinations that do not support subresource integrity. See https://crbug.com/981419 for more information @ http://localhost:8080/lists/1039f275-c3f8-410a-925e-76a0996fd9fb/items/f28aa3ce-568f-41fb-92ec-853312a5b353:23

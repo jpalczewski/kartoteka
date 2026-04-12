@@ -212,6 +212,89 @@ Queries extracted 1:1 from current `crates/api/src/handlers/`. Same logic, diffe
 
 Date fields (`start_date`, `deadline`, `hard_deadline`, etc.) use `chrono::NaiveDate` / `chrono::NaiveTime` instead of `Option<String>`. sqlx with `features = ["chrono"]` maps SQLite TEXT ↔ chrono types natively. Serde serializes `NaiveDate` as `"2026-04-12"` — identical JSON format, but type-safe.
 
+## SQLite Optimization
+
+### Connection setup (SqliteConnectOptions + after_connect)
+
+- `journal_mode = WAL` — concurrent reads + single writer
+- `foreign_keys = ON` — FK enforcement (off by default in SQLite!)
+- `synchronous = NORMAL` — safe with WAL, faster than FULL
+- `busy_timeout = 5000` — 5s retry on SQLITE_BUSY (via after_connect)
+- `mmap_size = 268435456` — 256MB memory-mapped I/O (via after_connect)
+- `optimize = 0x10002` — query planner stats on connect (via after_connect)
+
+### STRICT tables
+
+All tables use `STRICT` keyword — enforces column types, prevents silent type coercion.
+
+### RETURNING clause
+
+INSERT/UPDATE queries use `RETURNING *` instead of INSERT + separate SELECT. One round-trip instead of two.
+
+### Partial indexes
+
+```sql
+CREATE INDEX idx_items_deadline ON items(deadline) WHERE deadline IS NOT NULL;
+CREATE INDEX idx_items_start_date ON items(start_date) WHERE start_date IS NOT NULL;
+CREATE INDEX idx_lists_pinned ON lists(user_id, pinned) WHERE pinned = 1;
+CREATE INDEX idx_containers_pinned ON containers(user_id, pinned) WHERE pinned = 1;
+CREATE INDEX idx_lists_container ON lists(container_id) WHERE container_id IS NOT NULL;
+```
+
+### SQLite-specific features retained
+
+- `json_group_array` / `json_object` — feature aggregation in single query
+- `WITH RECURSIVE` — tag tree traversal, cycle detection
+- `datetime('now')` — server-side timestamps
+- `ON CONFLICT ... DO UPDATE` — upserts
+
+## Domain Layer (crates/domain)
+
+Business logic separated from data access. All mutations go through domain::, reads can go directly to db::.
+
+### Boundary
+
+- **db::** — pure queries. INSERT/UPDATE/DELETE with user_id enforcement (defense in depth). Zero business logic.
+- **domain::** — validation, orchestration, transactions. Calls db:: for data access.
+
+### Functions in domain::
+
+- `domain::items::create` — feature validation + insert + auto-position
+- `domain::items::update` — feature validation + partial update + auto-complete on quantity
+- `domain::items::move_item` — ownership validation + target list validation + position
+- `domain::containers::create` — hierarchy validation (parent != project) + insert
+- `domain::containers::move_container` — self-reference check + hierarchy validation
+- `domain::tags::update` — cycle detection + update
+- `domain::tags::merge` — reassign links + reparent + delete (transaction)
+- `domain::lists::create` — insert + default features from ListType (transaction)
+- `domain::lists::reset` — reset items + sublist items (transaction)
+- `domain::lists::toggle_pin` — toggle + future feature hook
+- `domain::lists::toggle_archive` — toggle + future feature hook
+- `domain::auth::register` — check registration enabled + first user = admin + hash password + create user + auth_method
+
+### Consumers
+
+Server functions, REST handlers, and MCP tools all call domain:: for writes, db:: for reads:
+
+```
+GET  /api/lists      → db::lists::list_all (no logic)
+POST /api/lists      → domain::lists::create (validation + transaction)
+PUT  /api/lists/:id  → domain::lists::update (validation)
+```
+
+### Workspace structure (updated)
+
+```
+crates/
+  shared/       — models, DTOs, enums, date_utils, constants
+  db/           — pure queries, SQLite optimized (RETURNING, partial indexes, STRICT)
+  domain/       — business logic, validation, orchestration
+  i18n/         — FTL files
+  mcp/          — rmcp tools (calls domain:: for writes, db:: for reads)
+  frontend/     — Leptos 0.8 SSR (server functions call domain::/db::)
+  server/       — Axum binary (REST handlers call domain::/db::)
+```
+
 ## Auth (axum-login + argon2 + totp-rs)
 
 ### Stack

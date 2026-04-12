@@ -1,0 +1,45 @@
+- generic [active] [ref=e1]:
+  - navigation [ref=e2]:
+    - link "Kartoteka" [ref=e4] [cursor=pointer]:
+      - /url: /
+    - generic [ref=e5]:
+      - link "Dziś" [ref=e111] [cursor=pointer]:
+        - /url: /today
+      - link "Kalendarz" [ref=e112] [cursor=pointer]:
+        - /url: /calendar
+      - button "dev@local" [ref=e114] [cursor=pointer]
+  - main [ref=e6]:
+    - list [ref=e133]:
+      - listitem [ref=e134]:
+        - link "Home" [ref=e135] [cursor=pointer]:
+          - /url: /
+      - listitem [ref=e136]:
+        - link "bbcb" [ref=e137] [cursor=pointer]:
+          - /url: /lists/1039f275-c3f8-410a-925e-76a0996fd9fb
+      - listitem [ref=e138]: a
+    - generic [ref=e139]:
+      - checkbox [ref=e140] [cursor=pointer]
+      - generic "Kliknij aby zmienić nazwę" [ref=e141] [cursor=pointer]: a
+    - paragraph [ref=e142] [cursor=pointer]: Dodaj opis...
+    - generic [ref=e143]:
+      - generic [ref=e144]: Termin
+      - generic [ref=e145]:
+        - generic [ref=e146]:
+          - button "Dziś" [ref=e147] [cursor=pointer]
+          - button "Jutro" [ref=e148] [cursor=pointer]
+          - button "Pn" [ref=e149] [cursor=pointer]
+          - textbox [ref=e150]: 2026-04-03
+          - button "🗑 Usuń" [ref=e151] [cursor=pointer]
+        - generic [ref=e152]:
+          - button "9:00" [ref=e153] [cursor=pointer]
+          - button "12:00" [ref=e154] [cursor=pointer]
+          - button "15:00" [ref=e155] [cursor=pointer]
+          - button "18:00" [ref=e156] [cursor=pointer]
+          - generic [ref=e157]: "|"
+          - button "−" [ref=e158] [cursor=pointer]
+          - generic [ref=e159]: "--"
+          - generic [ref=e160]: ":"
+          - generic [ref=e161]: "--"
+          - button "+" [ref=e162] [cursor=pointer]
+          - button "+15m" [ref=e163] [cursor=pointer]
+    - button "Usuń element" [ref=e165] [cursor=pointer]

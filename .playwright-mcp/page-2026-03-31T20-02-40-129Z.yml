@@ -1,0 +1,22 @@
+- generic [active] [ref=e1]:
+  - navigation [ref=e2]:
+    - link "Kartoteka" [ref=e4] [cursor=pointer]:
+      - /url: /
+    - generic [ref=e5]:
+      - link "Today" [ref=e6] [cursor=pointer]:
+        - /url: /today
+      - link "Calendar" [ref=e7] [cursor=pointer]:
+        - /url: /calendar
+      - button "dev@local" [ref=e9] [cursor=pointer]
+  - main [ref=e10]:
+    - generic [ref=e13]:
+      - heading "Log in" [level=2] [ref=e14]
+      - generic [ref=e15]:
+        - textbox [ref=e17]:
+          - /placeholder: Email
+        - textbox [ref=e19]:
+          - /placeholder: Password
+        - button "Log in" [ref=e20] [cursor=pointer]
+      - generic [ref=e21]: or
+      - link "Create account" [ref=e22] [cursor=pointer]:
+        - /url: /signup
