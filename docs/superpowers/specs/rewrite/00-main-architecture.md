@@ -279,6 +279,8 @@ CREATE TABLE personal_tokens (
     user_id TEXT NOT NULL REFERENCES users(id),
     token_hash TEXT NOT NULL,
     name TEXT NOT NULL,
+    scope TEXT NOT NULL DEFAULT 'full',  -- 'full', 'calendar', 'calendar:list:<uuid>', 'read-only'
+    list_id TEXT REFERENCES lists(id),   -- for calendar per-list scope
     last_used_at TEXT,
     expires_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
