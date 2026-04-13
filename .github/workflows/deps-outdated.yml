@@ -37,7 +37,7 @@ jobs:
 
       - name: Create or update issue
         if: steps.outdated.outputs.has_outdated == 'true'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           OUTDATED_RESULT: ${{ steps.outdated.outputs.result }}
         with:
