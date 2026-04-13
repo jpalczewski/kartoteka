@@ -70,8 +70,10 @@ mod tests {
         let uid = create_test_user(&pool).await;
         let data = query(&pool, &uid).await.unwrap();
         assert!(data.pinned_containers.is_empty());
+        assert!(data.recent_containers.is_empty());
         assert!(data.root_containers.is_empty());
         assert!(data.pinned_lists.is_empty());
+        assert!(data.recent_lists.is_empty());
         assert!(data.root_lists.is_empty());
     }
 
