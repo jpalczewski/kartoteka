@@ -34,6 +34,7 @@ axum = { workspace = true, optional = true }
 axum-login = { workspace = true, optional = true }
 sqlx = { workspace = true, optional = true }
 kartoteka-domain = { path = "../domain", optional = true }
+kartoteka-auth = { path = "../auth", optional = true }
 
 [features]
 default = []
@@ -55,4 +56,5 @@ ssr = [
     "dep:axum-login",
     "dep:sqlx",
     "dep:kartoteka-domain",
+    "dep:kartoteka-auth",
 ]
