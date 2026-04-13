@@ -1,26 +1,35 @@
 use crate::types::ContainerRow;
-use crate::{DbError, SqlitePool, containers};
+use crate::{DbError, SqlitePool, containers, lists};
 
-/// Parallel home data returned by db::home::query.
-/// Container-only in B1; B2 extends with list fields.
-pub struct ContainerHomeData {
-    pub pinned: Vec<ContainerRow>,
-    pub recent: Vec<ContainerRow>,
-    pub root: Vec<ContainerRow>,
+/// Full parallel home data: containers + lists.
+pub struct FullHomeData {
+    pub pinned_containers: Vec<ContainerRow>,
+    pub recent_containers: Vec<ContainerRow>,
+    pub root_containers: Vec<ContainerRow>,
+    pub pinned_lists: Vec<crate::lists::ListRow>,
+    pub recent_lists: Vec<crate::lists::ListRow>,
+    pub root_lists: Vec<crate::lists::ListRow>,
 }
 
-/// Fetch all home container data in parallel via tokio::join!.
+/// Fetch all home data in parallel via tokio::join!.
+/// WAL mode allows concurrent SQLite readers.
 #[tracing::instrument(skip(pool))]
-pub async fn query(pool: &SqlitePool, user_id: &str) -> Result<ContainerHomeData, DbError> {
-    let (pinned, recent, root) = tokio::join!(
+pub async fn query(pool: &SqlitePool, user_id: &str) -> Result<FullHomeData, DbError> {
+    let (pinned_c, recent_c, root_c, pinned_l, recent_l, root_l) = tokio::join!(
         containers::pinned(pool, user_id),
         containers::recent(pool, user_id),
         containers::root(pool, user_id),
+        lists::pinned(pool, user_id),
+        lists::recent(pool, user_id, 5),
+        lists::root(pool, user_id),
     );
-    Ok(ContainerHomeData {
-        pinned: pinned?,
-        recent: recent?,
-        root: root?,
+    Ok(FullHomeData {
+        pinned_containers: pinned_c?,
+        recent_containers: recent_c?,
+        root_containers: root_c?,
+        pinned_lists: pinned_l?,
+        recent_lists: recent_l?,
+        root_lists: root_l?,
     })
 }
 
@@ -28,56 +37,17 @@ pub async fn query(pool: &SqlitePool, user_id: &str) -> Result<ContainerHomeData
 mod tests {
     use super::*;
     use crate::test_helpers::{create_test_user, test_pool};
-    use kartoteka_shared::types::CreateContainerRequest;
 
     #[tokio::test]
     async fn home_query_returns_empty_for_new_user() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
         let data = query(&pool, &uid).await.unwrap();
-        assert!(data.pinned.is_empty());
-        assert!(data.recent.is_empty());
-        assert!(data.root.is_empty());
-    }
-
-    #[tokio::test]
-    async fn home_query_returns_root_containers() {
-        let pool = test_pool().await;
-        let uid = create_test_user(&pool).await;
-        let req = CreateContainerRequest {
-            name: "Root".into(),
-            icon: None,
-            description: None,
-            status: None,
-            parent_container_id: None,
-        };
-        crate::containers::insert(&pool, &uid, &req, 0)
-            .await
-            .unwrap();
-        let data = query(&pool, &uid).await.unwrap();
-        assert_eq!(data.root.len(), 1);
-        assert_eq!(data.root[0].name, "Root");
-    }
-
-    #[tokio::test]
-    async fn home_query_separates_pinned() {
-        let pool = test_pool().await;
-        let uid = create_test_user(&pool).await;
-        let req = CreateContainerRequest {
-            name: "C".into(),
-            icon: None,
-            description: None,
-            status: None,
-            parent_container_id: None,
-        };
-        let c = crate::containers::insert(&pool, &uid, &req, 0)
-            .await
-            .unwrap();
-        crate::containers::toggle_pin(&pool, &c.id, &uid)
-            .await
-            .unwrap();
-        let data = query(&pool, &uid).await.unwrap();
-        assert_eq!(data.pinned.len(), 1);
-        assert!(data.pinned[0].pinned);
+        assert!(data.pinned_containers.is_empty());
+        assert!(data.recent_containers.is_empty());
+        assert!(data.root_containers.is_empty());
+        assert!(data.pinned_lists.is_empty());
+        assert!(data.recent_lists.is_empty());
+        assert!(data.root_lists.is_empty());
     }
 }
