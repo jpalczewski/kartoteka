@@ -82,6 +82,59 @@ pub async fn list_archived(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListR
     .map_err(DbError::Sqlx)
 }
 
+/// Lists where pinned = 1, not archived, no parent.
+/// Ordered by name ascending.
+#[tracing::instrument(skip(pool))]
+pub async fn pinned(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListRow>, DbError> {
+    sqlx::query_as::<_, ListRow>(&format!(
+        "SELECT l.*, {} FROM lists l \
+         WHERE l.user_id = ? AND l.pinned = 1 AND l.archived = 0 \
+         AND l.parent_list_id IS NULL \
+         ORDER BY l.name ASC",
+        FEATURES_SUBQUERY
+    ))
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)
+}
+
+/// Recently opened lists (pinned = 0, last_opened_at not null), not archived, no parent.
+/// Ordered by last_opened_at DESC. `limit` caps results (use 5 for home page).
+#[tracing::instrument(skip(pool))]
+pub async fn recent(pool: &SqlitePool, user_id: &str, limit: i64) -> Result<Vec<ListRow>, DbError> {
+    sqlx::query_as::<_, ListRow>(&format!(
+        "SELECT l.*, {} FROM lists l \
+         WHERE l.user_id = ? AND l.pinned = 0 AND l.archived = 0 \
+         AND l.last_opened_at IS NOT NULL AND l.parent_list_id IS NULL \
+         ORDER BY l.last_opened_at DESC \
+         LIMIT ?",
+        FEATURES_SUBQUERY
+    ))
+    .bind(user_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)
+}
+
+/// Root lists: no container, no parent list, not archived.
+/// Ordered by updated_at DESC.
+#[tracing::instrument(skip(pool))]
+pub async fn root(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListRow>, DbError> {
+    sqlx::query_as::<_, ListRow>(&format!(
+        "SELECT l.*, {} FROM lists l \
+         WHERE l.user_id = ? AND l.container_id IS NULL \
+         AND l.parent_list_id IS NULL AND l.archived = 0 \
+         ORDER BY l.updated_at DESC",
+        FEATURES_SUBQUERY
+    ))
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn get_one(
     pool: &SqlitePool,
@@ -496,5 +549,46 @@ mod tests {
         let deleted = delete(&pool, &id, &user_id).await.unwrap();
         assert!(deleted);
         assert!(get_one(&pool, &id, &user_id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn pinned_returns_only_pinned_lists() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let id = insert_test_list(&pool, &uid, "Pinned").await;
+        toggle_pinned(&pool, &id, &uid).await.unwrap();
+
+        let rows = pinned(&pool, &uid).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, id);
+        assert_ne!(rows[0].pinned, 0);
+    }
+
+    #[tokio::test]
+    async fn recent_returns_recently_opened_not_pinned() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let id = insert_test_list(&pool, &uid, "Recent").await;
+        // Simulate open by updating last_opened_at
+        sqlx::query("UPDATE lists SET last_opened_at = datetime('now') WHERE id = ?")
+            .bind(&id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let rows = recent(&pool, &uid, 5).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, id);
+    }
+
+    #[tokio::test]
+    async fn root_excludes_sublists_and_containerized_lists() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let root_id = insert_test_list(&pool, &uid, "Root").await;
+
+        let rows = root(&pool, &uid).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, root_id);
     }
 }
