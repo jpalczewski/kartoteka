@@ -446,6 +446,26 @@ pub async fn remove_list_tag(
     Ok(rows.rows_affected() > 0)
 }
 
+/// Returns all list-tag links for a given user (joined through lists.user_id).
+/// Used by home page tag filter bar.
+#[tracing::instrument(skip(pool))]
+pub async fn get_all_list_tag_links(
+    pool: &SqlitePool,
+    user_id: &str,
+) -> Result<Vec<(String, String)>, DbError> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT lt.list_id, lt.tag_id \
+         FROM list_tags lt \
+         JOIN lists l ON l.id = lt.list_id \
+         WHERE l.user_id = ?",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(rows)
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn add_container_tag(
     pool: &SqlitePool,
@@ -787,6 +807,28 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[tokio::test]
+    async fn get_all_list_tag_links_returns_user_links() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let tag = insert_tag(&pool, &uid, "Work", None, "tag").await;
+        let list_id = new_id();
+
+        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES (?, ?, 'L')")
+            .bind(&list_id)
+            .bind(&uid)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        add_list_tag(&pool, &list_id, &tag.id, &uid).await.unwrap();
+
+        let links: Vec<(String, String)> = get_all_list_tag_links(&pool, &uid).await.unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].0, list_id);
+        assert_eq!(links[0].1, tag.id);
     }
 
     #[tokio::test]
