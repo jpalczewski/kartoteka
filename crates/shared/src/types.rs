@@ -142,7 +142,7 @@ pub struct Container {
     pub updated_at: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateContainerRequest {
     pub name: String,
     pub icon: Option<String>,
@@ -180,11 +180,72 @@ pub struct ContainerProgress {
 }
 
 /// Home page data (container-only in B1; B2 adds list fields).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HomeData {
     pub pinned_containers: Vec<Container>,
     pub recent_containers: Vec<Container>,
     pub root_containers: Vec<Container>,
+    pub pinned_lists: Vec<List>,
+    pub recent_lists: Vec<List>,
+    pub root_lists: Vec<List>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListFeature {
+    pub feature_name: String,
+    pub config: serde_json::Value,
+}
+
+/// Shared List type for server function return values.
+/// Mirrors domain::lists::List — kept in shared so WASM hydrate build can deserialize.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct List {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    pub list_type: String,
+    pub parent_list_id: Option<String>,
+    pub position: i64,
+    pub archived: bool,
+    pub container_id: Option<String>,
+    pub pinned: bool,
+    pub last_opened_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub features: Vec<ListFeature>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Tag {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub color: Option<String>,
+    pub parent_tag_id: Option<String>,
+    pub tag_type: String,
+    pub metadata: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListTagLink {
+    pub list_id: String,
+    pub tag_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateListRequest {
+    pub name: String,
+    pub list_type: Option<String>,
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    pub container_id: Option<String>,
+    pub parent_list_id: Option<String>,
+    /// Feature name strings, e.g. "deadlines", "quantity".
+    pub features: Vec<String>,
 }
 
 // --- sqlx integration (enabled via "sqlx" feature) ---
