@@ -118,14 +118,14 @@ pub async fn recent(pool: &SqlitePool, user_id: &str, limit: i64) -> Result<Vec<
     .map_err(DbError::Sqlx)
 }
 
-/// Root lists: no container, no parent list, not archived.
+/// Root lists: no container, no parent list, not archived, not pinned.
 /// Ordered by updated_at DESC.
 #[tracing::instrument(skip(pool))]
 pub async fn root(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListRow>, DbError> {
     sqlx::query_as::<_, ListRow>(&format!(
         "SELECT l.*, {} FROM lists l \
          WHERE l.user_id = ? AND l.container_id IS NULL \
-         AND l.parent_list_id IS NULL AND l.archived = 0 \
+         AND l.parent_list_id IS NULL AND l.archived = 0 AND l.pinned = 0 \
          ORDER BY l.updated_at DESC",
         FEATURES_SUBQUERY
     ))
