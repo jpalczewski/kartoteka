@@ -1644,6 +1644,8 @@ dependencies = [
  "axum-login",
  "chrono",
  "console_error_panic_hook",
+ "kartoteka-auth",
+ "kartoteka-db",
  "kartoteka-domain",
  "kartoteka-i18n",
  "kartoteka-shared",

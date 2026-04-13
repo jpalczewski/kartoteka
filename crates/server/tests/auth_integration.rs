@@ -12,7 +12,7 @@ async fn test_app() -> axum::Router {
     let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
     let backend = kartoteka_auth::KartotekaBackend::new(pool.clone());
     let auth_layer = axum_login::AuthManagerLayerBuilder::new(backend, session_layer).build();
-    kartoteka_server::router(pool, auth_layer, "test-secret-32-bytes-minimum!!!!".to_string())
+    kartoteka_server::test_router(pool, auth_layer, "test-secret-32-bytes-minimum!!!!".to_string())
 }
 
 fn json_body(json: serde_json::Value) -> Body {
@@ -104,7 +104,7 @@ async fn login_wrong_password_returns_401() {
     let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
     let backend = kartoteka_auth::KartotekaBackend::new(pool.clone());
     let auth_layer = axum_login::AuthManagerLayerBuilder::new(backend, session_layer).build();
-    let app = kartoteka_server::router(pool, auth_layer, "test-secret-32-bytes-minimum!!!!".to_string());
+    let app = kartoteka_server::test_router(pool, auth_layer, "test-secret-32-bytes-minimum!!!!".to_string());
 
     let response = app.oneshot(
         Request::builder()

@@ -76,6 +76,19 @@ pub async fn leptos_routes_handler(
         .into_response()
 }
 
+/// Convenience wrapper for integration tests: creates a router with default LeptosOptions.
+#[doc(hidden)]
+pub fn test_router(pool: SqlitePool, auth_layer: AuthLayer, signing_secret: String) -> Router {
+    router(
+        pool,
+        auth_layer,
+        signing_secret,
+        leptos::config::LeptosOptions::builder()
+            .output_name("kartoteka")
+            .build(),
+    )
+}
+
 pub fn router(
     pool: SqlitePool,
     auth_layer: AuthLayer,

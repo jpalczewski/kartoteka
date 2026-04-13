@@ -1,4 +1,4 @@
-use kartoteka_shared::types::{HomeData, List, ListFeature, ListTagLink, Tag};
+use kartoteka_shared::types::{HomeData, List, ListFeature, Tag};
 use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
