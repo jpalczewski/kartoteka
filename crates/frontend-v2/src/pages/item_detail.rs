@@ -50,6 +50,13 @@ pub fn ItemDetailPage() -> impl IntoView {
 
     let back_href = move || format!("/lists/{}", list_id());
 
+    Effect::new(move |_| {
+        if let Some(Ok(item)) = item_res.get() {
+            title_input.set(item.title.clone());
+            description_input.set(item.description.clone().unwrap_or_default());
+        }
+    });
+
     view! {
         <div class="container mx-auto max-w-2xl p-4">
             // Back link
@@ -65,10 +72,6 @@ pub fn ItemDetailPage() -> impl IntoView {
                         <p class="text-error">"Error: " {e.to_string()}</p>
                     }.into_any(),
                     Ok(item) => {
-                        // Populate edit signals from loaded data (only on first load / after refresh)
-                        title_input.set(item.title.clone());
-                        description_input.set(item.description.clone().unwrap_or_default());
-
                         let completed = item.completed;
                         let created_at = item.created_at.clone();
                         let updated_at = item.updated_at.clone();
