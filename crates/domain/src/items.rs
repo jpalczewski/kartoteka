@@ -283,6 +283,8 @@ pub async fn calendar(
 }
 
 /// Returns incomplete items with `deadline` strictly before today in the user's timezone.
+/// Hard deadlines are intentionally excluded — overdue means a missed `deadline` date.
+#[tracing::instrument(skip(pool))]
 pub async fn overdue(pool: &SqlitePool, user_id: &str) -> Result<Vec<Item>, DomainError> {
     let tz_str = db::preferences::get_timezone(pool, user_id).await?;
     let tz: chrono_tz::Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
@@ -708,32 +710,20 @@ mod tests {
 
         // Past deadline, incomplete → should appear
         let past = create(&pool, &user_id, &list_id, &CreateItemRequest {
-            title: "Past task".to_string(),
-            description: None,
-            quantity: None, actual_quantity: None, unit: None,
-            start_date: None, start_time: None,
             deadline: Some("2000-01-01".to_string()),
-            deadline_time: None, hard_deadline: None, estimated_duration: None,
+            ..basic_req("Past task")
         }).await.unwrap();
 
         // Future deadline, incomplete → should NOT appear
         create(&pool, &user_id, &list_id, &CreateItemRequest {
-            title: "Future task".to_string(),
-            description: None,
-            quantity: None, actual_quantity: None, unit: None,
-            start_date: None, start_time: None,
             deadline: Some("9999-12-31".to_string()),
-            deadline_time: None, hard_deadline: None, estimated_duration: None,
+            ..basic_req("Future task")
         }).await.unwrap();
 
         // Past deadline but completed → should NOT appear
         let completed = create(&pool, &user_id, &list_id, &CreateItemRequest {
-            title: "Done overdue".to_string(),
-            description: None,
-            quantity: None, actual_quantity: None, unit: None,
-            start_date: None, start_time: None,
             deadline: Some("2000-01-01".to_string()),
-            deadline_time: None, hard_deadline: None, estimated_duration: None,
+            ..basic_req("Done overdue")
         }).await.unwrap();
         toggle_complete(&pool, &user_id, &completed.id).await.unwrap();
 
