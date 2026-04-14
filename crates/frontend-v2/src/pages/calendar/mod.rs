@@ -8,7 +8,11 @@ use crate::server_fns::items::get_calendar_month;
 
 fn prev_month(ym: &str) -> String {
     let year: i32 = ym.get(..4).and_then(|s| s.parse().ok()).unwrap_or(2026);
-    let month: u32 = ym.get(5..7).and_then(|s| s.parse().ok()).unwrap_or(1);
+    let month: u32 = ym
+        .get(5..7)
+        .and_then(|s| s.parse().ok())
+        .filter(|&m| (1..=12).contains(&m))
+        .unwrap_or(1);
     if month == 1 {
         format!("{:04}-12", year - 1)
     } else {
@@ -18,11 +22,16 @@ fn prev_month(ym: &str) -> String {
 
 fn next_month(ym: &str) -> String {
     let year: i32 = ym.get(..4).and_then(|s| s.parse().ok()).unwrap_or(2026);
-    let month: u32 = ym.get(5..7).and_then(|s| s.parse().ok()).unwrap_or(12);
+    let month: u32 = ym
+        .get(5..7)
+        .and_then(|s| s.parse().ok())
+        .filter(|&m| (1..=12).contains(&m))
+        .unwrap_or(12);
     if month == 12 {
         format!("{:04}-01", year + 1)
     } else {
-        format!("{year:04}-{:02}", month + 1) }
+        format!("{year:04}-{:02}", month + 1)
+    }
 }
 
 fn format_month_title(year: i32, month: u32) -> String {
