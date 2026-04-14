@@ -7,9 +7,9 @@ use crate::components::tags::tag_list::TagList;
 pub fn list_type_icon(lt: &str) -> &'static str {
     match lt {
         "checklist" => "✅",
-        "zakupy" => "🛒",
-        "pakowanie" => "🎒",
-        "terminarz" => "📅",
+        "shopping" => "🛒",
+        "habits" => "🔄",
+        "log" => "📋",
         _ => "📝",
     }
 }

@@ -4,18 +4,8 @@ use leptos_router::hooks::use_params_map;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::items::item_row::ItemRow;
-use crate::components::lists::{add_input::AddInput, list_card::ListCard};
+use crate::components::lists::{add_input::AddInput, list_card::{list_type_icon, ListCard}};
 use crate::server_fns::items::{create_item, delete_item, get_list_data, toggle_item};
-
-fn list_type_icon(lt: &str) -> &'static str {
-    match lt {
-        "checklist" => "✅",
-        "shopping" => "🛒",
-        "habits" => "🔄",
-        "log" => "📋",
-        _ => "📝",
-    }
-}
 
 #[component]
 pub fn ListPage() -> impl IntoView {
