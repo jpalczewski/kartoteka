@@ -135,3 +135,63 @@ pub async fn delete_item(item_id: String) -> Result<(), ServerFnError> {
     }
     Ok(())
 }
+
+/// Fetch a single item by id.
+#[server(prefix = "/leptos")]
+pub async fn get_item(item_id: String) -> Result<Item, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    domain::items::get_one(&pool, &item_id, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .map(domain_item_to_shared)
+        .ok_or_else(|| ServerFnError::new("item not found".to_string()))
+}
+
+/// Update title and description of an item.
+/// Pass `description` as empty string to clear it.
+#[server(prefix = "/leptos")]
+pub async fn update_item(
+    item_id: String,
+    title: String,
+    description: String,
+) -> Result<Item, ServerFnError> {
+    if title.trim().is_empty() {
+        return Err(ServerFnError::new("title cannot be empty".to_string()));
+    }
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let req = domain::items::UpdateItemRequest {
+        title: Some(title),
+        description: Some(if description.trim().is_empty() {
+            None
+        } else {
+            Some(description)
+        }),
+        completed: None,
+        quantity: None,
+        actual_quantity: None,
+        unit: None,
+        start_date: None,
+        start_time: None,
+        deadline: None,
+        deadline_time: None,
+        hard_deadline: None,
+        estimated_duration: None,
+    };
+    let item = domain::items::update(&pool, &user.id, &item_id, &req)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
+    Ok(domain_item_to_shared(item))
+}
