@@ -128,6 +128,29 @@ pub async fn calendar(
     .map_err(DbError::Sqlx)
 }
 
+/// Returns items with `deadline < before_date` and `completed = 0`,
+/// ordered by deadline ascending (earliest-overdue first).
+#[tracing::instrument(skip(pool))]
+pub async fn overdue(
+    pool: &SqlitePool,
+    user_id: &str,
+    before_date: &str,
+) -> Result<Vec<ItemRow>, DbError> {
+    sqlx::query_as::<_, ItemRow>(&format!(
+        "SELECT {ITEM_COLUMNS} FROM items i \
+         JOIN lists l ON l.id = i.list_id \
+         WHERE l.user_id = ? \
+           AND i.deadline < ? \
+           AND i.completed = 0 \
+         ORDER BY i.deadline ASC, i.position"
+    ))
+    .bind(user_id)
+    .bind(before_date)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)
+}
+
 // ── Write queries ─────────────────────────────────────────────────────────────
 
 #[tracing::instrument(skip(pool))]

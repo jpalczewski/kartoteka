@@ -282,6 +282,19 @@ pub async fn calendar(
     Ok(rows.into_iter().map(row_to_item).collect())
 }
 
+/// Returns incomplete items with `deadline` strictly before today in the user's timezone.
+pub async fn overdue(pool: &SqlitePool, user_id: &str) -> Result<Vec<Item>, DomainError> {
+    let tz_str = db::preferences::get_timezone(pool, user_id).await?;
+    let tz: chrono_tz::Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
+    let today = chrono::Utc::now()
+        .with_timezone(&tz)
+        .date_naive()
+        .format("%Y-%m-%d")
+        .to_string();
+    let rows = db::items::overdue(pool, user_id, &today).await?;
+    Ok(rows.into_iter().map(row_to_item).collect())
+}
+
 // ── Integration tests ─────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -685,5 +698,47 @@ mod tests {
 
         let items_empty = calendar(&pool, &user_id, "2026-08").await.unwrap();
         assert_eq!(items_empty.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn overdue_returns_only_past_incomplete() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &["deadlines"]).await;
+
+        // Past deadline, incomplete → should appear
+        let past = create(&pool, &user_id, &list_id, &CreateItemRequest {
+            title: "Past task".to_string(),
+            description: None,
+            quantity: None, actual_quantity: None, unit: None,
+            start_date: None, start_time: None,
+            deadline: Some("2000-01-01".to_string()),
+            deadline_time: None, hard_deadline: None, estimated_duration: None,
+        }).await.unwrap();
+
+        // Future deadline, incomplete → should NOT appear
+        create(&pool, &user_id, &list_id, &CreateItemRequest {
+            title: "Future task".to_string(),
+            description: None,
+            quantity: None, actual_quantity: None, unit: None,
+            start_date: None, start_time: None,
+            deadline: Some("9999-12-31".to_string()),
+            deadline_time: None, hard_deadline: None, estimated_duration: None,
+        }).await.unwrap();
+
+        // Past deadline but completed → should NOT appear
+        let completed = create(&pool, &user_id, &list_id, &CreateItemRequest {
+            title: "Done overdue".to_string(),
+            description: None,
+            quantity: None, actual_quantity: None, unit: None,
+            start_date: None, start_time: None,
+            deadline: Some("2000-01-01".to_string()),
+            deadline_time: None, hard_deadline: None, estimated_duration: None,
+        }).await.unwrap();
+        toggle_complete(&pool, &user_id, &completed.id).await.unwrap();
+
+        let result = overdue(&pool, &user_id).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, past.id);
     }
 }
