@@ -248,6 +248,37 @@ pub struct CreateListRequest {
     pub features: Vec<String>,
 }
 
+/// Shared Item type for server function return values.
+/// Mirrors domain::items::Item — kept in shared so WASM hydrate build can deserialize.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Item {
+    pub id: String,
+    pub list_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub completed: bool,
+    pub position: i32,
+    pub quantity: Option<i32>,
+    pub actual_quantity: Option<i32>,
+    pub unit: Option<String>,
+    pub start_date: Option<FlexDate>,
+    pub start_time: Option<String>,
+    pub deadline: Option<FlexDate>,
+    pub deadline_time: Option<String>,
+    pub hard_deadline: Option<FlexDate>,
+    pub estimated_duration: Option<i32>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Payload returned by `get_list_data` — list header + items + sublists in one call.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListData {
+    pub list: List,
+    pub items: Vec<Item>,
+    pub sublists: Vec<List>,
+}
+
 // --- sqlx integration (enabled via "sqlx" feature) ---
 
 #[cfg(feature = "sqlx")]
