@@ -196,6 +196,28 @@ pub async fn update_item(
     Ok(domain_item_to_shared(item))
 }
 
+#[cfg(feature = "ssr")]
+fn build_list_names(lists: Vec<domain::lists::List>) -> std::collections::HashMap<String, String> {
+    lists.into_iter().map(|l| (l.id, l.name)).collect()
+}
+
+#[cfg(feature = "ssr")]
+fn items_to_date_items(
+    items: Vec<domain::items::Item>,
+    list_names: &std::collections::HashMap<String, String>,
+) -> Vec<DateItem> {
+    items
+        .into_iter()
+        .map(|item| {
+            let list_name = list_names.get(&item.list_id).cloned().unwrap_or_default();
+            DateItem {
+                item: domain_item_to_shared(item),
+                list_name,
+            }
+        })
+        .collect()
+}
+
 /// Fetch today's items (start/deadline/hard_deadline = today) and overdue items
 /// (incomplete items with deadline before today), both enriched with list names.
 #[server(prefix = "/leptos")]
@@ -208,7 +230,18 @@ pub async fn get_today_data() -> Result<TodayData, ServerFnError> {
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
 
-    let today_items = domain::items::by_date(&pool, &user.id, "today")
+    // Resolve today's date in user's timezone first
+    let prefs = domain::preferences::get(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let tz: chrono_tz::Tz = prefs.timezone.parse().unwrap_or(chrono_tz::UTC);
+    let today_date = chrono::Utc::now()
+        .with_timezone(&tz)
+        .format("%Y-%m-%d")
+        .to_string();
+
+    // Pass resolved date string (not "today") to avoid double timezone resolution inside domain
+    let today_items = domain::items::by_date(&pool, &user.id, &today_date)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
     let overdue_items = domain::items::overdue(&pool, &user.id)
@@ -217,36 +250,13 @@ pub async fn get_today_data() -> Result<TodayData, ServerFnError> {
     let all_lists = domain::lists::list_all(&pool, &user.id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let prefs = domain::preferences::get(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
 
-    let tz: chrono_tz::Tz = prefs.timezone.parse().unwrap_or(chrono_tz::UTC);
-    let today_date = chrono::Utc::now()
-        .with_timezone(&tz)
-        .format("%Y-%m-%d")
-        .to_string();
-
-    let list_names: std::collections::HashMap<String, String> =
-        all_lists.into_iter().map(|l| (l.id, l.name)).collect();
-
-    let to_date_items = |items: Vec<domain::items::Item>| -> Vec<DateItem> {
-        items
-            .into_iter()
-            .map(|item| {
-                let list_name = list_names.get(&item.list_id).cloned().unwrap_or_default();
-                DateItem {
-                    item: domain_item_to_shared(item),
-                    list_name,
-                }
-            })
-            .collect()
-    };
+    let list_names = build_list_names(all_lists);
 
     Ok(TodayData {
         today_date,
-        today: to_date_items(today_items),
-        overdue: to_date_items(overdue_items),
+        today: items_to_date_items(today_items, &list_names),
+        overdue: items_to_date_items(overdue_items, &list_names),
     })
 }
 
@@ -268,19 +278,8 @@ pub async fn get_items_by_date(date: String) -> Result<Vec<DateItem>, ServerFnEr
     let all_lists = domain::lists::list_all(&pool, &user.id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let list_names: std::collections::HashMap<String, String> =
-        all_lists.into_iter().map(|l| (l.id, l.name)).collect();
-
-    Ok(items
-        .into_iter()
-        .map(|item| {
-            let list_name = list_names.get(&item.list_id).cloned().unwrap_or_default();
-            DateItem {
-                item: domain_item_to_shared(item),
-                list_name,
-            }
-        })
-        .collect())
+    let list_names = build_list_names(all_lists);
+    Ok(items_to_date_items(items, &list_names))
 }
 
 /// Fetch calendar month data: grid metadata + per-day item counts.
@@ -347,14 +346,14 @@ pub async fn get_calendar_month(year_month: String) -> Result<CalendarMonthData,
     let mut day_counts: std::collections::HashMap<String, u32> =
         std::collections::HashMap::new();
     for item in &items {
-        let mut seen = std::collections::HashSet::new();
+        let mut item_dates = std::collections::HashSet::new();
         for date_opt in [&item.start_date, &item.deadline, &item.hard_deadline] {
             if let Some(FlexDate::Day(d)) = date_opt {
-                let date_str = d.format("%Y-%m-%d").to_string();
-                if seen.insert(date_str.clone()) {
-                    *day_counts.entry(date_str).or_default() += 1;
-                }
+                item_dates.insert(d.format("%Y-%m-%d").to_string());
             }
+        }
+        for date_str in item_dates {
+            *day_counts.entry(date_str).or_default() += 1;
         }
     }
 
