@@ -36,6 +36,7 @@ sqlx = { workspace = true, optional = true }
 kartoteka-domain = { path = "../domain", optional = true }
 kartoteka-auth = { path = "../auth", optional = true }
 kartoteka-db = { path = "../db", optional = true }
+chrono-tz = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -59,4 +60,5 @@ ssr = [
     "dep:kartoteka-domain",
     "dep:kartoteka-auth",
     "dep:kartoteka-db",
+    "dep:chrono-tz",
 ]
