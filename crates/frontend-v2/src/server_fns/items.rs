@@ -1,4 +1,4 @@
-use kartoteka_shared::types::{Item, ListData};
+use kartoteka_shared::types::{CalendarMonthData, DateItem, Item, ListData, TodayData};
 use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
@@ -191,4 +191,179 @@ pub async fn update_item(
         .map_err(|e| ServerFnError::new(e.to_string()))?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
     Ok(domain_item_to_shared(item))
+}
+
+/// Fetch today's items (start/deadline/hard_deadline = today) and overdue items
+/// (incomplete items with deadline before today), both enriched with list names.
+#[server(prefix = "/leptos")]
+pub async fn get_today_data() -> Result<TodayData, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+
+    let today_items = domain::items::by_date(&pool, &user.id, "today")
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let overdue_items = domain::items::overdue(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let all_lists = domain::lists::list_all(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let prefs = domain::preferences::get(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+    let tz: chrono_tz::Tz = prefs.timezone.parse().unwrap_or(chrono_tz::UTC);
+    let today_date = chrono::Utc::now()
+        .with_timezone(&tz)
+        .format("%Y-%m-%d")
+        .to_string();
+
+    let list_names: std::collections::HashMap<String, String> =
+        all_lists.into_iter().map(|l| (l.id, l.name)).collect();
+
+    let to_date_items = |items: Vec<domain::items::Item>| -> Vec<DateItem> {
+        items
+            .into_iter()
+            .map(|item| {
+                let list_name = list_names.get(&item.list_id).cloned().unwrap_or_default();
+                DateItem {
+                    item: domain_item_to_shared(item),
+                    list_name,
+                }
+            })
+            .collect()
+    };
+
+    Ok(TodayData {
+        today_date,
+        today: to_date_items(today_items),
+        overdue: to_date_items(overdue_items),
+    })
+}
+
+/// Fetch items for a specific date (any of start_date, deadline, hard_deadline matches),
+/// enriched with list names. Pass a "YYYY-MM-DD" string.
+#[server(prefix = "/leptos")]
+pub async fn get_items_by_date(date: String) -> Result<Vec<DateItem>, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+
+    let items = domain::items::by_date(&pool, &user.id, &date)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let all_lists = domain::lists::list_all(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let list_names: std::collections::HashMap<String, String> =
+        all_lists.into_iter().map(|l| (l.id, l.name)).collect();
+
+    Ok(items
+        .into_iter()
+        .map(|item| {
+            let list_name = list_names.get(&item.list_id).cloned().unwrap_or_default();
+            DateItem {
+                item: domain_item_to_shared(item),
+                list_name,
+            }
+        })
+        .collect())
+}
+
+/// Fetch calendar month data: grid metadata + per-day item counts.
+/// Pass `year_month` as "YYYY-MM"; pass an empty string to get the current month.
+#[server(prefix = "/leptos")]
+pub async fn get_calendar_month(year_month: String) -> Result<CalendarMonthData, ServerFnError> {
+    use chrono::{Datelike, NaiveDate};
+    use kartoteka_shared::types::{CalendarDay, FlexDate};
+
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+
+    // Resolve empty string → current month in user's timezone
+    let ym = if year_month.is_empty() {
+        let prefs = domain::preferences::get(&pool, &user.id)
+            .await
+            .map_err(|e| ServerFnError::new(e.to_string()))?;
+        let tz: chrono_tz::Tz = prefs.timezone.parse().unwrap_or(chrono_tz::UTC);
+        chrono::Utc::now()
+            .with_timezone(&tz)
+            .format("%Y-%m")
+            .to_string()
+    } else {
+        year_month
+    };
+
+    // Parse "YYYY-MM"
+    let (year_str, month_str) = ym
+        .split_once('-')
+        .ok_or_else(|| ServerFnError::new("year_month must be YYYY-MM".to_string()))?;
+    let year: i32 = year_str
+        .parse()
+        .map_err(|_| ServerFnError::new("invalid year".to_string()))?;
+    let month: u32 = month_str
+        .parse()
+        .map_err(|_| ServerFnError::new("invalid month".to_string()))?;
+
+    let first_day = NaiveDate::from_ymd_opt(year, month, 1)
+        .ok_or_else(|| ServerFnError::new("invalid year/month".to_string()))?;
+    // ISO weekday: Monday=0, Sunday=6
+    let first_weekday = first_day.weekday().num_days_from_monday() as u8;
+
+    let next_month_first = if month == 12 {
+        NaiveDate::from_ymd_opt(year + 1, 1, 1)
+    } else {
+        NaiveDate::from_ymd_opt(year, month + 1, 1)
+    }
+    .ok_or_else(|| ServerFnError::new("date overflow".to_string()))?;
+    let days_in_month = next_month_first.signed_duration_since(first_day).num_days() as u8;
+
+    // Fetch items for this month
+    let items = domain::items::calendar(&pool, &user.id, &ym)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+    // Compute per-day counts: each item counted once per Day-precision date field
+    let mut day_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for item in &items {
+        let mut seen = std::collections::HashSet::new();
+        for date_opt in [&item.start_date, &item.deadline, &item.hard_deadline] {
+            if let Some(FlexDate::Day(d)) = date_opt {
+                let date_str = d.format("%Y-%m-%d").to_string();
+                if seen.insert(date_str.clone()) {
+                    *day_counts.entry(date_str).or_default() += 1;
+                }
+            }
+        }
+    }
+
+    let mut items_by_day: Vec<CalendarDay> = day_counts
+        .into_iter()
+        .map(|(date, count)| CalendarDay { date, count })
+        .collect();
+    items_by_day.sort_by(|a, b| a.date.cmp(&b.date));
+
+    Ok(CalendarMonthData {
+        year,
+        month,
+        year_month: ym,
+        first_weekday,
+        days_in_month,
+        items_by_day,
+    })
 }

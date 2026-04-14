@@ -709,23 +709,46 @@ mod tests {
         let list_id = create_list(&pool, &user_id, &["deadlines"]).await;
 
         // Past deadline, incomplete → should appear
-        let past = create(&pool, &user_id, &list_id, &CreateItemRequest {
-            deadline: Some("2000-01-01".to_string()),
-            ..basic_req("Past task")
-        }).await.unwrap();
+        let past = create(
+            &pool,
+            &user_id,
+            &list_id,
+            &CreateItemRequest {
+                deadline: Some("2000-01-01".to_string()),
+                ..basic_req("Past task")
+            },
+        )
+        .await
+        .unwrap();
 
         // Future deadline, incomplete → should NOT appear
-        create(&pool, &user_id, &list_id, &CreateItemRequest {
-            deadline: Some("9999-12-31".to_string()),
-            ..basic_req("Future task")
-        }).await.unwrap();
+        create(
+            &pool,
+            &user_id,
+            &list_id,
+            &CreateItemRequest {
+                deadline: Some("9999-12-31".to_string()),
+                ..basic_req("Future task")
+            },
+        )
+        .await
+        .unwrap();
 
         // Past deadline but completed → should NOT appear
-        let completed = create(&pool, &user_id, &list_id, &CreateItemRequest {
-            deadline: Some("2000-01-01".to_string()),
-            ..basic_req("Done overdue")
-        }).await.unwrap();
-        toggle_complete(&pool, &user_id, &completed.id).await.unwrap();
+        let completed = create(
+            &pool,
+            &user_id,
+            &list_id,
+            &CreateItemRequest {
+                deadline: Some("2000-01-01".to_string()),
+                ..basic_req("Done overdue")
+            },
+        )
+        .await
+        .unwrap();
+        toggle_complete(&pool, &user_id, &completed.id)
+            .await
+            .unwrap();
 
         let result = overdue(&pool, &user_id).await.unwrap();
         assert_eq!(result.len(), 1);
