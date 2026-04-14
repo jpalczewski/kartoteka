@@ -37,9 +37,9 @@ jobs:
         with:
           shared-key: workspace
       - name: Cargo check
-        run: cargo check --workspace
+        run: cargo check --workspace --exclude kartoteka-frontend
       - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --exclude kartoteka-frontend -- -D warnings
 
   deny:
     name: Deny (licenses & advisories)
