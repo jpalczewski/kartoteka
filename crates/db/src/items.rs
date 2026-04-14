@@ -142,7 +142,7 @@ pub async fn overdue(
          WHERE l.user_id = ? \
            AND i.deadline < ? \
            AND i.completed = 0 \
-         ORDER BY i.deadline ASC, i.position"
+         ORDER BY i.deadline ASC NULLS LAST, i.position"
     ))
     .bind(user_id)
     .bind(before_date)
