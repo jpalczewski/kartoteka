@@ -591,4 +591,15 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, root_id);
     }
+
+    #[tokio::test]
+    async fn root_excludes_pinned_lists() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let id = insert_test_list(&pool, &uid, "PinnedRoot").await;
+        toggle_pinned(&pool, &id, &uid).await.unwrap();
+
+        let rows = root(&pool, &uid).await.unwrap();
+        assert!(rows.is_empty(), "pinned list should not appear in root()");
+    }
 }

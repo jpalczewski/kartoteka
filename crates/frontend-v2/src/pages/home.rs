@@ -86,8 +86,10 @@ pub fn HomePage() -> impl IntoView {
 
     let on_pin_container = Callback::new(move |container_id: String| {
         leptos::task::spawn_local(async move {
-            let _ = toggle_container_pin(container_id).await;
-            set_refresh.update(|n| *n += 1);
+            match toggle_container_pin(container_id).await {
+                Ok(_) => set_refresh.update(|n| *n += 1),
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
         });
     });
 
