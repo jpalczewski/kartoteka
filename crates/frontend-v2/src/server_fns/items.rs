@@ -68,6 +68,9 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
 /// Add a new item to a list.
 #[server(prefix = "/leptos")]
 pub async fn create_item(list_id: String, title: String) -> Result<Item, ServerFnError> {
+    if title.trim().is_empty() {
+        return Err(ServerFnError::new("title cannot be empty".to_string()));
+    }
     let pool = expect_context::<SqlitePool>();
     let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
         .await
@@ -124,8 +127,11 @@ pub async fn delete_item(item_id: String) -> Result<(), ServerFnError> {
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    domain::items::delete(&pool, &user.id, &item_id)
+    let deleted = domain::items::delete(&pool, &user.id, &item_id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
+    if !deleted {
+        return Err(ServerFnError::new("item not found".to_string()));
+    }
     Ok(())
 }
