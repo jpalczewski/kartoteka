@@ -1,2 +1,0 @@
-[     155ms] [WARNING] The `integrity` attribute is currently ignored for preload destinations that do not support subresource integrity. See https://crbug.com/981419 for more information @ https://dev.kartoteka.pages.dev/tags:18
-[     186ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ https://dev.kartoteka.pages.dev/tags:0
