@@ -20,8 +20,8 @@ fn row_to_container(r: kartoteka_db::types::ContainerRow) -> Container {
 }
 
 fn row_to_list(r: kartoteka_db::lists::ListRow) -> Result<List, DomainError> {
-    let features: Vec<ListFeature> = serde_json::from_str(&r.features_json)
-        .map_err(|e| DomainError::Internal(e.to_string()))?;
+    let features: Vec<ListFeature> =
+        serde_json::from_str(&r.features_json).map_err(|e| DomainError::Internal(e.to_string()))?;
     Ok(List {
         id: r.id,
         user_id: r.user_id,
@@ -45,13 +45,27 @@ fn row_to_list(r: kartoteka_db::lists::ListRow) -> Result<List, DomainError> {
 #[tracing::instrument(skip(pool))]
 pub async fn query(pool: &SqlitePool, user_id: &str) -> Result<HomeData, DomainError> {
     let data = db_home::query(pool, user_id).await?;
-    let pinned_lists: Result<Vec<List>, _> = data.pinned_lists.into_iter().map(row_to_list).collect();
-    let recent_lists: Result<Vec<List>, _> = data.recent_lists.into_iter().map(row_to_list).collect();
+    let pinned_lists: Result<Vec<List>, _> =
+        data.pinned_lists.into_iter().map(row_to_list).collect();
+    let recent_lists: Result<Vec<List>, _> =
+        data.recent_lists.into_iter().map(row_to_list).collect();
     let root_lists: Result<Vec<List>, _> = data.root_lists.into_iter().map(row_to_list).collect();
     Ok(HomeData {
-        pinned_containers: data.pinned_containers.into_iter().map(row_to_container).collect(),
-        recent_containers: data.recent_containers.into_iter().map(row_to_container).collect(),
-        root_containers: data.root_containers.into_iter().map(row_to_container).collect(),
+        pinned_containers: data
+            .pinned_containers
+            .into_iter()
+            .map(row_to_container)
+            .collect(),
+        recent_containers: data
+            .recent_containers
+            .into_iter()
+            .map(row_to_container)
+            .collect(),
+        root_containers: data
+            .root_containers
+            .into_iter()
+            .map(row_to_container)
+            .collect(),
         pinned_lists: pinned_lists?,
         recent_lists: recent_lists?,
         root_lists: root_lists?,

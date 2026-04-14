@@ -3,7 +3,11 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 
 #[component]
-pub fn ItemRow(item: Item, on_toggle: Callback<String>, on_delete: Callback<String>) -> impl IntoView {
+pub fn ItemRow(
+    item: Item,
+    on_toggle: Callback<String>,
+    on_delete: Callback<String>,
+) -> impl IntoView {
     let item_id_toggle = item.id.clone();
     let item_id_delete = item.id.clone();
     let completed = item.completed;

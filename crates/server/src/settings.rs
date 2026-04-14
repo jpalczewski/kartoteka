@@ -16,9 +16,10 @@ struct SetValueRequest {
 
 /// Raw key-value settings. Mounted under `/settings`.
 pub fn settings_router() -> Router<AppState> {
-    Router::new()
-        .route("/", get(list_settings))
-        .route("/{key}", get(get_setting).put(set_setting).delete(delete_setting))
+    Router::new().route("/", get(list_settings)).route(
+        "/{key}",
+        get(get_setting).put(set_setting).delete(delete_setting),
+    )
 }
 
 /// Typed preferences (timezone + locale). Mounted under `/preferences`.

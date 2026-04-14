@@ -33,7 +33,9 @@ impl From<DomainError> for AppError {
         match e {
             DomainError::NotFound(msg) => AppError::NotFound(msg),
             DomainError::Validation(msg) => AppError::Validation(msg.to_string()),
-            DomainError::FeatureRequired(f) => AppError::Validation(format!("feature required: {f}")),
+            DomainError::FeatureRequired(f) => {
+                AppError::Validation(format!("feature required: {f}"))
+            }
             DomainError::Forbidden => AppError::Forbidden,
             DomainError::Internal(msg) => AppError::Internal(msg),
             DomainError::Db(e) => AppError::Internal(e.to_string()),

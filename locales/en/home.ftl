@@ -1,4 +1,5 @@
 home-title = Kartoteka
+landing-tagline = Your lists and tasks
 home-pinned = Pinned
 home-recent = Recently opened
 home-folders-and-projects = Folders and projects

@@ -5,19 +5,19 @@ pub use sqlx::sqlite::SqlitePool;
 
 pub mod auth_methods;
 pub mod containers;
-pub mod server_config;
-pub mod personal_tokens;
-pub mod totp;
-pub mod users;
 pub mod home;
 pub mod items;
 pub mod lists;
+pub mod personal_tokens;
 pub mod preferences;
+pub mod server_config;
 pub mod settings;
 pub mod tags;
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers;
+pub mod totp;
 pub mod types;
+pub mod users;
 
 pub use kartoteka_shared::types::FlexDate;
 

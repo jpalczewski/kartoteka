@@ -6,88 +6,11 @@ on:
       - develop
 
 jobs:
-  deploy-dev:
-    name: Deploy Dev Environment
-    runs-on: ubuntu-latest
-    concurrency:
-      group: deploy-dev
-      cancel-in-progress: true
-    env:
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-
-      # --- API Worker (Rust) ---
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Run D1 migrations (API dev)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          workingDirectory: crates/api
-          command: d1 migrations apply kartoteka-dev --env dev --remote
-
-      - name: Install worker-build
-        run: cargo install worker-build
-
-      - name: Deploy API Worker (dev)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          workingDirectory: crates/api
-          command: deploy --env dev
-
-      # --- Gateway Worker (TypeScript) ---
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: gateway/package-lock.json
-
-      - name: Copy locales to gateway
-        run: |
-          cp -r locales gateway/locales
-          cp locales/en/mcp.ftl gateway/locales/en/mcp.txt
-          cp locales/pl/mcp.ftl gateway/locales/pl/mcp.txt
-
-      - name: Install gateway deps
-        run: cd gateway && npm ci
-
-      - name: Deploy Gateway Worker (dev)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          workingDirectory: gateway
-          command: deploy --env dev
-
-      - name: Run Gateway auth migrations (dev)
-        env:
-          GATEWAY_DEV_URL: https://kartoteka-gateway-dev.jpalczewski.workers.dev
-          MIGRATE_SECRET_DEV: ${{ secrets.MIGRATE_SECRET_DEV }}
-        run: |
-          curl -sf -X POST "$GATEWAY_DEV_URL/migrate" \
-            -H "x-migrate-secret: $MIGRATE_SECRET_DEV"
-
-      # --- Frontend (Leptos CSR → CF Pages) ---
-      - name: Install trunk
-        run: cargo install trunk
-
-      - name: Install frontend deps
-        run: cd crates/frontend && npm install
-
-      - name: Build frontend (dev)
-        env:
-          API_BASE_URL: https://kartoteka-gateway-dev.jpalczewski.workers.dev/api
-        run: cd crates/frontend && trunk build --release
-
-      - name: Deploy frontend to CF Pages (dev branch)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: pages deploy crates/frontend/dist --project-name=kartoteka --branch=dev --commit-dirty=true
+  deploy:
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: dev
+      wrangler_env: dev
+      d1_database: kartoteka-dev
+      pages_branch: dev
+    secrets: inherit

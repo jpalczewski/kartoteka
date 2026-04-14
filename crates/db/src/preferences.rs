@@ -13,11 +13,7 @@ pub async fn get_timezone(pool: &SqlitePool, user_id: &str) -> Result<String, Db
 }
 
 #[tracing::instrument(skip(pool))]
-pub async fn set_timezone(
-    pool: &SqlitePool,
-    user_id: &str,
-    timezone: &str,
-) -> Result<(), DbError> {
+pub async fn set_timezone(pool: &SqlitePool, user_id: &str, timezone: &str) -> Result<(), DbError> {
     sqlx::query(
         "INSERT INTO user_settings (user_id, key, value, updated_at) \
          VALUES (?, 'timezone', ?, datetime('now')) \

@@ -3,12 +3,9 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    axum_login::AuthSession,
-    kartoteka_auth::KartotekaBackend,
-    kartoteka_db as db,
-    kartoteka_domain as domain,
+    crate::server_fns::home::domain_tag_to_shared, axum_login::AuthSession,
+    kartoteka_auth::KartotekaBackend, kartoteka_db as db, kartoteka_domain as domain,
     sqlx::SqlitePool,
-    crate::server_fns::home::domain_tag_to_shared,
 };
 
 /// All tags for the current user (for tag filter bar and tag selectors).

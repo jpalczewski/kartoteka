@@ -18,4 +18,6 @@ export interface Env {
 
 export interface Variables {
   userId: string;
+  userEmail: string;
+  requestId: string;
 }

@@ -8,7 +8,7 @@ use leptos_router::{
 use crate::components::nav::Nav;
 use crate::components::toast_container::ToastContainer;
 use crate::pages::{
-    calendar::{day::CalendarDayPage, CalendarPage},
+    calendar::{CalendarPage, day::CalendarDayPage},
     container::ContainerPage,
     home::HomePage,
     item_detail::ItemDetailPage,
@@ -17,7 +17,7 @@ use crate::pages::{
     oauth_consent::OAuthConsentPage,
     settings::SettingsPage,
     signup::SignupPage,
-    tags::{detail::TagDetailPage, TagsPage},
+    tags::{TagsPage, detail::TagDetailPage},
     today::TodayPage,
 };
 

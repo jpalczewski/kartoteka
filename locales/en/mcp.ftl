@@ -1,15 +1,20 @@
 # Lists
 tool-list-lists = List all lists for the current user
-tool-create-list = Create a new list
+tool-create-list = Create a new list, optionally inside a container or as a sublist
 tool-update-list = Update a list's name, description, type, or archive status
 tool-move-list = Move a list into a container or remove from container
+tool-get-list-sublists = Get direct sublists of a list
+tool-set-list-placement = Move one or more lists between root, containers, and parent lists
 
 # Items
-tool-get-items = Get all items in a specific list
-tool-add-item = Add a new item to a list
+tool-get-items = Get items in a specific list, optionally filtered by completion, deadline presence, or date range
+tool-search-items = Search items globally by title, description, and tags
+tool-search-entities = Search items, lists, and containers globally by name/title and description
+tool-next-cursor-page = Fetch the next page for a previously returned paginated cursor
+tool-add-item = Add one or more items to a list
 tool-update-item = Update an existing item
-tool-toggle-item = Toggle the completed state of an item
-tool-move-item = Move an item to a different list
+tool-toggle-item = Set the completed state for one or more items
+tool-move-item = Move one or more items to a different list
 
 # Containers
 tool-list-containers = List all containers for the current user
@@ -23,7 +28,9 @@ tool-list-tags = List all tags for the current user
 tool-create-tag = Create a new tag
 tool-assign-tag = Assign a tag to an item or list
 tool-remove-tag = Remove a tag from an item or list
+tool-set-tag-links = Assign or remove many tag links for items or lists in one call
 tool-get-tagged-items = Get all items tagged with a specific tag
+tool-get-tag-entities = Get items and lists linked to a tag, optionally filtered by entity type
 
 # Calendar
 tool-get-calendar = Get items with dates in a date range

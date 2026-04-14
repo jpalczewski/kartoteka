@@ -1,7 +1,7 @@
 use crate::DomainError;
 use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
-    password_hash::{rand_core::OsRng, SaltString},
+    password_hash::{SaltString, rand_core::OsRng},
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use kartoteka_db as db;
@@ -93,7 +93,11 @@ fn make_totp(secret_b32: &str) -> Result<TOTP, DomainError> {
 
 /// Update a server configuration key.
 #[tracing::instrument(skip(pool))]
-pub async fn set_server_config(pool: &SqlitePool, key: &str, value: &str) -> Result<(), DomainError> {
+pub async fn set_server_config(
+    pool: &SqlitePool,
+    key: &str,
+    value: &str,
+) -> Result<(), DomainError> {
     kartoteka_db::server_config::set(pool, key, value).await?;
     Ok(())
 }
@@ -204,7 +208,10 @@ pub async fn setup_totp(
     let secret_b32 = totp.get_secret_base32();
     let url = totp.get_url();
     db::totp::upsert(pool, user_id, &secret_b32).await?;
-    Ok(TotpSetup { secret: secret_b32, otpauth_url: url })
+    Ok(TotpSetup {
+        secret: secret_b32,
+        otpauth_url: url,
+    })
 }
 
 /// Verify a TOTP code during initial setup. Marks the secret as verified on success.
@@ -247,8 +254,7 @@ pub async fn check_totp_code(
         _ => return Ok(false),
     };
     let totp = make_totp(&row.secret)?;
-    totp
-        .check_current(code)
+    totp.check_current(code)
         .map_err(|e| DomainError::Internal(format!("system time: {e}")))
 }
 
@@ -290,17 +296,16 @@ pub async fn create_token(
     .map_err(|e| DomainError::Internal(format!("jwt encode: {e}")))?;
 
     let expires_at_str = expires_at.map(|dt| dt.to_rfc3339());
-    let row = db::personal_tokens::create(
-        pool,
-        &jti,
-        user_id,
-        name,
-        scope,
-        expires_at_str.as_deref(),
-    )
-    .await?;
+    let row =
+        db::personal_tokens::create(pool, &jti, user_id, name, scope, expires_at_str.as_deref())
+            .await?;
 
-    Ok(TokenCreated { id: row.id, token, name: row.name, scope: row.scope })
+    Ok(TokenCreated {
+        id: row.id,
+        token,
+        name: row.name,
+        scope: row.scope,
+    })
 }
 
 /// Validate a JWT bearer token and return AuthContext on success.
@@ -336,7 +341,10 @@ pub async fn validate_jwt(
         let _ = db::personal_tokens::touch_last_used(pool, &claims.jti).await;
     }
 
-    Ok(AuthContext { user_id: claims.sub, scope: claims.scope })
+    Ok(AuthContext {
+        user_id: claims.sub,
+        scope: claims.scope,
+    })
 }
 
 /// List all personal tokens for a user (metadata only, no JWT strings).
@@ -431,9 +439,11 @@ mod tests {
     #[tokio::test]
     async fn hash_and_verify_password_roundtrip() {
         let hash = hash_password("my_password".to_string()).await.unwrap();
-        assert!(verify_password("my_password".to_string(), hash.clone())
-            .await
-            .unwrap());
+        assert!(
+            verify_password("my_password".to_string(), hash.clone())
+                .await
+                .unwrap()
+        );
         assert!(!verify_password("wrong".to_string(), hash).await.unwrap());
     }
 
@@ -455,7 +465,9 @@ mod tests {
     #[tokio::test]
     async fn setup_totp_returns_secret_and_url() {
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None).await.unwrap();
+        let user = register(&pool, "user@example.com", "pass", None)
+            .await
+            .unwrap();
         let setup = setup_totp(&pool, &user.id, &user.email).await.unwrap();
         assert!(!setup.secret.is_empty());
         assert!(setup.otpauth_url.starts_with("otpauth://totp/"));
@@ -466,7 +478,9 @@ mod tests {
     async fn verify_totp_setup_marks_verified() {
         use totp_rs::{Algorithm, Secret, TOTP};
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None).await.unwrap();
+        let user = register(&pool, "user@example.com", "pass", None)
+            .await
+            .unwrap();
         let setup = setup_totp(&pool, &user.id, &user.email).await.unwrap();
         let bytes = Secret::Encoded(setup.secret.clone()).to_bytes().unwrap();
         let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, bytes, None, String::new()).unwrap();
@@ -478,9 +492,13 @@ mod tests {
     #[tokio::test]
     async fn verify_totp_setup_with_wrong_code_returns_error() {
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None).await.unwrap();
+        let user = register(&pool, "user@example.com", "pass", None)
+            .await
+            .unwrap();
         setup_totp(&pool, &user.id, &user.email).await.unwrap();
-        let err = verify_totp_setup(&pool, &user.id, "000000").await.unwrap_err();
+        let err = verify_totp_setup(&pool, &user.id, "000000")
+            .await
+            .unwrap_err();
         assert!(matches!(err, DomainError::Validation("invalid_totp_code")));
     }
 
@@ -488,7 +506,9 @@ mod tests {
     async fn disable_totp_removes_secret() {
         use totp_rs::{Algorithm, Secret, TOTP};
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None).await.unwrap();
+        let user = register(&pool, "user@example.com", "pass", None)
+            .await
+            .unwrap();
         let setup = setup_totp(&pool, &user.id, &user.email).await.unwrap();
         let bytes = Secret::Encoded(setup.secret).to_bytes().unwrap();
         let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, bytes, None, String::new()).unwrap();
@@ -501,7 +521,9 @@ mod tests {
     #[tokio::test]
     async fn check_totp_code_returns_false_when_totp_not_enabled() {
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None).await.unwrap();
+        let user = register(&pool, "user@example.com", "pass", None)
+            .await
+            .unwrap();
         let result = check_totp_code(&pool, &user.id, "123456").await.unwrap();
         assert!(!result);
     }
@@ -513,7 +535,9 @@ mod tests {
     #[tokio::test]
     async fn create_token_returns_jwt_and_row() {
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None).await.unwrap();
+        let user = register(&pool, "user@example.com", "pass", None)
+            .await
+            .unwrap();
         let created = create_token(&pool, TEST_SECRET, &user.id, "My Token", "full", None)
             .await
             .unwrap();
@@ -522,7 +546,9 @@ mod tests {
         assert_eq!(created.scope, "full");
         assert!(!created.id.is_empty());
         // JWT must decode correctly
-        let ctx = validate_jwt(&pool, &created.token, TEST_SECRET).await.unwrap();
+        let ctx = validate_jwt(&pool, &created.token, TEST_SECRET)
+            .await
+            .unwrap();
         assert_eq!(ctx.user_id, user.id);
         assert_eq!(ctx.scope, "full");
     }
@@ -530,7 +556,9 @@ mod tests {
     #[tokio::test]
     async fn validate_jwt_with_wrong_secret_fails() {
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None).await.unwrap();
+        let user = register(&pool, "user@example.com", "pass", None)
+            .await
+            .unwrap();
         let created = create_token(&pool, TEST_SECRET, &user.id, "Token", "full", None)
             .await
             .unwrap();
@@ -541,7 +569,9 @@ mod tests {
     #[tokio::test]
     async fn validate_jwt_revoked_token_fails() {
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None).await.unwrap();
+        let user = register(&pool, "user@example.com", "pass", None)
+            .await
+            .unwrap();
         let created = create_token(&pool, TEST_SECRET, &user.id, "Token", "full", None)
             .await
             .unwrap();
@@ -553,9 +583,15 @@ mod tests {
     #[tokio::test]
     async fn list_tokens_returns_user_tokens() {
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None).await.unwrap();
-        create_token(&pool, TEST_SECRET, &user.id, "Token A", "full", None).await.unwrap();
-        create_token(&pool, TEST_SECRET, &user.id, "Token B", "calendar", None).await.unwrap();
+        let user = register(&pool, "user@example.com", "pass", None)
+            .await
+            .unwrap();
+        create_token(&pool, TEST_SECRET, &user.id, "Token A", "full", None)
+            .await
+            .unwrap();
+        create_token(&pool, TEST_SECRET, &user.id, "Token B", "calendar", None)
+            .await
+            .unwrap();
         let tokens = list_tokens(&pool, &user.id).await.unwrap();
         assert_eq!(tokens.len(), 2);
     }
@@ -563,10 +599,18 @@ mod tests {
     #[tokio::test]
     async fn revoke_token_not_owned_returns_not_found() {
         let pool = test_pool().await;
-        let user1 = register(&pool, "u1@example.com", "pass", None).await.unwrap();
-        let user2 = register(&pool, "u2@example.com", "pass2", None).await.unwrap();
-        let created = create_token(&pool, TEST_SECRET, &user1.id, "Token", "full", None).await.unwrap();
-        let err = revoke_token(&pool, &created.id, &user2.id).await.unwrap_err();
+        let user1 = register(&pool, "u1@example.com", "pass", None)
+            .await
+            .unwrap();
+        let user2 = register(&pool, "u2@example.com", "pass2", None)
+            .await
+            .unwrap();
+        let created = create_token(&pool, TEST_SECRET, &user1.id, "Token", "full", None)
+            .await
+            .unwrap();
+        let err = revoke_token(&pool, &created.id, &user2.id)
+            .await
+            .unwrap_err();
         assert!(matches!(err, DomainError::NotFound("token")));
     }
 

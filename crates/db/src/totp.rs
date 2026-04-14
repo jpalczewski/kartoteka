@@ -51,7 +51,10 @@ pub async fn delete(pool: &SqlitePool, user_id: &str) -> Result<(), DbError> {
 
 /// Returns true iff the user has a verified TOTP secret.
 pub async fn is_enabled(pool: &SqlitePool, user_id: &str) -> Result<bool, DbError> {
-    Ok(find(pool, user_id).await?.map(|r| r.verified).unwrap_or(false))
+    Ok(find(pool, user_id)
+        .await?
+        .map(|r| r.verified)
+        .unwrap_or(false))
 }
 
 #[cfg(test)]
@@ -63,7 +66,9 @@ mod tests {
     async fn insert_and_find_totp_secret() {
         let pool = test_pool().await;
         sqlx::query("INSERT INTO users (id, email) VALUES ('u1', 'a@b.com')")
-            .execute(&pool).await.unwrap();
+            .execute(&pool)
+            .await
+            .unwrap();
         upsert(&pool, "u1", "JBSWY3DPEHPK3PXP").await.unwrap();
         let row = find(&pool, "u1").await.unwrap().unwrap();
         assert_eq!(row.secret, "JBSWY3DPEHPK3PXP");
@@ -74,7 +79,9 @@ mod tests {
     async fn upsert_replaces_existing_secret() {
         let pool = test_pool().await;
         sqlx::query("INSERT INTO users (id, email) VALUES ('u1', 'a@b.com')")
-            .execute(&pool).await.unwrap();
+            .execute(&pool)
+            .await
+            .unwrap();
         upsert(&pool, "u1", "OLDSECRET").await.unwrap();
         mark_verified(&pool, "u1").await.unwrap();
         upsert(&pool, "u1", "NEWSECRET").await.unwrap();
@@ -87,7 +94,9 @@ mod tests {
     async fn mark_verified_updates_flag() {
         let pool = test_pool().await;
         sqlx::query("INSERT INTO users (id, email) VALUES ('u1', 'a@b.com')")
-            .execute(&pool).await.unwrap();
+            .execute(&pool)
+            .await
+            .unwrap();
         upsert(&pool, "u1", "SECRET").await.unwrap();
         mark_verified(&pool, "u1").await.unwrap();
         let row = find(&pool, "u1").await.unwrap().unwrap();
@@ -98,7 +107,9 @@ mod tests {
     async fn delete_removes_secret() {
         let pool = test_pool().await;
         sqlx::query("INSERT INTO users (id, email) VALUES ('u1', 'a@b.com')")
-            .execute(&pool).await.unwrap();
+            .execute(&pool)
+            .await
+            .unwrap();
         upsert(&pool, "u1", "SECRET").await.unwrap();
         delete(&pool, "u1").await.unwrap();
         assert!(find(&pool, "u1").await.unwrap().is_none());
@@ -108,7 +119,9 @@ mod tests {
     async fn is_enabled_returns_false_when_unverified() {
         let pool = test_pool().await;
         sqlx::query("INSERT INTO users (id, email) VALUES ('u1', 'a@b.com')")
-            .execute(&pool).await.unwrap();
+            .execute(&pool)
+            .await
+            .unwrap();
         upsert(&pool, "u1", "SECRET").await.unwrap();
         assert!(!is_enabled(&pool, "u1").await.unwrap());
     }
@@ -117,7 +130,9 @@ mod tests {
     async fn is_enabled_returns_true_when_verified() {
         let pool = test_pool().await;
         sqlx::query("INSERT INTO users (id, email) VALUES ('u1', 'a@b.com')")
-            .execute(&pool).await.unwrap();
+            .execute(&pool)
+            .await
+            .unwrap();
         upsert(&pool, "u1", "SECRET").await.unwrap();
         mark_verified(&pool, "u1").await.unwrap();
         assert!(is_enabled(&pool, "u1").await.unwrap());

@@ -1,4 +1,4 @@
-use crate::{types::UserSettingRow, DbError};
+use crate::{DbError, types::UserSettingRow};
 use sqlx::SqlitePool;
 
 #[tracing::instrument(skip(pool))]

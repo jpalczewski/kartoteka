@@ -617,7 +617,12 @@ mod tests {
         assert!(ancestors.contains(&city.id));
         assert!(ancestors.contains(&country.id));
 
-        assert!(get_ancestors(&pool, &country.id, &uid).await.unwrap().is_empty());
+        assert!(
+            get_ancestors(&pool, &country.id, &uid)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]

@@ -4,12 +4,11 @@ use sqlx::SqlitePool;
 /// Get a server config value by key. Returns None if key not found.
 #[tracing::instrument(skip(pool))]
 pub async fn get(pool: &SqlitePool, key: &str) -> Result<Option<String>, DbError> {
-    let row: Option<(String,)> =
-        sqlx::query_as("SELECT value FROM server_config WHERE key = ?")
-            .bind(key)
-            .fetch_optional(pool)
-            .await
-            .map_err(DbError::Sqlx)?;
+    let row: Option<(String,)> = sqlx::query_as("SELECT value FROM server_config WHERE key = ?")
+        .bind(key)
+        .fetch_optional(pool)
+        .await
+        .map_err(DbError::Sqlx)?;
     Ok(row.map(|(v,)| v))
 }
 

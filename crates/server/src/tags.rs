@@ -103,12 +103,8 @@ async fn get_entity_tags(
     Path((entity_type, entity_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     let tags = match entity_type.as_str() {
-        "item" => {
-            kartoteka_domain::tags::get_for_item(&state.pool, &uid, &entity_id).await?
-        }
-        "list" => {
-            kartoteka_domain::tags::get_for_list(&state.pool, &uid, &entity_id).await?
-        }
+        "item" => kartoteka_domain::tags::get_for_item(&state.pool, &uid, &entity_id).await?,
+        "list" => kartoteka_domain::tags::get_for_list(&state.pool, &uid, &entity_id).await?,
         "container" => {
             kartoteka_domain::tags::get_for_container(&state.pool, &uid, &entity_id).await?
         }
@@ -145,12 +141,10 @@ async fn remove_tag(
 ) -> Result<impl IntoResponse, AppError> {
     let removed = match entity_type.as_str() {
         "item" => {
-            kartoteka_domain::tags::remove_from_item(&state.pool, &uid, &entity_id, &tag_id)
-                .await?
+            kartoteka_domain::tags::remove_from_item(&state.pool, &uid, &entity_id, &tag_id).await?
         }
         "list" => {
-            kartoteka_domain::tags::remove_from_list(&state.pool, &uid, &entity_id, &tag_id)
-                .await?
+            kartoteka_domain::tags::remove_from_list(&state.pool, &uid, &entity_id, &tag_id).await?
         }
         "container" => {
             kartoteka_domain::tags::remove_from_container(&state.pool, &uid, &entity_id, &tag_id)

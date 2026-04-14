@@ -33,5 +33,6 @@ pub fn TagList(
                 <button type="button" class="btn btn-ghost btn-xs ">{"+"}</button>
             })}
         </div>
-    }.into_any()
+    }
+    .into_any()
 }

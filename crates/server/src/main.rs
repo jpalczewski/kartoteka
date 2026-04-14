@@ -3,7 +3,8 @@ use tower_sessions_sqlx_store::SqliteStore;
 
 #[tokio::main]
 async fn main() {
-    let default_filter = "kartoteka_server=debug,kartoteka_domain=debug,kartoteka_db=debug,tower_http=debug";
+    let default_filter =
+        "kartoteka_server=debug,kartoteka_domain=debug,kartoteka_db=debug,tower_http=debug";
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| default_filter.into());
 
@@ -20,11 +21,18 @@ async fn main() {
     }
 
     let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://data.db".into());
-    let pool = kartoteka_db::create_pool(&db_url).await.expect("db connect");
-    kartoteka_db::run_migrations(&pool).await.expect("migrations");
+    let pool = kartoteka_db::create_pool(&db_url)
+        .await
+        .expect("db connect");
+    kartoteka_db::run_migrations(&pool)
+        .await
+        .expect("migrations");
 
     let session_store = SqliteStore::new(pool.clone());
-    session_store.migrate().await.expect("session store migrate");
+    session_store
+        .migrate()
+        .await
+        .expect("session store migrate");
 
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(false)
@@ -43,8 +51,8 @@ async fn main() {
 
     let conf = leptos::config::get_configuration(None).expect("leptos config");
     let leptos_options = conf.leptos_options;
-    let bind_addr = std::env::var("BIND_ADDR")
-        .unwrap_or_else(|_| leptos_options.site_addr.to_string());
+    let bind_addr =
+        std::env::var("BIND_ADDR").unwrap_or_else(|_| leptos_options.site_addr.to_string());
     let app = kartoteka_server::router(pool, auth_layer, signing_secret, leptos_options);
 
     tracing::info!("listening on {bind_addr}");

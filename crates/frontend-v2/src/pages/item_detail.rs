@@ -15,10 +15,7 @@ pub fn ItemDetailPage() -> impl IntoView {
 
     let (refresh, set_refresh) = signal(0u32);
 
-    let item_res = Resource::new(
-        move || (item_id(), refresh.get()),
-        |(id, _)| get_item(id),
-    );
+    let item_res = Resource::new(move || (item_id(), refresh.get()), |(id, _)| get_item(id));
 
     // ── Local edit signals (populated once item loads) ────────────
     let title_input: RwSignal<String> = RwSignal::new(String::new());

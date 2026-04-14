@@ -16,10 +16,15 @@ pub fn RootSection(
     on_pin_container: Callback<String>,
 ) -> impl IntoView {
     let filter = active_tag_filter.get();
-    let filtered_lists: Vec<List> = root_lists.into_iter().filter(|l| match &filter {
-        None => true,
-        Some(tid) => all_links.iter().any(|lnk| lnk.list_id == l.id && &lnk.tag_id == tid),
-    }).collect();
+    let filtered_lists: Vec<List> = root_lists
+        .into_iter()
+        .filter(|l| match &filter {
+            None => true,
+            Some(tid) => all_links
+                .iter()
+                .any(|lnk| lnk.list_id == l.id && &lnk.tag_id == tid),
+        })
+        .collect();
 
     let has_containers = !root_containers.is_empty();
     let total_visible = root_containers.len() + filtered_lists.len();

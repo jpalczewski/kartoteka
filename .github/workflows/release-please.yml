@@ -3,7 +3,7 @@ name: Release Please
 on:
   push:
     branches:
-      - main
+      - develop
   workflow_dispatch:
 
 jobs:
@@ -14,101 +14,29 @@ jobs:
       contents: write
       pull-requests: write
     concurrency:
-      group: release-please-${{ github.ref }}
+      group: release-please
       cancel-in-progress: false
-    outputs:
-      releases_created: ${{ steps.release.outputs.releases_created }}
     steps:
-      - id: release
-        uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v4
+        id: release
         with:
           release-type: simple
+          target-branch: develop
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  deploy-prod:
-    name: Deploy Production
-    needs: release-please
-    if: needs.release-please.outputs.releases_created == 'true'
-    runs-on: ubuntu-latest
-    concurrency:
-      group: deploy-prod
-      cancel-in-progress: false
-    env:
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-
-      # --- API Worker (Rust) ---
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v6
+        if: ${{ steps.release.outputs.release_created }}
         with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run D1 migrations (API)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          workingDirectory: crates/api
-          command: d1 migrations apply kartoteka-db --remote
-
-      - name: Install worker-build
-        run: cargo install worker-build
-
-      - name: Deploy API Worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          workingDirectory: crates/api
-          command: deploy
-
-      # --- Gateway Worker (TypeScript) ---
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: gateway/package-lock.json
-
-      - name: Copy locales to gateway
+      - name: Merge develop into main
+        if: ${{ steps.release.outputs.release_created }}
         run: |
-          cp -r locales gateway/locales
-          cp locales/en/mcp.ftl gateway/locales/en/mcp.txt
-          cp locales/pl/mcp.ftl gateway/locales/pl/mcp.txt
-
-      - name: Install gateway deps
-        run: cd gateway && npm ci
-
-      - name: Deploy Gateway Worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          workingDirectory: gateway
-          command: deploy
-
-      - name: Run Gateway auth migrations
-        env:
-          MIGRATE_SECRET: ${{ secrets.MIGRATE_SECRET }}
-        run: |
-          curl -sf -X POST https://kartoteka-gateway.jpalczewski.workers.dev/migrate \
-            -H "x-migrate-secret: $MIGRATE_SECRET"
-
-      # --- Frontend (Leptos CSR → CF Pages) ---
-      - name: Install trunk
-        run: cargo install trunk
-
-      - name: Install frontend deps
-        run: cd crates/frontend && npm install
-
-      - name: Build frontend
-        env:
-          API_BASE_URL: https://kartoteka-gateway.jpalczewski.workers.dev/api
-        run: cd crates/frontend && trunk build --release
-
-      - name: Deploy frontend to CF Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: pages deploy crates/frontend/dist --project-name=kartoteka --branch=main --commit-dirty=true
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout main
+          git merge origin/develop --ff-only
+          git push origin main

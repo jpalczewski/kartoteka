@@ -1,4 +1,4 @@
-use crate::{types::AuthMethodRow, DbError};
+use crate::{DbError, types::AuthMethodRow};
 use sqlx::SqlitePool;
 
 #[tracing::instrument(skip(pool))]

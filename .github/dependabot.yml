@@ -1,0 +1,47 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "rust"
+    groups:
+      wasm-bindgen:
+        patterns:
+          - "wasm-bindgen*"
+          - "web-sys"
+          - "js-sys"
+      leptos:
+        patterns:
+          - "leptos*"
+      gloo:
+        patterns:
+          - "gloo-*"
+    ignore:
+      # Major Leptos upgrades need manual migration
+      - dependency-name: "leptos*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "npm"
+    directory: "/gateway"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "typescript"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"

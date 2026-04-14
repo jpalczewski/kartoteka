@@ -1,0 +1,15 @@
+admin-panel = Panel admina
+instance-settings = Ustawienia instancji
+registration-mode = Tryb rejestracji
+registration-open = Otwarta
+registration-invite = Na zaproszenia
+registration-closed = Zamknięta
+registration-closed-message = Rejestracja jest aktualnie niedostępna.
+invitation-codes = Kody zaproszeń
+invite-code = Kod zaproszenia
+invite-code-required = Wymagany kod zaproszenia
+invite-code-invalid = Nieprawidłowy lub wygasły kod zaproszenia
+invite-code-in-use = Ten kod jest aktualnie używany, spróbuj za chwilę
+generate-code = Generuj kod
+code-active = Aktywny
+code-used = Użyty

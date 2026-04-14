@@ -5,8 +5,8 @@ use crate::{AppState, auth};
 use axum::{Router, middleware};
 
 pub fn routes(state: AppState) -> Router<AppState> {
-    let admin_routes = crate::auth::server_config_router()
-        .route_layer(middleware::from_fn(auth::require_admin));
+    let admin_routes =
+        crate::auth::server_config_router().route_layer(middleware::from_fn(auth::require_admin));
 
     Router::new()
         .nest("/containers", containers::routes())

@@ -129,14 +129,11 @@ impl AuthnBackend for KartotekaBackend {
         };
 
         // 2. Find password auth method (get credential, default empty)
-        let credential = db::auth_methods::find_by_user_and_provider(
-            &self.pool,
-            &user_row.id,
-            "password",
-        )
-        .await?
-        .and_then(|m| m.credential)
-        .unwrap_or_default();
+        let credential =
+            db::auth_methods::find_by_user_and_provider(&self.pool, &user_row.id, "password")
+                .await?
+                .and_then(|m| m.credential)
+                .unwrap_or_default();
 
         // 3. Build session_auth_hash
         let session_auth_hash = build_session_hash(&credential);
@@ -250,11 +247,13 @@ mod tests {
     async fn get_user_unknown_id_returns_none() {
         let pool = test_pool().await;
         let backend = KartotekaBackend::new(pool);
-        assert!(backend
-            .get_user(&"no-such-id".to_string())
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            backend
+                .get_user(&"no-such-id".to_string())
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]

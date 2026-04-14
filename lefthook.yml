@@ -1,0 +1,11 @@
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      run: cargo fmt --all -- --check
+      fail_text: "Run `just fmt` to fix formatting"
+    clippy:
+      run: cargo clippy --workspace --exclude kartoteka-frontend -- -D warnings
+    tsc:
+      root: gateway/
+      run: npx tsc --noEmit

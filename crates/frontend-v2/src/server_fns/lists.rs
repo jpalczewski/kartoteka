@@ -3,11 +3,8 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    axum_login::AuthSession,
-    kartoteka_auth::KartotekaBackend,
-    kartoteka_domain as domain,
-    sqlx::SqlitePool,
-    crate::server_fns::home::domain_list_to_shared,
+    crate::server_fns::home::domain_list_to_shared, axum_login::AuthSession,
+    kartoteka_auth::KartotekaBackend, kartoteka_domain as domain, sqlx::SqlitePool,
 };
 
 /// Create a new list. `container_id` puts the list inside a container;

@@ -1,4 +1,4 @@
-use crate::{rules, DomainError};
+use crate::{DomainError, rules};
 use kartoteka_db::{
     self as db,
     tags::{InsertTagInput, UpdateTagInput},
@@ -169,10 +169,7 @@ pub async fn update(
                         .map(|p| p.tag_type),
                     None => None,
                 };
-                rules::tags::validate_location_hierarchy(
-                    effective_type,
-                    parent_type.as_deref(),
-                )?;
+                rules::tags::validate_location_hierarchy(effective_type, parent_type.as_deref())?;
             }
         }
     }
@@ -256,8 +253,7 @@ pub async fn assign_to_item(
     let tag = db::tags::get_one(pool, tag_id, user_id)
         .await?
         .ok_or(DomainError::NotFound("tag"))?;
-    let existing =
-        db::tags::get_exclusive_type_tag_for_item(pool, item_id, &tag.tag_type).await?;
+    let existing = db::tags::get_exclusive_type_tag_for_item(pool, item_id, &tag.tag_type).await?;
     rules::tags::validate_exclusive_type(&tag.tag_type, existing.as_ref().map(|t| t.id.as_str()))?;
     db::tags::add_item_tag(pool, item_id, tag_id, user_id).await?;
     Ok(())
@@ -347,11 +343,13 @@ pub async fn get_for_container(
     user_id: &str,
     container_id: &str,
 ) -> Result<Vec<Tag>, DomainError> {
-    Ok(db::tags::get_tags_for_container(pool, container_id, user_id)
-        .await?
-        .into_iter()
-        .map(row_to_tag)
-        .collect())
+    Ok(
+        db::tags::get_tags_for_container(pool, container_id, user_id)
+            .await?
+            .into_iter()
+            .map(row_to_tag)
+            .collect(),
+    )
 }
 
 // ── Integration tests ─────────────────────────────────────────────────────────
@@ -548,9 +546,7 @@ mod tests {
         .await
         .unwrap();
 
-        assign_to_item(&pool, &uid, &item_id, &p1.id)
-            .await
-            .unwrap();
+        assign_to_item(&pool, &uid, &item_id, &p1.id).await.unwrap();
         assert!(matches!(
             assign_to_item(&pool, &uid, &item_id, &p2.id)
                 .await

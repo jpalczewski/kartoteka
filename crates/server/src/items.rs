@@ -31,10 +31,7 @@ pub fn items_router() -> Router<AppState> {
     Router::new()
         .route("/by-date", get(by_date))
         .route("/calendar", get(calendar))
-        .route(
-            "/{id}",
-            get(get_item).put(update_item).delete(delete_item),
-        )
+        .route("/{id}", get(get_item).put(update_item).delete(delete_item))
         .route("/{id}/toggle", post(toggle_complete))
         .route("/{id}/move", post(move_item))
 }

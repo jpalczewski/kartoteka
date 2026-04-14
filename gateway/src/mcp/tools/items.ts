@@ -4,21 +4,120 @@ import type { ApiContext } from "../api";
 import { callTool, apiCall, errorResult, jsonResult } from "../api";
 import { tr } from "../i18n";
 
+const itemTitleSchema = z.string().trim().min(1).max(255);
+const quantitySchema = z.number().int().positive();
+const actualQuantitySchema = z.number().int().nonnegative();
+const itemPayloadSchema = z.object({
+  title: itemTitleSchema.describe("Item title"),
+  description: z.string().optional().describe("Item description"),
+  quantity: quantitySchema.optional().describe("Target quantity"),
+  unit: z.string().optional().describe("Unit of measurement"),
+  start_date: z.string().optional().describe("Start date YYYY-MM-DD"),
+  start_time: z.string().optional().describe("Start time HH:MM"),
+  deadline: z.string().optional().describe("Deadline YYYY-MM-DD"),
+  deadline_time: z.string().optional().describe("Deadline time HH:MM"),
+  hard_deadline: z.string().optional().describe("Hard deadline YYYY-MM-DD"),
+});
+
 export function registerItemTools(server: McpServer, api: ApiContext, locale: string): void {
+  function hasAnyItemFields(fields: Record<string, unknown>): boolean {
+    return Object.values(fields).some((value) => value !== undefined);
+  }
+
+  function normalizeSingleItemPayload(fields: {
+    title?: string;
+    description?: string;
+    quantity?: number;
+    unit?: string;
+    start_date?: string;
+    start_time?: string;
+    deadline?: string;
+    deadline_time?: string;
+    hard_deadline?: string;
+  }): { payload?: Record<string, unknown>; error?: string } {
+    if (!fields.title) {
+      return { error: "Provide title for a single item or use items for batch creation." };
+    }
+
+    return {
+      payload: Object.fromEntries(
+        Object.entries(fields).filter(([, value]) => value !== undefined)
+      ),
+    };
+  }
+
   server.registerTool("get_list_items", {
     description: tr("tool-get-items", locale),
     inputSchema: {
       list_id: z.string().describe("The list ID"),
+      completed: z.boolean().optional().describe("Filter by completion state"),
+      has_deadline: z.boolean().optional().describe("Filter by presence of deadline"),
+      from: z.string().optional().describe("Keep items dated on or after YYYY-MM-DD"),
+      to: z.string().optional().describe("Keep items dated on or before YYYY-MM-DD"),
+      field: z.enum(["all", "start_date", "deadline", "hard_deadline"]).optional()
+        .describe("Date field to use with from/to (default: all)"),
+      limit: z.number().int().positive().max(100).optional().describe("Maximum number of items to return"),
     },
-  }, ({ list_id }) => callTool(api, "GET", `/api/lists/${list_id}/items`));
+  }, ({ list_id, completed, has_deadline, from, to, field, limit }) => {
+    const params = new URLSearchParams();
+    if (completed !== undefined) params.set("completed", String(completed));
+    if (has_deadline !== undefined) params.set("has_deadline", String(has_deadline));
+    if (from) params.set("date_from", from);
+    if (to) params.set("date_to", to);
+    if (field) params.set("date_field", field);
+    if (limit !== undefined) params.set("limit", String(limit));
+
+    const query = params.toString();
+    const path = query
+      ? `/api/lists/${list_id}/items?${query}`
+      : `/api/lists/${list_id}/items`;
+    return callTool(api, "GET", path);
+  });
+
+  server.registerTool("search_items", {
+    description: tr("tool-search-items", locale),
+    inputSchema: {
+      query: z.string().optional().describe("Plain-text query for item title/description"),
+      search_title: z.boolean().optional().describe("Search title text"),
+      search_description: z.boolean().optional().describe("Search description text"),
+      tag_ids: z.array(z.string()).min(1).optional().describe("Filter by item tags"),
+      recursive_tags: z.boolean().optional().describe("Include descendant tags"),
+      completed: z.boolean().optional().describe("Filter by completion state"),
+      include_archived: z.boolean().optional().describe("Include archived lists"),
+      limit: z.number().int().positive().max(100).optional().describe("Maximum number of results"),
+    },
+  }, ({ query, search_title, search_description, tag_ids, recursive_tags, completed, include_archived, limit }) => {
+    const trimmedQuery = query?.trim();
+    const normalizedTagIds = tag_ids?.filter((value, index, all) => value.trim().length > 0 && all.indexOf(value) === index) ?? [];
+    if (!trimmedQuery && normalizedTagIds.length === 0 && completed === undefined) {
+      return errorResult("Provide query, tag_ids, or completed.");
+    }
+    if (trimmedQuery && search_title === false && search_description === false) {
+      return errorResult("Enable search_title or search_description when query is provided.");
+    }
+
+    const params = new URLSearchParams();
+    if (trimmedQuery) params.set("query", trimmedQuery);
+    if (search_title !== undefined) params.set("search_title", String(search_title));
+    if (search_description !== undefined) params.set("search_description", String(search_description));
+    for (const tagId of normalizedTagIds) params.append("tag_id", tagId);
+    if (recursive_tags !== undefined) params.set("recursive_tags", String(recursive_tags));
+    if (completed !== undefined) params.set("completed", String(completed));
+    if (include_archived !== undefined) params.set("include_archived", String(include_archived));
+    if (limit !== undefined) params.set("limit", String(limit));
+
+    return callTool(api, "GET", `/api/items/search?${params.toString()}`);
+  });
 
   server.registerTool("add_item", {
     description: tr("tool-add-item", locale),
     inputSchema: {
       list_id: z.string().describe("The list ID"),
-      title: z.string().describe("Item title"),
+      items: z.array(itemPayloadSchema).min(1).optional()
+        .describe("Items to create in order"),
+      title: itemTitleSchema.optional().describe("Item title for single create"),
       description: z.string().optional().describe("Item description"),
-      quantity: z.number().optional().describe("Target quantity"),
+      quantity: quantitySchema.optional().describe("Target quantity"),
       unit: z.string().optional().describe("Unit of measurement"),
       start_date: z.string().optional().describe("Start date YYYY-MM-DD"),
       start_time: z.string().optional().describe("Start time HH:MM"),
@@ -26,8 +125,22 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
       deadline_time: z.string().optional().describe("Deadline time HH:MM"),
       hard_deadline: z.string().optional().describe("Hard deadline YYYY-MM-DD"),
     },
-  }, async ({ list_id, ...fields }) => {
-    return withAutoEnable(api, list_id, fields, (f) =>
+  }, async ({ list_id, items, ...fields }) => {
+    if (items) {
+      if (hasAnyItemFields(fields)) {
+        return errorResult("Provide either items for batch create or single-item fields, not both.");
+      }
+      return withAutoEnable(api, list_id, { items }, (f) =>
+        apiCall(api, "POST", `/api/lists/${list_id}/items/batch`, f)
+      );
+    }
+
+    const normalized = normalizeSingleItemPayload(fields);
+    if (normalized.error) {
+      return errorResult(normalized.error);
+    }
+
+    return withAutoEnable(api, list_id, normalized.payload ?? {}, (f) =>
       apiCall(api, "POST", `/api/lists/${list_id}/items`, f)
     );
   });
@@ -37,11 +150,11 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
     inputSchema: {
       list_id: z.string().describe("The list ID"),
       item_id: z.string().describe("The item ID"),
-      title: z.string().optional().describe("New title"),
+      title: itemTitleSchema.optional().describe("New title"),
       description: z.string().nullable().optional().describe("New description (null to clear)"),
       completed: z.boolean().optional().describe("Completion state"),
-      quantity: z.number().optional().describe("Target quantity"),
-      actual_quantity: z.number().optional().describe("Actual quantity (auto-completes when >= quantity)"),
+      quantity: quantitySchema.optional().describe("Target quantity"),
+      actual_quantity: actualQuantitySchema.optional().describe("Actual quantity (auto-completes when >= quantity)"),
       unit: z.string().nullable().optional().describe("Unit (null to clear)"),
       start_date: z.string().nullable().optional().describe("Start date YYYY-MM-DD (null to clear)"),
       start_time: z.string().nullable().optional().describe("Start time HH:MM (null to clear)"),
@@ -58,21 +171,44 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
   server.registerTool("toggle_item", {
     description: tr("tool-toggle-item", locale),
     inputSchema: {
-      list_id: z.string().describe("The list ID"),
-      item_id: z.string().describe("The item ID"),
-      completed: z.boolean().describe("New completed state"),
+      item_id: z.string().optional().describe("The item ID"),
+      item_ids: z.array(z.string()).min(1).optional().describe("Item IDs to update"),
+      completed: z.boolean().describe("Completed state to apply"),
     },
-  }, ({ list_id, item_id, completed }) =>
-    callTool(api, "PUT", `/api/lists/${list_id}/items/${item_id}`, { completed }));
+  }, ({ item_id, item_ids, completed }) => {
+    const normalizedItemIds = item_ids ?? (item_id ? [item_id] : undefined);
+    if (!normalizedItemIds) {
+      return errorResult("Provide item_id or item_ids.");
+    }
+    if (item_id && item_ids) {
+      return errorResult("Provide either item_id or item_ids, not both.");
+    }
+    return callTool(api, "PATCH", "/api/items/completed", {
+      item_ids: normalizedItemIds,
+      completed,
+    });
+  });
 
   server.registerTool("move_item", {
     description: tr("tool-move-item", locale),
     inputSchema: {
-      item_id: z.string().describe("The item ID"),
+      item_id: z.string().optional().describe("The item ID"),
+      item_ids: z.array(z.string()).min(1).optional().describe("Item IDs to move"),
       target_list_id: z.string().describe("Target list ID"),
     },
-  }, ({ item_id, target_list_id }) =>
-    callTool(api, "PATCH", `/api/items/${item_id}/move`, { list_id: target_list_id }));
+  }, ({ item_id, item_ids, target_list_id }) => {
+    const normalizedItemIds = item_ids ?? (item_id ? [item_id] : undefined);
+    if (!normalizedItemIds) {
+      return errorResult("Provide item_id or item_ids.");
+    }
+    if (item_id && item_ids) {
+      return errorResult("Provide either item_id or item_ids, not both.");
+    }
+    return callTool(api, "PATCH", "/api/items/move", {
+      item_ids: normalizedItemIds,
+      target_list_id,
+    });
+  });
 
   async function withAutoEnable(
     api: ApiContext,
@@ -82,9 +218,10 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
   ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
     const res = await apiFn(fields);
     if (!res.ok) {
+      const raw = await res.text();
       if (res.status === 422) {
         let body: { error?: string; feature?: string; message?: string } = {};
-        try { body = await res.json(); } catch { /* ignore */ }
+        try { body = JSON.parse(raw) as typeof body; } catch { /* ignore */ }
 
         if (body.error === "feature_required" && body.feature) {
           let autoEnable = false;
@@ -117,7 +254,7 @@ export function registerItemTools(server: McpServer, api: ApiContext, locale: st
           );
         }
       }
-      return errorResult(`API error ${res.status}: ${await res.text()}`);
+      return errorResult(`API error ${res.status}: ${raw}`);
     }
     try {
       return jsonResult(await res.json());

@@ -56,10 +56,7 @@ pub async fn server_fn_handler(
 }
 
 /// Renders Leptos SSR pages for all frontend routes.
-pub async fn leptos_routes_handler(
-    State(state): State<AppState>,
-    req: Request<Body>,
-) -> Response {
+pub async fn leptos_routes_handler(State(state): State<AppState>, req: Request<Body>) -> Response {
     let options = state.leptos_options.clone();
     let pool = state.pool.clone();
     let s = state.clone();

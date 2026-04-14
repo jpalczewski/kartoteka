@@ -3,13 +3,10 @@ use leptos::prelude::*;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::{
-    confirm_delete_modal::ConfirmDeleteModal,
-    loading::LoadingSpinner,
+    confirm_delete_modal::ConfirmDeleteModal, loading::LoadingSpinner,
 };
 use crate::components::home::{
-    pinned_section::PinnedSection,
-    recent_section::RecentSection,
-    root_section::RootSection,
+    pinned_section::PinnedSection, recent_section::RecentSection, root_section::RootSection,
 };
 use crate::components::lists::create_entity_input::CreateEntityInput;
 use crate::components::tags::tag_badge::TagBadge;

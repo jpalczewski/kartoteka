@@ -1,4 +1,5 @@
 use crate::{AppError, AppState, extractors::UserId};
+use axum::extract::Request;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -7,7 +8,6 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
 };
-use axum::extract::Request;
 use kartoteka_auth::{AuthSession, LoginCredentials};
 use serde::{Deserialize, Serialize};
 use tower_sessions::Session;
@@ -101,12 +101,8 @@ pub async fn require_auth(
     next: Next,
 ) -> Response {
     if let Some(token) = extract_bearer_token(req.headers()) {
-        return match kartoteka_domain::auth::validate_jwt(
-            &state.pool,
-            token,
-            &state.signing_secret,
-        )
-        .await
+        return match kartoteka_domain::auth::validate_jwt(&state.pool, token, &state.signing_secret)
+            .await
         {
             Ok(ctx) if ctx.scope == "full" => {
                 req.extensions_mut().insert(UserId(ctx.user_id));
@@ -150,23 +146,31 @@ pub async fn register(
     )
     .await?;
 
-    let creds = LoginCredentials { email: req.email, password: req.password };
+    let creds = LoginCredentials {
+        email: req.email,
+        password: req.password,
+    };
     match auth_session.authenticate(creds).await {
         Ok(Some(user)) => {
             if let Err(e) = auth_session.login(&user).await {
                 tracing::warn!("auto-login after registration failed: {e}");
             }
         }
-        Ok(None) => tracing::warn!("auto-login after registration: user not found immediately after creation"),
+        Ok(None) => tracing::warn!(
+            "auto-login after registration: user not found immediately after creation"
+        ),
         Err(e) => tracing::warn!("auto-login after registration: auth error: {e}"),
     }
 
-    Ok((StatusCode::CREATED, Json(UserResponse {
-        id: user_info.id,
-        email: user_info.email,
-        name: user_info.name,
-        role: user_info.role,
-    })))
+    Ok((
+        StatusCode::CREATED,
+        Json(UserResponse {
+            id: user_info.id,
+            email: user_info.email,
+            name: user_info.name,
+            role: user_info.role,
+        }),
+    ))
 }
 
 /// POST /auth/login
@@ -182,7 +186,13 @@ pub async fn login(
 ) -> impl IntoResponse {
     let user = match auth_session.authenticate(creds).await {
         Ok(Some(user)) => user,
-        Ok(None) => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "invalid_credentials"}))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "invalid_credentials"})),
+            )
+                .into_response();
+        }
         Err(e) => {
             tracing::error!("auth backend error: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -216,7 +226,8 @@ pub async fn login(
             "name": user.name,
             "role": user.role,
         }
-    })).into_response()
+    }))
+    .into_response()
 }
 
 /// POST /auth/logout
@@ -241,7 +252,13 @@ pub async fn verify_2fa(
 ) -> impl IntoResponse {
     let user_id: String = match session.get(PENDING_USER_KEY).await {
         Ok(Some(id)) => id,
-        Ok(None) => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "no_pending_2fa"}))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "no_pending_2fa"})),
+            )
+                .into_response();
+        }
         Err(e) => {
             tracing::error!("session read failed: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -250,7 +267,13 @@ pub async fn verify_2fa(
 
     match kartoteka_domain::auth::check_totp_code(&state.pool, &user_id, &req.code).await {
         Ok(true) => {}
-        Ok(false) => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "invalid_code"}))).into_response(),
+        Ok(false) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "invalid_code"})),
+            )
+                .into_response();
+        }
         Err(e) => {
             tracing::error!("totp check error: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -259,7 +282,13 @@ pub async fn verify_2fa(
 
     let user = match kartoteka_auth::get_user_by_id(&state.pool, &user_id).await {
         Ok(Some(u)) => u,
-        Ok(None) => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "user_not_found"}))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "user_not_found"})),
+            )
+                .into_response();
+        }
         Err(e) => {
             tracing::error!("user lookup failed: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -285,7 +314,8 @@ pub async fn verify_2fa(
             "role": user.role,
         },
         "return_to": return_to,
-    })).into_response()
+    }))
+    .into_response()
 }
 
 /// POST /auth/totp/setup (authenticated)
@@ -327,7 +357,9 @@ pub async fn totp_delete(
 
 /// GET /api/server-config (admin only)
 #[tracing::instrument(skip(state))]
-pub async fn get_server_config(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+pub async fn get_server_config(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
     let enabled = kartoteka_domain::auth::is_registration_enabled(&state.pool).await?;
     Ok(Json(serde_json::json!({"registration_enabled": enabled})))
 }
@@ -340,7 +372,10 @@ pub async fn set_server_config(
     Json(req): Json<SetConfigValueRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     kartoteka_domain::auth::set_server_config(&state.pool, &key, &req.value).await?;
-    Ok(Json(ConfigEntry { key, value: req.value }))
+    Ok(Json(ConfigEntry {
+        key,
+        value: req.value,
+    }))
 }
 
 /// POST /auth/tokens — create a personal access token (session auth required)
@@ -359,7 +394,9 @@ pub async fn create_token_handler(
         .map(|s| {
             chrono::DateTime::parse_from_rfc3339(s)
                 .map(|dt| dt.with_timezone(&chrono::Utc))
-                .map_err(|_| AppError::Validation("invalid expires_at: expected RFC3339".to_string()))
+                .map_err(|_| {
+                    AppError::Validation("invalid expires_at: expected RFC3339".to_string())
+                })
         })
         .transpose()?;
 
@@ -428,7 +465,10 @@ pub fn auth_router() -> Router<AppState> {
         .route("/totp/setup", post(totp_setup))
         .route("/totp/verify", post(totp_verify_setup))
         .route("/totp", delete(totp_delete))
-        .route("/tokens", post(create_token_handler).get(list_tokens_handler))
+        .route(
+            "/tokens",
+            post(create_token_handler).get(list_tokens_handler),
+        )
         .route("/tokens/{id}", delete(delete_token_handler))
 }
 

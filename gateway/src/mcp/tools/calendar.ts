@@ -4,6 +4,13 @@ import type { ApiContext } from "../api";
 import { callTool } from "../api";
 import { tr } from "../i18n";
 
+function applyDateFieldParam(
+  params: URLSearchParams,
+  field?: "start_date" | "deadline" | "hard_deadline"
+): void {
+  params.set("date_field", field ?? "all");
+}
+
 export function registerCalendarTools(server: McpServer, api: ApiContext, locale: string): void {
   server.registerTool("get_calendar", {
     description: tr("tool-get-calendar", locale),
@@ -14,8 +21,8 @@ export function registerCalendarTools(server: McpServer, api: ApiContext, locale
       mode: z.enum(["counts", "full"]).default("full").describe("'counts' = day summaries, 'full' = complete items"),
     },
   }, ({ from, to, field, mode }) => {
-    const params = new URLSearchParams({ from, to, mode });
-    if (field) params.set("field", field);
+    const params = new URLSearchParams({ from, to, detail: mode });
+    applyDateFieldParam(params, field);
     return callTool(api, "GET", `/api/items/calendar?${params.toString()}`);
   });
 
@@ -28,7 +35,7 @@ export function registerCalendarTools(server: McpServer, api: ApiContext, locale
     },
   }, ({ date, field, include_overdue }) => {
     const params = new URLSearchParams({ date });
-    if (field) params.set("field", field);
+    applyDateFieldParam(params, field);
     if (include_overdue !== undefined) params.set("include_overdue", String(include_overdue));
     return callTool(api, "GET", `/api/items/by-date?${params.toString()}`);
   });

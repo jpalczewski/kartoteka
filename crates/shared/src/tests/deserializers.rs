@@ -5,7 +5,7 @@ use serde::Deserialize;
 
 #[derive(Deserialize)]
 struct BoolWrap {
-    #[serde(deserialize_with = "crate::bool_from_number")]
+    #[serde(deserialize_with = "crate::deserializers::bool_from_number")]
     v: bool,
 }
 
@@ -47,7 +47,7 @@ fn bool_from_number_string_is_false() {
 
 #[derive(Deserialize)]
 struct U32Wrap {
-    #[serde(deserialize_with = "crate::u32_from_number")]
+    #[serde(deserialize_with = "crate::deserializers::u32_from_number")]
     v: u32,
 }
 
@@ -73,7 +73,7 @@ fn u32_from_number_non_numeric_is_zero() {
 
 #[derive(Deserialize)]
 struct FeatWrap {
-    #[serde(deserialize_with = "crate::features_from_json")]
+    #[serde(deserialize_with = "crate::deserializers::features_from_json")]
     f: Vec<ListFeature>,
 }
 
