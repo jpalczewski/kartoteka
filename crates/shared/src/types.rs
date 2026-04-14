@@ -279,6 +279,49 @@ pub struct ListData {
     pub sublists: Vec<List>,
 }
 
+/// Item enriched with its parent list's display name.
+/// Used in Today and CalendarDay pages where items from multiple lists are shown together.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DateItem {
+    pub item: Item,
+    pub list_name: String,
+}
+
+/// Items for a Today page: today's items and items with past-due deadlines.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TodayData {
+    /// Resolved today date as "YYYY-MM-DD" (in user's timezone).
+    pub today_date: String,
+    /// Items with start_date, deadline, or hard_deadline = today.
+    pub today: Vec<DateItem>,
+    /// Incomplete items with deadline strictly before today.
+    pub overdue: Vec<DateItem>,
+}
+
+/// One day in a calendar month view with its item count.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalendarDay {
+    /// Date as "YYYY-MM-DD".
+    pub date: String,
+    /// Number of items falling on this date (counting start_date, deadline, hard_deadline each once per item).
+    pub count: u32,
+}
+
+/// Everything needed to render a calendar month grid.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalendarMonthData {
+    pub year: i32,
+    pub month: u32,
+    /// The resolved year_month string, e.g. "2026-04". Returned so the component knows what it got.
+    pub year_month: String,
+    /// Weekday of the first day of the month: 0 = Monday, 6 = Sunday (ISO weekday - 1).
+    pub first_weekday: u8,
+    /// Number of days in the month (28–31).
+    pub days_in_month: u8,
+    /// Per-day item counts — only days that have at least one item are included.
+    pub items_by_day: Vec<CalendarDay>,
+}
+
 // --- sqlx integration (enabled via "sqlx" feature) ---
 
 #[cfg(feature = "sqlx")]
