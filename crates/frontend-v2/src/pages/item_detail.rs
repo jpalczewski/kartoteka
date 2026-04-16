@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use leptos_router::{components::A, hooks::use_params_map};
 
 use crate::app::{ToastContext, ToastKind};
+use crate::components::comments::CommentSection;
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::items::{get_item, toggle_item, update_item};
 
@@ -130,6 +131,12 @@ pub fn ItemDetailPage() -> impl IntoView {
                                     <span>"Created: " {created_at}</span>
                                     <span>"Updated: " {updated_at}</span>
                                 </div>
+
+                                // Comments
+                                <CommentSection
+                                    entity_type="item"
+                                    entity_id=Signal::derive(item_id)
+                                />
                             </div>
                         }.into_any()
                     }
