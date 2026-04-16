@@ -64,7 +64,7 @@ bin-features = []
 lib-features = ["hydrate"]
 assets-dir = "crates/frontend-v2/public"
 style-file = "crates/frontend-v2/style/main.css"
-hash-files = true
+hash-files = false
 wasm-opt-features = ["-Oz", "--enable-bulk-memory"]
 
 [workspace.lints.clippy]
