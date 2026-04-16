@@ -10,10 +10,9 @@ default:
 
 # Zainstaluj wymagane narzędzia
 setup:
-    cargo install trunk worker-build
+    cargo install cargo-leptos
     rustup target add wasm32-unknown-unknown
-    cd gateway && npm install
-    cd crates/frontend && npm install
+    cd crates/frontend-v2 && npm install
 
 # === DEV ===
 
@@ -37,30 +36,38 @@ dev-frontend:
 dev-tunnel:
     cloudflared tunnel --url http://localhost:8788
 
-# Uruchom API + Gateway + frontend + cloudflared tunnel
+# Uruchom SSR server + Tailwind watch (nowy rewrite)
 dev:
+    #!/usr/bin/env bash
+    trap 'kill 0' EXIT
+    just dev-tailwind &
+    just dev-leptos &
+    wait
+
+# Tailwind 4 CSS compilation (watch mode)
+dev-tailwind:
+    crates/frontend-v2/node_modules/.bin/tailwindcss -i crates/frontend-v2/style/input.css -o crates/frontend-v2/style/main.css --watch
+
+# SSR server: cargo-leptos hot reload
+dev-leptos:
+    OAUTH_SIGNING_SECRET="${OAUTH_SIGNING_SECRET:-dev-secret-min-32-chars-abcdefgh}" cargo leptos watch
+
+# [legacy] Stary CF Workers dev (deprecated)
+dev-ssr:
+    #!/usr/bin/env bash
+    trap 'kill 0' EXIT
+    just dev-tailwind &
+    just dev-leptos &
+    wait
+
+# [legacy] Stary CF Workers stack
+dev-cf:
     #!/usr/bin/env bash
     trap 'kill 0' EXIT
     just dev-api &
     just dev-gateway &
     just dev-frontend &
     just dev-tunnel &
-    wait
-
-# Tailwind 4 CSS compilation (watch mode)
-dev-tailwind:
-    npx @tailwindcss/cli -i crates/frontend-v2/style/input.css -o crates/frontend-v2/style/main.css --watch
-
-# SSR server: cargo-leptos hot reload
-dev-leptos:
-    OAUTH_SIGNING_SECRET="${OAUTH_SIGNING_SECRET:-dev-secret-min-32-chars-abcdefgh}" cargo leptos watch
-
-# Run SSR server + Tailwind CSS watcher together
-dev-ssr:
-    #!/usr/bin/env bash
-    trap 'kill 0' EXIT
-    just dev-tailwind &
-    just dev-leptos &
     wait
 
 # === BUILD ===

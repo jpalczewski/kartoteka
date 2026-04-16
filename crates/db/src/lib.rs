@@ -4,6 +4,7 @@ use std::str::FromStr;
 pub use sqlx::sqlite::SqlitePool;
 
 pub mod auth_methods;
+pub mod comments;
 pub mod containers;
 pub mod home;
 pub mod items;

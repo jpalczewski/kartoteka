@@ -2,6 +2,36 @@
 @source "../src/**/*.rs";
 @plugin "daisyui";
 
-@plugin "daisyui/themes" {
-  themes: neon-night --default;
+@plugin "daisyui/theme" {
+  name: "neon-night";
+  default: true;
+  color-scheme: dark;
+  --color-base-100: #0a0a1a;
+  --color-base-200: #12122a;
+  --color-base-300: #1e1e3f;
+  --color-base-content: #e2e8f0;
+  --color-primary: #00d4ff;
+  --color-primary-content: #0a0a1a;
+  --color-secondary: #8b5cf6;
+  --color-secondary-content: #ffffff;
+  --color-accent: #39ff14;
+  --color-accent-content: #0a0a1a;
+  --color-neutral: #1e1e3f;
+  --color-neutral-content: #e2e8f0;
+  --color-info: #00b4d8;
+  --color-info-content: #0a0a1a;
+  --color-success: #4ade80;
+  --color-success-content: #0a0a1a;
+  --color-warning: #f59e0b;
+  --color-warning-content: #0a0a1a;
+  --color-error: #e94560;
+  --color-error-content: #ffffff;
+}
+
+@layer components {
+  .card-neon:hover {
+    box-shadow: 0 0 16px color-mix(in srgb, #00d4ff 25%, transparent);
+    border-color: color-mix(in srgb, #00d4ff 50%, transparent);
+    transition: box-shadow 0.15s, border-color 0.15s;
+  }
 }

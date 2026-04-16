@@ -36,8 +36,18 @@ fn next_month(ym: &str) -> String {
 
 fn format_month_title(year: i32, month: u32) -> String {
     const NAMES: [&str; 12] = [
-        "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ];
     let name = NAMES
         .get((month as usize).saturating_sub(1))
@@ -51,10 +61,7 @@ pub fn CalendarPage() -> impl IntoView {
     // Empty string → server resolves to current month
     let (current_ym, set_current_ym) = signal(String::new());
 
-    let cal_res = Resource::new(
-        move || current_ym.get(),
-        |ym| get_calendar_month(ym),
-    );
+    let cal_res = Resource::new(move || current_ym.get(), get_calendar_month);
 
     // After first load, keep current_ym in sync with what the server returned
     Effect::new(move |_| {

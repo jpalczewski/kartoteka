@@ -361,3 +361,18 @@ mod sqlx_impl {
         }
     }
 }
+
+// --- Comments ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Comment {
+    pub id: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub content: String,
+    pub author_type: String, // "user" | "assistant"
+    pub author_name: Option<String>,
+    pub user_id: String,
+    pub created_at: String,
+    pub updated_at: String,
+}

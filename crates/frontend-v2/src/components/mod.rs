@@ -1,3 +1,4 @@
+pub mod comments;
 pub mod common;
 pub mod home;
 pub mod items;

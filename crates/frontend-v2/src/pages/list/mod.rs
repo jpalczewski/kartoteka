@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
 use crate::app::{ToastContext, ToastKind};
+use crate::components::comments::CommentSection;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::items::item_row::ItemRow;
 use crate::components::lists::{
@@ -137,6 +138,12 @@ pub fn ListPage() -> impl IntoView {
                                         </div>
                                     }.into_any()
                                 }}
+
+                                // Comments
+                                <CommentSection
+                                    entity_type="list"
+                                    entity_id=Signal::derive(list_id)
+                                />
                             </div>
                         }.into_any()
                     }
