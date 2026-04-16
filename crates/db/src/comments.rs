@@ -9,7 +9,18 @@ pub async fn list_for_entity(
     entity_type: &str,
     entity_id: &str,
 ) -> Result<Vec<CommentRow>, DbError> {
-    todo!("implement")
+    sqlx::query_as::<_, CommentRow>(
+        "SELECT id, entity_type, entity_id, content, author_type, author_name, \
+         user_id, created_at, updated_at \
+         FROM comments \
+         WHERE entity_type = ? AND entity_id = ? \
+         ORDER BY created_at ASC",
+    )
+    .bind(entity_type)
+    .bind(entity_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)
 }
 
 // ── Write queries ─────────────────────────────────────────────────────────────
@@ -26,12 +37,33 @@ pub struct InsertCommentInput<'a> {
 
 #[tracing::instrument(skip(pool, input), fields(entity_type = %input.entity_type, entity_id = %input.entity_id))]
 pub async fn insert(pool: &SqlitePool, input: InsertCommentInput<'_>) -> Result<CommentRow, DbError> {
-    todo!("implement")
+    sqlx::query_as::<_, CommentRow>(
+        "INSERT INTO comments (id, entity_type, entity_id, content, author_type, author_name, user_id) \
+         VALUES (?, ?, ?, ?, ?, ?, ?) \
+         RETURNING id, entity_type, entity_id, content, author_type, author_name, \
+                   user_id, created_at, updated_at",
+    )
+    .bind(input.id)
+    .bind(input.entity_type)
+    .bind(input.entity_id)
+    .bind(input.content)
+    .bind(input.author_type)
+    .bind(input.author_name)
+    .bind(input.user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(DbError::Sqlx)
 }
 
 #[tracing::instrument(skip(pool))]
 pub async fn delete(pool: &SqlitePool, comment_id: &str, user_id: &str) -> Result<bool, DbError> {
-    todo!("implement")
+    let rows = sqlx::query("DELETE FROM comments WHERE id = ? AND user_id = ?")
+        .bind(comment_id)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .map_err(DbError::Sqlx)?;
+    Ok(rows.rows_affected() > 0)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
