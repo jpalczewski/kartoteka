@@ -49,6 +49,9 @@ pub async fn server_fn_handler(
         move || {
             provide_context(state.pool.clone());
             provide_context(state.clone());
+            provide_context(kartoteka_frontend_v2::server_fns::settings::SigningSecret(
+                state.signing_secret.clone(),
+            ));
         },
         req,
     )
@@ -63,11 +66,15 @@ pub async fn leptos_routes_handler(
     let options = state.leptos_options.clone();
     let pool = state.pool.clone();
     let s = state.clone();
+    let signing_secret = state.signing_secret.clone();
     let handler = leptos_axum::render_route_with_context(
         state.routes.clone(),
         move || {
             provide_context(pool.clone());
             provide_context(s.clone());
+            provide_context(kartoteka_frontend_v2::server_fns::settings::SigningSecret(
+                signing_secret.clone(),
+            ));
         },
         move || shell(options.clone()),
     );
