@@ -1,3 +1,6 @@
+#[cfg(not(feature = "ssr"))]
+use kartoteka_shared::types::{Container, ContainerData, CreateContainerRequest};
+#[cfg(feature = "ssr")]
 use kartoteka_shared::types::{Container, ContainerData, CreateContainerRequest, List};
 use leptos::prelude::*;
 
