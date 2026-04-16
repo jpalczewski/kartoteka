@@ -376,3 +376,53 @@ pub struct Comment {
     pub created_at: String,
     pub updated_at: String,
 }
+
+// --- Settings ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserSetting {
+    pub key: String,
+    pub value: String,
+    pub updated_at: String,
+}
+
+// --- Tokens ---
+
+/// Metadata for a personal API token (the JWT string is NOT included — returned only at creation).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenInfo {
+    pub id: String,
+    pub name: String,
+    pub scope: String,
+    pub last_used_at: Option<String>,
+    pub expires_at: Option<String>,
+    pub created_at: String,
+}
+
+/// Returned once when a new token is created. Show `token` to the user and discard — it is not stored.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenCreated {
+    pub id: String,
+    pub token: String,
+    pub name: String,
+    pub scope: String,
+}
+
+// --- Tag detail ---
+
+/// Tag header + lists linked to this tag.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TagDetailData {
+    pub tag: Tag,
+    pub linked_lists: Vec<List>,
+}
+
+// --- Container detail ---
+
+/// Container header + its direct lists + its direct child containers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerData {
+    pub container: Container,
+    pub lists: Vec<List>,
+    pub children: Vec<Container>,
+}
