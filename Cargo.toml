@@ -54,6 +54,7 @@ axum-macros = { version = "0.5" }
 [[workspace.metadata.leptos]]
 name = "kartoteka"
 bin-package = "kartoteka-server"
+bin-exe-name = "kartoteka"
 lib-package = "kartoteka-frontend-v2"
 site-root = "target/site"
 site-pkg-dir = "pkg"
