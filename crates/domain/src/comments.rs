@@ -41,7 +41,16 @@ async fn verify_entity_ownership(
     entity_type: &str,
     entity_id: &str,
 ) -> Result<(), DomainError> {
-    todo!("implement")
+    let exists = match entity_type {
+        "item" => db::items::get_one(pool, entity_id, user_id).await?.is_some(),
+        "list" => db::lists::get_one(pool, entity_id, user_id).await?.is_some(),
+        "container" => db::containers::get_one(pool, entity_id, user_id).await?.is_some(),
+        _ => return Err(DomainError::Validation("invalid_entity_type")),
+    };
+    if !exists {
+        return Err(DomainError::Forbidden);
+    }
+    Ok(())
 }
 
 // ── Orchestration ─────────────────────────────────────────────────────────────
@@ -53,7 +62,9 @@ pub async fn list_for_entity(
     entity_type: &str,
     entity_id: &str,
 ) -> Result<Vec<Comment>, DomainError> {
-    todo!("implement")
+    verify_entity_ownership(pool, user_id, entity_type, entity_id).await?;
+    let rows = db::comments::list_for_entity(pool, entity_type, entity_id).await?;
+    Ok(rows.into_iter().map(row_to_comment).collect())
 }
 
 #[tracing::instrument(skip(pool))]
@@ -66,7 +77,22 @@ pub async fn create(
     author_type: &str,
     author_name: Option<&str>,
 ) -> Result<Comment, DomainError> {
-    todo!("implement")
+    verify_entity_ownership(pool, user_id, entity_type, entity_id).await?;
+    let id = Uuid::new_v4().to_string();
+    let row = db::comments::insert(
+        pool,
+        db::comments::InsertCommentInput {
+            id: &id,
+            entity_type,
+            entity_id,
+            content,
+            author_type,
+            author_name,
+            user_id,
+        },
+    )
+    .await?;
+    Ok(row_to_comment(row))
 }
 
 #[tracing::instrument(skip(pool))]
@@ -75,7 +101,8 @@ pub async fn delete(
     user_id: &str,
     comment_id: &str,
 ) -> Result<(), DomainError> {
-    todo!("implement")
+    db::comments::delete(pool, comment_id, user_id).await?;
+    Ok(())
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
