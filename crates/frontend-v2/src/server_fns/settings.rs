@@ -151,3 +151,55 @@ pub async fn set_reg_enabled(enabled: bool) -> Result<(), ServerFnError> {
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))
 }
+
+/// Combined settings page data: settings list + is_admin flag + token list + reg_enabled.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SettingsPageData {
+    pub settings: Vec<UserSetting>,
+    pub is_admin: bool,
+    pub tokens: Vec<TokenInfo>,
+    pub reg_enabled: bool,
+}
+
+#[server(prefix = "/leptos")]
+pub async fn get_settings_page_data() -> Result<SettingsPageData, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+
+    let settings = domain::settings::list_all(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+    let token_rows = domain::auth::list_tokens(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+    let reg_enabled = domain::auth::is_registration_enabled(&pool)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+    Ok(SettingsPageData {
+        settings: settings
+            .into_iter()
+            .map(|s| UserSetting { key: s.key, value: s.value, updated_at: s.updated_at })
+            .collect(),
+        is_admin: user.role == "admin",
+        tokens: token_rows
+            .into_iter()
+            .map(|r| TokenInfo {
+                id: r.id,
+                name: r.name,
+                scope: r.scope,
+                last_used_at: r.last_used_at,
+                expires_at: r.expires_at,
+                created_at: r.created_at,
+            })
+            .collect(),
+        reg_enabled,
+    })
+}
