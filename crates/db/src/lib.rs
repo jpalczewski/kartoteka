@@ -17,6 +17,7 @@ pub mod settings;
 pub mod tags;
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers;
+pub mod time_entries;
 pub mod totp;
 pub mod types;
 pub mod users;
