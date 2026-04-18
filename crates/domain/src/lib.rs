@@ -9,6 +9,7 @@ pub mod relations;
 pub mod rules;
 pub mod settings;
 pub mod tags;
+pub mod time_entries;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DomainError {
