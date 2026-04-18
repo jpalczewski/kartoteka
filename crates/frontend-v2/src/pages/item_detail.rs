@@ -4,6 +4,7 @@ use leptos_router::{components::A, hooks::use_params_map};
 use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::CommentSection;
 use crate::components::common::loading::LoadingSpinner;
+use crate::components::relations::RelatedEntities;
 use crate::server_fns::items::{get_item, toggle_item, update_item};
 
 #[component]
@@ -132,6 +133,11 @@ pub fn ItemDetailPage() -> impl IntoView {
                                 // Comments
                                 <CommentSection
                                     entity_type="item"
+                                    entity_id=Signal::derive(item_id)
+                                />
+
+                                // Relations
+                                <RelatedEntities
                                     entity_id=Signal::derive(item_id)
                                 />
                             </div>
