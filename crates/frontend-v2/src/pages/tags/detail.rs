@@ -10,7 +10,7 @@ pub fn TagDetailPage() -> impl IntoView {
     let params = use_params_map();
     let tag_id = move || params.read().get("id").unwrap_or_default();
 
-    let data_res = Resource::new(move || tag_id(), get_tag_detail_data);
+    let data_res = Resource::new(tag_id, get_tag_detail_data);
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">

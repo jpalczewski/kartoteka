@@ -12,15 +12,15 @@ use kartoteka_domain::lists::{
 
 pub fn lists_router() -> Router<AppState> {
     Router::new()
-        .route("/lists", get(list_all).post(create))
-        .route("/lists/archived", get(list_archived))
-        .route("/lists/{id}", get(get_one).put(update).delete(delete_list))
-        .route("/lists/{id}/sublists", get(sublists))
-        .route("/lists/{id}/archive", post(toggle_archive))
-        .route("/lists/{id}/pin", post(toggle_pin))
-        .route("/lists/{id}/reset", post(reset))
-        .route("/lists/{id}/move", post(move_list))
-        .route("/lists/{id}/features", put(set_features))
+        .route("/", get(list_all).post(create))
+        .route("/archived", get(list_archived))
+        .route("/{id}", get(get_one).put(update).delete(delete_list))
+        .route("/{id}/sublists", get(sublists))
+        .route("/{id}/archive", post(toggle_archive))
+        .route("/{id}/pin", post(toggle_pin))
+        .route("/{id}/reset", post(reset))
+        .route("/{id}/move", post(move_list))
+        .route("/{id}/features", put(set_features))
 }
 
 async fn list_all(

@@ -3,9 +3,7 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    axum_login::AuthSession,
-    kartoteka_auth::KartotekaBackend,
-    kartoteka_domain as domain,
+    axum_login::AuthSession, kartoteka_auth::KartotekaBackend, kartoteka_domain as domain,
     sqlx::SqlitePool,
 };
 
@@ -90,16 +88,9 @@ pub async fn create_token_sf(name: String, scope: String) -> Result<TokenCreated
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    let created = domain::auth::create_token(
-        &pool,
-        &signing_secret,
-        &user.id,
-        &name,
-        &scope,
-        None,
-    )
-    .await
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let created = domain::auth::create_token(&pool, &signing_secret, &user.id, &name, &scope, None)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
     Ok(TokenCreated {
         id: created.id,
         token: created.token,
@@ -186,7 +177,11 @@ pub async fn get_settings_page_data() -> Result<SettingsPageData, ServerFnError>
     Ok(SettingsPageData {
         settings: settings
             .into_iter()
-            .map(|s| UserSetting { key: s.key, value: s.value, updated_at: s.updated_at })
+            .map(|s| UserSetting {
+                key: s.key,
+                value: s.value,
+                updated_at: s.updated_at,
+            })
             .collect(),
         is_admin: user.role == "admin",
         tokens: token_rows

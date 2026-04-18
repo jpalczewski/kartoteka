@@ -1,9 +1,12 @@
-use kartoteka_shared::types::{HomeData, List, ListFeature, Tag};
+use kartoteka_shared::types::{HomeData, List};
 use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    axum_login::AuthSession, kartoteka_auth::KartotekaBackend, kartoteka_domain as domain,
+    axum_login::AuthSession,
+    kartoteka_auth::KartotekaBackend,
+    kartoteka_domain as domain,
+    kartoteka_shared::types::{ListFeature, Tag},
     sqlx::SqlitePool,
 };
 

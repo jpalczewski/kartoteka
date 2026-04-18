@@ -21,10 +21,7 @@ pub fn ContainerPage() -> impl IntoView {
     let params = use_params_map();
     let container_id = Signal::derive(move || params.read().get("id").unwrap_or_default());
 
-    let data_res = Resource::new(
-        move || container_id.get(),
-        |cid| get_container_data(cid),
-    );
+    let data_res = Resource::new(move || container_id.get(), get_container_data);
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
