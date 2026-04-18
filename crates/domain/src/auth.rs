@@ -320,7 +320,8 @@ pub async fn validate_jwt(
     signing_secret: &str,
 ) -> Result<AuthContext, DomainError> {
     let mut validation = Validation::new(Algorithm::HS256);
-    // exp is optional — tokens with no expiry omit it; still validate if present
+    // Personal access tokens may legitimately omit exp (user-chosen never-expire).
+    // MCP tokens, however, MUST have exp — enforced explicitly below.
     validation.required_spec_claims = HashSet::new();
 
     let data = decode::<JwtClaims>(
@@ -332,10 +333,20 @@ pub async fn validate_jwt(
 
     let claims = data.claims;
 
-    if claims.scope != "mcp" {
-        db::personal_tokens::find_by_id(pool, &claims.jti)
+    if claims.scope == "mcp" {
+        // MCP tokens are not persisted — enforce a hard TTL via exp.
+        if claims.exp.is_none() {
+            return Err(DomainError::Validation("invalid_token"));
+        }
+    } else {
+        let row = db::personal_tokens::find_by_id(pool, &claims.jti)
             .await?
             .ok_or(DomainError::Validation("token_revoked"))?;
+
+        // Guard against forged tokens with a valid jti but mismatched sub.
+        if row.user_id != claims.sub {
+            return Err(DomainError::Validation("invalid_token"));
+        }
 
         // Update last_used_at; ignore errors — token is still valid
         let _ = db::personal_tokens::touch_last_used(pool, &claims.jti).await;
@@ -615,26 +626,77 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn validate_jwt_mcp_scope_skips_revocation_check() {
-        // MCP tokens (short-lived, issued by OAuth) are not stored in personal_tokens.
-        // validate_jwt must NOT check the db for scope == "mcp".
+    async fn validate_jwt_mcp_scope_skips_revocation_check_but_requires_exp() {
+        // MCP tokens (short-lived, issued by OAuth) are not stored in personal_tokens,
+        // so they skip the DB revocation check — but they MUST carry an exp claim to
+        // avoid becoming permanently valid.
         let pool = test_pool().await;
-        // Encode an mcp-scope JWT with an arbitrary jti not in the db
         use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
-        let claims = serde_json::json!({
+
+        // Without exp: must be rejected.
+        let claims_no_exp = serde_json::json!({
             "sub": "some-user-id",
             "scope": "mcp",
             "jti": "phantom-jti-not-in-db",
             "iat": 0usize,
         });
-        let token = encode(
+        let token_no_exp = encode(
+            &Header::new(Algorithm::HS256),
+            &claims_no_exp,
+            &EncodingKey::from_secret(TEST_SECRET.as_bytes()),
+        )
+        .unwrap();
+        assert!(
+            validate_jwt(&pool, &token_no_exp, TEST_SECRET)
+                .await
+                .is_err()
+        );
+
+        // With future exp: passes without DB lookup.
+        let future_exp = (chrono::Utc::now().timestamp() + 3600) as usize;
+        let claims_ok = serde_json::json!({
+            "sub": "some-user-id",
+            "scope": "mcp",
+            "jti": "phantom-jti-not-in-db",
+            "iat": 0usize,
+            "exp": future_exp,
+        });
+        let token_ok = encode(
+            &Header::new(Algorithm::HS256),
+            &claims_ok,
+            &EncodingKey::from_secret(TEST_SECRET.as_bytes()),
+        )
+        .unwrap();
+        let ctx = validate_jwt(&pool, &token_ok, TEST_SECRET).await.unwrap();
+        assert_eq!(ctx.scope, "mcp");
+    }
+
+    #[tokio::test]
+    async fn validate_jwt_rejects_sub_mismatch() {
+        // Cross-check: a forged token whose jti points to user A but sub claims user B
+        // must be rejected even though the jti is present in personal_tokens.
+        let pool = test_pool().await;
+        let user_a = register(&pool, "a@example.com", "pass", None)
+            .await
+            .unwrap();
+        let created = create_token(&pool, TEST_SECRET, &user_a.id, "Token", "full", None)
+            .await
+            .unwrap();
+
+        // Forge a JWT with user_a's jti but a different sub.
+        use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+        let claims = serde_json::json!({
+            "sub": "attacker-id",
+            "scope": "full",
+            "jti": &created.id,
+            "iat": 0usize,
+        });
+        let forged = encode(
             &Header::new(Algorithm::HS256),
             &claims,
             &EncodingKey::from_secret(TEST_SECRET.as_bytes()),
         )
         .unwrap();
-        // Must succeed even though jti is not in personal_tokens
-        let ctx = validate_jwt(&pool, &token, TEST_SECRET).await.unwrap();
-        assert_eq!(ctx.scope, "mcp");
+        assert!(validate_jwt(&pool, &forged, TEST_SECRET).await.is_err());
     }
 }

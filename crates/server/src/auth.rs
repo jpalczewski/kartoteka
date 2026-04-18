@@ -388,6 +388,12 @@ pub async fn create_token_handler(
     let user = auth_session.user.ok_or(AppError::Unauthorized)?;
     let scope = req.scope.as_deref().unwrap_or("full");
 
+    // "mcp" is reserved for internally-issued OAuth tokens (no DB revocation row).
+    // User-created tokens with this scope would be irrevocable — reject.
+    if scope == "mcp" {
+        return Err(AppError::Validation("scope 'mcp' is reserved".to_string()));
+    }
+
     let expires_at = req
         .expires_at
         .as_deref()
