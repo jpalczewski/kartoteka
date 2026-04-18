@@ -165,13 +165,15 @@ pub async fn assign(
     item_id: &str,
     user_id: &str,
 ) -> Result<bool, DbError> {
-    let rows = sqlx::query("UPDATE time_entries SET item_id = ? WHERE id = ? AND user_id = ?")
-        .bind(item_id)
-        .bind(id)
-        .bind(user_id)
-        .execute(pool)
-        .await
-        .map_err(DbError::Sqlx)?;
+    let rows = sqlx::query(
+        "UPDATE time_entries SET item_id = ? WHERE id = ? AND user_id = ? AND item_id IS NULL",
+    )
+    .bind(item_id)
+    .bind(id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .map_err(DbError::Sqlx)?;
     Ok(rows.rows_affected() > 0)
 }
 

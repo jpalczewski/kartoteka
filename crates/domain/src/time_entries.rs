@@ -130,10 +130,11 @@ pub async fn log_manual(
     if ended <= started {
         return Err(DomainError::Validation("invalid_time_range"));
     }
-    let duration_secs = (ended - started).num_seconds() as i32;
-    if duration_secs > 86400 {
+    let duration_secs_i64 = (ended - started).num_seconds();
+    if duration_secs_i64 > 86400 {
         return Err(DomainError::Validation("duration_too_long"));
     }
+    let duration_secs = duration_secs_i64 as i32;
     let id = Uuid::new_v4().to_string();
     let row = db::time_entries::insert(
         pool,
@@ -218,6 +219,9 @@ pub async fn summary_for_item(
     user_id: &str,
     item_id: &str,
 ) -> Result<ItemTimeSummary, DomainError> {
+    if db::items::get_one(pool, item_id, user_id).await?.is_none() {
+        return Err(DomainError::Forbidden);
+    }
     let (total_seconds, entry_count) =
         db::time_entries::summary_for_item(pool, item_id, user_id).await?;
     Ok(ItemTimeSummary {
