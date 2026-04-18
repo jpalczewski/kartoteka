@@ -4,5 +4,6 @@ pub mod containers;
 pub mod home;
 pub mod items;
 pub mod lists;
+pub mod relations;
 pub mod settings;
 pub mod tags;
