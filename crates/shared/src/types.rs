@@ -462,3 +462,38 @@ pub struct ContainerData {
     pub lists: Vec<List>,
     pub children: Vec<Container>,
 }
+
+// --- Templates ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Template {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemplateItem {
+    pub id: String,
+    pub template_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub position: i32,
+    pub quantity: Option<i32>,
+    pub unit: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemplateWithItems {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    pub items: Vec<TemplateItem>,
+    pub tag_ids: Vec<String>,
+    pub created_at: String,
+}
