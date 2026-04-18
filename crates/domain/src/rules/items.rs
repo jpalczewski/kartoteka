@@ -20,8 +20,10 @@ pub fn should_auto_complete(actual_quantity: i32, target_quantity: i32) -> bool 
     actual_quantity >= target_quantity
 }
 
-/// Placeholder — full blocker enforcement is in E2. Always returns Ok in B3.
-pub fn validate_can_complete(_blockers: &[&str]) -> Result<(), DomainError> {
+pub fn validate_can_complete(unresolved_blocker_count: usize) -> Result<(), DomainError> {
+    if unresolved_blocker_count > 0 {
+        return Err(DomainError::Validation("has_unresolved_blockers"));
+    }
     Ok(())
 }
 
@@ -82,8 +84,16 @@ mod tests {
     }
 
     #[test]
-    fn validate_can_complete_always_ok() {
-        assert!(validate_can_complete(&[]).is_ok());
-        assert!(validate_can_complete(&["blocker"]).is_ok());
+    fn validate_can_complete_rejects_when_blockers_exist() {
+        let err = validate_can_complete(2).unwrap_err();
+        assert!(matches!(
+            err,
+            DomainError::Validation("has_unresolved_blockers")
+        ));
+    }
+
+    #[test]
+    fn validate_can_complete_passes_when_no_blockers() {
+        assert!(validate_can_complete(0).is_ok());
     }
 }
