@@ -254,8 +254,20 @@ pub async fn check_totp_code(
         _ => return Ok(false),
     };
     let totp = make_totp(&row.secret)?;
-    totp.check_current(code)
-        .map_err(|e| DomainError::Internal(format!("system time: {e}")))
+    let valid = totp
+        .check_current(code)
+        .map_err(|e| DomainError::Internal(format!("system time: {e}")))?;
+    if !valid {
+        return Ok(false);
+    }
+
+    // RFC 6238 §5.2: each code must be accepted at most once. With skew=1
+    // and step=30s a code stays valid for ~90s; without this guard a leaked
+    // code could be replayed throughout that window.
+    if !db::totp::try_mark_code_used(pool, user_id, code).await? {
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 /// Returns true iff the user has a verified TOTP secret.
@@ -537,6 +549,32 @@ mod tests {
             .unwrap();
         let result = check_totp_code(&pool, &user.id, "123456").await.unwrap();
         assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn check_totp_code_rejects_replay() {
+        // A valid code that is accepted once must be rejected on the second use,
+        // even while still inside the TOTP validity window.
+        let pool = test_pool().await;
+        let user = register(&pool, "user@example.com", "pass", None)
+            .await
+            .unwrap();
+        let setup = setup_totp(&pool, &user.id, "user@example.com")
+            .await
+            .unwrap();
+        kartoteka_db::totp::mark_verified(&pool, &user.id)
+            .await
+            .unwrap();
+
+        let code = make_totp(&setup.secret)
+            .unwrap()
+            .generate_current()
+            .unwrap();
+        assert!(check_totp_code(&pool, &user.id, &code).await.unwrap());
+        assert!(
+            !check_totp_code(&pool, &user.id, &code).await.unwrap(),
+            "second use of the same TOTP code must be rejected"
+        );
     }
 
     // ── C3: JWT token tests ──────────────────────────────────────────────

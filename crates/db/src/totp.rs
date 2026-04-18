@@ -57,6 +57,29 @@ pub async fn is_enabled(pool: &SqlitePool, user_id: &str) -> Result<bool, DbErro
         .unwrap_or(false))
 }
 
+/// Atomically record that a TOTP code was accepted for a user. Returns true
+/// if the insert succeeded (code not yet used), false on PRIMARY KEY conflict
+/// (replay attempt). Also GCs rows older than 5 minutes — well beyond the
+/// ~90s validity window of any code under skew=1/step=30s.
+pub async fn try_mark_code_used(
+    pool: &SqlitePool,
+    user_id: &str,
+    code: &str,
+) -> Result<bool, DbError> {
+    // Best-effort cleanup of stale rows; ignore failures.
+    let _ =
+        sqlx::query("DELETE FROM totp_used_codes WHERE used_at < datetime('now', '-5 minutes')")
+            .execute(pool)
+            .await;
+
+    let result = sqlx::query("INSERT OR IGNORE INTO totp_used_codes (user_id, code) VALUES (?, ?)")
+        .bind(user_id)
+        .bind(code)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
