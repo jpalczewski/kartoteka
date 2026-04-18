@@ -12,6 +12,7 @@ pub mod lists;
 pub mod personal_tokens;
 pub mod preferences;
 pub mod relations;
+pub mod search;
 pub mod server_config;
 pub mod settings;
 pub mod tags;

@@ -1,5 +1,5 @@
 use crate::{DbError, types::ItemRow};
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 
 // ── Input types ───────────────────────────────────────────────────────────────
 
@@ -151,6 +151,20 @@ pub async fn overdue(
     .map_err(DbError::Sqlx)
 }
 
+#[tracing::instrument(skip(pool))]
+pub async fn list_all_for_user(pool: &SqlitePool, user_id: &str) -> Result<Vec<ItemRow>, DbError> {
+    sqlx::query_as::<_, ItemRow>(&format!(
+        "SELECT {ITEM_COLUMNS} FROM items i \
+         JOIN lists l ON l.id = i.list_id \
+         WHERE l.user_id = ? AND l.archived = 0 \
+         ORDER BY l.position, i.position"
+    ))
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)
+}
+
 // ── Write queries ─────────────────────────────────────────────────────────────
 
 #[tracing::instrument(skip(pool))]
@@ -182,6 +196,38 @@ pub async fn insert(pool: &SqlitePool, input: &InsertItemInput) -> Result<ItemRo
     .fetch_one(pool)
     .await
     .map_err(DbError::Sqlx)
+}
+
+/// Same INSERT as `insert` but operates on an existing transaction connection.
+#[tracing::instrument(skip(conn))]
+pub async fn insert_in_tx(
+    conn: &mut SqliteConnection,
+    input: &InsertItemInput,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO items (id, list_id, position, title, description, quantity, actual_quantity, \
+                            unit, start_date, start_time, deadline, deadline_time, hard_deadline, \
+                            estimated_duration) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&input.id)
+    .bind(&input.list_id)
+    .bind(input.position)
+    .bind(&input.title)
+    .bind(&input.description)
+    .bind(input.quantity)
+    .bind(input.actual_quantity)
+    .bind(&input.unit)
+    .bind(&input.start_date)
+    .bind(&input.start_time)
+    .bind(&input.deadline)
+    .bind(&input.deadline_time)
+    .bind(&input.hard_deadline)
+    .bind(input.estimated_duration)
+    .execute(&mut *conn)
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(())
 }
 
 #[tracing::instrument(skip(pool))]
@@ -646,5 +692,73 @@ mod tests {
 
         let updated = get_one(&pool, &item.id, &user_id).await.unwrap().unwrap();
         assert_eq!(updated.position, 5);
+    }
+
+    #[tokio::test]
+    async fn list_all_for_user_returns_items_across_lists() {
+        let pool = crate::test_helpers::test_pool().await;
+        let uid = crate::test_helpers::create_test_user(&pool).await;
+
+        let lid1 = uuid::Uuid::new_v4().to_string();
+        let lid2 = uuid::Uuid::new_v4().to_string();
+        {
+            let mut conn = pool.acquire().await.unwrap();
+            crate::lists::insert(
+                &mut conn,
+                &lid1,
+                &uid,
+                0,
+                "L1",
+                None,
+                None,
+                "checklist",
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+            crate::lists::insert(
+                &mut conn,
+                &lid2,
+                &uid,
+                1,
+                "L2",
+                None,
+                None,
+                "checklist",
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        }
+
+        insert(
+            &pool,
+            &InsertItemInput {
+                id: uuid::Uuid::new_v4().to_string(),
+                list_id: lid1,
+                position: 0,
+                title: "A".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        insert(
+            &pool,
+            &InsertItemInput {
+                id: uuid::Uuid::new_v4().to_string(),
+                list_id: lid2,
+                position: 0,
+                title: "B".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let items = list_all_for_user(&pool, &uid).await.unwrap();
+        assert_eq!(items.len(), 2);
     }
 }
