@@ -174,6 +174,7 @@ pub async fn delete(pool: &SqlitePool, user_id: &str, entry_id: &str) -> Result<
     Ok(())
 }
 
+#[tracing::instrument(skip(pool))]
 pub async fn list_for_item(
     pool: &SqlitePool,
     user_id: &str,
@@ -186,11 +187,13 @@ pub async fn list_for_item(
     Ok(rows.into_iter().map(row_to_entry).collect())
 }
 
+#[tracing::instrument(skip(pool))]
 pub async fn list_inbox(pool: &SqlitePool, user_id: &str) -> Result<Vec<TimeEntry>, DomainError> {
     let rows = db::time_entries::list_inbox(pool, user_id).await?;
     Ok(rows.into_iter().map(row_to_entry).collect())
 }
 
+#[tracing::instrument(skip(pool))]
 pub async fn list_all_for_user(
     pool: &SqlitePool,
     user_id: &str,
@@ -199,6 +202,7 @@ pub async fn list_all_for_user(
     Ok(rows.into_iter().map(row_to_entry).collect())
 }
 
+#[tracing::instrument(skip(pool))]
 pub async fn summary_for_item(
     pool: &SqlitePool,
     user_id: &str,
