@@ -61,8 +61,18 @@ impl KartotekaBackend {
     }
 }
 
-fn build_session_hash(credential: &str) -> Vec<u8> {
-    credential.as_bytes()[..credential.len().min(32)].to_vec()
+/// Build session_auth_hash so that axum-login can invalidate sessions on credential
+/// change. Password users: first 32 bytes of the argon2 hash (rotates on password
+/// reset). Non-password users: the user id bytes — stable, unique per user, and
+/// rotates to the password-derived hash the moment a password auth_method is added.
+/// Never returns an empty slice; empty would be shared across all credential-less
+/// users and effectively disables session invalidation.
+fn build_session_hash(credential: &str, user_id: &str) -> Vec<u8> {
+    if credential.is_empty() {
+        user_id.as_bytes().to_vec()
+    } else {
+        credential.as_bytes()[..credential.len().min(32)].to_vec()
+    }
 }
 
 #[async_trait]
@@ -105,7 +115,7 @@ impl AuthnBackend for KartotekaBackend {
         }
 
         // 4. Build session_auth_hash
-        let session_auth_hash = build_session_hash(&credential);
+        let session_auth_hash = build_session_hash(&credential, &user_row.id);
 
         // 5. Return user
         Ok(Some(KartotekaUser {
@@ -136,7 +146,7 @@ impl AuthnBackend for KartotekaBackend {
                 .unwrap_or_default();
 
         // 3. Build session_auth_hash
-        let session_auth_hash = build_session_hash(&credential);
+        let session_auth_hash = build_session_hash(&credential, &user_row.id);
 
         Ok(Some(KartotekaUser {
             id: user_row.id,
@@ -163,7 +173,7 @@ pub async fn get_user_by_id(
         .await?
         .and_then(|m| m.credential)
         .unwrap_or_default();
-    let session_auth_hash = build_session_hash(&credential);
+    let session_auth_hash = build_session_hash(&credential, &user_row.id);
     Ok(Some(KartotekaUser {
         id: user_row.id,
         email: user_row.email,
