@@ -27,7 +27,7 @@ pub async fn get_running(
 ) -> Result<Option<TimeEntryRow>, DbError> {
     sqlx::query_as::<_, TimeEntryRow>(
         "SELECT id, item_id, user_id, description, started_at, ended_at, duration, source, mode, created_at \
-         FROM time_entries WHERE user_id = ? AND ended_at IS NULL LIMIT 1",
+         FROM time_entries WHERE user_id = ? AND ended_at IS NULL ORDER BY started_at ASC LIMIT 1",
     )
     .bind(user_id)
     .fetch_optional(pool)
@@ -146,7 +146,7 @@ pub async fn stop(
     duration: i32,
 ) -> Result<bool, DbError> {
     let rows = sqlx::query(
-        "UPDATE time_entries SET ended_at = ?, duration = ? WHERE id = ? AND user_id = ?",
+        "UPDATE time_entries SET ended_at = ?, duration = ? WHERE id = ? AND user_id = ? AND ended_at IS NULL",
     )
     .bind(ended_at)
     .bind(duration)
