@@ -391,6 +391,28 @@ pub struct Relation {
     pub created_at: String,
 }
 
+// --- Time Entries ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimeEntry {
+    pub id: String,
+    pub item_id: Option<String>,
+    pub user_id: String,
+    pub description: Option<String>,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub duration: Option<i32>,
+    pub source: String,
+    pub mode: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItemTimeSummary {
+    pub total_seconds: i64,
+    pub entry_count: i64,
+}
+
 // --- Settings ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -7,6 +7,7 @@ pub mod relations;
 pub mod routes;
 pub mod settings;
 pub mod tags;
+pub mod time_entries;
 
 pub use error::AppError;
 pub use extractors::UserId;
