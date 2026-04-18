@@ -16,6 +16,7 @@ pub fn routes(state: AppState) -> Router<AppState> {
         .nest("/items", crate::items::items_router())
         .nest("/tags", crate::tags::tags_router())
         .nest("/tag-links", crate::tags::tag_links_router())
+        .nest("/relations", crate::relations::relations_router())
         .nest("/settings", crate::settings::settings_router())
         .nest("/preferences", crate::settings::preferences_router())
         .nest("/server-config", admin_routes)

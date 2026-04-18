@@ -3,6 +3,7 @@ pub mod error;
 pub mod extractors;
 pub mod items;
 pub mod lists;
+pub mod relations;
 pub mod routes;
 pub mod settings;
 pub mod tags;

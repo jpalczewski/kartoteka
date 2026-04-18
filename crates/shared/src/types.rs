@@ -377,6 +377,20 @@ pub struct Comment {
     pub updated_at: String,
 }
 
+// --- Relations ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Relation {
+    pub id: String,
+    pub from_type: String,
+    pub from_id: String,
+    pub to_type: String,
+    pub to_id: String,
+    pub relation_type: String,
+    pub user_id: String,
+    pub created_at: String,
+}
+
 // --- Settings ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
