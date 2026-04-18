@@ -54,6 +54,11 @@ pub async fn start(
     user_id: &str,
     item_id: Option<&str>,
 ) -> Result<TimeEntry, DomainError> {
+    if let Some(iid) = item_id {
+        if db::items::get_one(pool, iid, user_id).await?.is_none() {
+            return Err(DomainError::Forbidden);
+        }
+    }
     // Auto-stop any running timer
     if let Some(running) = db::time_entries::get_running(pool, user_id).await? {
         let now = chrono::Utc::now();
@@ -113,6 +118,11 @@ pub async fn log_manual(
     ended_at: &str,
     description: Option<&str>,
 ) -> Result<TimeEntry, DomainError> {
+    if let Some(iid) = item_id {
+        if db::items::get_one(pool, iid, user_id).await?.is_none() {
+            return Err(DomainError::Forbidden);
+        }
+    }
     let started = chrono::NaiveDateTime::parse_from_str(started_at, "%Y-%m-%d %H:%M:%S")
         .map_err(|_| DomainError::Validation("invalid_time_format"))?;
     let ended = chrono::NaiveDateTime::parse_from_str(ended_at, "%Y-%m-%d %H:%M:%S")

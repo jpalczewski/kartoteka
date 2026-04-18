@@ -76,9 +76,12 @@ async fn start_timer(
 async fn stop_timer(
     State(state): State<AppState>,
     UserId(uid): UserId,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<axum::response::Response, AppError> {
     let entry = kartoteka_domain::time_entries::stop(&state.pool, &uid).await?;
-    Ok(Json(entry))
+    match entry {
+        Some(e) => Ok(Json(e).into_response()),
+        None => Ok(StatusCode::NO_CONTENT.into_response()),
+    }
 }
 
 #[tracing::instrument(skip_all, fields(action = "log_time"))]
