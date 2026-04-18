@@ -134,7 +134,7 @@ pub async fn require_admin(auth_session: AuthSession, req: Request, next: Next) 
 }
 
 /// POST /auth/register
-#[tracing::instrument(skip(state, auth_session, req))]
+#[tracing::instrument(skip_all, fields(action = "register"))]
 pub async fn register(
     State(state): State<AppState>,
     mut auth_session: AuthSession,
@@ -179,7 +179,7 @@ pub async fn register(
 ///
 /// If the user has TOTP enabled, stores `pending_user_id` in the raw session and
 /// returns `{"status": "2fa_required"}`. Client must then POST /auth/2fa to complete.
-#[tracing::instrument(skip(auth_session, session, state, creds))]
+#[tracing::instrument(skip_all, fields(action = "login"))]
 pub async fn login(
     mut auth_session: AuthSession,
     session: Session,
@@ -233,7 +233,7 @@ pub async fn login(
 }
 
 /// POST /auth/logout
-#[tracing::instrument(skip(auth_session))]
+#[tracing::instrument(skip_all, fields(action = "logout"))]
 pub async fn logout(mut auth_session: AuthSession) -> impl IntoResponse {
     if let Err(e) = auth_session.logout().await {
         tracing::error!("session invalidation failed during logout: {e}");
@@ -245,7 +245,7 @@ pub async fn logout(mut auth_session: AuthSession) -> impl IntoResponse {
 /// POST /auth/2fa
 ///
 /// Reads `pending_user_id` from session, verifies TOTP code, completes login.
-#[tracing::instrument(skip(auth_session, session, state, req))]
+#[tracing::instrument(skip_all, fields(action = "verify_2fa"))]
 pub async fn verify_2fa(
     mut auth_session: AuthSession,
     session: Session,
@@ -349,7 +349,7 @@ pub async fn verify_2fa(
 }
 
 /// POST /auth/totp/setup (authenticated)
-#[tracing::instrument(skip(auth_session, state))]
+#[tracing::instrument(skip_all, fields(action = "totp_setup"))]
 pub async fn totp_setup(
     auth_session: AuthSession,
     State(state): State<AppState>,
@@ -363,7 +363,7 @@ pub async fn totp_setup(
 }
 
 /// POST /auth/totp/verify (authenticated)
-#[tracing::instrument(skip(auth_session, state, req))]
+#[tracing::instrument(skip_all, fields(action = "totp_verify_setup"))]
 pub async fn totp_verify_setup(
     auth_session: AuthSession,
     State(state): State<AppState>,
@@ -375,7 +375,7 @@ pub async fn totp_verify_setup(
 }
 
 /// DELETE /auth/totp (authenticated)
-#[tracing::instrument(skip(auth_session, state))]
+#[tracing::instrument(skip_all, fields(action = "totp_delete"))]
 pub async fn totp_delete(
     auth_session: AuthSession,
     State(state): State<AppState>,
@@ -386,7 +386,7 @@ pub async fn totp_delete(
 }
 
 /// GET /api/server-config (admin only)
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all, fields(action = "get_server_config"))]
 pub async fn get_server_config(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -395,7 +395,7 @@ pub async fn get_server_config(
 }
 
 /// PUT /api/server-config/{key} (admin only)
-#[tracing::instrument(skip(state, req))]
+#[tracing::instrument(skip_all, fields(action = "set_server_config"))]
 pub async fn set_server_config(
     State(state): State<AppState>,
     Path(key): Path<String>,
@@ -409,7 +409,7 @@ pub async fn set_server_config(
 }
 
 /// POST /auth/tokens — create a personal access token (session auth required)
-#[tracing::instrument(skip(auth_session, state, req))]
+#[tracing::instrument(skip_all, fields(action = "create_token"))]
 pub async fn create_token_handler(
     auth_session: AuthSession,
     State(state): State<AppState>,
@@ -458,7 +458,7 @@ pub async fn create_token_handler(
 }
 
 /// GET /auth/tokens — list tokens for authenticated user (session auth required)
-#[tracing::instrument(skip(auth_session, state))]
+#[tracing::instrument(skip_all, fields(action = "list_tokens"))]
 pub async fn list_tokens_handler(
     auth_session: AuthSession,
     State(state): State<AppState>,
@@ -480,7 +480,7 @@ pub async fn list_tokens_handler(
 }
 
 /// DELETE /auth/tokens/{id} — revoke a token (session auth required)
-#[tracing::instrument(skip(auth_session, state))]
+#[tracing::instrument(skip_all, fields(action = "delete_token", token_id = %id))]
 pub async fn delete_token_handler(
     auth_session: AuthSession,
     State(state): State<AppState>,

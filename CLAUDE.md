@@ -72,7 +72,7 @@ Kartoteka — aplikacja todo/listy na Cloudflare Workers (Rust API + TypeScript 
 
 ### Tracing / Logging
 
-Każdy handler w `crates/api/src/handlers/` **musi** mieć `#[instrument]`. Wzorzec:
+Każdy handler w `crates/server/src/` (oraz stary `crates/api/src/handlers/`) **musi** mieć `#[instrument]`. W nowym kodzie (Axum) użyj `fields(action = "verb_noun", <entity_id> = %id)` bezpośrednio (extractor `Path` daje `id` już na wejściu). Wzorzec legacy (CF Worker) z `tracing::field::Empty` + `Span::current().record(...)`:
 
 ```rust
 #[instrument(skip_all, fields(action = "create_list", list_id = tracing::field::Empty))]

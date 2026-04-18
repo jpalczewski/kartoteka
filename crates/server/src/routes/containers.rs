@@ -26,6 +26,7 @@ pub fn routes() -> Router<AppState> {
         .route("/{id}/children", get(get_children))
 }
 
+#[tracing::instrument(skip_all, fields(action = "list_containers"))]
 async fn list_containers(
     State(state): State<AppState>,
     UserId(user_id): UserId,
@@ -34,6 +35,7 @@ async fn list_containers(
     Ok(Json(containers))
 }
 
+#[tracing::instrument(skip_all, fields(action = "get_container", container_id = %id))]
 async fn get_container(
     State(state): State<AppState>,
     UserId(user_id): UserId,
@@ -46,6 +48,7 @@ async fn get_container(
     Ok(Json(container))
 }
 
+#[tracing::instrument(skip_all, fields(action = "create_container"))]
 async fn create_container(
     State(state): State<AppState>,
     UserId(user_id): UserId,
@@ -55,6 +58,7 @@ async fn create_container(
     Ok((StatusCode::CREATED, Json(container)))
 }
 
+#[tracing::instrument(skip_all, fields(action = "update_container", container_id = %id))]
 async fn update_container(
     State(state): State<AppState>,
     UserId(user_id): UserId,
@@ -65,6 +69,7 @@ async fn update_container(
     Ok(Json(container))
 }
 
+#[tracing::instrument(skip_all, fields(action = "delete_container", container_id = %id))]
 async fn delete_container(
     State(state): State<AppState>,
     UserId(user_id): UserId,
@@ -74,6 +79,7 @@ async fn delete_container(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[tracing::instrument(skip_all, fields(action = "toggle_container_pin", container_id = %id))]
 async fn toggle_pin(
     State(state): State<AppState>,
     UserId(user_id): UserId,
@@ -83,6 +89,7 @@ async fn toggle_pin(
     Ok(Json(container))
 }
 
+#[tracing::instrument(skip_all, fields(action = "move_container", container_id = %id))]
 async fn move_container_handler(
     State(state): State<AppState>,
     UserId(user_id): UserId,
@@ -93,6 +100,7 @@ async fn move_container_handler(
     Ok(Json(container))
 }
 
+#[tracing::instrument(skip_all, fields(action = "get_container_progress", container_id = %id))]
 async fn get_progress(
     State(state): State<AppState>,
     UserId(user_id): UserId,
@@ -102,6 +110,7 @@ async fn get_progress(
     Ok(Json(progress))
 }
 
+#[tracing::instrument(skip_all, fields(action = "get_container_children", container_id = %id))]
 async fn get_children(
     State(state): State<AppState>,
     UserId(user_id): UserId,

@@ -23,6 +23,7 @@ pub fn lists_router() -> Router<AppState> {
         .route("/{id}/features", put(set_features))
 }
 
+#[tracing::instrument(skip_all, fields(action = "list_lists"))]
 async fn list_all(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -31,6 +32,7 @@ async fn list_all(
     Ok(Json(lists))
 }
 
+#[tracing::instrument(skip_all, fields(action = "list_archived_lists"))]
 async fn list_archived(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -39,6 +41,7 @@ async fn list_archived(
     Ok(Json(lists))
 }
 
+#[tracing::instrument(skip_all, fields(action = "get_list", list_id = %id))]
 async fn get_one(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -50,6 +53,7 @@ async fn get_one(
         .ok_or(AppError::NotFound("list"))
 }
 
+#[tracing::instrument(skip_all, fields(action = "list_sublists", list_id = %id))]
 async fn sublists(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -59,6 +63,7 @@ async fn sublists(
     Ok(Json(lists))
 }
 
+#[tracing::instrument(skip_all, fields(action = "create_list"))]
 async fn create(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -68,6 +73,7 @@ async fn create(
     Ok((StatusCode::CREATED, Json(list)))
 }
 
+#[tracing::instrument(skip_all, fields(action = "update_list", list_id = %id))]
 async fn update(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -80,6 +86,7 @@ async fn update(
         .ok_or(AppError::NotFound("list"))
 }
 
+#[tracing::instrument(skip_all, fields(action = "delete_list", list_id = %id))]
 async fn delete_list(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -93,6 +100,7 @@ async fn delete_list(
     }
 }
 
+#[tracing::instrument(skip_all, fields(action = "toggle_list_archive", list_id = %id))]
 async fn toggle_archive(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -104,6 +112,7 @@ async fn toggle_archive(
         .ok_or(AppError::NotFound("list"))
 }
 
+#[tracing::instrument(skip_all, fields(action = "toggle_list_pin", list_id = %id))]
 async fn toggle_pin(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -115,6 +124,7 @@ async fn toggle_pin(
         .ok_or(AppError::NotFound("list"))
 }
 
+#[tracing::instrument(skip_all, fields(action = "reset_list", list_id = %id))]
 async fn reset(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -124,6 +134,7 @@ async fn reset(
     Ok(Json(serde_json::json!({ "deleted_items": deleted })))
 }
 
+#[tracing::instrument(skip_all, fields(action = "move_list", list_id = %id))]
 async fn move_list(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -136,6 +147,7 @@ async fn move_list(
         .ok_or(AppError::NotFound("list"))
 }
 
+#[tracing::instrument(skip_all, fields(action = "set_list_features", list_id = %id))]
 async fn set_features(
     State(state): State<AppState>,
     UserId(uid): UserId,

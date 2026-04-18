@@ -28,6 +28,7 @@ pub fn tag_links_router() -> Router<AppState> {
         )
 }
 
+#[tracing::instrument(skip_all, fields(action = "list_tags"))]
 async fn list_all(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -36,6 +37,7 @@ async fn list_all(
     Ok(Json(tags))
 }
 
+#[tracing::instrument(skip_all, fields(action = "list_tag_tree"))]
 async fn list_tree(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -44,6 +46,7 @@ async fn list_tree(
     Ok(Json(tags))
 }
 
+#[tracing::instrument(skip_all, fields(action = "create_tag"))]
 async fn create_tag(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -53,6 +56,7 @@ async fn create_tag(
     Ok((StatusCode::CREATED, Json(tag)))
 }
 
+#[tracing::instrument(skip_all, fields(action = "get_tag", tag_id = %id))]
 async fn get_tag(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -64,6 +68,7 @@ async fn get_tag(
         .ok_or(AppError::NotFound("tag"))
 }
 
+#[tracing::instrument(skip_all, fields(action = "update_tag", tag_id = %id))]
 async fn update_tag(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -76,6 +81,7 @@ async fn update_tag(
         .ok_or(AppError::NotFound("tag"))
 }
 
+#[tracing::instrument(skip_all, fields(action = "delete_tag", tag_id = %id))]
 async fn delete_tag(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -88,6 +94,7 @@ async fn delete_tag(
     }
 }
 
+#[tracing::instrument(skip_all, fields(action = "merge_tags", tag_id = %id, target_id = %target_id))]
 async fn merge_tags(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -97,6 +104,7 @@ async fn merge_tags(
     Ok(Json(tag))
 }
 
+#[tracing::instrument(skip_all, fields(action = "get_entity_tags", entity_type = %entity_type, entity_id = %entity_id))]
 async fn get_entity_tags(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -113,6 +121,7 @@ async fn get_entity_tags(
     Ok(Json(tags))
 }
 
+#[tracing::instrument(skip_all, fields(action = "assign_tag", entity_type = %entity_type, entity_id = %entity_id, tag_id = %tag_id))]
 async fn assign_tag(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -134,6 +143,7 @@ async fn assign_tag(
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
+#[tracing::instrument(skip_all, fields(action = "remove_tag", entity_type = %entity_type, entity_id = %entity_id, tag_id = %tag_id))]
 async fn remove_tag(
     State(state): State<AppState>,
     UserId(uid): UserId,

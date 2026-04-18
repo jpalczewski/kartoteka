@@ -36,6 +36,7 @@ pub fn items_router() -> Router<AppState> {
         .route("/{id}/move", post(move_item))
 }
 
+#[tracing::instrument(skip_all, fields(action = "list_items_for_list", list_id = %list_id))]
 async fn list_for_list(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -45,6 +46,7 @@ async fn list_for_list(
     Ok(Json(items))
 }
 
+#[tracing::instrument(skip_all, fields(action = "create_item", list_id = %list_id))]
 async fn create_item(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -55,6 +57,7 @@ async fn create_item(
     Ok((StatusCode::CREATED, Json(item)))
 }
 
+#[tracing::instrument(skip_all, fields(action = "get_item", item_id = %id))]
 async fn get_item(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -64,6 +67,7 @@ async fn get_item(
     item.map(Json).ok_or(AppError::NotFound("item"))
 }
 
+#[tracing::instrument(skip_all, fields(action = "update_item", item_id = %id))]
 async fn update_item(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -74,6 +78,7 @@ async fn update_item(
     item.map(Json).ok_or(AppError::NotFound("item"))
 }
 
+#[tracing::instrument(skip_all, fields(action = "delete_item", item_id = %id))]
 async fn delete_item(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -87,6 +92,7 @@ async fn delete_item(
     }
 }
 
+#[tracing::instrument(skip_all, fields(action = "toggle_item", item_id = %id))]
 async fn toggle_complete(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -96,6 +102,7 @@ async fn toggle_complete(
     item.map(Json).ok_or(AppError::NotFound("item"))
 }
 
+#[tracing::instrument(skip_all, fields(action = "move_item", item_id = %id))]
 async fn move_item(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -106,6 +113,7 @@ async fn move_item(
     item.map(Json).ok_or(AppError::NotFound("item"))
 }
 
+#[tracing::instrument(skip_all, fields(action = "list_items_by_date"))]
 async fn by_date(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -115,6 +123,7 @@ async fn by_date(
     Ok(Json(items))
 }
 
+#[tracing::instrument(skip_all, fields(action = "list_items_calendar"))]
 async fn calendar(
     State(state): State<AppState>,
     UserId(uid): UserId,

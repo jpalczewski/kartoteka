@@ -27,6 +27,7 @@ pub fn preferences_router() -> Router<AppState> {
     Router::new().route("/", get(get_preferences).put(update_preferences))
 }
 
+#[tracing::instrument(skip_all, fields(action = "list_settings"))]
 async fn list_settings(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -35,6 +36,7 @@ async fn list_settings(
     Ok(Json(settings))
 }
 
+#[tracing::instrument(skip_all, fields(action = "get_setting", setting_key = %key))]
 async fn get_setting(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -46,6 +48,7 @@ async fn get_setting(
         .ok_or(AppError::NotFound("setting"))
 }
 
+#[tracing::instrument(skip_all, fields(action = "set_setting", setting_key = %key))]
 async fn set_setting(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -56,6 +59,7 @@ async fn set_setting(
     Ok(Json(setting))
 }
 
+#[tracing::instrument(skip_all, fields(action = "delete_setting", setting_key = %key))]
 async fn delete_setting(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -68,6 +72,7 @@ async fn delete_setting(
     }
 }
 
+#[tracing::instrument(skip_all, fields(action = "get_preferences"))]
 async fn get_preferences(
     State(state): State<AppState>,
     UserId(uid): UserId,
@@ -76,6 +81,7 @@ async fn get_preferences(
     Ok(Json(prefs))
 }
 
+#[tracing::instrument(skip_all, fields(action = "update_preferences"))]
 async fn update_preferences(
     State(state): State<AppState>,
     UserId(uid): UserId,
