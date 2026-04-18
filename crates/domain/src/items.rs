@@ -215,6 +215,19 @@ pub async fn toggle_complete(
     user_id: &str,
     id: &str,
 ) -> Result<Option<Item>, DomainError> {
+    // Phase 1 READ: check current state
+    let item = match db::items::get_one(pool, id, user_id).await? {
+        Some(row) => row_to_item(row),
+        None => return Ok(None),
+    };
+
+    // Phase 2 THINK: only check blockers when completing (false → true)
+    if !item.completed {
+        let blockers = db::relations::get_unresolved_blockers(pool, id).await?;
+        crate::rules::items::validate_can_complete(blockers.len())?;
+    }
+
+    // Phase 3 WRITE: toggle
     let found = db::items::toggle_complete(pool, id, user_id).await?;
     if !found {
         return Ok(None);
@@ -626,6 +639,54 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(!toggled2.completed);
+    }
+
+    #[tokio::test]
+    async fn toggle_complete_blocked_by_incomplete_item() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &[]).await;
+
+        let blocker = create(&pool, &user_id, &list_id, &basic_req("Blocker"))
+            .await
+            .unwrap();
+
+        let target = create(&pool, &user_id, &list_id, &basic_req("Target"))
+            .await
+            .unwrap();
+
+        // Create blocking relation
+        kartoteka_db::relations::insert(
+            &pool,
+            kartoteka_db::relations::InsertRelationInput {
+                id: &uuid::Uuid::new_v4().to_string(),
+                from_type: "item",
+                from_id: &blocker.id,
+                to_type: "item",
+                to_id: &target.id,
+                relation_type: "blocks",
+                user_id: &user_id,
+            },
+        )
+        .await
+        .unwrap();
+
+        // Target cannot be completed while blocker is incomplete
+        let result = toggle_complete(&pool, &user_id, &target.id).await;
+        assert!(matches!(
+            result,
+            Err(DomainError::Validation("has_unresolved_blockers"))
+        ));
+
+        // Complete the blocker
+        toggle_complete(&pool, &user_id, &blocker.id).await.unwrap();
+
+        // Now target can be completed
+        let item = toggle_complete(&pool, &user_id, &target.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(item.completed);
     }
 
     #[tokio::test]
