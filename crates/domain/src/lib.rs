@@ -5,6 +5,7 @@ pub mod home;
 pub mod items;
 pub mod lists;
 pub mod preferences;
+pub mod relations;
 pub mod rules;
 pub mod settings;
 pub mod tags;
