@@ -7,3 +7,4 @@ pub mod lists;
 pub mod relations;
 pub mod settings;
 pub mod tags;
+pub mod time_entries;
