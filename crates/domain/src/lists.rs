@@ -99,7 +99,7 @@ pub struct SetFeaturesRequest {
 
 // ── Conversion from db row ────────────────────────────────────────────────────
 
-fn row_to_list(row: db::lists::ListRow) -> Result<List, DomainError> {
+pub(crate) fn row_to_list(row: db::lists::ListRow) -> Result<List, DomainError> {
     let features: Vec<ListFeature> = serde_json::from_str(&row.features_json)
         .map_err(|e| DomainError::Internal(e.to_string()))?;
     Ok(List {
