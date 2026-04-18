@@ -747,6 +747,156 @@ async fn create_token_without_auth_returns_401() {
 }
 
 #[tokio::test]
+async fn verify_2fa_locks_out_after_max_attempts() {
+    // After MAX_2FA_ATTEMPTS bad codes the pending login must be cleared —
+    // submitting a valid code afterwards should then fail with no_pending_2fa.
+    let app = test_app().await;
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/register")
+                .header("content-type", "application/json")
+                .body(json_body(
+                    serde_json::json!({"email": "lock@test.com", "password": "pass123"}),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let login_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/login")
+                .header("content-type", "application/json")
+                .body(json_body(
+                    serde_json::json!({"email": "lock@test.com", "password": "pass123"}),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let cookie = extract_session_cookie(&login_resp).unwrap();
+
+    let setup_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/totp/setup")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let secret = serde_json::from_slice::<serde_json::Value>(
+        &axum::body::to_bytes(setup_resp.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap()["secret"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let code = generate_totp_code(&secret);
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/totp/verify")
+                .header("cookie", &cookie)
+                .header("content-type", "application/json")
+                .body(json_body(serde_json::json!({"code": code})))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let login2_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/login")
+                .header("content-type", "application/json")
+                .body(json_body(
+                    serde_json::json!({"email": "lock@test.com", "password": "pass123"}),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let pending_cookie = extract_session_cookie(&login2_resp).unwrap();
+
+    // 5 bad attempts → lockout
+    for _ in 0..5 {
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/auth/2fa")
+                    .header("cookie", &pending_cookie)
+                    .header("content-type", "application/json")
+                    .body(json_body(serde_json::json!({"code": "000000"})))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    // Even the correct code must now fail — pending_user_id was cleared.
+    let good = generate_totp_code(&secret);
+    let after = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/2fa")
+                .header("cookie", &pending_cookie)
+                .header("content-type", "application/json")
+                .body(json_body(serde_json::json!({"code": good})))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(after.status(), StatusCode::UNAUTHORIZED);
+    let body: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(after.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(body["error"], "no_pending_2fa");
+}
+
+#[tokio::test]
+async fn create_token_with_mcp_scope_is_rejected() {
+    let app = test_app().await;
+    let cookie = register_and_login(app.clone(), "mcp@test.com", "secret123").await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/tokens")
+                .header("content-type", "application/json")
+                .header("cookie", &cookie)
+                .body(json_body(serde_json::json!({"name": "T", "scope": "mcp"})))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_ne!(resp.status(), StatusCode::CREATED);
+    assert!(resp.status().is_client_error());
+}
+
+#[tokio::test]
 async fn bearer_non_full_scope_rejected_on_api_routes() {
     let app = test_app().await;
     let cookie = register_and_login(app.clone(), "user@example.com", "secret123").await;

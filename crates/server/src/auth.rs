@@ -74,6 +74,8 @@ pub struct TokenListItem {
 }
 
 const PENDING_USER_KEY: &str = "pending_user_id";
+const PENDING_2FA_ATTEMPTS_KEY: &str = "pending_2fa_attempts";
+const MAX_2FA_ATTEMPTS: u32 = 5;
 const RETURN_TO_KEY: &str = "return_to";
 
 /// Extract a bearer token from the Authorization header.
@@ -268,6 +270,31 @@ pub async fn verify_2fa(
     match kartoteka_domain::auth::check_totp_code(&state.pool, &user_id, &req.code).await {
         Ok(true) => {}
         Ok(false) => {
+            // Track attempts in the session; after MAX_2FA_ATTEMPTS clear the
+            // pending login so the attacker must re-authenticate with password.
+            let attempts: u32 = session
+                .get(PENDING_2FA_ATTEMPTS_KEY)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or(0)
+                + 1;
+            if attempts >= MAX_2FA_ATTEMPTS {
+                if let Err(e) = session.remove::<String>(PENDING_USER_KEY).await {
+                    tracing::warn!("failed to clear {PENDING_USER_KEY} after lockout: {e}");
+                }
+                if let Err(e) = session.remove::<u32>(PENDING_2FA_ATTEMPTS_KEY).await {
+                    tracing::warn!("failed to clear {PENDING_2FA_ATTEMPTS_KEY}: {e}");
+                }
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({"error": "too_many_attempts"})),
+                )
+                    .into_response();
+            }
+            if let Err(e) = session.insert(PENDING_2FA_ATTEMPTS_KEY, attempts).await {
+                tracing::warn!("failed to persist {PENDING_2FA_ATTEMPTS_KEY}: {e}");
+            }
             return (
                 StatusCode::UNAUTHORIZED,
                 Json(serde_json::json!({"error": "invalid_code"})),
@@ -297,6 +324,9 @@ pub async fn verify_2fa(
 
     if let Err(e) = session.remove::<String>(PENDING_USER_KEY).await {
         tracing::warn!("failed to remove {PENDING_USER_KEY} from session: {e}");
+    }
+    if let Err(e) = session.remove::<u32>(PENDING_2FA_ATTEMPTS_KEY).await {
+        tracing::warn!("failed to remove {PENDING_2FA_ATTEMPTS_KEY} from session: {e}");
     }
     let return_to: Option<String> = session.remove(RETURN_TO_KEY).await.unwrap_or(None);
 
