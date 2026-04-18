@@ -15,6 +15,7 @@ pub mod relations;
 pub mod server_config;
 pub mod settings;
 pub mod tags;
+pub mod templates;
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers;
 pub mod time_entries;
