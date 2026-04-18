@@ -18,6 +18,7 @@ use crate::pages::{
     settings::SettingsPage,
     signup::SignupPage,
     tags::{TagsPage, detail::TagDetailPage},
+    time::TimePage,
     today::TodayPage,
 };
 
@@ -105,6 +106,7 @@ pub fn App() -> impl IntoView {
                     <Routes fallback=|| view! { <p class="p-4">"404 — Nie znaleziono strony"</p> }>
                         <Route path=path!("/") view=HomePage/>
                         <Route path=path!("/today") view=TodayPage/>
+                        <Route path=path!("/time") view=TimePage/>
                         <Route path=path!("/login") view=LoginPage/>
                         <Route path=path!("/signup") view=SignupPage/>
                         <Route path=path!("/settings") view=SettingsPage/>
