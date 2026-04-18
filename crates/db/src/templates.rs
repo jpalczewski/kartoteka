@@ -35,6 +35,7 @@ pub async fn get_one(
     .map_err(DbError::Sqlx)
 }
 
+/// OWNERSHIP NOT CHECKED — caller must verify the template belongs to `user_id` before calling.
 #[tracing::instrument(skip(pool))]
 pub async fn get_items(
     pool: &SqlitePool,
@@ -50,6 +51,7 @@ pub async fn get_items(
     .map_err(DbError::Sqlx)
 }
 
+/// OWNERSHIP NOT CHECKED — caller must verify the template belongs to `user_id` before calling.
 #[tracing::instrument(skip(pool))]
 pub async fn get_tags(pool: &SqlitePool, template_id: &str) -> Result<Vec<TagRow>, DbError> {
     sqlx::query_as::<_, TagRow>(

@@ -761,4 +761,44 @@ mod tests {
         let items = list_all_for_user(&pool, &uid).await.unwrap();
         assert_eq!(items.len(), 2);
     }
+
+    #[tokio::test]
+    async fn list_all_for_user_excludes_other_users() {
+        let pool = crate::test_helpers::test_pool().await;
+        let uid1 = crate::test_helpers::create_test_user(&pool).await;
+        let uid2 = crate::test_helpers::create_test_user(&pool).await;
+        let lid = uuid::Uuid::new_v4().to_string();
+        {
+            let mut conn = pool.acquire().await.unwrap();
+            crate::lists::insert(
+                &mut conn,
+                &lid,
+                &uid1,
+                0,
+                "L",
+                None,
+                None,
+                "checklist",
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        }
+        insert(
+            &pool,
+            &InsertItemInput {
+                id: uuid::Uuid::new_v4().to_string(),
+                list_id: lid,
+                position: 0,
+                title: "Secret".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let items = list_all_for_user(&pool, &uid2).await.unwrap();
+        assert!(items.is_empty(), "should not see other user's items");
+    }
 }
