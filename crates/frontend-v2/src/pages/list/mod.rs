@@ -9,7 +9,7 @@ use crate::components::lists::{
     add_input::AddInput, list_card::list_type_icon, sublist_section::SublistSection,
 };
 use crate::server_fns::items::{create_item, delete_item, get_list_data, toggle_item};
-use crate::server_fns::lists::{create_list, rename_list};
+use crate::server_fns::lists::{archive_list, create_list, pin_list, rename_list, reset_list};
 
 #[component]
 pub fn ListPage() -> impl IntoView {
@@ -91,6 +91,8 @@ pub fn ListPage() -> impl IntoView {
                         let icon = list_type_icon(&data.list.list_type);
                         let list_name = data.list.name.clone();
                         let list_description = data.list.description.clone();
+                        let list_pinned = data.list.pinned;
+                        let list_archived = data.list.archived;
                         let created_at_local = data.created_at_local.clone();
                         let all_items = data.items.clone();
                         let completed_count = all_items.iter().filter(|i| i.completed).count();
@@ -144,6 +146,68 @@ pub fn ListPage() -> impl IntoView {
                                             </h2>
                                         }.into_any()
                                     }}
+                                    // Dropdown at the end, pushed right via ml-auto
+                                    <div class="dropdown dropdown-end ml-auto">
+                                        <div tabindex="0" role="button" class="btn btn-ghost btn-sm btn-circle" data-testid="list-actions-btn">
+                                            "⋮"
+                                        </div>
+                                        <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-50 w-52 p-2 shadow-lg border border-base-300">
+                                            <li>
+                                                <button
+                                                    type="button"
+                                                    data-testid="action-pin"
+                                                    on:click=move |_| {
+                                                        let lid = list_id();
+                                                        leptos::task::spawn_local(async move {
+                                                            match pin_list(lid).await {
+                                                                Ok(_) => set_refresh.update(|n| *n += 1),
+                                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                            }
+                                                        });
+                                                    }
+                                                >
+                                                    {if list_pinned { "📌 Odepnij" } else { "📌 Przypnij" }}
+                                                </button>
+                                            </li>
+                                            <li>
+                                                <button
+                                                    type="button"
+                                                    data-testid="action-reset"
+                                                    on:click=move |_| {
+                                                        let lid = list_id();
+                                                        leptos::task::spawn_local(async move {
+                                                            match reset_list(lid).await {
+                                                                Ok(_) => set_refresh.update(|n| *n += 1),
+                                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                            }
+                                                        });
+                                                    }
+                                                >
+                                                    "↺ Resetuj ukończone"
+                                                </button>
+                                            </li>
+                                            <li>
+                                                <button
+                                                    type="button"
+                                                    class="text-warning"
+                                                    data-testid="action-archive"
+                                                    on:click=move |_| {
+                                                        let lid = list_id();
+                                                        leptos::task::spawn_local(async move {
+                                                            match archive_list(lid).await {
+                                                                Ok(_) => {
+                                                                    leptos_router::hooks::use_navigate()("/", Default::default())
+                                                                }
+                                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                            }
+                                                        });
+                                                    }
+                                                >
+                                                    {if list_archived { "📂 Przywróć" } else { "🗄 Archiwizuj" }}
+                                                </button>
+                                            </li>
+                                        </ul>
+                                    </div>
                                 </div>
                                 <p class="text-xs text-base-content/40 mb-4" data-testid="list-created-at">
                                     "Utworzono: " {created_at_local}
