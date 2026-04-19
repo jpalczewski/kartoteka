@@ -177,8 +177,8 @@ machete:
 test:
     cargo test --workspace
 
-# Uruchom testy e2e (wymaga działającego just dev)
+# Uruchom testy e2e (Playwright sam startuje serwer z osobną test.db)
 test-e2e:
-    cd tests && npm install && npx playwright test --reporter=list
+    cd tests && npm install && npm test
 
 ci: fmt lint audit machete test
