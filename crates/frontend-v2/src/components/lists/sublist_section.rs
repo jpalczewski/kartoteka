@@ -59,14 +59,15 @@ pub fn SublistSection(sublist: List, on_any_change: Callback<()>) -> impl IntoVi
     });
 
     view! {
-        <div class="collapse collapse-arrow bg-base-200 mb-2">
+        <div class="collapse collapse-arrow bg-base-200 mb-2" data-testid="sublist-section">
             <input type="checkbox" checked=true />
             <div class="collapse-title font-semibold flex items-center gap-2">
-                <span>{list_name}</span>
+                <span data-testid="sublist-name">{list_name}</span>
                 <a
                     href=format!("/lists/{list_id}")
                     class="btn btn-ghost btn-xs ml-1"
                     title="Otwórz jako widok listy"
+                    data-testid="sublist-open-link"
                     on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()
                 >
                     "↗"
@@ -76,7 +77,7 @@ pub fn SublistSection(sublist: List, on_any_change: Callback<()>) -> impl IntoVi
                         let done = data.items.iter().filter(|i| i.completed).count();
                         let total = data.items.len();
                         view! {
-                            <span class="text-sm text-base-content/60 ml-auto mr-4">
+                            <span class="text-sm text-base-content/60 ml-auto mr-4" data-testid="sublist-progress">
                                 {done} "/" {total}
                             </span>
                         }

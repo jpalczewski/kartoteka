@@ -141,6 +141,7 @@ fn render_groups(
                                     <input
                                         type="checkbox"
                                         class="checkbox checkbox-sm checkbox-primary"
+                                        data-testid="all-item-toggle"
                                         checked=completed
                                         on:change=move |_| on_toggle(item_id.clone())
                                     />

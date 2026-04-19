@@ -83,10 +83,11 @@ pub fn ItemDetailPage() -> impl IntoView {
                                     <input
                                         type="checkbox"
                                         class="checkbox checkbox-primary"
+                                        data-testid="item-detail-toggle"
                                         checked=completed
                                         on:change=on_toggle
                                     />
-                                    <span class="text-base-content/70">
+                                    <span class="text-base-content/70" data-testid="item-detail-status">
                                         {if completed { "Completed" } else { "Mark as done" }}
                                     </span>
                                 </label>
@@ -99,6 +100,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                     <input
                                         type="text"
                                         class="input input-bordered w-full"
+                                        data-testid="item-detail-title"
                                         prop:value=move || title_input.get()
                                         on:input=move |ev| title_input.set(event_target_value(&ev))
                                     />
@@ -111,6 +113,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                     </label>
                                     <textarea
                                         class="textarea textarea-bordered w-full h-32"
+                                        data-testid="item-detail-description"
                                         prop:value=move || description_input.get()
                                         on:input=move |ev| description_input.set(event_target_value(&ev))
                                     />
@@ -120,6 +123,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                 <button
                                     type="button"
                                     class="btn btn-primary w-full"
+                                    data-testid="item-detail-save"
                                     on:click=on_save
                                 >
                                     "Save"
