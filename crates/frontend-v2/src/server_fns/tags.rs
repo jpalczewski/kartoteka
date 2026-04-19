@@ -108,6 +108,35 @@ pub async fn create_tag(
     Ok(domain_tag_to_shared(tag))
 }
 
+/// Update tag color.
+#[server(prefix = "/leptos")]
+pub async fn update_tag_color(id: String, color: String) -> Result<Tag, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let tag = domain::tags::update(
+        &pool,
+        &user.id,
+        &id,
+        &domain::tags::UpdateTagRequest {
+            name: None,
+            icon: None,
+            color: Some(Some(color)),
+            parent_tag_id: None,
+            tag_type: None,
+            metadata: None,
+        },
+    )
+    .await
+    .map_err(|e| ServerFnError::new(e.to_string()))?
+    .ok_or_else(|| ServerFnError::new("tag not found".to_string()))?;
+    Ok(domain_tag_to_shared(tag))
+}
+
 /// Delete a tag by id.
 #[server(prefix = "/leptos")]
 pub async fn delete_tag(id: String) -> Result<(), ServerFnError> {

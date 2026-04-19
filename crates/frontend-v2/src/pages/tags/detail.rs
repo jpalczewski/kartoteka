@@ -1,16 +1,22 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
+use crate::app::{ToastContext, ToastKind};
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::lists::list_card::ListCard;
-use crate::server_fns::tags::get_tag_detail_data;
+use crate::server_fns::tags::{get_tag_detail_data, update_tag_color};
 
 #[component]
 pub fn TagDetailPage() -> impl IntoView {
     let params = use_params_map();
     let tag_id = move || params.read().get("id").unwrap_or_default();
+    let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let (refresh, set_refresh) = signal(0u32);
 
-    let data_res = Resource::new(tag_id, get_tag_detail_data);
+    let data_res = Resource::new(
+        move || (tag_id(), refresh.get()),
+        |(id, _)| get_tag_detail_data(id),
+    );
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
@@ -25,6 +31,7 @@ pub fn TagDetailPage() -> impl IntoView {
                         let tag_type = data.tag.tag_type.clone();
                         let tag_icon = data.tag.icon.clone();
                         let linked_lists = data.linked_lists.clone();
+                        let tid = data.tag.id.clone();
 
                         view! {
                             <div>
@@ -41,9 +48,21 @@ pub fn TagDetailPage() -> impl IntoView {
                                         </h2>
                                         <span class="text-sm text-base-content/50">{tag_type}</span>
                                     </div>
-                                    <div
-                                        class="w-4 h-4 rounded-full ml-auto"
-                                        style=format!("background-color: {color}")
+                                    <input
+                                        type="color"
+                                        class="w-8 h-8 rounded cursor-pointer border border-base-300 ml-auto"
+                                        title="Zmień kolor"
+                                        prop:value=color
+                                        on:change=move |ev| {
+                                            let new_color = event_target_value(&ev);
+                                            let id = tid.clone();
+                                            leptos::task::spawn_local(async move {
+                                                match update_tag_color(id, new_color).await {
+                                                    Ok(_) => set_refresh.update(|n| *n += 1),
+                                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                }
+                                            });
+                                        }
                                     />
                                 </div>
 

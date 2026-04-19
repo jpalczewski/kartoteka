@@ -14,14 +14,16 @@ pub fn TagsPage() -> impl IntoView {
     let tags_res = Resource::new(move || refresh.get(), |_| get_all_tags());
 
     let (new_name, set_new_name) = signal(String::new());
+    let (new_color, set_new_color) = signal("#6366f1".to_string());
 
     let on_create = Callback::new(move |_: ()| {
         let name = new_name.get();
         if name.trim().is_empty() {
             return;
         }
+        let color = new_color.get();
         leptos::task::spawn_local(async move {
-            match create_tag(name, None, None, None).await {
+            match create_tag(name, None, Some(color), None).await {
                 Ok(_) => set_refresh.update(|n| *n += 1),
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
@@ -44,6 +46,13 @@ pub fn TagsPage() -> impl IntoView {
 
             // Create tag form
             <div class="flex gap-2 mb-6">
+                <input
+                    type="color"
+                    class="w-10 h-10 rounded cursor-pointer border border-base-300"
+                    data-testid="new-tag-color"
+                    prop:value=move || new_color.get()
+                    on:input=move |ev| set_new_color.set(event_target_value(&ev))
+                />
                 <input
                     type="text"
                     class="input input-bordered flex-1"
