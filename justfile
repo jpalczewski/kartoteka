@@ -179,6 +179,6 @@ test:
 
 # Uruchom testy e2e (Playwright sam startuje serwer z osobną test.db)
 test-e2e:
-    cd tests && npm install && npm test
+    cd tests && npm install && CI=true npm test
 
 ci: fmt lint audit machete test
