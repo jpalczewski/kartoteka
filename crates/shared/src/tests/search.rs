@@ -1,4 +1,4 @@
-use crate::*;
+use crate::models::*;
 
 #[test]
 fn search_entity_result_deserializes_optional_booleans() {

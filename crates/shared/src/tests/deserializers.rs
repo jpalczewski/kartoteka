@@ -1,4 +1,4 @@
-use crate::ListFeature;
+use crate::models::list::ListFeature;
 use serde::Deserialize;
 
 // --- bool_from_number (D1 returns booleans as 0.0/1.0) ---

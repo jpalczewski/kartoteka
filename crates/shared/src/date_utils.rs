@@ -1,4 +1,4 @@
-use chrono::{Datelike, Duration, NaiveDate};
+use chrono::{Datelike, Duration, NaiveDate, TimeZone as _, Utc};
 
 /// Parse "YYYY-MM-DD" string into NaiveDate
 pub fn parse_date(date_str: &str) -> Option<NaiveDate> {
@@ -128,9 +128,63 @@ pub fn sort_by_deadline(items: &mut [crate::Item]) {
     });
 }
 
+/// Format a UTC datetime string ("YYYY-MM-DD HH:MM:SS") as "DD.MM.YYYY HH:MM" in the given timezone.
+/// Falls back to UTC if the timezone name is unrecognized.
+pub fn format_datetime_in_tz(utc_str: &str, tz_name: &str) -> String {
+    let tz: chrono_tz::Tz = tz_name.parse().unwrap_or(chrono_tz::UTC);
+    let naive =
+        chrono::NaiveDateTime::parse_from_str(utc_str, "%Y-%m-%d %H:%M:%S").unwrap_or_default();
+    Utc.from_utc_datetime(&naive)
+        .with_timezone(&tz)
+        .format("%d.%m.%Y %H:%M")
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn format_datetime_in_tz_utc() {
+        assert_eq!(
+            format_datetime_in_tz("2026-04-19 18:48:38", "UTC"),
+            "19.04.2026 18:48"
+        );
+    }
+
+    #[test]
+    fn format_datetime_in_tz_warsaw() {
+        // UTC+2 in summer (CEST)
+        assert_eq!(
+            format_datetime_in_tz("2026-04-19 18:48:38", "Europe/Warsaw"),
+            "19.04.2026 20:48"
+        );
+    }
+
+    #[test]
+    fn format_datetime_in_tz_new_york() {
+        // UTC-4 in summer (EDT)
+        assert_eq!(
+            format_datetime_in_tz("2026-04-19 18:48:38", "America/New_York"),
+            "19.04.2026 14:48"
+        );
+    }
+
+    #[test]
+    fn format_datetime_in_tz_unknown_falls_back_to_utc() {
+        assert_eq!(
+            format_datetime_in_tz("2026-04-19 18:48:38", "Atlantis/Lost"),
+            "19.04.2026 18:48"
+        );
+    }
+
+    #[test]
+    fn format_datetime_in_tz_invalid_input_returns_epoch() {
+        assert_eq!(
+            format_datetime_in_tz("not-a-date", "UTC"),
+            "01.01.1970 00:00"
+        );
+    }
 
     #[test]
     fn test_parse_date() {

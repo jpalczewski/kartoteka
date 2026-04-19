@@ -10,3 +10,4 @@ pub mod settings;
 pub mod tags;
 pub mod templates;
 pub mod time_entries;
+pub(crate) mod utils;

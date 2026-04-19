@@ -3,20 +3,12 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    crate::server_fns::home::domain_list_to_shared, axum_login::AuthSession,
-    kartoteka_auth::KartotekaBackend, kartoteka_domain as domain, sqlx::SqlitePool,
+    crate::server_fns::{home::domain_list_to_shared, utils::format_datetime_in_tz},
+    axum_login::AuthSession,
+    kartoteka_auth::KartotekaBackend,
+    kartoteka_domain as domain,
+    sqlx::SqlitePool,
 };
-
-#[cfg(feature = "ssr")]
-fn format_in_tz(utc_str: &str, tz_name: &str) -> String {
-    use chrono::{TimeZone as _, Utc};
-    use chrono_tz::Tz;
-    let tz: Tz = tz_name.parse().unwrap_or(chrono_tz::UTC);
-    let naive =
-        chrono::NaiveDateTime::parse_from_str(utc_str, "%Y-%m-%d %H:%M:%S").unwrap_or_default();
-    let local = Utc.from_utc_datetime(&naive).with_timezone(&tz);
-    local.format("%d.%m.%Y %H:%M").to_string()
-}
 
 /// Convert domain::items::Item to shared::types::Item.
 #[cfg(feature = "ssr")]
@@ -69,7 +61,7 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
         .map(|s| s.value.as_str())
         .unwrap_or("UTC");
 
-    let created_at_local = format_in_tz(&list.created_at, tz);
+    let created_at_local = format_datetime_in_tz(&list.created_at, tz);
 
     Ok(ListData {
         list: domain_list_to_shared(list),
