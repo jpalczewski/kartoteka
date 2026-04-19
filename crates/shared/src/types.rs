@@ -245,6 +245,7 @@ pub struct CreateListRequest {
     pub container_id: Option<String>,
     pub parent_list_id: Option<String>,
     /// Feature name strings, e.g. "deadlines", "quantity".
+    #[serde(default)]
     pub features: Vec<String>,
 }
 
