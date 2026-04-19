@@ -93,10 +93,6 @@ pub fn ListPage() -> impl IntoView {
                         let all_items = data.items.clone();
                         let completed_count = all_items.iter().filter(|i| i.completed).count();
                         let total = all_items.len();
-                        let items: Vec<_> = all_items
-                            .into_iter()
-                            .filter(|i| show_completed.get() || !i.completed)
-                            .collect();
                         let sublists = data.sublists.clone();
 
                         view! {
@@ -170,44 +166,51 @@ pub fn ListPage() -> impl IntoView {
                                 }
 
                                 // Items list
-                                {if items.is_empty() {
-                                    view! {
-                                        <div class="text-center text-base-content/50 py-8">
-                                            {move || if !show_completed.get() && completed_count > 0 {
-                                                "Wszystkie elementy ukończone — odznacz filtr aby je zobaczyć."
-                                            } else {
-                                                "Brak elementów. Dodaj pierwszy powyżej."
-                                            }}
-                                        </div>
-                                    }.into_any()
-                                } else {
-                                    view! {
-                                        <div>
-                                            <div class="flex items-center justify-between mb-2">
-                                                <span class="text-sm text-base-content/60" data-testid="completion-count">
-                                                    {completed_count} "/" {total} " ukończone"
-                                                </span>
-                                                <label class="flex items-center gap-2 cursor-pointer select-none">
-                                                    <span class="text-xs text-base-content/50">"Ukryj ukończone"</span>
-                                                    <input
-                                                        type="checkbox"
-                                                        class="toggle toggle-xs"
-                                                        prop:checked=move || !show_completed.get()
-                                                        on:change=move |ev| set_show_completed.set(!event_target_checked(&ev))
-                                                    />
-                                                </label>
+                                {move || {
+                                    let visible: Vec<_> = all_items
+                                        .iter()
+                                        .filter(|i| show_completed.get() || !i.completed)
+                                        .cloned()
+                                        .collect();
+                                    if visible.is_empty() {
+                                        view! {
+                                            <div class="text-center text-base-content/50 py-8">
+                                                {if !show_completed.get() && completed_count > 0 {
+                                                    "Wszystkie elementy ukończone — odznacz filtr aby je zobaczyć."
+                                                } else {
+                                                    "Brak elementów. Dodaj pierwszy powyżej."
+                                                }}
                                             </div>
-                                            <div class="flex flex-col gap-2">
-                                                {items.into_iter().map(|item| view! {
-                                                    <ItemRow
-                                                        item=item
-                                                        on_toggle=on_toggle_item
-                                                        on_delete=on_delete_item
-                                                    />
-                                                }).collect::<Vec<_>>()}
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <div>
+                                                <div class="flex items-center justify-between mb-2">
+                                                    <span class="text-sm text-base-content/60" data-testid="completion-count">
+                                                        {completed_count} "/" {total} " ukończone"
+                                                    </span>
+                                                    <label class="flex items-center gap-2 cursor-pointer select-none">
+                                                        <span class="text-xs text-base-content/50">"Ukryj ukończone"</span>
+                                                        <input
+                                                            type="checkbox"
+                                                            class="toggle toggle-xs"
+                                                            prop:checked=move || !show_completed.get()
+                                                            on:change=move |ev| set_show_completed.set(!event_target_checked(&ev))
+                                                        />
+                                                    </label>
+                                                </div>
+                                                <div class="flex flex-col gap-2">
+                                                    {visible.into_iter().map(|item| view! {
+                                                        <ItemRow
+                                                            item=item
+                                                            on_toggle=on_toggle_item
+                                                            on_delete=on_delete_item
+                                                        />
+                                                    }).collect::<Vec<_>>()}
+                                                </div>
                                             </div>
-                                        </div>
-                                    }.into_any()
+                                        }.into_any()
+                                    }
                                 }}
 
                                 // Comments
