@@ -8,6 +8,7 @@ use leptos_router::{
 use crate::components::nav::Nav;
 use crate::components::toast_container::ToastContainer;
 use crate::pages::{
+    all::AllPage,
     calendar::{CalendarPage, day::CalendarDayPage},
     container::ContainerPage,
     home::HomePage,
@@ -105,6 +106,7 @@ pub fn App() -> impl IntoView {
                 <main class="container mx-auto px-4">
                     <Routes fallback=|| view! { <p class="p-4">"404 — Nie znaleziono strony"</p> }>
                         <Route path=path!("/") view=HomePage/>
+                        <Route path=path!("/all") view=AllPage/>
                         <Route path=path!("/today") view=TodayPage/>
                         <Route path=path!("/time") view=TimePage/>
                         <Route path=path!("/login") view=LoginPage/>

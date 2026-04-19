@@ -1,3 +1,4 @@
+pub mod all;
 pub mod calendar;
 pub mod container;
 pub mod home;

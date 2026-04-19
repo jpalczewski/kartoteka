@@ -279,6 +279,28 @@ pub async fn get_items_by_date(date: String) -> Result<Vec<DateItem>, ServerFnEr
     Ok(items_to_date_items(items, &list_names))
 }
 
+/// Fetch all items for the current user, enriched with list names.
+#[server(prefix = "/leptos")]
+pub async fn get_all_items() -> Result<Vec<DateItem>, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+
+    let items = domain::items::list_all_for_user(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let all_lists = domain::lists::list_all(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+    let list_names = build_list_names(all_lists);
+    Ok(items_to_date_items(items, &list_names))
+}
+
 /// Fetch calendar month data: grid metadata + per-day item counts.
 /// Pass `year_month` as "YYYY-MM"; pass an empty string to get the current month.
 #[server(prefix = "/leptos")]
