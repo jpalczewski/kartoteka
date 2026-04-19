@@ -8,8 +8,13 @@ use crate::components::items::item_row::ItemRow;
 use crate::components::lists::{
     add_input::AddInput, list_card::list_type_icon, sublist_section::SublistSection,
 };
+use crate::components::tags::tag_list::TagList;
+use crate::context::GlobalRefresh;
 use crate::server_fns::items::{create_item, delete_item, get_list_data, toggle_item};
 use crate::server_fns::lists::{archive_list, create_list, pin_list, rename_list, reset_list};
+use crate::server_fns::tags::{
+    assign_tag_to_list, get_all_tags, get_list_tag_links, remove_tag_from_list,
+};
 
 #[component]
 pub fn ListPage() -> impl IntoView {
@@ -17,6 +22,8 @@ pub fn ListPage() -> impl IntoView {
     let list_id = move || params.read().get("id").unwrap_or_default();
 
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
+    let navigate = leptos_router::hooks::use_navigate();
 
     let (refresh, set_refresh) = signal(0u32);
     let (show_completed, set_show_completed) = signal(true);
@@ -24,9 +31,61 @@ pub fn ListPage() -> impl IntoView {
     let (name_input, set_name_input) = signal(String::new());
 
     let data_res = Resource::new(
-        move || (list_id(), refresh.get()),
-        |(id, _)| get_list_data(id),
+        move || (list_id(), refresh.get(), global_refresh.get()),
+        |(id, _, _)| get_list_data(id),
     );
+
+    // Derived reactive counts — read from data_res each render so they update
+    // every time the resource refetches (e.g. after toggle/reset).
+    let completed_count = Signal::derive(move || {
+        data_res
+            .get()
+            .and_then(|r| r.ok())
+            .map(|d| d.items.iter().filter(|i| i.completed).count())
+            .unwrap_or(0)
+    });
+    let total = Signal::derive(move || {
+        data_res
+            .get()
+            .and_then(|r| r.ok())
+            .map(|d| d.items.len())
+            .unwrap_or(0)
+    });
+
+    let tag_res = Resource::new(
+        move || (list_id(), refresh.get(), global_refresh.get()),
+        |(lid, _, _)| async move {
+            let tags = get_all_tags().await?;
+            let links = get_list_tag_links().await?;
+            let tag_ids: Vec<String> = links
+                .into_iter()
+                .filter(|l| l.list_id == lid)
+                .map(|l| l.tag_id)
+                .collect();
+            Ok::<(Vec<kartoteka_shared::types::Tag>, Vec<String>), ServerFnError>((tags, tag_ids))
+        },
+    );
+
+    let on_tag_toggle = Callback::new(move |tag_id: String| {
+        let lid = list_id();
+        let current_tag_ids = tag_res
+            .get()
+            .and_then(|r| r.ok())
+            .map(|(_, ids)| ids)
+            .unwrap_or_default();
+        let has_tag = current_tag_ids.contains(&tag_id);
+        leptos::task::spawn_local(async move {
+            let result = if has_tag {
+                remove_tag_from_list(lid, tag_id).await
+            } else {
+                assign_tag_to_list(lid, tag_id).await
+            };
+            if let Err(e) = result {
+                toast.push(e.to_string(), ToastKind::Error);
+            }
+            set_refresh.update(|n| *n += 1);
+        });
+    });
 
     // ── Mutation callbacks ─────────────────────────────────────────
 
@@ -95,8 +154,6 @@ pub fn ListPage() -> impl IntoView {
                         let list_archived = data.list.archived;
                         let created_at_local = data.created_at_local.clone();
                         let all_items = data.items.clone();
-                        let completed_count = all_items.iter().filter(|i| i.completed).count();
-                        let total = all_items.len();
                         let sublists = data.sublists.clone();
 
                         view! {
@@ -193,16 +250,18 @@ pub fn ListPage() -> impl IntoView {
                                                     type="button"
                                                     class="text-warning"
                                                     data-testid="action-archive"
-                                                    on:click=move |_| {
-                                                        let lid = list_id();
-                                                        leptos::task::spawn_local(async move {
-                                                            match archive_list(lid).await {
-                                                                Ok(_) => {
-                                                                    leptos_router::hooks::use_navigate()("/", Default::default())
+                                                    on:click={
+                                                        let nav = navigate.clone();
+                                                        move |_| {
+                                                            let lid = list_id();
+                                                            let nav = nav.clone();
+                                                            leptos::task::spawn_local(async move {
+                                                                match archive_list(lid).await {
+                                                                    Ok(_) => nav("/", Default::default()),
+                                                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                                                 }
-                                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                            }
-                                                        });
+                                                            });
+                                                        }
                                                     }
                                                 >
                                                     {if list_archived { "📂 Przywróć" } else { "🗄 Archiwizuj" }}
@@ -218,6 +277,19 @@ pub fn ListPage() -> impl IntoView {
                                 {list_description.map(|desc| view! {
                                     <p class="text-base-content/60 mb-4">{desc}</p>
                                 })}
+
+                                // Tags
+                                <div class="mb-4" data-testid="list-tags-section">
+                                    {move || tag_res.get().and_then(|r| r.ok()).map(|(all_tags, tag_ids)| {
+                                        view! {
+                                            <TagList
+                                                all_tags=all_tags
+                                                selected_tag_ids=tag_ids
+                                                on_toggle=on_tag_toggle
+                                            />
+                                        }
+                                    })}
+                                </div>
 
                                 // Add item input
                                 <div class="mb-4">
@@ -284,7 +356,7 @@ pub fn ListPage() -> impl IntoView {
                                     if visible.is_empty() {
                                         view! {
                                             <div class="text-center text-base-content/50 py-8">
-                                                {if !show_completed.get() && completed_count > 0 {
+                                                {if !show_completed.get() && completed_count.get() > 0 {
                                                     "Wszystkie elementy ukończone — odznacz filtr aby je zobaczyć."
                                                 } else {
                                                     "Brak elementów. Dodaj pierwszy powyżej."
@@ -296,7 +368,7 @@ pub fn ListPage() -> impl IntoView {
                                             <div>
                                                 <div class="flex items-center justify-between mb-2">
                                                     <span class="text-sm text-base-content/60" data-testid="completion-count">
-                                                        {completed_count} "/" {total} " ukończone"
+                                                        {move || completed_count.get()} "/" {move || total.get()} " ukończone"
                                                     </span>
                                                     <label class="flex items-center gap-2 cursor-pointer select-none">
                                                         <span class="text-xs text-base-content/50">"Ukryj ukończone"</span>
