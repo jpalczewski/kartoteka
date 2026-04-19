@@ -295,6 +295,12 @@ pub async fn calendar(
     Ok(rows.into_iter().map(row_to_item).collect())
 }
 
+#[tracing::instrument(skip(pool))]
+pub async fn list_all_for_user(pool: &SqlitePool, user_id: &str) -> Result<Vec<Item>, DomainError> {
+    let rows = db::items::list_all_for_user(pool, user_id).await?;
+    Ok(rows.into_iter().map(row_to_item).collect())
+}
+
 /// Returns incomplete items with `deadline` strictly before today in the user's timezone.
 /// Hard deadlines are intentionally excluded — overdue means a missed `deadline` date.
 #[tracing::instrument(skip(pool))]
@@ -761,6 +767,22 @@ mod tests {
 
         let items_empty = calendar(&pool, &user_id, "2026-08").await.unwrap();
         assert_eq!(items_empty.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn list_all_for_user_returns_items_across_lists() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list1 = create_list(&pool, &user_id, &[]).await;
+        let list2 = create_list(&pool, &user_id, &[]).await;
+        super::create(&pool, &user_id, &list1, &basic_req("Item A"))
+            .await
+            .unwrap();
+        super::create(&pool, &user_id, &list2, &basic_req("Item B"))
+            .await
+            .unwrap();
+        let all = super::list_all_for_user(&pool, &user_id).await.unwrap();
+        assert_eq!(all.len(), 2);
     }
 
     #[tokio::test]
