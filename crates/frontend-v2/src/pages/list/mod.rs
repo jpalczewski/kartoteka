@@ -6,8 +6,7 @@ use crate::components::comments::CommentSection;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::items::item_row::ItemRow;
 use crate::components::lists::{
-    add_input::AddInput,
-    list_card::{ListCard, list_type_icon},
+    add_input::AddInput, list_card::list_type_icon, sublist_section::SublistSection,
 };
 use crate::server_fns::items::{create_item, delete_item, get_list_data, toggle_item};
 
@@ -94,6 +93,7 @@ pub fn ListPage() -> impl IntoView {
                                 {if sublists.is_empty() {
                                     view! {}.into_any()
                                 } else {
+                                    let notify = Callback::new(move |_| set_refresh.update(|n| *n += 1));
                                     view! {
                                         <div class="mb-4">
                                             <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">
@@ -101,7 +101,7 @@ pub fn ListPage() -> impl IntoView {
                                             </h3>
                                             <div class="flex flex-col gap-2">
                                                 {sublists.into_iter().map(|sublist| view! {
-                                                    <ListCard list=sublist />
+                                                    <SublistSection sublist=sublist on_any_change=notify />
                                                 }).collect::<Vec<_>>()}
                                             </div>
                                         </div>
