@@ -57,7 +57,10 @@ pub fn TagDetailPage() -> impl IntoView {
                                 } else {
                                     view! {
                                         <div>
-                                            <h3 class="text-sm font-semibold text-base-content/60 mb-3 uppercase tracking-wide" data-testid="linked-lists-heading">
+                                            <h3
+                                                class="text-sm font-semibold text-base-content/60 mb-3 uppercase tracking-wide"
+                                                data-testid="linked-lists-heading"
+                                            >
                                                 "Listy z tym tagiem (" {linked_lists.len()} ")"
                                             </h3>
                                             <div class="flex flex-col gap-2">
