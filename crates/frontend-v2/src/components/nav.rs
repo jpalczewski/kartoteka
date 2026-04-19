@@ -12,6 +12,7 @@ pub fn Nav() -> impl IntoView {
                 <a href="/" class="btn btn-ghost text-xl">"Kartoteka"</a>
             </div>
             <div class="navbar-end">
+                <a href="/tags" class="btn btn-ghost btn-sm" data-testid="nav-tags">"Tagi"</a>
                 <a href="/all" class="btn btn-ghost btn-sm">"Wszystkie"</a>
                 <Suspense>
                     {move || nav.get().and_then(|r| r.ok()).map(|name| {

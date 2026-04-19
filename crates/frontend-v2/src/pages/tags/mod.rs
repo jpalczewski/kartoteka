@@ -48,6 +48,7 @@ pub fn TagsPage() -> impl IntoView {
                     type="text"
                     class="input input-bordered flex-1"
                     placeholder="Nowy tag..."
+                    data-testid="new-tag-input"
                     prop:value=move || new_name.get()
                     on:input=move |ev| set_new_name.set(event_target_value(&ev))
                     on:keydown=move |ev| {
@@ -59,6 +60,7 @@ pub fn TagsPage() -> impl IntoView {
                 <button
                     type="button"
                     class="btn btn-primary"
+                    data-testid="create-tag-btn"
                     on:click=move |_| on_create.run(())
                 >
                     "Dodaj"
@@ -85,8 +87,8 @@ pub fn TagsPage() -> impl IntoView {
                                     let color = tag.color.clone().unwrap_or_else(|| "#6366f1".to_string());
                                     let href = format!("/tags/{}", &tag.id);
                                     view! {
-                                        <div class="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-                                            <a href=href class="flex items-center gap-2 flex-1">
+                                        <div class="flex items-center justify-between p-3 bg-base-200 rounded-lg" data-testid="tag-item">
+                                            <a href=href class="flex items-center gap-2 flex-1" data-testid="tag-link">
                                                 {tag.icon.as_deref().map(|i| view! { <span>{i.to_string()}</span> })}
                                                 <span
                                                     class="badge badge-outline font-medium"
@@ -99,6 +101,7 @@ pub fn TagsPage() -> impl IntoView {
                                             <button
                                                 type="button"
                                                 class="btn btn-ghost btn-xs btn-circle text-error"
+                                                data-testid="delete-tag-btn"
                                                 on:click=move |_| on_delete.run(tid.clone())
                                             >
                                                 {"✕"}

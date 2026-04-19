@@ -34,6 +34,7 @@ pub fn TagDetailPage() -> impl IntoView {
                                     <div>
                                         <h2
                                             class="text-2xl font-bold"
+                                            data-testid="tag-detail-name"
                                             style=format!("color: {color}")
                                         >
                                             {tag_name}
@@ -56,7 +57,7 @@ pub fn TagDetailPage() -> impl IntoView {
                                 } else {
                                     view! {
                                         <div>
-                                            <h3 class="text-sm font-semibold text-base-content/60 mb-3 uppercase tracking-wide">
+                                            <h3 class="text-sm font-semibold text-base-content/60 mb-3 uppercase tracking-wide" data-testid="linked-lists-heading">
                                                 "Listy z tym tagiem (" {linked_lists.len()} ")"
                                             </h3>
                                             <div class="flex flex-col gap-2">
