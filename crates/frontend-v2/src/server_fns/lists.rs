@@ -67,3 +67,65 @@ pub async fn archive_list(id: String) -> Result<Option<List>, ServerFnError> {
         .map_err(|e| ServerFnError::new(e.to_string()))?;
     Ok(result.map(domain_list_to_shared))
 }
+
+/// Rename a list (name required, description optional — pass empty string to clear).
+#[server(prefix = "/leptos")]
+pub async fn rename_list(
+    id: String,
+    name: String,
+    description: Option<String>,
+) -> Result<List, ServerFnError> {
+    if name.trim().is_empty() {
+        return Err(ServerFnError::new("name cannot be empty".to_string()));
+    }
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let req = domain::lists::UpdateListRequest {
+        name: Some(name),
+        icon: None,
+        description: description.map(|d| if d.trim().is_empty() { None } else { Some(d) }),
+        list_type: None,
+    };
+    let list = domain::lists::update(&pool, &id, &user.id, &req)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .ok_or_else(|| ServerFnError::new("list not found".to_string()))?;
+    Ok(domain_list_to_shared(list))
+}
+
+/// Toggle pinned state. Returns updated list, or None if not found.
+#[server(prefix = "/leptos")]
+pub async fn pin_list(id: String) -> Result<Option<List>, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let result = domain::lists::toggle_pin(&pool, &id, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    Ok(result.map(domain_list_to_shared))
+}
+
+/// Mark all items in a list as not completed.
+#[server(prefix = "/leptos")]
+pub async fn reset_list(id: String) -> Result<(), ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    domain::lists::reset(&pool, &id, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    Ok(())
+}
