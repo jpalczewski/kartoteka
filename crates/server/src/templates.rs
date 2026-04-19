@@ -28,8 +28,8 @@ pub fn templates_router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_templates))
         .route("/from-list", post(create_from_list))
-        .route("/:id", get(get_template).delete(delete_template))
-        .route("/:id/create-list", post(create_list_from_template))
+        .route("/{id}", get(get_template).delete(delete_template))
+        .route("/{id}/create-list", post(create_list_from_template))
 }
 
 #[tracing::instrument(skip_all, fields(action = "list_templates"))]

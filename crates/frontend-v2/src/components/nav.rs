@@ -7,6 +7,9 @@ pub fn Nav() -> impl IntoView {
             <div class="navbar-start">
                 <a href="/" class="btn btn-ghost text-xl">"Kartoteka"</a>
             </div>
+            <div class="navbar-end">
+                <a href="/all" class="btn btn-ghost">"All Items"</a>
+            </div>
         </nav>
     }
 }
