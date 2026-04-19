@@ -113,7 +113,7 @@ test("tag detail page shows empty linked lists message when no lists linked", as
   const row = page.locator('[data-testid="tag-item"]').filter({ hasText: "Samotny" });
   await expect(row).toBeVisible();
   await row.locator('[data-testid="tag-link"]').click();
-  await expect(page.locator('text=Żadna lista nie ma tego tagu')).toBeVisible();
+  await expect(page.locator('[data-testid="tag-no-lists"]')).toBeVisible();
 });
 
 test("tag detail page with unknown id shows error", async ({ page, context }) => {

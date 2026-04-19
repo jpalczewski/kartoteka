@@ -50,7 +50,7 @@ pub fn TagDetailPage() -> impl IntoView {
                                 // Linked lists
                                 {if linked_lists.is_empty() {
                                     view! {
-                                        <div class="text-center text-base-content/50 py-8">
+                                        <div class="text-center text-base-content/50 py-8" data-testid="tag-no-lists">
                                             "Żadna lista nie ma tego tagu."
                                         </div>
                                     }.into_any()
