@@ -15,7 +15,7 @@ pub fn RootSection(
     on_delete_container: Callback<String>,
     on_pin_container: Callback<String>,
 ) -> impl IntoView {
-    let filter = active_tag_filter.get();
+    let filter = active_tag_filter.get_untracked();
     let filtered_lists: Vec<List> = root_lists
         .into_iter()
         .filter(|l| match &filter {

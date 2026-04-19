@@ -13,7 +13,7 @@ pub fn RecentSection(
     on_tag_toggle: Callback<(String, String)>,
     on_delete_list: Callback<String>,
 ) -> impl IntoView {
-    let filter = active_tag_filter.get();
+    let filter = active_tag_filter.get_untracked();
     let filtered_lists: Vec<List> = recent_lists
         .into_iter()
         .filter(|l| match &filter {
