@@ -138,7 +138,7 @@ pub async fn get_tag_detail_data(
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
 
-    let tag = domain::tags::get_one(&pool, &user.id, &tag_id)
+    let tag = domain::tags::get_one(&pool, &tag_id, &user.id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?
         .ok_or_else(|| ServerFnError::new("tag not found".to_string()))?;
