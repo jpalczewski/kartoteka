@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-const BASE_URL = "http://localhost:3000";
+const BASE_URL = "http://localhost:3030";
 const PASSWORD = "testpassword123";
 
 function uniqueEmail() {
@@ -13,22 +13,27 @@ async function setup(page: any, context: any): Promise<string> {
     headers: { "Content-Type": "application/json" },
     data: { name: "LHA User", email, password: PASSWORD },
   });
+  await context.clearCookies();
   await page.goto("/login");
+  await page.waitForSelector("[data-hydrated]");
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', PASSWORD);
   await Promise.all([
     page.waitForURL(`${BASE_URL}/`),
     page.click('button[type="submit"]'),
   ]);
+  await page.waitForSelector("[data-hydrated]");
 
   // Create a list and return its ID
   const input = page.locator('input[placeholder="Nazwa listy..."]');
   await input.waitFor();
   await input.fill("Header Test List");
   await page.locator('button:has-text("Utwórz")').first().click();
-  const link = page.locator('a[href^="/lists/"]').first();
-  await link.waitFor({ timeout: 5000 });
-  return (await link.getAttribute("href"))!.replace("/lists/", "");
+  const card = page.locator('[data-testid="list-card"]').filter({ hasText: "Header Test List" });
+  await card.waitFor({ timeout: 5000 });
+  await card.locator('[data-testid="list-card-title"]').click();
+  await page.waitForURL(/\/lists\/.+/);
+  return page.url().split("/lists/")[1];
 }
 
 // ── Happy flows ──────────────────────────────────────────────────────────────
@@ -87,7 +92,7 @@ test("reset marks completed items as incomplete", async ({ page, context }) => {
   // Add item and complete it
   await page.fill('input[placeholder="Nowy element..."]', "Item to reset");
   await page.click('button:has-text("Dodaj")');
-  const itemCheckbox = page.locator('input[type="checkbox"]').first();
+  const itemCheckbox = page.locator('[data-testid="item-toggle"]').first();
   await itemCheckbox.waitFor();
   await itemCheckbox.click();
   await expect(page.locator('[data-testid="completion-count"]')).toContainText("1/1");

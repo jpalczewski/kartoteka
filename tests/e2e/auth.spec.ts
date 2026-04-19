@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 const PASSWORD = "testpassword123";
 const NAME = "Test User";
-const BASE_URL = "http://localhost:3000";
+const BASE_URL = "http://localhost:3030";
 
 function uniqueEmail() {
   return `test+${Date.now()}+${Math.random().toString(36).slice(2)}@example.com`;
@@ -12,6 +12,7 @@ test("signup redirects to /login", async ({ page }) => {
   const email = uniqueEmail();
 
   await page.goto("/signup");
+  await page.waitForSelector("[data-hydrated]");
   await page.fill('input[type="text"]', NAME);
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', PASSWORD);
@@ -36,6 +37,7 @@ test("login redirects to /", async ({ page, context }) => {
 
   await context.clearCookies();
   await page.goto("/login");
+  await page.waitForSelector("[data-hydrated]");
 
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', PASSWORD);
@@ -59,6 +61,7 @@ test("wrong password shows error", async ({ page, context }) => {
 
   await context.clearCookies();
   await page.goto("/login");
+  await page.waitForSelector("[data-hydrated]");
 
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', "wrongpassword");

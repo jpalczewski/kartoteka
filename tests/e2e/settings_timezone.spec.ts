@@ -1,6 +1,6 @@
 import { test, expect, APIRequestContext, Page } from "@playwright/test";
 
-const BASE_URL = "http://localhost:3000";
+const BASE_URL = "http://localhost:3030";
 const PASSWORD = "testpassword123";
 
 function uniqueEmail() {
@@ -17,8 +17,10 @@ async function registerAndLogin(
     data: { name: "TZ User", email, password: PASSWORD },
   });
   expect(res.ok()).toBeTruthy();
+  await page.context().clearCookies();
 
   await page.goto("/login");
+  await page.waitForSelector("[data-hydrated]");
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', PASSWORD);
   await Promise.all([
@@ -30,16 +32,17 @@ async function registerAndLogin(
 /** Create a list through the home page UI and return its ID. */
 async function createListViaUi(page: Page): Promise<string> {
   await page.goto("/");
+  await page.waitForSelector("[data-hydrated]");
   const input = page.locator('input[placeholder="Nazwa listy..."]');
   await input.waitFor();
   await input.fill("TZ Test List");
   await page.locator('button:has-text("Utwórz")').first().click();
 
-  // Wait for the list link to appear on the page
-  const listLink = page.locator('a[href^="/lists/"]').first();
-  await listLink.waitFor({ timeout: 5000 });
-  const href = await listLink.getAttribute("href");
-  return href!.replace("/lists/", "");
+  const card = page.locator('[data-testid="list-card"]').filter({ hasText: "TZ Test List" });
+  await card.waitFor({ timeout: 5000 });
+  await card.locator('[data-testid="list-card-title"]').click();
+  await page.waitForURL(/\/lists\/.+/);
+  return page.url().split("/lists/")[1];
 }
 
 /** Set timezone via the settings page select. */
