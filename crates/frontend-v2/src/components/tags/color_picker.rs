@@ -1,17 +1,14 @@
 use leptos::prelude::*;
 
 fn random_hex_color() -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    use std::time::SystemTime;
-    let mut hasher = DefaultHasher::new();
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos()
-        .hash(&mut hasher);
-    let h = hasher.finish();
-    format!("#{:06x}", h & 0xFFFFFF)
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static S: AtomicU64 = AtomicU64::new(0x517c_c1b7_2722_0a95);
+    let mut v = S.fetch_add(0x9e37_79b9_7f4a_7c15, Ordering::Relaxed);
+    v ^= v << 13;
+    v ^= v >> 7;
+    v ^= v << 17;
+    S.store(v, Ordering::Relaxed);
+    format!("#{:06x}", v & 0xFF_FFFF)
 }
 
 /// Color swatch + 🎲 randomize button. Calls `on_change` with the new hex color.
