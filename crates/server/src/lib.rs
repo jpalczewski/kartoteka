@@ -5,8 +5,10 @@ pub mod items;
 pub mod lists;
 pub mod relations;
 pub mod routes;
+pub mod search;
 pub mod settings;
 pub mod tags;
+pub mod templates;
 pub mod time_entries;
 
 pub use error::AppError;

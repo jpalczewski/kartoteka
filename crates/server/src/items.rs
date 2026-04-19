@@ -26,9 +26,10 @@ pub fn list_items_router() -> Router<AppState> {
 }
 
 /// Routes mounted under `/items`.
-/// Static paths (/by-date, /calendar) registered before dynamic (/{id}) — Axum handles priority automatically.
+/// Static paths (/all, /by-date, /calendar) registered before dynamic (/{id}) — Axum handles priority automatically.
 pub fn items_router() -> Router<AppState> {
     Router::new()
+        .route("/all", get(list_all_items))
         .route("/by-date", get(by_date))
         .route("/calendar", get(calendar))
         .route("/{id}", get(get_item).put(update_item).delete(delete_item))
@@ -111,6 +112,15 @@ async fn move_item(
 ) -> Result<impl IntoResponse, AppError> {
     let item = kartoteka_domain::items::move_item(&state.pool, &uid, &id, &req).await?;
     item.map(Json).ok_or(AppError::NotFound("item"))
+}
+
+#[tracing::instrument(skip_all, fields(action = "list_all_items"))]
+async fn list_all_items(
+    State(state): State<AppState>,
+    UserId(uid): UserId,
+) -> Result<impl IntoResponse, AppError> {
+    let items = kartoteka_domain::items::list_all_for_user(&state.pool, &uid).await?;
+    Ok(Json(items))
 }
 
 #[tracing::instrument(skip_all, fields(action = "list_items_by_date"))]
