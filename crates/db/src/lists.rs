@@ -380,17 +380,6 @@ pub async fn uncheck_items(pool: &SqlitePool, list_id: &str) -> Result<u64, DbEr
     Ok(result.rows_affected())
 }
 
-/// Delete all items in a list (reset). Ownership must be verified by caller.
-#[tracing::instrument(skip(pool))]
-pub async fn delete_items(pool: &SqlitePool, list_id: &str) -> Result<u64, DbError> {
-    let rows = sqlx::query("DELETE FROM items WHERE list_id = ?")
-        .bind(list_id)
-        .execute(pool)
-        .await
-        .map_err(DbError::Sqlx)?;
-    Ok(rows.rows_affected())
-}
-
 #[tracing::instrument(skip(pool))]
 pub async fn move_list(
     pool: &SqlitePool,

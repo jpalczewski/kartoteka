@@ -117,6 +117,8 @@ pub fn ListPage() -> impl IntoView {
                                                     if ev.key() == "Enter" {
                                                         let lid2 = lid.clone();
                                                         let new_name = name_input.get_untracked();
+                                                        // Dismiss input first; heading briefly shows old name until refresh.
+                                                        // Deliberate: optimistic display adds complexity for minimal gain.
                                                         set_editing_name.set(false);
                                                         leptos::task::spawn_local(async move {
                                                             match rename_list(lid2, new_name, None).await {
