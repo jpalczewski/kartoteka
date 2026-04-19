@@ -1,14 +1,17 @@
 use leptos::prelude::*;
 
+#[cfg(target_arch = "wasm32")]
 fn random_hex_color() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static S: AtomicU64 = AtomicU64::new(0x517c_c1b7_2722_0a95);
-    let mut v = S.fetch_add(0x9e37_79b9_7f4a_7c15, Ordering::Relaxed);
-    v ^= v << 13;
-    v ^= v >> 7;
-    v ^= v << 17;
-    S.store(v, Ordering::Relaxed);
-    format!("#{:06x}", v & 0xFF_FFFF)
+    let r = (js_sys::Math::random() * 256.0) as u8;
+    let g = (js_sys::Math::random() * 256.0) as u8;
+    let b = (js_sys::Math::random() * 256.0) as u8;
+    format!("#{:02x}{:02x}{:02x}", r, g, b)
+}
+
+// Only called from browser event handlers — SSR stub never runs.
+#[cfg(not(target_arch = "wasm32"))]
+fn random_hex_color() -> String {
+    "#6366f1".to_string()
 }
 
 /// Color swatch + 🎲 randomize button. Calls `on_change` with the new hex color.
