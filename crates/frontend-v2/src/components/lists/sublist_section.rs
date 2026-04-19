@@ -1,5 +1,6 @@
 use kartoteka_shared::types::{Item, List};
 use leptos::prelude::*;
+use leptos_router::components::A;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::items::item_row::ItemRow;
@@ -64,6 +65,9 @@ pub fn SublistSection(sublist: List, on_any_change: Callback<()>) -> impl IntoVi
             <input type="checkbox" checked=true />
             <div class="collapse-title font-semibold flex items-center gap-2">
                 <span>{list_name}</span>
+                <A href=format!("/lists/{list_id}") attr:class="btn btn-ghost btn-xs ml-1" attr:title="Otwórz jako widok listy">
+                    "↗"
+                </A>
                 <Suspense>
                     {move || data_res.get().and_then(|r| r.ok()).map(|data| {
                         let done = data.items.iter().filter(|i| i.completed).count();
