@@ -37,8 +37,8 @@ pub fn time_entries_router() -> Router<AppState> {
         .route("/start", post(start_timer))
         .route("/stop", post(stop_timer))
         .route("/log", post(log_time))
-        .route("/:id/assign", patch(assign_entry))
-        .route("/:id", delete(delete_entry))
+        .route("/{id}/assign", patch(assign_entry))
+        .route("/{id}", delete(delete_entry))
 }
 
 #[tracing::instrument(skip_all, fields(action = "list_time_entries", item_id = %q.item_id))]
