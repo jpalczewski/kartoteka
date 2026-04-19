@@ -194,6 +194,7 @@ pub fn ListPage() -> impl IntoView {
                                                         <input
                                                             type="checkbox"
                                                             class="toggle toggle-xs"
+                                                            data-testid="hide-completed-toggle"
                                                             prop:checked=move || !show_completed.get()
                                                             on:change=move |ev| set_show_completed.set(!event_target_checked(&ev))
                                                         />
