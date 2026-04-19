@@ -278,6 +278,8 @@ pub struct ListData {
     pub list: List,
     pub items: Vec<Item>,
     pub sublists: Vec<List>,
+    /// `list.created_at` converted to the requesting user's timezone, formatted for display.
+    pub created_at_local: String,
 }
 
 /// Item enriched with its parent list's display name.

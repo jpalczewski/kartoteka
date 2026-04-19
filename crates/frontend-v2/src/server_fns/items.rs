@@ -7,6 +7,17 @@ use {
     kartoteka_auth::KartotekaBackend, kartoteka_domain as domain, sqlx::SqlitePool,
 };
 
+#[cfg(feature = "ssr")]
+fn format_in_tz(utc_str: &str, tz_name: &str) -> String {
+    use chrono::{TimeZone as _, Utc};
+    use chrono_tz::Tz;
+    let tz: Tz = tz_name.parse().unwrap_or(chrono_tz::UTC);
+    let naive =
+        chrono::NaiveDateTime::parse_from_str(utc_str, "%Y-%m-%d %H:%M:%S").unwrap_or_default();
+    let local = Utc.from_utc_datetime(&naive).with_timezone(&tz);
+    local.format("%d.%m.%Y %H:%M").to_string()
+}
+
 /// Convert domain::items::Item to shared::types::Item.
 #[cfg(feature = "ssr")]
 pub(crate) fn domain_item_to_shared(item: domain::items::Item) -> Item {
@@ -42,23 +53,29 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
 
-    let list = domain::lists::get_one(&pool, &list_id, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
-        .ok_or_else(|| ServerFnError::new("list not found".to_string()))?;
+    let (list_opt, items, sublists, settings) = tokio::try_join!(
+        domain::lists::get_one(&pool, &list_id, &user.id),
+        domain::items::list_for_list(&pool, &list_id, &user.id),
+        domain::lists::sublists(&pool, &list_id, &user.id),
+        domain::settings::list_all(&pool, &user.id),
+    )
+    .map_err(|e| ServerFnError::new(e.to_string()))?;
 
-    let items = domain::items::list_for_list(&pool, &list_id, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let list = list_opt.ok_or_else(|| ServerFnError::new("list not found".to_string()))?;
 
-    let sublists = domain::lists::sublists(&pool, &list_id, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let tz = settings
+        .iter()
+        .find(|s| s.key == "timezone")
+        .map(|s| s.value.as_str())
+        .unwrap_or("UTC");
+
+    let created_at_local = format_in_tz(&list.created_at, tz);
 
     Ok(ListData {
         list: domain_list_to_shared(list),
         items: items.into_iter().map(domain_item_to_shared).collect(),
         sublists: sublists.into_iter().map(domain_list_to_shared).collect(),
+        created_at_local,
     })
 }
 

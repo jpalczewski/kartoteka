@@ -8,6 +8,18 @@ use {
     sqlx::SqlitePool,
 };
 
+/// Current user's display name — used by the navbar.
+#[server(prefix = "/leptos")]
+pub async fn get_nav_data() -> Result<String, ServerFnError> {
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    Ok(user.name.unwrap_or(user.email))
+}
+
 /// Authenticate with email + password. On success, sets session cookie and redirects to /.
 #[server(prefix = "/leptos")]
 pub async fn do_login(email: String, password: String) -> Result<(), ServerFnError> {

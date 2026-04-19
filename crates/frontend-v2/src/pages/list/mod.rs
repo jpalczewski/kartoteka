@@ -88,16 +88,20 @@ pub fn ListPage() -> impl IntoView {
                         let icon = list_type_icon(&data.list.list_type);
                         let list_name = data.list.name.clone();
                         let list_description = data.list.description.clone();
+                        let created_at_local = data.created_at_local.clone();
                         let items = data.items.clone();
                         let sublists = data.sublists.clone();
 
                         view! {
                             <div>
                                 // Header
-                                <div class="mb-4 flex items-center gap-2">
+                                <div class="mb-1 flex items-center gap-2">
                                     <span class="text-2xl">{icon}</span>
                                     <h2 class="text-2xl font-bold">{list_name}</h2>
                                 </div>
+                                <p class="text-xs text-base-content/40 mb-4" data-testid="list-created-at">
+                                    "Utworzono: " {created_at_local}
+                                </p>
 
                                 {list_description.map(|desc| view! {
                                     <p class="text-base-content/60 mb-4">{desc}</p>

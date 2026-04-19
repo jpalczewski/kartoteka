@@ -1649,6 +1649,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "tokio",
  "wasm-bindgen",
  "web-sys",
 ]

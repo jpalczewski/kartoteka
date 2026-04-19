@@ -37,6 +37,7 @@ kartoteka-domain = { path = "../domain", version = "0.1.1", optional = true }
 kartoteka-auth = { path = "../auth", version = "0.1.1", optional = true }
 kartoteka-db = { path = "../db", version = "0.1.1", optional = true }
 chrono-tz = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -61,4 +62,5 @@ ssr = [
     "dep:kartoteka-auth",
     "dep:kartoteka-db",
     "dep:chrono-tz",
+    "dep:tokio",
 ]
