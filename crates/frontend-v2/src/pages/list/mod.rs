@@ -9,7 +9,7 @@ use crate::components::lists::{
     add_input::AddInput, list_card::list_type_icon, sublist_section::SublistSection,
 };
 use crate::server_fns::items::{create_item, delete_item, get_list_data, toggle_item};
-use crate::server_fns::lists::create_list;
+use crate::server_fns::lists::{create_list, rename_list};
 
 #[component]
 pub fn ListPage() -> impl IntoView {
@@ -20,6 +20,8 @@ pub fn ListPage() -> impl IntoView {
 
     let (refresh, set_refresh) = signal(0u32);
     let (show_completed, set_show_completed) = signal(true);
+    let (editing_name, set_editing_name) = signal(false);
+    let (name_input, set_name_input) = signal(String::new());
 
     let data_res = Resource::new(
         move || (list_id(), refresh.get()),
@@ -100,7 +102,48 @@ pub fn ListPage() -> impl IntoView {
                                 // Header
                                 <div class="mb-1 flex items-center gap-2">
                                     <span class="text-2xl">{icon}</span>
-                                    <h2 class="text-2xl font-bold">{list_name}</h2>
+                                    {move || if editing_name.get() {
+                                        let lid = list_id();
+                                        view! {
+                                            <input
+                                                type="text"
+                                                class="input input-bordered text-2xl font-bold flex-1"
+                                                data-testid="list-name-input"
+                                                prop:value=name_input
+                                                on:input=move |ev| set_name_input.set(event_target_value(&ev))
+                                                on:keydown=move |ev: leptos::ev::KeyboardEvent| {
+                                                    if ev.key() == "Enter" {
+                                                        let lid2 = lid.clone();
+                                                        let new_name = name_input.get_untracked();
+                                                        set_editing_name.set(false);
+                                                        leptos::task::spawn_local(async move {
+                                                            match rename_list(lid2, new_name, None).await {
+                                                                Ok(_) => set_refresh.update(|n| *n += 1),
+                                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                            }
+                                                        });
+                                                    } else if ev.key() == "Escape" {
+                                                        set_editing_name.set(false);
+                                                    }
+                                                }
+                                            />
+                                        }.into_any()
+                                    } else {
+                                        let name_for_click = list_name.clone();
+                                        view! {
+                                            <h2
+                                                class="text-2xl font-bold cursor-pointer hover:underline decoration-dotted"
+                                                title="Kliknij aby edytować"
+                                                data-testid="list-name-heading"
+                                                on:click=move |_| {
+                                                    set_name_input.set(name_for_click.clone());
+                                                    set_editing_name.set(true);
+                                                }
+                                            >
+                                                {list_name.clone()}
+                                            </h2>
+                                        }.into_any()
+                                    }}
                                 </div>
                                 <p class="text-xs text-base-content/40 mb-4" data-testid="list-created-at">
                                     "Utworzono: " {created_at_local}
