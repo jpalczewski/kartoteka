@@ -21,12 +21,15 @@ async fn main() {
     }
 
     let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://data.db".into());
+    tracing::info!("connecting to database: {}", db_url);
     let pool = kartoteka_db::create_pool(&db_url)
         .await
         .expect("db connect");
+    tracing::info!("running migrations");
     kartoteka_db::run_migrations(&pool)
         .await
         .expect("migrations");
+    tracing::info!("migrations done");
 
     let session_store = SqliteStore::new(pool.clone());
     session_store

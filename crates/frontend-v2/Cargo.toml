@@ -26,6 +26,7 @@ wasm-bindgen = { workspace = true, optional = true }
 js-sys = { workspace = true, optional = true }
 web-sys = { workspace = true, optional = true, features = [
     "Storage", "Window", "Navigator", "Clipboard", "Location",
+    "Document", "HtmlElement",
 ] }
 console_error_panic_hook = { workspace = true, optional = true }
 

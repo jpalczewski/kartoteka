@@ -45,23 +45,13 @@ pub async fn create_pool(url: &str) -> Result<SqlitePool, DbError> {
         .journal_mode(SqliteJournalMode::Wal)
         .synchronous(SqliteSynchronous::Normal);
 
+    // SQLite is single-writer. SQLx docs canonical pattern:
+    // SqlitePoolOptions::new().max_connections(1).connect_with(options)
+    // Pre-opening connections (min_connections>0) opens them concurrently with
+    // migrations in the background, cached partial/empty schema views caused
+    // sporadic "no such table" errors on later requests.
     let pool = SqlitePoolOptions::new()
-        .max_connections(8)
-        .min_connections(2)
-        .after_connect(|conn, _meta| {
-            Box::pin(async move {
-                sqlx::query("PRAGMA busy_timeout = 5000")
-                    .execute(&mut *conn)
-                    .await?;
-                sqlx::query("PRAGMA mmap_size = 268435456")
-                    .execute(&mut *conn)
-                    .await?;
-                sqlx::query("PRAGMA optimize = 0x10002")
-                    .execute(&mut *conn)
-                    .await?;
-                Ok(())
-            })
-        })
+        .max_connections(1)
         .connect_with(options)
         .await?;
 
