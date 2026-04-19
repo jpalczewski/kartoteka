@@ -4,6 +4,7 @@ use leptos::prelude::*;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::loading::LoadingSpinner;
+use crate::components::tags::color_picker::TagColorPicker;
 use crate::server_fns::tags::{create_tag, delete_tag, get_all_tags};
 
 #[component]
@@ -46,12 +47,9 @@ pub fn TagsPage() -> impl IntoView {
 
             // Create tag form
             <div class="flex gap-2 mb-6">
-                <input
-                    type="color"
-                    class="w-10 h-10 rounded cursor-pointer border border-base-300"
-                    data-testid="new-tag-color"
-                    prop:value=move || new_color.get()
-                    on:input=move |ev| set_new_color.set(event_target_value(&ev))
+                <TagColorPicker
+                    value=Signal::derive(move || new_color.get())
+                    on_change=Callback::new(move |c: String| set_new_color.set(c))
                 />
                 <input
                     type="text"
