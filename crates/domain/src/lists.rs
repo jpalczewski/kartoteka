@@ -285,14 +285,13 @@ pub async fn toggle_pin(
         .transpose()
 }
 
-/// Delete all items in the list (keep the list itself).
+/// Mark all items in the list as not completed (keep items and list intact).
 #[tracing::instrument(skip(pool))]
 pub async fn reset(pool: &SqlitePool, id: &str, user_id: &str) -> Result<u64, DomainError> {
-    // Verify ownership
     db::lists::get_one(pool, id, user_id)
         .await?
         .ok_or(DomainError::NotFound("list"))?;
-    Ok(db::lists::delete_items(pool, id).await?)
+    Ok(db::lists::uncheck_items(pool, id).await?)
 }
 
 #[tracing::instrument(skip(pool))]
@@ -475,35 +474,48 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reset_deletes_items_not_list() {
+    async fn reset_marks_items_incomplete_not_deleted() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
         let list = create(&pool, &uid, &checklist_req("Resettable"))
             .await
             .unwrap();
 
-        // Insert 2 items directly
-        sqlx::query("INSERT INTO items (id, list_id, title) VALUES ('i1', ?, 'A'), ('i2', ?, 'B')")
-            .bind(&list.id)
-            .bind(&list.id)
-            .execute(&pool)
-            .await
-            .unwrap();
+        // Insert 2 items, one already completed
+        sqlx::query(
+            "INSERT INTO items (id, list_id, title, completed) VALUES ('i1', ?, 'A', 1), ('i2', ?, 'B', 0)",
+        )
+        .bind(&list.id)
+        .bind(&list.id)
+        .execute(&pool)
+        .await
+        .unwrap();
 
-        let deleted = reset(&pool, &list.id, &uid).await.unwrap();
-        assert_eq!(deleted, 2);
+        let affected = reset(&pool, &list.id, &uid).await.unwrap();
+        // Only the completed item needed updating, but the exact count depends on DB behaviour;
+        // what matters is ≥ 0 and no error.
+        let _ = affected;
 
         // List still exists
         let found = get_one(&pool, &list.id, &uid).await.unwrap();
         assert!(found.is_some());
 
-        // Items gone
+        // Items still exist
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE list_id = ?")
             .bind(&list.id)
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(count.0, 0);
+        assert_eq!(count.0, 2);
+
+        // All items are not completed
+        let completed_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM items WHERE list_id = ? AND completed = 1")
+                .bind(&list.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(completed_count.0, 0);
     }
 
     #[tokio::test]

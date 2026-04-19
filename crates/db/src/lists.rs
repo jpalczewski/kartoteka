@@ -369,6 +369,17 @@ pub async fn toggle_pinned(pool: &SqlitePool, id: &str, user_id: &str) -> Result
     Ok(rows.rows_affected() > 0)
 }
 
+/// Mark all items in a list as not completed.
+#[tracing::instrument(skip(pool))]
+pub async fn uncheck_items(pool: &SqlitePool, list_id: &str) -> Result<u64, DbError> {
+    let result = sqlx::query("UPDATE items SET completed = 0 WHERE list_id = ?")
+        .bind(list_id)
+        .execute(pool)
+        .await
+        .map_err(DbError::Sqlx)?;
+    Ok(result.rows_affected())
+}
+
 /// Delete all items in a list (reset). Ownership must be verified by caller.
 #[tracing::instrument(skip(pool))]
 pub async fn delete_items(pool: &SqlitePool, list_id: &str) -> Result<u64, DbError> {
