@@ -9,6 +9,7 @@ use crate::components::lists::{
     add_input::AddInput, list_card::list_type_icon, sublist_section::SublistSection,
 };
 use crate::server_fns::items::{create_item, delete_item, get_list_data, toggle_item};
+use crate::server_fns::lists::create_list;
 
 #[component]
 pub fn ListPage() -> impl IntoView {
@@ -54,6 +55,28 @@ pub fn ListPage() -> impl IntoView {
         });
     });
 
+    let on_create_sublist = Callback::new(move |name: String| {
+        use kartoteka_shared::types::CreateListRequest;
+        let parent_id = list_id();
+        leptos::task::spawn_local(async move {
+            let req = CreateListRequest {
+                name,
+                list_type: None,
+                icon: None,
+                description: None,
+                container_id: None,
+                parent_list_id: Some(parent_id),
+                features: vec![],
+            };
+            match create_list(req).await {
+                Ok(_) => set_refresh.update(|n| *n += 1),
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+        });
+    });
+
+    let (adding_sublist, set_adding_sublist) = signal(false);
+
     view! {
         <div class="container mx-auto max-w-2xl p-4">
             <Suspense fallback=|| view! { <LoadingSpinner/> }>
@@ -90,23 +113,50 @@ pub fn ListPage() -> impl IntoView {
                                 </div>
 
                                 // Sublists section
-                                {if sublists.is_empty() {
-                                    view! {}.into_any()
-                                } else {
+                                {
                                     let notify = Callback::new(move |_| set_refresh.update(|n| *n += 1));
                                     view! {
                                         <div class="mb-4">
-                                            <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">
-                                                "Podlisty"
-                                            </h3>
-                                            <div class="flex flex-col gap-2">
-                                                {sublists.into_iter().map(|sublist| view! {
-                                                    <SublistSection sublist=sublist on_any_change=notify />
-                                                }).collect::<Vec<_>>()}
-                                            </div>
+                                            {if !sublists.is_empty() {
+                                                view! {
+                                                    <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">
+                                                        "Podlisty"
+                                                    </h3>
+                                                    <div class="flex flex-col gap-2 mb-2">
+                                                        {sublists.into_iter().map(|sublist| view! {
+                                                            <SublistSection sublist=sublist on_any_change=notify />
+                                                        }).collect::<Vec<_>>()}
+                                                    </div>
+                                                }.into_any()
+                                            } else {
+                                                view! {}.into_any()
+                                            }}
+                                            // Add sublist button
+                                            {move || if adding_sublist.get() {
+                                                view! {
+                                                    <AddInput
+                                                        placeholder=Signal::derive(|| "Nazwa podlisty...".to_string())
+                                                        button_label=Signal::derive(|| "Utwórz".to_string())
+                                                        on_submit=Callback::new(move |name: String| {
+                                                            set_adding_sublist.set(false);
+                                                            on_create_sublist.run(name);
+                                                        })
+                                                    />
+                                                }.into_any()
+                                            } else {
+                                                view! {
+                                                    <button
+                                                        type="button"
+                                                        class="btn btn-ghost btn-sm"
+                                                        on:click=move |_| set_adding_sublist.set(true)
+                                                    >
+                                                        "+ Dodaj podlistę"
+                                                    </button>
+                                                }.into_any()
+                                            }}
                                         </div>
                                     }.into_any()
-                                }}
+                                }
 
                                 // Items list
                                 {if items.is_empty() {
