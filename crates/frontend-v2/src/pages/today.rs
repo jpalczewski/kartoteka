@@ -74,29 +74,23 @@ pub fn TodayPage() -> impl IntoView {
                                         .filter(|di| show_completed.get() || !di.item.completed)
                                         .cloned()
                                         .collect();
-                                    let visible_total = visible_overdue.len() + visible_today.len();
 
-                                    if visible_total == 0 && !has_overdue && !has_today {
+                                    if !has_overdue && !has_today {
                                         // No items at all
                                         view! {
                                             <p class="text-center text-base-content/50 py-12">
                                                 "Nothing scheduled for today."
                                             </p>
                                         }.into_any()
-                                    } else if visible_total == 0 {
-                                        // Items exist but all filtered out
-                                        view! {
-                                            <div class="text-center text-base-content/50 py-8">
-                                                "Wszystkie elementy ukończone — odznacz filtr aby je zobaczyć."
-                                            </div>
-                                        }.into_any()
                                     } else {
+                                        // Has items — always show header, then either list or filtered-empty message
+                                        let all_hidden = visible_overdue.is_empty() && visible_today.is_empty();
                                         let overdue_groups = group_by_list(visible_overdue);
                                         let today_groups = group_by_list(visible_today);
 
                                         view! {
                                             <div>
-                                                // Completion count + toggle header
+                                                // Completion count + toggle header — always visible when items exist
                                                 <div class="flex items-center justify-between mb-4">
                                                     <span class="text-sm text-base-content/60" data-testid="today-completion-count">
                                                         {completed_count} "/" {total} " ukończone"
@@ -113,33 +107,45 @@ pub fn TodayPage() -> impl IntoView {
                                                     </label>
                                                 </div>
 
-                                                // Overdue section
-                                                {if !overdue_groups.is_empty() {
+                                                {if all_hidden {
                                                     view! {
-                                                        <div class="mb-6">
-                                                            <h3 class="text-xs text-error uppercase tracking-wider font-semibold mb-2">
-                                                                "Overdue"
-                                                            </h3>
-                                                            {render_groups(overdue_groups, on_toggle)}
+                                                        <div class="text-center text-base-content/50 py-4">
+                                                            "Wszystkie elementy ukończone — odznacz filtr aby je zobaczyć."
                                                         </div>
                                                     }.into_any()
-                                                } else { ().into_any() }}
-
-                                                // Today section
-                                                {if !today_groups.is_empty() {
+                                                } else {
                                                     view! {
-                                                        <div class="mb-6">
-                                                            {if has_overdue {
+                                                        <div>
+                                                            // Overdue section
+                                                            {if !overdue_groups.is_empty() {
                                                                 view! {
-                                                                    <h3 class="text-xs text-base-content/50 uppercase tracking-wider font-semibold mb-2">
-                                                                        "Today"
-                                                                    </h3>
+                                                                    <div class="mb-6">
+                                                                        <h3 class="text-xs text-error uppercase tracking-wider font-semibold mb-2">
+                                                                            "Overdue"
+                                                                        </h3>
+                                                                        {render_groups(overdue_groups, on_toggle)}
+                                                                    </div>
                                                                 }.into_any()
                                                             } else { ().into_any() }}
-                                                            {render_groups(today_groups, on_toggle)}
+
+                                                            // Today section
+                                                            {if !today_groups.is_empty() {
+                                                                view! {
+                                                                    <div class="mb-6">
+                                                                        {if has_overdue {
+                                                                            view! {
+                                                                                <h3 class="text-xs text-base-content/50 uppercase tracking-wider font-semibold mb-2">
+                                                                                    "Today"
+                                                                                </h3>
+                                                                            }.into_any()
+                                                                        } else { ().into_any() }}
+                                                                        {render_groups(today_groups, on_toggle)}
+                                                                    </div>
+                                                                }.into_any()
+                                                            } else { ().into_any() }}
                                                         </div>
                                                     }.into_any()
-                                                } else { ().into_any() }}
+                                                }}
                                             </div>
                                         }.into_any()
                                     }
