@@ -9,10 +9,11 @@ function uniqueEmail() {
 
 async function setup(page: any, context: any) {
   const email = uniqueEmail();
-  await context.request.post(`${BASE_URL}/auth/register`, {
+  const res = await context.request.post(`${BASE_URL}/auth/register`, {
     headers: { "Content-Type": "application/json" },
     data: { name: "Tags User", email, password: PASSWORD },
   });
+  expect(res.ok()).toBeTruthy();
   await page.goto("/login");
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', PASSWORD);
@@ -35,7 +36,7 @@ test("navbar has Tags link that navigates to /tags", async ({ page, context }) =
 test("tags page shows empty state when no tags exist", async ({ page, context }) => {
   await setup(page, context);
   await page.goto("/tags");
-  await expect(page.locator('text=Brak tagów')).toBeVisible();
+  await expect(page.locator('[data-testid="tags-empty-state"]')).toBeVisible();
 });
 
 test("create tag via button shows it in the list", async ({ page, context }) => {
@@ -67,7 +68,7 @@ test("create tag with empty name does nothing", async ({ page, context }) => {
   await setup(page, context);
   await page.goto("/tags");
   await page.locator('[data-testid="create-tag-btn"]').click();
-  await expect(page.locator('text=Brak tagów')).toBeVisible();
+  await expect(page.locator('[data-testid="tags-empty-state"]')).toBeVisible();
 });
 
 test("delete tag removes it from the list", async ({ page, context }) => {
@@ -89,7 +90,7 @@ test("after deleting last tag empty state appears", async ({ page, context }) =>
   const row = page.locator('[data-testid="tag-item"]').filter({ hasText: "Jedyny" });
   await expect(row).toBeVisible();
   await row.locator('[data-testid="delete-tag-btn"]').click();
-  await expect(page.locator('text=Brak tagów')).toBeVisible();
+  await expect(page.locator('[data-testid="tags-empty-state"]')).toBeVisible();
 });
 
 test("click tag navigates to detail page showing tag name", async ({ page, context }) => {
@@ -117,6 +118,6 @@ test("tag detail page shows empty linked lists message when no lists linked", as
 
 test("tag detail page with unknown id shows error", async ({ page, context }) => {
   await setup(page, context);
-  await page.goto("/tags/nonexistent-tag-id-xyz");
-  await expect(page.locator('text=Błąd')).toBeVisible();
+  await page.goto("/tags/00000000-0000-0000-0000-000000000000");
+  await expect(page.locator('[data-testid="tag-error"]')).toBeVisible();
 });

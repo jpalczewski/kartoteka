@@ -75,7 +75,7 @@ pub fn TagsPage() -> impl IntoView {
                     Ok(tags) => {
                         if tags.is_empty() {
                             return view! {
-                                <div class="text-center text-base-content/50 py-8">
+                                <div class="text-center text-base-content/50 py-8" data-testid="tags-empty-state">
                                     "Brak tagów. Dodaj pierwszy powyżej."
                                 </div>
                             }.into_any();

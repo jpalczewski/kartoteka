@@ -17,7 +17,7 @@ pub fn TagDetailPage() -> impl IntoView {
             <Suspense fallback=|| view! { <LoadingSpinner/> }>
                 {move || data_res.get().map(|result| match result {
                     Err(e) => view! {
-                        <p class="text-error">"Błąd: " {e.to_string()}</p>
+                        <p class="text-error" data-testid="tag-error">"Błąd: " {e.to_string()}</p>
                     }.into_any(),
                     Ok(data) => {
                         let color = data.tag.color.clone().unwrap_or_else(|| "#6366f1".to_string());
