@@ -24,6 +24,7 @@ fn group_by_list(items: Vec<DateItem>) -> Vec<(String, String, Vec<DateItem>)> {
 pub fn AllPage() -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let (refresh, set_refresh) = signal(0u32);
+    let (show_completed, set_show_completed) = signal(true);
 
     let all_res = Resource::new(move || refresh.get(), |_| get_all_items());
 
@@ -44,8 +45,9 @@ pub fn AllPage() -> impl IntoView {
                         <p class="text-error">"Error: " {e.to_string()}</p>
                     }.into_any(),
                     Ok(items) => {
-                        let groups = group_by_list(items);
-                        let is_empty = groups.is_empty();
+                        let total = items.len();
+                        let completed_count = items.iter().filter(|di| di.item.completed).count();
+                        let has_items = !items.is_empty();
 
                         view! {
                             <div>
@@ -53,14 +55,53 @@ pub fn AllPage() -> impl IntoView {
                                     <h1 class="text-2xl font-bold">"All Items"</h1>
                                 </div>
 
-                                {if is_empty {
-                                    view! {
-                                        <p class="text-center text-base-content/50 py-12">
-                                            "No items yet."
-                                        </p>
-                                    }.into_any()
-                                } else {
-                                    render_groups(groups, on_toggle).into_any()
+                                {move || {
+                                    let visible_items: Vec<DateItem> = items
+                                        .iter()
+                                        .filter(|di| show_completed.get() || !di.item.completed)
+                                        .cloned()
+                                        .collect();
+
+                                    if !has_items {
+                                        view! {
+                                            <p class="text-center text-base-content/50 py-12">
+                                                "Brak elementów."
+                                            </p>
+                                        }.into_any()
+                                    } else {
+                                        let all_hidden = visible_items.is_empty();
+                                        let groups = group_by_list(visible_items);
+
+                                        view! {
+                                            <div>
+                                                <div class="flex items-center justify-between mb-2">
+                                                    <span class="text-sm text-base-content/60" data-testid="all-completion-count">
+                                                        {completed_count} "/" {total} " ukończone"
+                                                    </span>
+                                                    <label class="flex items-center gap-2 cursor-pointer select-none">
+                                                        <span class="text-xs text-base-content/50">"Ukryj ukończone"</span>
+                                                        <input
+                                                            type="checkbox"
+                                                            class="toggle toggle-xs"
+                                                            data-testid="hide-completed-toggle"
+                                                            prop:checked=move || !show_completed.get()
+                                                            on:change=move |ev| set_show_completed.set(!event_target_checked(&ev))
+                                                        />
+                                                    </label>
+                                                </div>
+
+                                                {if all_hidden {
+                                                    view! {
+                                                        <div class="text-center text-base-content/50 py-4">
+                                                            "Wszystkie elementy ukończone — odznacz filtr aby je zobaczyć."
+                                                        </div>
+                                                    }.into_any()
+                                                } else {
+                                                    render_groups(groups, on_toggle).into_any()
+                                                }}
+                                            </div>
+                                        }.into_any()
+                                    }
                                 }}
                             </div>
                         }.into_any()
