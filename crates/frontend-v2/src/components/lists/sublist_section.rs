@@ -1,11 +1,9 @@
-use kartoteka_shared::types::{Item, List};
-use leptos::prelude::*;
-use leptos_router::components::A;
-
 use crate::app::{ToastContext, ToastKind};
 use crate::components::items::item_row::ItemRow;
 use crate::components::lists::add_input::AddInput;
 use crate::server_fns::items::{create_item, delete_item, get_list_data, toggle_item};
+use kartoteka_shared::types::{Item, List};
+use leptos::prelude::*;
 
 #[component]
 pub fn SublistSection(sublist: List, on_any_change: Callback<()>) -> impl IntoView {
@@ -65,9 +63,14 @@ pub fn SublistSection(sublist: List, on_any_change: Callback<()>) -> impl IntoVi
             <input type="checkbox" checked=true />
             <div class="collapse-title font-semibold flex items-center gap-2">
                 <span>{list_name}</span>
-                <A href=format!("/lists/{list_id}") attr:class="btn btn-ghost btn-xs ml-1" attr:title="Otwórz jako widok listy">
+                <a
+                    href=format!("/lists/{list_id}")
+                    class="btn btn-ghost btn-xs ml-1"
+                    title="Otwórz jako widok listy"
+                    on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()
+                >
                     "↗"
-                </A>
+                </a>
                 <Suspense>
                     {move || data_res.get().and_then(|r| r.ok()).map(|data| {
                         let done = data.items.iter().filter(|i| i.completed).count();
