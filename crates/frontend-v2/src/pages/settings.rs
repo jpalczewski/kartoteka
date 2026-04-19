@@ -2,6 +2,7 @@ use leptos::prelude::*;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::loading::LoadingSpinner;
+use crate::context::GlobalRefresh;
 use crate::server_fns::settings::{
     create_token_sf, get_settings_page_data, revoke_token_sf, set_reg_enabled, set_setting,
 };
@@ -25,6 +26,7 @@ const TIMEZONES: &[&str] = &[
 #[component]
 pub fn SettingsPage() -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
     let (refresh, set_refresh) = signal(0u32);
 
     let data_res = Resource::new(move || refresh.get(), |_| get_settings_page_data());
@@ -83,7 +85,10 @@ pub fn SettingsPage() -> impl IntoView {
                                             let val = event_target_value(&ev);
                                             leptos::task::spawn_local(async move {
                                                 match set_setting("timezone".to_string(), val).await {
-                                                    Ok(_) => set_refresh.update(|n| *n += 1),
+                                                    Ok(_) => {
+                                                        set_refresh.update(|n| *n += 1);
+                                                        global_refresh.bump();
+                                                    }
                                                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                                 }
                                             });

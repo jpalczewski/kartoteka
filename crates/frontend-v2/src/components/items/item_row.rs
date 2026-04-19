@@ -23,6 +23,7 @@ pub fn ItemRow(
             <input
                 type="checkbox"
                 class="checkbox checkbox-primary"
+                data-testid="item-toggle"
                 checked=completed
                 on:change=move |_| on_toggle.run(item_id_toggle.clone())
             />

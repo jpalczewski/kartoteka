@@ -289,16 +289,16 @@ pub async fn create_token(
 ) -> Result<TokenCreated, DomainError> {
     let jti = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().timestamp() as usize;
-    let exp = expires_at.map(|dt| dt.timestamp() as usize);
 
-    // Use serde_json::json! so exp is null (omitted in JWT) when None
-    let claims = serde_json::json!({
+    let mut claims = serde_json::json!({
         "sub": user_id,
         "scope": scope,
         "jti": &jti,
         "iat": now,
-        "exp": exp,
     });
+    if let Some(exp) = expires_at.map(|dt| dt.timestamp() as usize) {
+        claims["exp"] = serde_json::json!(exp);
+    }
 
     let token = encode(
         &Header::new(Algorithm::HS256),

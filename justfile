@@ -177,8 +177,9 @@ machete:
 test:
     cargo test --workspace
 
-# Uruchom testy e2e (Playwright sam startuje serwer z osobną test.db)
+# Uruchom testy e2e — najpierw cargo leptos build (SSR + WASM razem), potem Playwright
 test-e2e:
+    cargo leptos build
     cd tests && npm install && CI=true npm test
 
 ci: fmt lint audit machete test

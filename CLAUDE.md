@@ -108,6 +108,13 @@ just deploy       # Deploy prod (migrate + API + gateway + frontend)
 just deploy-dev   # Deploy dev environment
 ```
 
+### Build frontend+server (Leptos SSR)
+
+- **ZAWSZE** `cargo leptos build` — buduje WASM (hydrate) i serwer w spójnych feature'ach. Używa `--no-default-features` dla obu targetów (patrz `[[workspace.metadata.leptos]]` w `Cargo.toml`).
+- **NIGDY** `cargo build -p kartoteka-server` do testów/uruchomienia — default features rozjeżdżają się z WASM i hydration pęka (`[data-hydrated]` nie zostanie ustawione, e2e `waitForSelector` timeouty).
+- **Do testów**: `cargo leptos build` (debug). `just test-e2e` już to robi.
+- **Produkcja**: `cargo leptos build --release`.
+
 ## Dokumentacja i aktualne wersje bibliotek
 
 Projekt używa szybko ewoluujących bibliotek (Leptos 0.8, gloo-net 0.7, worker 0.7+,

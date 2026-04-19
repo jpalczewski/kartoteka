@@ -97,6 +97,23 @@ fn I18nProvider(children: Children) -> impl IntoView {
 #[component]
 pub fn App() -> impl IntoView {
     provide_context(ToastContext::new());
+    provide_context(crate::context::GlobalRefresh::new());
+
+    // Signal to e2e tests that WASM hydration is complete.
+    // Deferred so the Router and route components finish attaching event handlers.
+    #[cfg(target_arch = "wasm32")]
+    set_timeout(
+        || {
+            if let Some(win) = web_sys::window() {
+                if let Some(doc) = win.document() {
+                    if let Some(body) = doc.body() {
+                        body.set_attribute("data-hydrated", "true").ok();
+                    }
+                }
+            }
+        },
+        std::time::Duration::ZERO,
+    );
 
     view! {
         <I18nProvider>

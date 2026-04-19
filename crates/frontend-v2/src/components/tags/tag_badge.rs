@@ -19,8 +19,9 @@ pub fn TagBadge(
                 else { "tag-badge badge cursor-pointer" }
             }
             style=style
-            on:click=move |_| {
+            on:click=move |ev| {
                 if let Some(cb) = on_click.clone() {
+                    ev.stop_propagation();
                     cb.run(tag_id.clone());
                 }
             }

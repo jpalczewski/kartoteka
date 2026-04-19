@@ -33,6 +33,7 @@ pub fn ListCard(
     view! {
         <div
             class="card bg-base-200 border border-base-300 cursor-pointer card-neon relative"
+            data-testid="list-card"
             on:click=move |_| { navigate(&href_nav, Default::default()); }
         >
             {on_delete.map(|cb| {
@@ -53,7 +54,7 @@ pub fn ListCard(
             <div class="card-body p-4">
                 <div class="flex items-center gap-2">
                     <span>{icon}</span>
-                    <span class="card-title text-base">{list_name}</span>
+                    <span class="card-title text-base" data-testid="list-card-title">{list_name}</span>
                 </div>
                 {match on_tag_toggle {
                     Some(cb) => view! {
