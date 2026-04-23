@@ -126,7 +126,7 @@ pub async fn authorize_get(
     if auth.user.is_none() {
         let qs = serde_urlencoded::to_string(&params).unwrap_or_default();
         let return_to = format!("/oauth/authorize?{qs}");
-        let target = format!("/auth/login?return_to={}", urlencoding::encode(&return_to));
+        let target = format!("/login?return_to={}", urlencoding::encode(&return_to));
         return Ok(Redirect::to(&target).into_response());
     }
 

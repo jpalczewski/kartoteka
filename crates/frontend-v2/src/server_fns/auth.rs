@@ -20,9 +20,14 @@ pub async fn get_nav_data() -> Result<String, ServerFnError> {
     Ok(user.name.unwrap_or(user.email))
 }
 
-/// Authenticate with email + password. On success, sets session cookie and redirects to /.
+/// Authenticate with email + password. On success, sets session cookie and redirects to
+/// `return_to` (if it's a safe relative path) or `/`.
 #[server(prefix = "/leptos")]
-pub async fn do_login(email: String, password: String) -> Result<(), ServerFnError> {
+pub async fn do_login(
+    email: String,
+    password: String,
+    return_to: Option<String>,
+) -> Result<(), ServerFnError> {
     let mut auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
         .await
         .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
@@ -38,7 +43,10 @@ pub async fn do_login(email: String, password: String) -> Result<(), ServerFnErr
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
 
-    leptos_axum::redirect("/");
+    let redirect_to = return_to
+        .filter(|r| r.starts_with('/') && !r.starts_with("//"))
+        .unwrap_or_else(|| "/".to_string());
+    leptos_axum::redirect(&redirect_to);
     Ok(())
 }
 

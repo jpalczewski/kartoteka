@@ -1,9 +1,13 @@
 use leptos::prelude::*;
+use leptos_router::hooks::use_query_map;
 
 use crate::server_fns::auth::do_login;
 
 #[component]
 pub fn LoginPage() -> impl IntoView {
+    let query = use_query_map();
+    let return_to = move || query.with(|q| q.get("return_to").map(|s| s.to_string()));
+
     let (email, set_email) = signal(String::new());
     let (password, set_password) = signal(String::new());
     let (error, set_error) = signal(Option::<String>::None);
@@ -13,6 +17,7 @@ pub fn LoginPage() -> impl IntoView {
         ev.prevent_default();
         let e = email.get();
         let p = password.get();
+        let rt = return_to();
         if e.trim().is_empty() || p.is_empty() {
             set_error.set(Some("Podaj email i hasło.".to_string()));
             return;
@@ -20,7 +25,7 @@ pub fn LoginPage() -> impl IntoView {
         set_loading.set(true);
         set_error.set(None);
         leptos::task::spawn_local(async move {
-            match do_login(e, p).await {
+            match do_login(e, p, rt).await {
                 Ok(_) => {
                     // redirect handled by server via leptos_axum::redirect("/")
                 }
