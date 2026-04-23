@@ -148,7 +148,7 @@ pub async fn authorize_get(
         .await
         .map_err(|e| OAuthError::Internal(e.to_string()))?;
 
-    Ok(Redirect::to("/oauth/consent").into_response())
+    Ok(Redirect::to("/consent").into_response())
 }
 
 const CONSENT_TTL_MIN: i64 = 10;

@@ -129,7 +129,7 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/login") view=LoginPage/>
                         <Route path=path!("/signup") view=SignupPage/>
                         <Route path=path!("/settings") view=SettingsPage/>
-                        <Route path=path!("/oauth/consent") view=OAuthConsentPage/>
+                        <Route path=path!("/consent") view=OAuthConsentPage/>
                         <Route path=path!("/calendar") view=CalendarPage/>
                         <Route path=path!("/calendar/:date") view=CalendarDayPage/>
                         <Route path=path!("/tags") view=TagsPage/>
