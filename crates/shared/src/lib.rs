@@ -1,3 +1,4 @@
+pub mod auth_ctx;
 #[allow(dead_code)]
 pub(crate) mod constants;
 pub mod date_utils;
@@ -112,6 +113,7 @@ pub struct HomeData {
 /// Known feature names
 pub const FEATURE_QUANTITY: &str = "quantity";
 pub const FEATURE_DEADLINES: &str = "deadlines";
+pub const FEATURE_LOCATION: &str = "location";
 
 /// Date type identifiers used in date badge/editor components
 pub const DATE_TYPE_START: &str = "start";
