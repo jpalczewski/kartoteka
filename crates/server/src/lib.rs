@@ -22,8 +22,11 @@ use axum::{
 };
 use kartoteka_db::SqlitePool;
 use kartoteka_frontend_v2::{App, shell};
+use kartoteka_mcp::McpI18n;
+use kartoteka_oauth::OAuthState;
 use leptos::prelude::*;
 use leptos_axum::{AxumRouteListing, LeptosRoutes, generate_route_list};
+use std::sync::Arc;
 
 /// Application state shared across all handlers.
 /// `axum_macros::FromRef` allows individual fields to be extracted as `State<T>`.
@@ -35,6 +38,8 @@ pub struct AppState {
     pub pool: SqlitePool,
     /// HMAC-SHA256 signing secret for JWT bearer tokens (min 32 chars).
     pub signing_secret: String,
+    pub oauth_state: OAuthState,
+    pub mcp_i18n: Arc<McpI18n>,
 }
 
 /// Type alias for the axum-login auth manager layer.
@@ -91,9 +96,11 @@ pub fn test_router(pool: SqlitePool, auth_layer: AuthLayer, signing_secret: Stri
         pool,
         auth_layer,
         signing_secret,
+        "http://localhost:3000".into(),
         leptos::config::LeptosOptions::builder()
             .output_name("kartoteka")
             .build(),
+        Arc::new(McpI18n::load()),
     )
 }
 
@@ -101,18 +108,54 @@ pub fn router(
     pool: SqlitePool,
     auth_layer: AuthLayer,
     signing_secret: String,
+    public_base_url: String,
     leptos_options: leptos::config::LeptosOptions,
+    mcp_i18n: Arc<McpI18n>,
 ) -> Router {
-    let routes = generate_route_list(App);
+    use rmcp::transport::streamable_http_server::{
+        StreamableHttpService, session::local::LocalSessionManager,
+    };
 
+    let routes = generate_route_list(App);
+    let oauth_state = OAuthState {
+        pool: pool.clone(),
+        signing_secret: signing_secret.clone(),
+        public_base_url,
+    };
     let state = AppState {
         leptos_options: leptos_options.clone(),
         routes: routes.clone(),
-        pool,
+        pool: pool.clone(),
         signing_secret,
+        oauth_state: oauth_state.clone(),
+        mcp_i18n: mcp_i18n.clone(),
     };
 
+    let mcp_server = kartoteka_mcp::KartotekaServer::new(pool.clone(), mcp_i18n);
+    let mcp_service = StreamableHttpService::new(
+        move || Ok(mcp_server.clone()),
+        Arc::new(LocalSessionManager::default()),
+        Default::default(),
+    );
+
     Router::new()
+        .nest(
+            "/.well-known",
+            kartoteka_oauth::well_known_routes().with_state(oauth_state.clone()),
+        )
+        .nest(
+            "/oauth",
+            kartoteka_oauth::routes().with_state(oauth_state.clone()),
+        )
+        .nest_service(
+            "/mcp",
+            tower::ServiceBuilder::new()
+                .layer(axum::middleware::from_fn_with_state(
+                    oauth_state.clone(),
+                    kartoteka_oauth::bearer::bearer_auth_middleware,
+                ))
+                .service(mcp_service),
+        )
         .nest("/auth", auth::auth_router())
         .nest("/api", routes::routes(state.clone()))
         // Server functions: /leptos/{fn_name} (avoids conflict with /api/* REST routes)

@@ -1,3 +1,5 @@
+use kartoteka_mcp::McpI18n;
+use std::sync::Arc;
 use tower_sessions::{Expiry, SessionManagerLayer};
 use tower_sessions_sqlx_store::SqliteStore;
 
@@ -52,11 +54,22 @@ async fn main() {
         "OAUTH_SIGNING_SECRET must be at least 32 characters"
     );
 
+    let public_base_url =
+        std::env::var("PUBLIC_BASE_URL").unwrap_or_else(|_| "http://localhost:3000".into());
+    let mcp_i18n = Arc::new(McpI18n::load());
+
     let conf = leptos::config::get_configuration(None).expect("leptos config");
     let leptos_options = conf.leptos_options;
     let bind_addr =
         std::env::var("BIND_ADDR").unwrap_or_else(|_| leptos_options.site_addr.to_string());
-    let app = kartoteka_server::router(pool, auth_layer, signing_secret, leptos_options);
+    let app = kartoteka_server::router(
+        pool,
+        auth_layer,
+        signing_secret,
+        public_base_url,
+        leptos_options,
+        mcp_i18n,
+    );
 
     tracing::info!("listening on {bind_addr}");
     let listener = tokio::net::TcpListener::bind(&bind_addr)

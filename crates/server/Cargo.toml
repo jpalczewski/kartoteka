@@ -18,6 +18,8 @@ kartoteka-domain = { path = "../domain", version = "0.1.1" }
 kartoteka-auth = { path = "../auth", version = "0.1.1" }
 kartoteka-mcp = { path = "../mcp", version = "0.1.1" }
 kartoteka-oauth = { path = "../oauth", version = "0.1.1" }
+rmcp = { version = "0.3", features = ["server", "transport-streamable-http-server"] }
+tower.workspace = true
 kartoteka-jobs = { path = "../jobs", version = "0.1.1" }
 kartoteka-frontend-v2 = { path = "../frontend-v2", version = "0.1.1", features = ["ssr"] }
 leptos = { workspace = true, features = ["ssr"] }
