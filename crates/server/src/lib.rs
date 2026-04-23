@@ -100,7 +100,9 @@ pub fn test_router(pool: SqlitePool, auth_layer: AuthLayer, signing_secret: Stri
         leptos::config::LeptosOptions::builder()
             .output_name("kartoteka")
             .build(),
-        Arc::new(McpI18n::load()),
+        Arc::new(McpI18n::load_from(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../locales"),
+        )),
     )
 }
 
