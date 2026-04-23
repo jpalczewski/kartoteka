@@ -16,7 +16,7 @@ kartoteka-db = { path = "../db", version = "0.1.1" }
 axum = { workspace = true }
 axum-login = { workspace = true }
 tower = { workspace = true }
-tower-sessions = "0.15"
+tower-sessions = { workspace = true }
 http = "1"
 jsonwebtoken = { workspace = true }
 sha2 = "0.10"
