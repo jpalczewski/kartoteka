@@ -2,13 +2,18 @@ use http::request::Parts;
 use kartoteka_domain as domain;
 use kartoteka_shared::auth_ctx::{UserId, UserLocale};
 use rmcp::{
-    ErrorData, ServerHandler,
+    ErrorData, RoleServer, ServerHandler,
     handler::server::{
         router::tool::ToolRouter,
-        tool::{Extension, Parameters},
+        tool::{Extension, Parameters, ToolCallContext},
     },
-    model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
-    tool_handler, tool_router,
+    model::{
+        CallToolRequestParam, CallToolResult, Content, ListResourceTemplatesResult,
+        ListResourcesResult, ListToolsResult, PaginatedRequestParam, ReadResourceRequestParam,
+        ReadResourceResult, ResourceContents, ServerCapabilities, ServerInfo,
+    },
+    service::RequestContext,
+    tool_router,
 };
 use serde_json::json;
 use sqlx::SqlitePool;
@@ -323,7 +328,6 @@ impl KartotekaServer {
 
 // ── ServerHandler impl ────────────────────────────────────────────────────────
 
-#[tool_handler(router = self.tool_router)]
 impl ServerHandler for KartotekaServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
@@ -331,8 +335,176 @@ impl ServerHandler for KartotekaServer {
                 name: "kartoteka".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
             },
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            capabilities: ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .build(),
             ..ServerInfo::default()
         }
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParam>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, ErrorData> {
+        let locale = context
+            .extensions
+            .get::<UserLocale>()
+            .map(|l| l.0.clone())
+            .unwrap_or_else(|| "en".to_string());
+        let mut tools = self.tool_router.list_all();
+        for t in &mut tools {
+            if let Some(key) = t.description.as_deref() {
+                let translated = self.i18n.translate(&locale, key);
+                t.description = Some(translated.into());
+            }
+        }
+        Ok(ListToolsResult::with_all_items(tools))
+    }
+
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParam,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tcc = ToolCallContext::new(self, request, context);
+        self.tool_router.call(tcc).await
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParam>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        let locale = context
+            .extensions
+            .get::<UserLocale>()
+            .map(|l| l.0.clone())
+            .unwrap_or_else(|| "en".to_string());
+        Ok(ListResourcesResult {
+            resources: crate::resources::static_resources(&self.i18n, &locale),
+            next_cursor: None,
+        })
+    }
+
+    async fn list_resource_templates(
+        &self,
+        _request: Option<PaginatedRequestParam>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ListResourceTemplatesResult, ErrorData> {
+        let locale = context
+            .extensions
+            .get::<UserLocale>()
+            .map(|l| l.0.clone())
+            .unwrap_or_else(|| "en".to_string());
+        Ok(ListResourceTemplatesResult {
+            resource_templates: crate::resources::resource_templates(&self.i18n, &locale),
+            next_cursor: None,
+        })
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParam,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, ErrorData> {
+        use crate::resources::{ResourceUri, parse as parse_uri};
+        use kartoteka_shared::auth_ctx::UserId;
+
+        let user_id = context
+            .extensions
+            .get::<UserId>()
+            .map(|u| u.0.clone())
+            .ok_or_else(|| ErrorData::invalid_request("unauthorized", None))?;
+        let locale = context
+            .extensions
+            .get::<UserLocale>()
+            .map(|l| l.0.clone())
+            .unwrap_or_else(|| "en".to_string());
+
+        let parsed = parse_uri(&request.uri).map_err(|_| {
+            ErrorData::invalid_params(
+                self.i18n
+                    .translate_args(&locale, "mcp-err-bad-uri", &[("uri", &request.uri)]),
+                None,
+            )
+        })?;
+
+        let json = match parsed {
+            ResourceUri::Lists => {
+                let data = kartoteka_domain::lists::list_all(&self.pool, &user_id)
+                    .await
+                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+                serde_json::to_value(data)
+                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+            }
+            ResourceUri::ListDetail(id) => {
+                let data = kartoteka_domain::lists::get_one(&self.pool, &id, &user_id)
+                    .await
+                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?
+                    .ok_or_else(|| {
+                        ErrorData::invalid_params(
+                            self.i18n.translate_args(
+                                &locale,
+                                "mcp-err-not-found",
+                                &[("entity", "list")],
+                            ),
+                            None,
+                        )
+                    })?;
+                serde_json::to_value(data)
+                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+            }
+            ResourceUri::ListItems { list_id, .. } => {
+                let data = kartoteka_domain::items::list_for_list(&self.pool, &user_id, &list_id)
+                    .await
+                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+                serde_json::to_value(data)
+                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+            }
+            ResourceUri::Containers => {
+                let data = kartoteka_domain::containers::list_all(&self.pool, &user_id)
+                    .await
+                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+                serde_json::to_value(data)
+                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+            }
+            ResourceUri::ContainerDetail(id) => {
+                let data = kartoteka_domain::containers::get_one(&self.pool, &id, &user_id)
+                    .await
+                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+                serde_json::to_value(data)
+                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+            }
+            ResourceUri::Tags { .. } => {
+                let data = kartoteka_domain::tags::list_all(&self.pool, &user_id)
+                    .await
+                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+                serde_json::to_value(data)
+                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+            }
+            ResourceUri::Today => {
+                let data = kartoteka_domain::items::by_date(&self.pool, &user_id, "today")
+                    .await
+                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+                serde_json::to_value(data)
+                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+            }
+            ResourceUri::TimeSummary => {
+                let data = kartoteka_domain::time_entries::list_all_for_user(&self.pool, &user_id)
+                    .await
+                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+                serde_json::to_value(data)
+                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+            }
+        };
+
+        Ok(ReadResourceResult {
+            contents: vec![ResourceContents::text(
+                serde_json::to_string_pretty(&json).unwrap_or_default(),
+                request.uri,
+            )],
+        })
     }
 }
