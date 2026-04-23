@@ -12,12 +12,32 @@ pub struct SearchItemRow {
     pub completed: bool,
 }
 
+/// Build a safe FTS5 prefix-match query from free-form user input.
+/// Each whitespace-delimited token becomes `"token"*` so partial matches work.
+/// Tokens containing only special characters are dropped.
+fn fts5_prefix_query(query: &str) -> Option<String> {
+    let terms: Vec<String> = query
+        .split_whitespace()
+        .map(|t| t.replace('"', ""))
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("\"{t}\"*"))
+        .collect();
+    if terms.is_empty() {
+        None
+    } else {
+        Some(terms.join(" "))
+    }
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn search_items(
     pool: &SqlitePool,
     user_id: &str,
     query: &str,
 ) -> Result<Vec<SearchItemRow>, DbError> {
+    let Some(fts_query) = fts5_prefix_query(query) else {
+        return Ok(vec![]);
+    };
     sqlx::query_as::<_, SearchItemRow>(
         "SELECT i.id, i.title, i.description, i.list_id, l.name AS list_name, \
                 i.updated_at, i.completed \
@@ -29,7 +49,7 @@ pub async fn search_items(
          LIMIT 50",
     )
     .bind(user_id)
-    .bind(query)
+    .bind(fts_query)
     .fetch_all(pool)
     .await
     .map_err(DbError::Sqlx)
