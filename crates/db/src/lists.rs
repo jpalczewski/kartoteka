@@ -19,13 +19,7 @@ pub struct ListRow {
     pub last_opened_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
-    pub features_json: String,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-pub struct FeatureRow {
-    pub feature_name: String,
-    pub config: String,
+    pub features: String,
 }
 
 // Used by domain::items::create (B3)
@@ -38,28 +32,18 @@ pub struct CreateItemContext {
 #[derive(sqlx::FromRow)]
 struct CreateItemContextRow {
     pub next_position: i64,
-    pub features_json: String,
+    pub features: String,
 }
-
-// ── SQL helpers ──────────────────────────────────────────────────────────────
-
-/// Correlated subquery fragment that returns features as a JSON array.
-const FEATURES_SUBQUERY: &str = "COALESCE(
-    (SELECT json_group_array(json_object('feature_name', lf.feature_name, 'config', json(lf.config)))
-     FROM list_features lf WHERE lf.list_id = l.id),
-    '[]'
-) as features_json";
 
 // ── Read queries ─────────────────────────────────────────────────────────────
 
 #[tracing::instrument(skip(pool))]
 pub async fn list_all(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListRow>, DbError> {
-    sqlx::query_as::<_, ListRow>(&format!(
-        "SELECT l.*, {} FROM lists l \
+    sqlx::query_as::<_, ListRow>(
+        "SELECT l.* FROM lists l \
          WHERE l.user_id = ? AND l.archived = 0 AND l.parent_list_id IS NULL \
          ORDER BY l.pinned DESC, l.position",
-        FEATURES_SUBQUERY
-    ))
+    )
     .bind(user_id)
     .fetch_all(pool)
     .await
@@ -70,12 +54,11 @@ pub async fn list_all(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListRow>, 
 /// Note: unlike `list_all`, this does not filter by parent_list_id IS NULL.
 #[tracing::instrument(skip(pool))]
 pub async fn list_archived(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListRow>, DbError> {
-    sqlx::query_as::<_, ListRow>(&format!(
-        "SELECT l.*, {} FROM lists l \
+    sqlx::query_as::<_, ListRow>(
+        "SELECT l.* FROM lists l \
          WHERE l.user_id = ? AND l.archived = 1 \
          ORDER BY l.updated_at DESC",
-        FEATURES_SUBQUERY
-    ))
+    )
     .bind(user_id)
     .fetch_all(pool)
     .await
@@ -86,13 +69,12 @@ pub async fn list_archived(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListR
 /// Ordered by name ascending.
 #[tracing::instrument(skip(pool))]
 pub async fn pinned(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListRow>, DbError> {
-    sqlx::query_as::<_, ListRow>(&format!(
-        "SELECT l.*, {} FROM lists l \
+    sqlx::query_as::<_, ListRow>(
+        "SELECT l.* FROM lists l \
          WHERE l.user_id = ? AND l.pinned = 1 AND l.archived = 0 \
          AND l.parent_list_id IS NULL \
          ORDER BY l.name ASC",
-        FEATURES_SUBQUERY
-    ))
+    )
     .bind(user_id)
     .fetch_all(pool)
     .await
@@ -103,14 +85,13 @@ pub async fn pinned(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListRow>, Db
 /// Ordered by last_opened_at DESC. `limit` caps results (use 5 for home page).
 #[tracing::instrument(skip(pool))]
 pub async fn recent(pool: &SqlitePool, user_id: &str, limit: i64) -> Result<Vec<ListRow>, DbError> {
-    sqlx::query_as::<_, ListRow>(&format!(
-        "SELECT l.*, {} FROM lists l \
+    sqlx::query_as::<_, ListRow>(
+        "SELECT l.* FROM lists l \
          WHERE l.user_id = ? AND l.pinned = 0 AND l.archived = 0 \
          AND l.last_opened_at IS NOT NULL AND l.parent_list_id IS NULL \
          ORDER BY l.last_opened_at DESC \
          LIMIT ?",
-        FEATURES_SUBQUERY
-    ))
+    )
     .bind(user_id)
     .bind(limit)
     .fetch_all(pool)
@@ -122,13 +103,12 @@ pub async fn recent(pool: &SqlitePool, user_id: &str, limit: i64) -> Result<Vec<
 /// Ordered by updated_at DESC.
 #[tracing::instrument(skip(pool))]
 pub async fn root(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListRow>, DbError> {
-    sqlx::query_as::<_, ListRow>(&format!(
-        "SELECT l.*, {} FROM lists l \
+    sqlx::query_as::<_, ListRow>(
+        "SELECT l.* FROM lists l \
          WHERE l.user_id = ? AND l.container_id IS NULL \
          AND l.parent_list_id IS NULL AND l.archived = 0 AND l.pinned = 0 \
          ORDER BY l.updated_at DESC",
-        FEATURES_SUBQUERY
-    ))
+    )
     .bind(user_id)
     .fetch_all(pool)
     .await
@@ -141,15 +121,12 @@ pub async fn get_one(
     id: &str,
     user_id: &str,
 ) -> Result<Option<ListRow>, DbError> {
-    sqlx::query_as::<_, ListRow>(&format!(
-        "SELECT l.*, {} FROM lists l WHERE l.id = ? AND l.user_id = ?",
-        FEATURES_SUBQUERY
-    ))
-    .bind(id)
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(DbError::Sqlx)
+    sqlx::query_as::<_, ListRow>("SELECT l.* FROM lists l WHERE l.id = ? AND l.user_id = ?")
+        .bind(id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(DbError::Sqlx)
 }
 
 #[tracing::instrument(skip(pool))]
@@ -158,12 +135,11 @@ pub async fn sublists(
     parent_id: &str,
     user_id: &str,
 ) -> Result<Vec<ListRow>, DbError> {
-    sqlx::query_as::<_, ListRow>(&format!(
-        "SELECT l.*, {} FROM lists l \
+    sqlx::query_as::<_, ListRow>(
+        "SELECT l.* FROM lists l \
          WHERE l.parent_list_id = ? AND l.user_id = ? \
          ORDER BY l.position",
-        FEATURES_SUBQUERY
-    ))
+    )
     .bind(parent_id)
     .bind(user_id)
     .fetch_all(pool)
@@ -203,11 +179,7 @@ pub async fn get_create_item_context(
     let row: Option<CreateItemContextRow> = sqlx::query_as(
         "SELECT \
             COALESCE(MAX(i.position) + 1, 0) as next_position, \
-            COALESCE( \
-                (SELECT json_group_array(lf.feature_name) \
-                 FROM list_features lf WHERE lf.list_id = l.id), \
-                '[]' \
-            ) as features_json \
+            l.features as features \
          FROM lists l \
          LEFT JOIN items i ON i.list_id = l.id \
          WHERE l.id = ? AND l.user_id = ? \
@@ -222,7 +194,9 @@ pub async fn get_create_item_context(
     match row {
         None => Ok(None),
         Some(r) => {
-            let features: Vec<String> = serde_json::from_str(&r.features_json)?;
+            let obj: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_str(&r.features)?;
+            let features: Vec<String> = obj.into_iter().map(|(k, _)| k).collect();
             Ok(Some(CreateItemContext {
                 features,
                 next_position: r.next_position,
@@ -267,29 +241,20 @@ pub async fn insert(
     Ok(())
 }
 
-/// Replace all features for a list. Caller must be in a transaction.
-#[tracing::instrument(skip(tx))]
-pub async fn replace_features(
+/// Replace the full features JSON for a list. Caller must be in a transaction.
+#[tracing::instrument(skip(tx, features))]
+pub async fn set_features(
     tx: &mut SqliteConnection,
     list_id: &str,
-    features: &[String],
+    features: &serde_json::Value,
 ) -> Result<(), DbError> {
-    sqlx::query("DELETE FROM list_features WHERE list_id = ?")
+    let json = serde_json::to_string(features)?;
+    sqlx::query("UPDATE lists SET features = ? WHERE id = ?")
+        .bind(json)
         .bind(list_id)
         .execute(&mut *tx)
         .await
         .map_err(DbError::Sqlx)?;
-
-    for feature in features {
-        sqlx::query(
-            "INSERT INTO list_features (list_id, feature_name, config) VALUES (?, ?, '{}')",
-        )
-        .bind(list_id)
-        .bind(feature)
-        .execute(&mut *tx)
-        .await
-        .map_err(DbError::Sqlx)?;
-    }
     Ok(())
 }
 
