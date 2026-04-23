@@ -9,6 +9,7 @@ pub mod containers;
 pub mod home;
 pub mod items;
 pub mod lists;
+pub mod oauth;
 pub mod personal_tokens;
 pub mod preferences;
 pub mod relations;

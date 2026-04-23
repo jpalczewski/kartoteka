@@ -1,6 +1,10 @@
--- OAuth 2.1 provider tables
+-- OAuth 2.1 provider tables (replaces legacy oauth tables from 001_init.sql)
 
-CREATE TABLE IF NOT EXISTS oauth_clients (
+DROP TABLE IF EXISTS oauth_refresh_tokens;
+DROP TABLE IF EXISTS oauth_authorization_codes;
+DROP TABLE IF EXISTS oauth_clients;
+
+CREATE TABLE oauth_clients (
     client_id    TEXT PRIMARY KEY,
     name         TEXT NOT NULL,
     redirect_uris TEXT NOT NULL, -- JSON array of strings
@@ -8,7 +12,7 @@ CREATE TABLE IF NOT EXISTS oauth_clients (
     last_used_at TEXT
 );
 
-CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
+CREATE TABLE oauth_authorization_codes (
     code           TEXT PRIMARY KEY,
     client_id      TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
     user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -19,7 +23,7 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
     used           INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+CREATE TABLE oauth_refresh_tokens (
     token_hash TEXT PRIMARY KEY,
     client_id  TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
     user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

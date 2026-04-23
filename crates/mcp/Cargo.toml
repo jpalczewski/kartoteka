@@ -10,3 +10,21 @@ workspace = true
 [dependencies]
 kartoteka-shared = { path = "../shared", version = "0.1.1" }
 kartoteka-domain = { path = "../domain", version = "0.1.1" }
+kartoteka-db     = { path = "../db", version = "0.1.1" }
+
+rmcp = { version = "0.3", features = ["server", "transport-streamable-http-server", "transport-worker", "macros"] }
+schemars = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+http = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.9"
+
+# MCP-side i18n (outside Leptos)
+fluent-bundle = "0.15"
+fluent-syntax = "0.11"
+unic-langid = "0.9"
