@@ -63,10 +63,97 @@ On change, calls `update_feature_config(list_id, "deadlines", new_config)`, then
 - Add click-to-edit for description using same pattern as name: `editing_description: RwSignal<bool>`, `description_input: RwSignal<String>`, Enter saves via `rename_list(id, current_name, Some(new_desc))`, Escape cancels. Rendered below the list name; when no description exists, show a dimmed "Dodaj opis..." placeholder that triggers edit on click.
 - In the dropdown, right after the "Terminy" checkbox, render `<DeadlinesConfig>` when `has_deadlines` is true. Pass current `deadlines` feature config (from `data.list.features`) and an `on_changed` callback that bumps `set_refresh`.
 
+### Backend changes — migrate features to a JSON column on `lists`
+
+The existing `list_features` table is normalized but always used atomically: every read path aggregates rows back into a `features_json` string via a subquery, and every write path deletes all rows and re-inserts. Nothing in the codebase filters lists by feature name at the SQL level. The table's shape is a liability — `replace_features` hardcodes `config='{}'` on each insert, silently wiping any config that was ever stored.
+
+This design collapses the normalized table into a single JSON column on `lists`.
+
+#### Target schema
+
+```sql
+ALTER TABLE lists ADD COLUMN features TEXT NOT NULL DEFAULT '{}';
+-- After data copy:
+DROP TABLE list_features;
+```
+
+Shape of `lists.features`:
+```json
+{
+  "deadlines": { "has_start_date": false, "has_deadline": true, "has_hard_deadline": false },
+  "quantity":  {}
+}
+```
+Top-level keys are feature names; values are per-feature config objects. Missing key = feature not enabled. Empty object `{}` = feature enabled with defaults.
+
+#### Migration file
+
+`crates/db/migrations/004_lists_features_json.sql` — forward-only, SQLite-compatible:
+
+```sql
+ALTER TABLE lists ADD COLUMN features TEXT NOT NULL DEFAULT '{}';
+
+UPDATE lists SET features = (
+    SELECT COALESCE(
+        json_group_object(lf.feature_name, json(lf.config)),
+        '{}'
+    )
+    FROM list_features lf
+    WHERE lf.list_id = lists.id
+);
+
+DROP TABLE list_features;
+```
+
+Notes:
+- `json_group_object` + `json(...)` assembles a keyed object, unwrapping each config string as a JSON value (not nested-string).
+- `COALESCE(..., '{}')` handles lists with zero features (subquery returns `NULL`).
+- Forward-only, following project convention (`001_init.sql`, `002_*`, `003_oauth.sql` are all non-reversible).
+- Runs automatically at boot via `sqlx::migrate!("./migrations")` in `crates/db/src/lib.rs:63`.
+
+Risk assessment: all current configs in the DB are `'{}'` (no code ever wrote anything else), so the migration cannot lose data. Safe to apply on dev and prod without a backup-then-revert plan, though a pre-migration DB snapshot is prudent.
+
+#### Code changes
+
+**`crates/db/src/lists.rs`**
+- Remove the `features_json` subquery from SELECT statements (lines 49–51, 208–210). Replace with plain `l.features` column.
+- `ListRow` / `ListProjectionRow` types: rename field from `features_json: String` to `features: String` (still a JSON string from SQLite, parsed by domain).
+- Rewrite `replace_features`:
+  - New signature: `pub async fn set_features(tx: &mut SqliteConnection, list_id: &str, features: &serde_json::Value) -> Result<(), DbError>`
+  - Implementation: `UPDATE lists SET features = ? WHERE id = ?` — one atomic write.
+  - Callers pass the full desired JSON object. No DELETE + INSERT, no config wiping.
+- Remove all references to `list_features` table (confirmed: only the SELECT subqueries, `replace_features`, and the migration file itself).
+
+**`crates/domain/src/lists.rs`** (4 call sites)
+- `list_row → List` conversion (~line 103): parse `row.features` instead of `row.features_json`. Change shape from `Vec<ListFeature>` deserialize to object deserialize, then project to the existing `Vec<ListFeature>` keeping the API stable for callers.
+- `CreateListRequest` handling (~line 197): build a `serde_json::Value` object from `req.features: Vec<String>` (each key → `{}` config), pass to new `db::lists::set_features`.
+- Validation path (~line 223): same deserialize change.
+- `set_features` domain wrapper (~line 341): same — build object, call DB.
+- Add `update_feature_config(pool, user_id, list_id, feature_name, config) -> Result<(), DomainError>`:
+  - Load list via `db::lists::get_one`.
+  - Verify user ownership.
+  - Parse current `features` JSON, mutate the named key's value, serialize back, `UPDATE lists SET features = ?`.
+  - Returns `DomainError::NotFound("feature")` if the feature isn't currently enabled on the list.
+
+**`crates/domain/src/home.rs:24`** — same deserialization fix (parse object, project to `Vec<ListFeature>` for the existing API).
+
+**`crates/domain/src/items.rs:335`** (test helper only) — change test setup from `INSERT INTO list_features` to `UPDATE lists SET features = ?`.
+
 **`crates/frontend-v2/src/server_fns/lists.rs`**
-- Add `update_feature_config(list_id: String, feature_name: String, config: serde_json::Value) -> Result<(), ServerFnError>`.
-- Implementation: load the list, clone its features, find the named feature, replace its `config`, call `domain::lists::set_features` with the updated `Vec<ListFeature>`.
-- If the domain layer's `set_features` takes only names, add `domain::lists::set_features_with_config(pool, user_id, list_id, Vec<ListFeature>)` that replaces features including config. Decide at implementation time based on what's already there.
+- Add `update_feature_config(list_id: String, feature_name: String, config: serde_json::Value) -> Result<(), ServerFnError>` — thin wrapper around the domain function. Same auth pattern as the other list server fns (AuthSession extractor).
+
+**Shared types** — `kartoteka_shared::ListFeature { feature_name, config }` remains unchanged; only the storage representation changes. DTO/API surface is unaffected.
+
+#### Tests to update
+
+- `crates/db/src/lists.rs` tests at lines 447, 481, 487, 519 — change expectations from `features_json` column/string shape to `features` object shape.
+- `crates/domain/src/items.rs:335` — test helper as above.
+
+No new migration tests needed — the migration is a one-shot, forward-only statement run at startup. Existing feature-related domain tests provide regression coverage by continuing to pass against the new schema.
+
+### Convention note
+
+Future migrations follow project convention: `crates/db/migrations/NNN_<snake_name>.sql`, forward-only, run via `sqlx::migrate!("./migrations")`, idempotent where practical (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN ... DEFAULT ...`).
 
 ### Data flow
 
