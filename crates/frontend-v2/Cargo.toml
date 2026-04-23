@@ -24,9 +24,11 @@ chrono = { workspace = true }
 # Hydrate-only (compiled to WASM)
 wasm-bindgen = { workspace = true, optional = true }
 js-sys = { workspace = true, optional = true }
-web-sys = { workspace = true, optional = true, features = [
+# web-sys is non-optional so DnD component types (DragEvent, DataTransfer)
+# are available in both hydrate and ssr builds (handlers compile SSR but never run).
+web-sys = { workspace = true, features = [
     "Storage", "Window", "Navigator", "Clipboard", "Location",
-    "Document", "HtmlElement",
+    "Document", "HtmlElement", "DragEvent", "DataTransfer",
 ] }
 console_error_panic_hook = { workspace = true, optional = true }
 
@@ -38,6 +40,8 @@ sqlx = { workspace = true, optional = true }
 kartoteka-domain = { path = "../domain", version = "0.1.1", optional = true }
 kartoteka-auth = { path = "../auth", version = "0.1.1", optional = true }
 kartoteka-db = { path = "../db", version = "0.1.1", optional = true }
+kartoteka-oauth = { path = "../oauth", version = "0.1.1", optional = true }
+tower-sessions = { workspace = true, optional = true }
 chrono-tz = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 
@@ -48,7 +52,6 @@ hydrate = [
     "leptos-fluent/hydrate",
     "dep:wasm-bindgen",
     "dep:js-sys",
-    "dep:web-sys",
     "dep:console_error_panic_hook",
 ]
 ssr = [
@@ -64,6 +67,8 @@ ssr = [
     "dep:kartoteka-domain",
     "dep:kartoteka-auth",
     "dep:kartoteka-db",
+    "dep:kartoteka-oauth",
+    "dep:tower-sessions",
     "dep:chrono-tz",
     "dep:tokio",
 ]
