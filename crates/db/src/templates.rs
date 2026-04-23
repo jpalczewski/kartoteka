@@ -158,11 +158,13 @@ mod tests {
     async fn insert_and_list() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let mut conn = pool.acquire().await.unwrap();
         let id = uuid::Uuid::new_v4().to_string();
-        insert(&mut conn, &id, &uid, "My Template", None, None)
-            .await
-            .unwrap();
+        {
+            let mut conn = pool.acquire().await.unwrap();
+            insert(&mut conn, &id, &uid, "My Template", None, None)
+                .await
+                .unwrap();
+        }
         let rows = list_all(&pool, &uid).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].name, "My Template");
@@ -173,9 +175,11 @@ mod tests {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
         let uid2 = create_test_user(&pool).await;
-        let mut conn = pool.acquire().await.unwrap();
         let id = uuid::Uuid::new_v4().to_string();
-        insert(&mut conn, &id, &uid, "T", None, None).await.unwrap();
+        {
+            let mut conn = pool.acquire().await.unwrap();
+            insert(&mut conn, &id, &uid, "T", None, None).await.unwrap();
+        }
         let row = get_one(&pool, &id, &uid2).await.unwrap();
         assert!(row.is_none());
     }
@@ -184,15 +188,17 @@ mod tests {
     async fn insert_items_and_get() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let mut conn = pool.acquire().await.unwrap();
         let tid = uuid::Uuid::new_v4().to_string();
-        insert(&mut conn, &tid, &uid, "T", None, None)
-            .await
-            .unwrap();
         let iid = uuid::Uuid::new_v4().to_string();
-        insert_item(&mut conn, &iid, &tid, "Item A", None, 0, None, None)
-            .await
-            .unwrap();
+        {
+            let mut conn = pool.acquire().await.unwrap();
+            insert(&mut conn, &tid, &uid, "T", None, None)
+                .await
+                .unwrap();
+            insert_item(&mut conn, &iid, &tid, "Item A", None, 0, None, None)
+                .await
+                .unwrap();
+        }
         let items = get_items(&pool, &tid).await.unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].title, "Item A");
@@ -202,9 +208,11 @@ mod tests {
     async fn delete_removes_template() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let mut conn = pool.acquire().await.unwrap();
         let id = uuid::Uuid::new_v4().to_string();
-        insert(&mut conn, &id, &uid, "T", None, None).await.unwrap();
+        {
+            let mut conn = pool.acquire().await.unwrap();
+            insert(&mut conn, &id, &uid, "T", None, None).await.unwrap();
+        }
         let deleted = delete(&pool, &id, &uid).await.unwrap();
         assert!(deleted);
         assert!(list_all(&pool, &uid).await.unwrap().is_empty());

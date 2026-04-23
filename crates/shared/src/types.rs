@@ -237,6 +237,12 @@ pub struct ListTagLink {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItemTagLink {
+    pub item_id: String,
+    pub tag_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateListRequest {
     pub name: String,
     pub list_type: Option<String>,
@@ -280,6 +286,10 @@ pub struct ListData {
     pub sublists: Vec<List>,
     /// `list.created_at` converted to the requesting user's timezone, formatted for display.
     pub created_at_local: String,
+    /// All (item_id, tag_id) pairs for items in this list. Used to render tag badges in item rows.
+    pub item_tag_links: Vec<ItemTagLink>,
+    /// All tags for the user. Used to resolve tag names/colors for item rows and the filter bar.
+    pub all_tags: Vec<Tag>,
 }
 
 /// Item enriched with its parent list's display name.
@@ -323,6 +333,15 @@ pub struct CalendarMonthData {
     pub days_in_month: u8,
     /// Per-day item counts — only days that have at least one item are included.
     pub items_by_day: Vec<CalendarDay>,
+}
+
+/// One day in a calendar week view with its items.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalendarWeekDay {
+    /// Date as "YYYY-MM-DD".
+    pub date: String,
+    /// Items with any date field (start_date, deadline, hard_deadline) on this day.
+    pub items: Vec<DateItem>,
 }
 
 // --- sqlx integration (enabled via "sqlx" feature) ---

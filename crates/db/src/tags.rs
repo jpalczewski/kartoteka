@@ -446,6 +446,28 @@ pub async fn remove_list_tag(
     Ok(rows.rows_affected() > 0)
 }
 
+/// Returns all (item_id, tag_id) pairs for items belonging to a given list.
+#[tracing::instrument(skip(pool))]
+pub async fn get_item_tags_for_list(
+    pool: &SqlitePool,
+    list_id: &str,
+    user_id: &str,
+) -> Result<Vec<(String, String)>, DbError> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT it.item_id, it.tag_id \
+         FROM item_tags it \
+         JOIN items i ON i.id = it.item_id \
+         JOIN lists l ON l.id = i.list_id \
+         WHERE i.list_id = ? AND l.user_id = ?",
+    )
+    .bind(list_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(rows)
+}
+
 /// Returns all list-tag links for a given user (joined through lists.user_id).
 /// Used by home page tag filter bar.
 #[tracing::instrument(skip(pool))]

@@ -1,3 +1,4 @@
+pub mod calendar;
 pub mod comments;
 pub mod common;
 pub mod home;

@@ -10,6 +10,53 @@ use {
     sqlx::SqlitePool,
 };
 
+/// Tags assigned to a specific item.
+#[server(prefix = "/leptos")]
+pub async fn get_item_tags(item_id: String) -> Result<Vec<Tag>, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let tags = domain::tags::get_for_item(&pool, &user.id, &item_id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    Ok(tags.into_iter().map(domain_tag_to_shared).collect())
+}
+
+/// Assign a tag to an item. Enforces exclusive-type constraint (e.g. one "priority" per item).
+#[server(prefix = "/leptos")]
+pub async fn assign_tag_to_item(item_id: String, tag_id: String) -> Result<(), ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    domain::tags::assign_to_item(&pool, &user.id, &item_id, &tag_id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))
+}
+
+/// Remove a tag from an item.
+#[server(prefix = "/leptos")]
+pub async fn remove_tag_from_item(item_id: String, tag_id: String) -> Result<(), ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    domain::tags::remove_from_item(&pool, &user.id, &item_id, &tag_id)
+        .await
+        .map(|_| ())
+        .map_err(|e| ServerFnError::new(e.to_string()))
+}
+
 /// All tags for the current user (for tag filter bar and tag selectors).
 #[server(prefix = "/leptos")]
 pub async fn get_all_tags() -> Result<Vec<Tag>, ServerFnError> {

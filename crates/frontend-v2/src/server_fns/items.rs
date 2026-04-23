@@ -1,12 +1,17 @@
-use kartoteka_shared::types::{CalendarMonthData, DateItem, Item, ListData, TodayData};
+#![allow(clippy::too_many_arguments)]
+use kartoteka_shared::types::{
+    CalendarMonthData, CalendarWeekDay, DateItem, Item, ListData, TodayData,
+};
 use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    crate::server_fns::{home::domain_list_to_shared, utils::format_datetime_in_tz},
+    crate::server_fns::home::{domain_list_to_shared, domain_tag_to_shared},
+    crate::server_fns::utils::format_datetime_in_tz,
     axum_login::AuthSession,
     kartoteka_auth::KartotekaBackend,
-    kartoteka_domain as domain,
+    kartoteka_db as db, kartoteka_domain as domain,
+    kartoteka_shared::types::ItemTagLink,
     sqlx::SqlitePool,
 };
 
@@ -45,15 +50,49 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
 
-    let (list_opt, items, sublists, settings) = tokio::try_join!(
-        domain::lists::get_one(&pool, &list_id, &user.id),
-        domain::items::list_for_list(&pool, &list_id, &user.id),
-        domain::lists::sublists(&pool, &list_id, &user.id),
-        domain::settings::list_all(&pool, &user.id),
-    )
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
-
-    let list = list_opt.ok_or_else(|| ServerFnError::new("list not found".to_string()))?;
+    macro_rules! sfn_err {
+        ($e:expr) => {
+            ServerFnError::new($e.to_string())
+        };
+    }
+    let (list_res, items_res, sublists_res, settings_res, tag_links_res, all_tags_res) = tokio::join!(
+        async {
+            domain::lists::get_one(&pool, &list_id, &user.id)
+                .await
+                .map_err(|e| sfn_err!(e))
+        },
+        async {
+            domain::items::list_for_list(&pool, &list_id, &user.id)
+                .await
+                .map_err(|e| sfn_err!(e))
+        },
+        async {
+            domain::lists::sublists(&pool, &list_id, &user.id)
+                .await
+                .map_err(|e| sfn_err!(e))
+        },
+        async {
+            domain::settings::list_all(&pool, &user.id)
+                .await
+                .map_err(|e| sfn_err!(e))
+        },
+        async {
+            db::tags::get_item_tags_for_list(&pool, &list_id, &user.id)
+                .await
+                .map_err(|e| sfn_err!(e))
+        },
+        async {
+            domain::tags::list_all(&pool, &user.id)
+                .await
+                .map_err(|e| sfn_err!(e))
+        },
+    );
+    let list = list_res?.ok_or_else(|| ServerFnError::new("list not found".to_string()))?;
+    let items = items_res?;
+    let sublists = sublists_res?;
+    let settings = settings_res?;
+    let raw_tag_links: Vec<(String, String)> = tag_links_res?;
+    let all_domain_tags: Vec<domain::tags::Tag> = all_tags_res?;
 
     let tz = settings
         .iter()
@@ -68,12 +107,29 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
         items: items.into_iter().map(domain_item_to_shared).collect(),
         sublists: sublists.into_iter().map(domain_list_to_shared).collect(),
         created_at_local,
+        item_tag_links: raw_tag_links
+            .into_iter()
+            .map(|(item_id, tag_id)| ItemTagLink { item_id, tag_id })
+            .collect(),
+        all_tags: all_domain_tags
+            .into_iter()
+            .map(domain_tag_to_shared)
+            .collect(),
     })
 }
 
-/// Add a new item to a list.
+/// Add a new item to a list. Optionally include quantity, unit, and date fields.
 #[server(prefix = "/leptos")]
-pub async fn create_item(list_id: String, title: String) -> Result<Item, ServerFnError> {
+pub async fn create_item(
+    list_id: String,
+    title: String,
+    description: Option<String>,
+    quantity: Option<i32>,
+    unit: Option<String>,
+    start_date: Option<String>,
+    deadline: Option<String>,
+    hard_deadline: Option<String>,
+) -> Result<Item, ServerFnError> {
     if title.trim().is_empty() {
         return Err(ServerFnError::new("title cannot be empty".to_string()));
     }
@@ -84,21 +140,23 @@ pub async fn create_item(list_id: String, title: String) -> Result<Item, ServerF
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let desc = description.and_then(|d| if d.trim().is_empty() { None } else { Some(d) });
+    let opt_date = |s: Option<String>| s.and_then(empty_as_none);
     let item = domain::items::create(
         &pool,
         &user.id,
         &list_id,
         &domain::items::CreateItemRequest {
             title,
-            description: None,
-            quantity: None,
+            description: desc,
+            quantity,
             actual_quantity: None,
-            unit: None,
-            start_date: None,
+            unit,
+            start_date: opt_date(start_date),
             start_time: None,
-            deadline: None,
+            deadline: opt_date(deadline),
             deadline_time: None,
-            hard_deadline: None,
+            hard_deadline: opt_date(hard_deadline),
             estimated_duration: None,
         },
     )
@@ -123,6 +181,104 @@ pub async fn toggle_item(item_id: String) -> Result<Option<Item>, ServerFnError>
     Ok(result.map(domain_item_to_shared))
 }
 
+/// Rewrite item positions in `list_id` according to `item_ids`. Ids not in
+/// the list are ignored; missing ids keep their old position.
+#[server(prefix = "/leptos")]
+pub async fn reorder_items(list_id: String, item_ids: Vec<String>) -> Result<(), ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    // Ownership guard — ensure caller owns the list.
+    if domain::lists::get_one(&pool, &list_id, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .is_none()
+    {
+        return Err(ServerFnError::new("list not found".to_string()));
+    }
+    for (pos, id) in item_ids.iter().enumerate() {
+        kartoteka_db::items::move_item(&pool, id, &user.id, pos as i32, None)
+            .await
+            .map_err(|e| ServerFnError::new(e.to_string()))?;
+    }
+    Ok(())
+}
+
+/// Cross-list item move: put `item_id` into `target_list_id` right before
+/// `before_item_id` (None = append). Rewrites positions on the target list so
+/// the new order is stable.
+#[server(prefix = "/leptos")]
+pub async fn set_item_placement(
+    item_id: String,
+    target_list_id: String,
+    before_item_id: Option<String>,
+) -> Result<(), ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    // Fetch current items of target list (ordered).
+    let target_items = domain::items::list_for_list(&pool, &target_list_id, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let mut target_ids: Vec<String> = target_items
+        .into_iter()
+        .map(|it| it.id)
+        .filter(|id| id != &item_id)
+        .collect();
+    let insert_at = match before_item_id.as_deref() {
+        Some(before) => target_ids
+            .iter()
+            .position(|id| id == before)
+            .unwrap_or(target_ids.len()),
+        None => target_ids.len(),
+    };
+    target_ids.insert(insert_at, item_id.clone());
+    // First move the dragged item into the target list (any position); then
+    // rewrite positions so the sequence matches target_ids.
+    kartoteka_db::items::move_item(&pool, &item_id, &user.id, 0, Some(&target_list_id))
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    for (pos, id) in target_ids.iter().enumerate() {
+        kartoteka_db::items::move_item(&pool, id, &user.id, pos as i32, None)
+            .await
+            .map_err(|e| ServerFnError::new(e.to_string()))?;
+    }
+    Ok(())
+}
+
+/// Move an item to a different list (appended at the end of the target list).
+#[server(prefix = "/leptos")]
+pub async fn move_item(item_id: String, target_list_id: String) -> Result<Item, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let ctx = kartoteka_db::lists::get_create_item_context(&pool, &target_list_id, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .ok_or_else(|| ServerFnError::new("target list not found".to_string()))?;
+    let req = domain::items::MoveItemRequest {
+        position: ctx.next_position as i32,
+        list_id: Some(target_list_id),
+    };
+    let item = domain::items::move_item(&pool, &user.id, &item_id, &req)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
+    Ok(domain_item_to_shared(item))
+}
+
 /// Delete an item by id.
 #[server(prefix = "/leptos")]
 pub async fn delete_item(item_id: String) -> Result<(), ServerFnError> {
@@ -142,6 +298,91 @@ pub async fn delete_item(item_id: String) -> Result<(), ServerFnError> {
     Ok(())
 }
 
+/// Increment/decrement the actual (collected) quantity of an item.
+/// Auto-completes the item when actual reaches the target quantity.
+#[server(prefix = "/leptos")]
+pub async fn update_actual_quantity(
+    item_id: String,
+    new_actual: i32,
+) -> Result<Item, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let current = domain::items::get_one(&pool, &item_id, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
+    let auto_complete = current
+        .quantity
+        .map(|target| new_actual >= target)
+        .unwrap_or(false);
+    let req = domain::items::UpdateItemRequest {
+        title: None,
+        description: None,
+        completed: if auto_complete { Some(true) } else { None },
+        quantity: None,
+        actual_quantity: Some(Some(new_actual)),
+        unit: None,
+        start_date: None,
+        start_time: None,
+        deadline: None,
+        deadline_time: None,
+        hard_deadline: None,
+        estimated_duration: None,
+    };
+    let item = domain::items::update(&pool, &user.id, &item_id, &req)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
+    Ok(domain_item_to_shared(item))
+}
+
+/// Update quantity, actual_quantity and unit of an item.
+/// Pass `unit` as empty string to clear it.
+#[server(prefix = "/leptos")]
+pub async fn update_item_quantity(
+    item_id: String,
+    quantity: Option<i32>,
+    actual_quantity: Option<i32>,
+    unit: String,
+) -> Result<Item, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let unit_val = if unit.trim().is_empty() {
+        None
+    } else {
+        Some(unit)
+    };
+    let req = domain::items::UpdateItemRequest {
+        title: None,
+        description: None,
+        completed: None,
+        quantity: Some(quantity),
+        actual_quantity: Some(actual_quantity),
+        unit: Some(unit_val),
+        start_date: None,
+        start_time: None,
+        deadline: None,
+        deadline_time: None,
+        hard_deadline: None,
+        estimated_duration: None,
+    };
+    let item = domain::items::update(&pool, &user.id, &item_id, &req)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
+    Ok(domain_item_to_shared(item))
+}
+
 /// Fetch a single item by id.
 #[server(prefix = "/leptos")]
 pub async fn get_item(item_id: String) -> Result<Item, ServerFnError> {
@@ -157,6 +398,84 @@ pub async fn get_item(item_id: String) -> Result<Item, ServerFnError> {
         .map_err(|e| ServerFnError::new(e.to_string()))?
         .map(domain_item_to_shared)
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))
+}
+
+/// Update only the description of an item. Pass empty string to clear.
+#[server(prefix = "/leptos")]
+pub async fn update_item_description(
+    item_id: String,
+    description: String,
+) -> Result<Item, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let req = domain::items::UpdateItemRequest {
+        title: None,
+        description: Some(if description.trim().is_empty() {
+            None
+        } else {
+            Some(description)
+        }),
+        completed: None,
+        quantity: None,
+        actual_quantity: None,
+        unit: None,
+        start_date: None,
+        start_time: None,
+        deadline: None,
+        deadline_time: None,
+        hard_deadline: None,
+        estimated_duration: None,
+    };
+    let item = domain::items::update(&pool, &user.id, &item_id, &req)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
+    Ok(domain_item_to_shared(item))
+}
+
+/// Update date fields of an item.
+/// Pass empty string to clear a date field, None to leave it unchanged.
+#[server(prefix = "/leptos")]
+pub async fn update_item_dates(
+    item_id: String,
+    start_date: Option<String>,
+    deadline: Option<String>,
+    hard_deadline: Option<String>,
+) -> Result<Item, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+
+    let to_field = |s: Option<String>| s.map(empty_as_none);
+
+    let req = domain::items::UpdateItemRequest {
+        title: None,
+        description: None,
+        completed: None,
+        quantity: None,
+        actual_quantity: None,
+        unit: None,
+        start_date: to_field(start_date),
+        start_time: None,
+        deadline: to_field(deadline),
+        deadline_time: None,
+        hard_deadline: to_field(hard_deadline),
+        estimated_duration: None,
+    };
+    let item = domain::items::update(&pool, &user.id, &item_id, &req)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
+    Ok(domain_item_to_shared(item))
 }
 
 /// Update title and description of an item.
@@ -200,6 +519,11 @@ pub async fn update_item(
         .map_err(|e| ServerFnError::new(e.to_string()))?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
     Ok(domain_item_to_shared(item))
+}
+
+#[cfg(feature = "ssr")]
+fn empty_as_none(s: String) -> Option<String> {
+    if s.is_empty() { None } else { Some(s) }
 }
 
 #[cfg(feature = "ssr")]
@@ -308,6 +632,46 @@ pub async fn get_all_items() -> Result<Vec<DateItem>, ServerFnError> {
 
     let list_names = build_list_names(all_lists);
     Ok(items_to_date_items(items, &list_names))
+}
+
+/// Fetch items for each day of the week containing `start_date` (Mon–Sun).
+/// Pass "YYYY-MM-DD" — the server computes the Monday of that week.
+#[server(prefix = "/leptos")]
+pub async fn get_calendar_week(start_date: String) -> Result<Vec<CalendarWeekDay>, ServerFnError> {
+    use chrono::{Datelike, Duration, NaiveDate};
+    use std::str::FromStr;
+
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+
+    let date = NaiveDate::from_str(&start_date)
+        .map_err(|_| ServerFnError::new("invalid date".to_string()))?;
+    let monday = date - Duration::days(date.weekday().num_days_from_monday() as i64);
+
+    let week_dates: Vec<NaiveDate> = (0..7).map(|i| monday + Duration::days(i)).collect();
+
+    let all_lists = domain::lists::list_all(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let list_names = build_list_names(all_lists);
+
+    let mut days = Vec::with_capacity(7);
+    for d in week_dates {
+        let date_str = d.format("%Y-%m-%d").to_string();
+        let items = domain::items::by_date(&pool, &user.id, &date_str)
+            .await
+            .map_err(|e| ServerFnError::new(e.to_string()))?;
+        days.push(CalendarWeekDay {
+            date: date_str,
+            items: items_to_date_items(items, &list_names),
+        });
+    }
+    Ok(days)
 }
 
 /// Fetch calendar month data: grid metadata + per-day item counts.

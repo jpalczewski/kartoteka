@@ -1,13 +1,30 @@
 use crate::app::{ToastContext, ToastKind};
+use crate::components::common::dnd::{DragHandleButton, ItemDropTargetMarker};
 use crate::components::items::item_row::ItemRow;
 use crate::components::lists::add_input::AddInput;
-use crate::server_fns::items::{create_item, delete_item, get_list_data, toggle_item};
+use crate::context::GlobalRefresh;
+use crate::server_fns::items::{create_item, delete_item, get_list_data, move_item, toggle_item};
+use crate::state::dnd::{DndState, EntityKind, ItemDndState, ItemDropTarget};
 use kartoteka_shared::types::{Item, List};
 use leptos::prelude::*;
 
 #[component]
-pub fn SublistSection(sublist: List, on_any_change: Callback<()>) -> impl IntoView {
+pub fn SublistSection(
+    sublist: List,
+    on_any_change: Callback<()>,
+    #[prop(default = vec![])] move_targets: Vec<(String, String)>,
+    /// When provided, the sublist collapse header gains a list drag handle.
+    #[prop(optional)]
+    dnd_state: Option<RwSignal<DndState>>,
+    /// When provided, items inside the sublist gain drag handles + drop markers.
+    #[prop(optional)]
+    item_dnd_state: Option<RwSignal<ItemDndState>>,
+    /// Called when an item is dropped onto a reorder marker inside this sublist.
+    #[prop(optional)]
+    on_item_drop: Option<Callback<ItemDropTarget>>,
+) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
     let list_id = sublist.id.clone();
     let list_name = sublist.name.clone();
 
@@ -16,9 +33,9 @@ pub fn SublistSection(sublist: List, on_any_change: Callback<()>) -> impl IntoVi
     let data_res = Resource::new(
         {
             let lid = list_id.clone();
-            move || (lid.clone(), refresh.get())
+            move || (lid.clone(), refresh.get(), global_refresh.get())
         },
-        |(id, _)| get_list_data(id),
+        |(id, _, _)| get_list_data(id),
     );
 
     let lid_add = list_id.clone();
@@ -26,7 +43,7 @@ pub fn SublistSection(sublist: List, on_any_change: Callback<()>) -> impl IntoVi
         let lid = lid_add.clone();
         let notify = on_any_change;
         leptos::task::spawn_local(async move {
-            match create_item(lid, title).await {
+            match create_item(lid, title, None, None, None, None, None, None).await {
                 Ok(_) => {
                     set_refresh.update(|n| *n += 1);
                     notify.run(());
@@ -58,10 +75,34 @@ pub fn SublistSection(sublist: List, on_any_change: Callback<()>) -> impl IntoVi
         });
     });
 
+    let on_move_item = Callback::new(move |(item_id, target_list_id): (String, String)| {
+        let notify = on_any_change;
+        leptos::task::spawn_local(async move {
+            match move_item(item_id, target_list_id).await {
+                Ok(_) => {
+                    set_refresh.update(|n| *n += 1);
+                    notify.run(());
+                }
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+        });
+    });
+
+    let move_targets_stored = StoredValue::new(move_targets);
+
     view! {
-        <div class="collapse collapse-arrow bg-base-200 mb-2" data-testid="sublist-section">
+        <div
+            class="collapse collapse-arrow bg-base-200 mb-2"
+            data-testid="sublist-section"
+        >
             <input type="checkbox" checked=true />
             <div class="collapse-title font-semibold flex items-center gap-2">
+                {dnd_state.map(|state| {
+                    let sid = sublist.id.clone();
+                    view! {
+                        <DragHandleButton dnd_state=state kind=EntityKind::List dragged_id=sid aria_label="Przeciągnij podlistę" />
+                    }
+                })}
                 <span data-testid="sublist-name">{list_name}</span>
                 <a
                     href=format!("/lists/{list_id}")
@@ -96,11 +137,52 @@ pub fn SublistSection(sublist: List, on_any_change: Callback<()>) -> impl IntoVi
                                 v.sort_by(|a, b| a.completed.cmp(&b.completed).then(a.position.cmp(&b.position)));
                                 v
                             };
+                            let targets = move_targets_stored.get_value();
                             view! {
                                 <div class="flex flex-col gap-1">
-                                    {items.into_iter().map(|item| view! {
-                                        <ItemRow item=item on_toggle=on_toggle on_delete=on_delete />
+                                    {items.into_iter().map(|item| {
+                                        let mt = targets.clone();
+                                        let iid = item.id.clone();
+                                        match item_dnd_state.zip(on_item_drop) {
+                                            Some((state, cb)) => {
+                                                let before_tgt = ItemDropTarget::before(sublist.id.clone(), iid);
+                                                view! {
+                                                    <ItemDropTargetMarker
+                                                        dnd_state=state
+                                                        target=before_tgt
+                                                        on_drop=cb
+                                                    />
+                                                    <ItemRow
+                                                        item=item
+                                                        on_toggle=on_toggle
+                                                        on_delete=on_delete
+                                                        move_targets=mt
+                                                        on_move=on_move_item
+                                                        dnd_state=state
+                                                    />
+                                                }.into_any()
+                                            }
+                                            None => view! {
+                                                <ItemRow
+                                                    item=item
+                                                    on_toggle=on_toggle
+                                                    on_delete=on_delete
+                                                    move_targets=mt
+                                                    on_move=on_move_item
+                                                />
+                                            }.into_any(),
+                                        }
                                     }).collect::<Vec<_>>()}
+                                    {item_dnd_state.zip(on_item_drop).map(|(state, cb)| {
+                                        view! {
+                                            <ItemDropTargetMarker
+                                                dnd_state=state
+                                                target=ItemDropTarget::end(sublist.id.clone())
+                                                on_drop=cb
+                                                label="Upuść na koniec"
+                                            />
+                                        }
+                                    })}
                                     <div class="mt-2">
                                         <AddInput
                                             placeholder=Signal::derive(|| "Nowy element...".to_string())

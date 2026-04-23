@@ -1,24 +1,12 @@
 use leptos::prelude::*;
 use leptos_router::components::A;
 
+use kartoteka_shared::types::DateItem;
+
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::items::{get_all_items, toggle_item};
-use kartoteka_shared::types::DateItem;
-
-/// Groups a flat list of DateItems by list, preserving encounter order.
-fn group_by_list(items: Vec<DateItem>) -> Vec<(String, String, Vec<DateItem>)> {
-    let mut groups: Vec<(String, String, Vec<DateItem>)> = Vec::new();
-    for item in items {
-        let lid = item.item.list_id.clone();
-        if let Some(g) = groups.iter_mut().find(|(id, _, _)| id == &lid) {
-            g.2.push(item);
-        } else {
-            groups.push((lid, item.list_name.clone(), vec![item]));
-        }
-    }
-    groups
-}
+use crate::utils::group_by_list;
 
 #[component]
 pub fn AllPage() -> impl IntoView {

@@ -1,0 +1,12 @@
+target/
+.wrangler/
+build/
+crates/frontend/dist/
+crates/frontend-v2/node_modules/
+*.db
+*.db-shm
+*.db-wal
+.env
+docs/
+tests/e2e/
+gateway/node_modules/

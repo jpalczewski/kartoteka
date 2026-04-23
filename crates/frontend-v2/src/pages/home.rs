@@ -10,6 +10,7 @@ use crate::components::home::{
 };
 use crate::components::lists::create_entity_input::CreateEntityInput;
 use crate::components::tags::tag_badge::TagBadge;
+use crate::context::GlobalRefresh;
 use crate::server_fns::{
     containers::{create_container, delete_container, toggle_container_pin},
     home::{get_archived_lists, get_home_data},
@@ -23,6 +24,7 @@ pub fn HomePage() -> impl IntoView {
 
     // Refresh trigger — incrementing causes all Resources to refetch
     let (refresh, set_refresh) = signal(0u32);
+    let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
 
     // Tag filter — which tag_id is active (None = no filter)
     let (active_tag_filter, set_active_tag_filter) = signal(Option::<String>::None);
@@ -31,10 +33,19 @@ pub fn HomePage() -> impl IntoView {
     let pending_delete: RwSignal<Option<(String, String)>> = RwSignal::new(None);
 
     // Resources — fetched server-side at initial render, refetched on refresh signal
-    let home_res = Resource::new(move || refresh.get(), |_| get_home_data());
-    let archived_res = Resource::new(move || refresh.get(), |_| get_archived_lists());
+    let home_res = Resource::new(
+        move || (refresh.get(), global_refresh.get()),
+        |_| get_home_data(),
+    );
+    let archived_res = Resource::new(
+        move || (refresh.get(), global_refresh.get()),
+        |_| get_archived_lists(),
+    );
     let tags_res = Resource::new(|| (), |_| get_all_tags());
-    let tag_links_res = Resource::new(move || refresh.get(), |_| get_list_tag_links());
+    let tag_links_res = Resource::new(
+        move || (refresh.get(), global_refresh.get()),
+        |_| get_list_tag_links(),
+    );
 
     // ── Mutation callbacks ─────────────────────────────────────────────
 
@@ -139,7 +150,7 @@ pub fn HomePage() -> impl IntoView {
             })}
 
             // Tag filter bar
-            <Suspense fallback=|| view! {}>
+            <Transition fallback=|| view! {}>
                 {move || tags_res.get().map(|result| match result {
                     Ok(tags) if !tags.is_empty() => {
                         view! {
@@ -164,7 +175,7 @@ pub fn HomePage() -> impl IntoView {
                     }
                     _ => view! {}.into_any(),
                 })}
-            </Suspense>
+            </Transition>
 
             // Create form
             <CreateEntityInput
@@ -174,7 +185,7 @@ pub fn HomePage() -> impl IntoView {
             />
 
             // Main content: sections
-            <Suspense fallback=|| view! { <LoadingSpinner/> }>
+            <Transition fallback=|| view! { <LoadingSpinner/> }>
                 {move || {
                     let home = home_res.get();
                     let links = tag_links_res.get();
@@ -238,10 +249,10 @@ pub fn HomePage() -> impl IntoView {
                         _ => view! { <LoadingSpinner/> }.into_any(),
                     }
                 }}
-            </Suspense>
+            </Transition>
 
             // Archived section
-            <Suspense fallback=|| view! {}>
+            <Transition fallback=|| view! {}>
                 {move || archived_res.get().map(|result| match result {
                     Ok(archived) if !archived.is_empty() => {
                         let count = archived.len();
@@ -277,7 +288,7 @@ pub fn HomePage() -> impl IntoView {
                     }
                     _ => view! {}.into_any(),
                 })}
-            </Suspense>
+            </Transition>
         </div>
     }
 }

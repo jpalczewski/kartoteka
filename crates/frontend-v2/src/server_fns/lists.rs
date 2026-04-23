@@ -4,7 +4,7 @@ use leptos::prelude::*;
 #[cfg(feature = "ssr")]
 use {
     crate::server_fns::home::domain_list_to_shared, axum_login::AuthSession,
-    kartoteka_auth::KartotekaBackend, kartoteka_domain as domain, sqlx::SqlitePool,
+    kartoteka_auth::KartotekaBackend, kartoteka_db, kartoteka_domain as domain, sqlx::SqlitePool,
 };
 
 /// Create a new list. `container_id` puts the list inside a container;
@@ -112,6 +112,135 @@ pub async fn pin_list(id: String) -> Result<Option<List>, ServerFnError> {
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
     Ok(result.map(domain_list_to_shared))
+}
+
+/// Replace all features for a list (validates against list_type).
+#[server(prefix = "/leptos")]
+pub async fn update_list_features(
+    list_id: String,
+    features: Vec<String>,
+) -> Result<List, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    domain::lists::set_features(
+        &pool,
+        &list_id,
+        &user.id,
+        &domain::lists::SetFeaturesRequest { features },
+    )
+    .await
+    .map_err(|e| ServerFnError::new(e.to_string()))?
+    .map(domain_list_to_shared)
+    .ok_or_else(|| ServerFnError::new("list not found".to_string()))
+}
+
+/// Get feature names enabled for a list. Lightweight alternative to get_list_data.
+#[server(prefix = "/leptos")]
+pub async fn get_list_feature_names(list_id: String) -> Result<Vec<String>, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    Ok(domain::lists::get_one(&pool, &list_id, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .map(|l| l.features.iter().map(|f| f.feature_name.clone()).collect())
+        .unwrap_or_default())
+}
+
+/// Flat list of all non-archived lists owned by the user. Used as move targets
+/// in the "Move to…" item dropdown.
+#[server(prefix = "/leptos")]
+pub async fn get_all_lists() -> Result<Vec<List>, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let lists = domain::lists::list_all(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    Ok(lists
+        .into_iter()
+        .filter(|l| !l.archived)
+        .map(domain_list_to_shared)
+        .collect())
+}
+
+/// Rewrite list positions among siblings. All `list_ids` must share the same
+/// parent (caller responsibility). `container_id` / `parent_list_id` indicate
+/// the scope — one of them may be `Some`, or both `None` for root.
+#[server(prefix = "/leptos")]
+pub async fn reorder_lists(
+    container_id: Option<String>,
+    parent_list_id: Option<String>,
+    list_ids: Vec<String>,
+) -> Result<(), ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    for (pos, id) in list_ids.iter().enumerate() {
+        kartoteka_db::lists::move_list(
+            &pool,
+            id,
+            &user.id,
+            pos as i64,
+            container_id.as_deref(),
+            parent_list_id.as_deref(),
+        )
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    }
+    Ok(())
+}
+
+/// Move a list: set its container and/or parent list. Both None = root.
+/// Server computes next_position for the new location.
+#[server(prefix = "/leptos")]
+pub async fn move_list(
+    list_id: String,
+    container_id: Option<String>,
+    parent_list_id: Option<String>,
+) -> Result<List, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let position = kartoteka_db::lists::next_position(
+        &pool,
+        &user.id,
+        container_id.as_deref(),
+        parent_list_id.as_deref(),
+    )
+    .await
+    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let req = domain::lists::MoveListRequest {
+        position,
+        container_id,
+        parent_list_id,
+    };
+    let list = domain::lists::move_list(&pool, &list_id, &user.id, &req)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .ok_or_else(|| ServerFnError::new("list not found".to_string()))?;
+    Ok(domain_list_to_shared(list))
 }
 
 /// Mark all items in a list as not completed.

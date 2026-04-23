@@ -1,5 +1,6 @@
 pub const FEATURE_QUANTITY: &str = "quantity";
 pub const FEATURE_DEADLINES: &str = "deadlines";
+pub const FEATURE_LOCATION: &str = "location";
 
 pub const DATE_TYPE_START: &str = "start";
 pub const DATE_TYPE_DEADLINE: &str = "deadline";

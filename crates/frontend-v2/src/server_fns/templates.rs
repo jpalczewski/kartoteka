@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use kartoteka_shared::types::{TemplateItem, TemplateWithItems};
 use leptos::prelude::*;
 

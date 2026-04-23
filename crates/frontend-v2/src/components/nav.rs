@@ -12,6 +12,8 @@ pub fn Nav() -> impl IntoView {
                 <a href="/" class="btn btn-ghost text-xl">"Kartoteka"</a>
             </div>
             <div class="navbar-end">
+                <a href="/today" class="btn btn-ghost btn-sm">"Dziś"</a>
+                <a href="/calendar" class="btn btn-ghost btn-sm">"Terminarz"</a>
                 <a href="/tags" class="btn btn-ghost btn-sm" data-testid="nav-tags">"Tagi"</a>
                 <a href="/all" class="btn btn-ghost btn-sm">"Wszystkie"</a>
                 <Suspense>

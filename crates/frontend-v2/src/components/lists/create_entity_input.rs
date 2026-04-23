@@ -22,18 +22,28 @@ pub fn CreateEntityInput(
 
     let parent_id = parent_container_id.clone();
 
+    // Maps UI option labels to (domain list_type, required features).
+    fn resolve_list_type(option: &str) -> (&'static str, Vec<String>) {
+        match option {
+            "zakupy" => ("shopping", vec!["quantity".into()]),
+            "terminarz" => ("habits", vec!["deadlines".into()]),
+            _ => ("checklist", vec![]),
+        }
+    }
+
     let on_submit = Callback::new(move |name: String| {
         let m = mode.get();
         match m {
             EntityMode::List => {
+                let (domain_type, features) = resolve_list_type(&list_type.get());
                 on_create_list.run(CreateListRequest {
                     name,
-                    list_type: Some(list_type.get()),
+                    list_type: Some(domain_type.to_string()),
                     icon: None,
                     description: None,
                     container_id: parent_id.clone(),
                     parent_list_id: None,
-                    features: vec![],
+                    features,
                 });
             }
             EntityMode::Folder => {
