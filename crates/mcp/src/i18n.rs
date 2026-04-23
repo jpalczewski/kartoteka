@@ -1,4 +1,5 @@
-use fluent_bundle::{FluentArgs, FluentBundle, FluentResource, FluentValue};
+use fluent_bundle::concurrent::FluentBundle;
+use fluent_bundle::{FluentArgs, FluentResource, FluentValue};
 use std::collections::HashMap;
 use std::path::Path;
 use unic_langid::LanguageIdentifier;
@@ -18,7 +19,7 @@ impl McpI18n {
             let resource = FluentResource::try_new(src)
                 .unwrap_or_else(|e| panic!("parse {}: {e:?}", path.display()));
             let id: LanguageIdentifier = lang.parse().expect("parse langid");
-            let mut bundle = FluentBundle::new(vec![id]);
+            let mut bundle = FluentBundle::new_concurrent(vec![id]);
             bundle.add_resource(resource).expect("add resource");
             bundle.set_use_isolating(false);
             bundles.insert(lang.to_string(), bundle);
