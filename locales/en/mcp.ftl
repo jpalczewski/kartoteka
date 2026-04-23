@@ -89,3 +89,7 @@ mcp-tool-list_tags-desc = List all your tags.
 mcp-tool-get_today-desc = Get items due today.
 mcp-tool-get_time_summary-desc = Get all time entries.
 mcp-tool-create_list-desc = Create a new list. list_type: checklist (default), shopping, habit, or custom.
+mcp-tool-get_item-desc = Get details of a specific item by ID.
+mcp-tool-list_templates-desc = List all saved list templates.
+mcp-tool-list_overdue-desc = Get all items past their deadline that are not yet completed.
+mcp-tool-get_active_timer-desc = Get the currently running timer, if any.

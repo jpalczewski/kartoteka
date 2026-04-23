@@ -230,6 +230,15 @@ pub async fn summary_for_item(
     })
 }
 
+#[tracing::instrument(skip(pool))]
+pub async fn get_active(
+    pool: &SqlitePool,
+    user_id: &str,
+) -> Result<Option<TimeEntry>, DomainError> {
+    let row = db::time_entries::get_running(pool, user_id).await?;
+    Ok(row.map(row_to_entry))
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

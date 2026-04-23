@@ -22,7 +22,7 @@ use std::sync::Arc;
 use crate::tools::{
     comments::AddCommentParams,
     items::{CreateItemParams, CreateListParams, UpdateItemParams},
-    read::{GetContainerParams, GetListParams, ListItemsParams},
+    read::{GetContainerParams, GetItemParams, GetListParams, ListItemsParams},
     relations::{AddRelationParams, RemoveRelationParams},
     search::SearchItemsParams,
     templates::{CreateListFromTemplateParams, SaveAsTemplateParams},
@@ -487,6 +487,62 @@ impl KartotekaServer {
             .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
         self.json_result(data, &locale)
     }
+
+    #[rmcp::tool(name = "get_item", description = "mcp-tool-get_item-desc")]
+    async fn get_item(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<GetItemParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let data = domain::items::get_one(&self.pool, &p.item_id, &uid)
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        self.json_result(data, &locale)
+    }
+
+    #[rmcp::tool(name = "list_templates", description = "mcp-tool-list_templates-desc")]
+    async fn list_templates(
+        &self,
+        Extension(parts): Extension<Parts>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let data = domain::templates::list(&self.pool, &uid)
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        self.json_result(data, &locale)
+    }
+
+    #[rmcp::tool(name = "list_overdue", description = "mcp-tool-list_overdue-desc")]
+    async fn list_overdue(
+        &self,
+        Extension(parts): Extension<Parts>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let data = domain::items::overdue(&self.pool, &uid)
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        self.json_result(data, &locale)
+    }
+
+    #[rmcp::tool(
+        name = "get_active_timer",
+        description = "mcp-tool-get_active_timer-desc"
+    )]
+    async fn get_active_timer(
+        &self,
+        Extension(parts): Extension<Parts>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let data = domain::time_entries::get_active(&self.pool, &uid)
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        self.json_result(data, &locale)
+    }
 }
 
 // ── Tool annotations ─────────────────────────────────────────────────────────
@@ -495,7 +551,8 @@ fn tool_annotations(name: &str) -> ToolAnnotations {
     match name {
         // Pure reads — no side effects
         "list_lists" | "get_list" | "list_items" | "list_containers" | "get_container"
-        | "list_tags" | "get_today" | "get_time_summary" | "search_items" => ToolAnnotations {
+        | "list_tags" | "get_today" | "get_time_summary" | "search_items" | "get_item"
+        | "list_templates" | "list_overdue" | "get_active_timer" => ToolAnnotations {
             read_only_hint: Some(true),
             destructive_hint: Some(false),
             idempotent_hint: Some(true),
@@ -548,6 +605,16 @@ impl ServerHandler for KartotekaServer {
                 .enable_tools()
                 .enable_resources()
                 .build(),
+            instructions: Some(
+                "Kartoteka is a personal task and list manager. \
+                Start every session by calling list_lists to orient yourself — \
+                you need list IDs for most item operations. \
+                Use search_items to find items by keyword before acting on them. \
+                When adding comments: omit author_name to write in the user's voice; \
+                set author_name to your name (e.g. \"Claude\") for your own observations. \
+                Prefer get_today and list_overdue to surface what needs attention now."
+                    .into(),
+            ),
             ..ServerInfo::default()
         }
     }

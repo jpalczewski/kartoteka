@@ -19,3 +19,8 @@ pub struct ListItemsParams {
 pub struct GetContainerParams {
     pub container_id: String,
 }
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetItemParams {
+    pub item_id: String,
+}

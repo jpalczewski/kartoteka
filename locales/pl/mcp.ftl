@@ -89,3 +89,7 @@ mcp-tool-list_tags-desc = Pobierz wszystkie tagi.
 mcp-tool-get_today-desc = Pobierz elementy na dziś.
 mcp-tool-get_time_summary-desc = Pobierz wszystkie wpisy czasu.
 mcp-tool-create_list-desc = Utwórz nową listę. list_type: checklist (domyślny), shopping, habit lub custom.
+mcp-tool-get_item-desc = Pobierz szczegóły konkretnego elementu po ID.
+mcp-tool-list_templates-desc = Pobierz wszystkie zapisane szablony list.
+mcp-tool-list_overdue-desc = Pobierz wszystkie elementy po terminie, które nie są jeszcze ukończone.
+mcp-tool-get_active_timer-desc = Pobierz aktualnie działający timer, jeśli istnieje.
