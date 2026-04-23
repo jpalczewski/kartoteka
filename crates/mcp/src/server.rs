@@ -211,7 +211,7 @@ impl KartotekaServer {
             &p.entity_id,
             &p.content,
             "user",
-            None,
+            p.author_name.as_deref(),
         )
         .await
         .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
