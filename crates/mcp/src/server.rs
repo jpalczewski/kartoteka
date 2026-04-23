@@ -22,6 +22,7 @@ use std::sync::Arc;
 use crate::tools::{
     comments::AddCommentParams,
     items::{CreateItemParams, UpdateItemParams},
+    read::{GetContainerParams, GetListParams, ListItemsParams},
     relations::{AddRelationParams, RemoveRelationParams},
     search::SearchItemsParams,
     templates::{CreateListFromTemplateParams, SaveAsTemplateParams},
@@ -323,6 +324,145 @@ impl KartotekaServer {
                 .await
                 .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
         self.json_result(tmpl, &locale)
+    }
+
+    // ── Read-only resource-compat tools ──────────────────────────────────────
+
+    #[rmcp::tool(name = "list_lists", description = "mcp-tool-list_lists-desc")]
+    async fn list_lists(
+        &self,
+        Extension(parts): Extension<Parts>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let data = domain::lists::list_all(&self.pool, &uid)
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        self.json_result(data, &locale)
+    }
+
+    #[rmcp::tool(name = "get_list", description = "mcp-tool-get_list-desc")]
+    async fn get_list(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<GetListParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let data = domain::lists::get_one(&self.pool, &p.list_id, &uid)
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        self.json_result(data, &locale)
+    }
+
+    #[rmcp::tool(name = "list_items", description = "mcp-tool-list_items-desc")]
+    async fn list_items(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<ListItemsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let all = domain::items::list_for_list(&self.pool, &p.list_id, &uid)
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        let limit = domain::paging::clamp_limit(p.limit);
+        let offset: usize = p
+            .cursor
+            .as_deref()
+            .and_then(|c| c.parse().ok())
+            .unwrap_or(0);
+        let page: Vec<_> = all
+            .iter()
+            .skip(offset)
+            .take(limit as usize)
+            .cloned()
+            .collect();
+        let next_cursor = if offset + page.len() < all.len() {
+            Some((offset + page.len()).to_string())
+        } else {
+            None
+        };
+        self.json_result(
+            domain::paging::Paged {
+                data: page,
+                next_cursor,
+                limit,
+            },
+            &locale,
+        )
+    }
+
+    #[rmcp::tool(
+        name = "list_containers",
+        description = "mcp-tool-list_containers-desc"
+    )]
+    async fn list_containers(
+        &self,
+        Extension(parts): Extension<Parts>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let data = domain::containers::list_all(&self.pool, &uid)
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        self.json_result(data, &locale)
+    }
+
+    #[rmcp::tool(name = "get_container", description = "mcp-tool-get_container-desc")]
+    async fn get_container(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<GetContainerParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let data = domain::containers::get_one(&self.pool, &p.container_id, &uid)
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        self.json_result(data, &locale)
+    }
+
+    #[rmcp::tool(name = "list_tags", description = "mcp-tool-list_tags-desc")]
+    async fn list_tags(
+        &self,
+        Extension(parts): Extension<Parts>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let data = domain::tags::list_all(&self.pool, &uid)
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        self.json_result(data, &locale)
+    }
+
+    #[rmcp::tool(name = "get_today", description = "mcp-tool-get_today-desc")]
+    async fn get_today(
+        &self,
+        Extension(parts): Extension<Parts>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let data = domain::items::by_date(&self.pool, &uid, "today")
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        self.json_result(data, &locale)
+    }
+
+    #[rmcp::tool(
+        name = "get_time_summary",
+        description = "mcp-tool-get_time_summary-desc"
+    )]
+    async fn get_time_summary(
+        &self,
+        Extension(parts): Extension<Parts>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let data = domain::time_entries::list_all_for_user(&self.pool, &uid)
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        self.json_result(data, &locale)
     }
 }
 
