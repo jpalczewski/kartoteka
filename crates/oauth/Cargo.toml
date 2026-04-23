@@ -14,7 +14,7 @@ kartoteka-auth = { path = "../auth", version = "0.1.1" }
 kartoteka-db = { path = "../db", version = "0.1.1" }
 
 axum = { workspace = true }
-axum-login = "0.18"
+axum-login = { workspace = true }
 tower = { workspace = true }
 tower-sessions = "0.15"
 http = "1"
@@ -33,3 +33,8 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 subtle = "2.6"
 urlencoding = "2"
+
+[dev-dependencies]
+hmac = "0.12"
+tower = { version = "0.5", features = ["util"] }
+kartoteka-db = { path = "../db", version = "0.1.1", features = ["test-helpers"] }
