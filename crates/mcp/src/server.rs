@@ -10,7 +10,7 @@ use rmcp::{
     model::{
         CallToolRequestParam, CallToolResult, Content, ListResourceTemplatesResult,
         ListResourcesResult, ListToolsResult, PaginatedRequestParam, ReadResourceRequestParam,
-        ReadResourceResult, ResourceContents, ServerCapabilities, ServerInfo,
+        ReadResourceResult, ResourceContents, ServerCapabilities, ServerInfo, ToolAnnotations,
     },
     service::RequestContext,
     tool_router,
@@ -489,6 +489,52 @@ impl KartotekaServer {
     }
 }
 
+// ── Tool annotations ─────────────────────────────────────────────────────────
+
+fn tool_annotations(name: &str) -> ToolAnnotations {
+    match name {
+        // Pure reads — no side effects
+        "list_lists" | "get_list" | "list_items" | "list_containers" | "get_container"
+        | "list_tags" | "get_today" | "get_time_summary" | "search_items" => ToolAnnotations {
+            read_only_hint: Some(true),
+            destructive_hint: Some(false),
+            idempotent_hint: Some(true),
+            open_world_hint: Some(false),
+            title: None,
+        },
+        // Additive writes — create new data, non-destructive
+        "create_list"
+        | "create_item"
+        | "add_comment"
+        | "add_relation"
+        | "log_time"
+        | "start_timer"
+        | "create_list_from_template"
+        | "save_as_template" => ToolAnnotations {
+            read_only_hint: Some(false),
+            destructive_hint: Some(false),
+            idempotent_hint: Some(false),
+            open_world_hint: Some(false),
+            title: None,
+        },
+        // Mutating / removing — potentially destructive
+        "update_item" | "remove_relation" | "stop_timer" => ToolAnnotations {
+            read_only_hint: Some(false),
+            destructive_hint: Some(true),
+            idempotent_hint: Some(false),
+            open_world_hint: Some(false),
+            title: None,
+        },
+        _ => ToolAnnotations {
+            read_only_hint: None,
+            destructive_hint: None,
+            idempotent_hint: None,
+            open_world_hint: None,
+            title: None,
+        },
+    }
+}
+
 // ── ServerHandler impl ────────────────────────────────────────────────────────
 
 impl ServerHandler for KartotekaServer {
@@ -522,6 +568,7 @@ impl ServerHandler for KartotekaServer {
                 let translated = self.i18n.translate(&locale, key);
                 t.description = Some(translated.into());
             }
+            t.annotations = Some(tool_annotations(t.name.as_ref()));
         }
         Ok(ListToolsResult::with_all_items(tools))
     }
