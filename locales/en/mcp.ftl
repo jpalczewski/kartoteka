@@ -51,7 +51,7 @@ oauth-consent-scope-mcp = Read and modify your lists, items, tags, comments, and
 
 # New MCP tool descriptions
 mcp-tool-create_item-desc = Create a new item in a list.
-mcp-tool-update_item-desc = Update fields of an existing item (None-valued fields are cleared).
+mcp-tool-update_item-desc = Update fields of an existing item. Use the "clear" array to explicitly set fields to null (e.g. clear: ["deadline", "description"]).
 mcp-tool-search_items-desc = Full-text search across items and their comments.
 mcp-tool-add_comment-desc = Add a comment to an item, list, or container.
 mcp-tool-add_relation-desc = Create a blocks or relates_to relation between two items.
@@ -88,3 +88,4 @@ mcp-tool-get_container-desc = Get details of a specific container by ID.
 mcp-tool-list_tags-desc = List all your tags.
 mcp-tool-get_today-desc = Get items due today.
 mcp-tool-get_time_summary-desc = Get all time entries.
+mcp-tool-create_list-desc = Create a new list. list_type: checklist (default), shopping, habit, or custom.

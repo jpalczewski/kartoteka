@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use crate::tools::{
     comments::AddCommentParams,
-    items::{CreateItemParams, UpdateItemParams},
+    items::{CreateItemParams, CreateListParams, UpdateItemParams},
     read::{GetContainerParams, GetListParams, ListItemsParams},
     relations::{AddRelationParams, RemoveRelationParams},
     search::SearchItemsParams,
@@ -140,23 +140,46 @@ impl KartotekaServer {
         let (uid, locale) =
             Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
         let req = domain::items::UpdateItemRequest {
-            title: p.title,
-            description: p.description,
+            title: p.title.clone(),
+            description: p.description_field(),
             completed: p.completed,
-            quantity: p.quantity,
-            actual_quantity: p.actual_quantity,
-            unit: p.unit,
-            start_date: p.start_date,
-            start_time: p.start_time,
-            deadline: p.deadline,
-            deadline_time: p.deadline_time,
-            hard_deadline: p.hard_deadline,
-            estimated_duration: p.estimated_duration,
+            quantity: p.quantity_field(),
+            actual_quantity: p.actual_quantity_field(),
+            unit: p.unit_field(),
+            start_date: p.start_date_field(),
+            start_time: p.start_time_field(),
+            deadline: p.deadline_field(),
+            deadline_time: p.deadline_time_field(),
+            hard_deadline: p.hard_deadline_field(),
+            estimated_duration: p.estimated_duration_field(),
         };
         let item = domain::items::update(&self.pool, &uid, &p.item_id, &req)
             .await
             .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
         self.json_result(item, &locale)
+    }
+
+    #[rmcp::tool(name = "create_list", description = "mcp-tool-create_list-desc")]
+    async fn create_list(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<CreateListParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let req = domain::lists::CreateListRequest {
+            name: p.name,
+            list_type: p.list_type,
+            icon: p.icon,
+            description: p.description,
+            container_id: p.container_id,
+            parent_list_id: p.parent_list_id,
+            features: p.features.unwrap_or_default(),
+        };
+        let list = domain::lists::create(&self.pool, &uid, &req)
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        self.json_result(list, &locale)
     }
 
     #[rmcp::tool(name = "search_items", description = "mcp-tool-search_items-desc")]

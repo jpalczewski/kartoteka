@@ -51,7 +51,7 @@ oauth-consent-scope-mcp = Odczyt i modyfikacja Twoich list, elementów, tagów, 
 
 # Opisy nowych narzędzi MCP
 mcp-tool-create_item-desc = Utwórz nowy element w liście.
-mcp-tool-update_item-desc = Zaktualizuj pola istniejącego elementu (pola None są czyszczone).
+mcp-tool-update_item-desc = Zaktualizuj pola istniejącego elementu. Użyj tablicy "clear" aby wyzerować pola (np. clear: ["deadline", "description"]).
 mcp-tool-search_items-desc = Pełnotekstowe wyszukiwanie w elementach i komentarzach.
 mcp-tool-add_comment-desc = Dodaj komentarz do elementu, listy lub kontenera.
 mcp-tool-add_relation-desc = Utwórz relację blocks lub relates_to między dwoma elementami.
@@ -88,3 +88,4 @@ mcp-tool-get_container-desc = Pobierz szczegóły konkretnego kontenera po ID.
 mcp-tool-list_tags-desc = Pobierz wszystkie tagi.
 mcp-tool-get_today-desc = Pobierz elementy na dziś.
 mcp-tool-get_time_summary-desc = Pobierz wszystkie wpisy czasu.
+mcp-tool-create_list-desc = Utwórz nową listę. list_type: checklist (domyślny), shopping, habit lub custom.
