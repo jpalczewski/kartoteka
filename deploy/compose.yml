@@ -1,0 +1,67 @@
+# Copy to /srv/kartoteka/compose.yml on the VPS.
+# Adjust image repository path if the GitHub repo is renamed.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [app]
+
+  prod:
+    image: ghcr.io/jpalczewski/kartoteka-a1:${KARTOTEKA_PROD_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env.prod
+    volumes:
+      - ./data/prod.db:/app/kartoteka.db
+    expose: ["3000"]
+    networks: [app]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  dev:
+    image: ghcr.io/jpalczewski/kartoteka-a1:develop
+    restart: unless-stopped
+    env_file: .env.dev
+    volumes:
+      - ./data/dev.db:/app/kartoteka.db
+    expose: ["3000"]
+    networks: [app]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  preview:
+    image: ghcr.io/jpalczewski/kartoteka-a1:preview
+    restart: unless-stopped
+    env_file: .env.preview
+    volumes:
+      - ./data/preview.db:/app/kartoteka.db
+    expose: ["3000"]
+    networks: [app]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  app:
+    driver: bridge
