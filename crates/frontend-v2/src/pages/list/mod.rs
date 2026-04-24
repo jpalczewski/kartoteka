@@ -5,11 +5,13 @@ use kartoteka_shared::{FEATURE_DEADLINES, FEATURE_LOCATION, FEATURE_QUANTITY};
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::CommentSection;
+use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::dnd::{DetachDropZone, ItemDropTargetMarker};
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::items::item_row::ItemRow;
 use crate::components::lists::{
-    add_input::AddInput, add_item_input::AddItemInput, list_card::list_type_icon,
+    add_input::AddInput, add_item_input::AddItemInput,
+    deadlines_config::DeadlinesConfig, list_card::list_type_icon,
     sublist_section::SublistSection,
 };
 use crate::components::tags::tag_filter_bar::TagFilterBar;
@@ -20,8 +22,8 @@ use crate::server_fns::items::{
     update_actual_quantity, update_item_dates, update_item_description,
 };
 use crate::server_fns::lists::{
-    archive_list, create_list, get_all_lists, move_list, pin_list, rename_list, reset_list,
-    update_list_features,
+    archive_list, create_list, delete_list, get_all_lists, move_list, pin_list, rename_list,
+    reset_list, update_list_features,
 };
 use crate::server_fns::tags::{
     assign_tag_to_list, get_all_tags, get_list_tag_links, remove_tag_from_list,
@@ -30,6 +32,13 @@ use crate::state::dnd::{
     DndState, EntityKind, ItemDndState, ItemDropPlan, ItemDropTarget, build_item_drop_plan,
 };
 use std::collections::HashMap;
+
+#[derive(Clone, Copy, PartialEq)]
+enum ConfirmAction {
+    Delete,
+    Archive,
+    Reset,
+}
 
 #[component]
 pub fn ListPage() -> impl IntoView {
@@ -186,6 +195,14 @@ pub fn ListPage() -> impl IntoView {
 
     let (adding_sublist, set_adding_sublist) = signal(false);
 
+    // ── Confirmation dialog state ─────────────────────────────────
+    let confirm_open: RwSignal<bool> = RwSignal::new(false);
+    let confirm_action: RwSignal<Option<ConfirmAction>> = RwSignal::new(None);
+
+    // ── Description inline edit ────────────────────────────────────
+    let (editing_description, set_editing_description) = signal(false);
+    let (description_input, set_description_input) = signal(String::new());
+
     // ── DnD state + callbacks ─────────────────────────────────────
     let dnd_state: RwSignal<DndState> = RwSignal::new(DndState::default());
     let item_dnd_state: RwSignal<ItemDndState> = RwSignal::new(ItemDndState::default());
@@ -253,6 +270,7 @@ pub fn ListPage() -> impl IntoView {
                     Ok(data) => {
                         let icon = list_type_icon(&data.list.list_type);
                         let list_name = data.list.name.clone();
+                        let list_name_for_desc = list_name.clone();
                         let list_description = data.list.description.clone();
                         let list_pinned = data.list.pinned;
                         let list_archived = data.list.archived;
@@ -282,6 +300,13 @@ pub fn ListPage() -> impl IntoView {
                         let has_quantity = current_features.iter().any(|f| f == FEATURE_QUANTITY);
                         let has_deadlines = current_features.iter().any(|f| f == FEATURE_DEADLINES);
                         let has_location = current_features.iter().any(|f| f == FEATURE_LOCATION);
+                        let deadlines_config = data
+                            .list
+                            .features
+                            .iter()
+                            .find(|f| f.feature_name == FEATURE_DEADLINES)
+                            .map(|f| f.config.clone())
+                            .unwrap_or_else(|| serde_json::json!({}));
 
                         view! {
                             <div>
@@ -360,13 +385,8 @@ pub fn ListPage() -> impl IntoView {
                                                     type="button"
                                                     data-testid="action-reset"
                                                     on:click=move |_| {
-                                                        let lid = list_id();
-                                                        leptos::task::spawn_local(async move {
-                                                            match reset_list(lid).await {
-                                                                Ok(_) => set_refresh.update(|n| *n += 1),
-                                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                            }
-                                                        });
+                                                        confirm_action.set(Some(ConfirmAction::Reset));
+                                                        confirm_open.set(true);
                                                     }
                                                 >
                                                     "↺ Resetuj ukończone"
@@ -418,6 +438,19 @@ pub fn ListPage() -> impl IntoView {
                                                             "Terminy"
                                                         </label>
                                                     </li>
+                                                    {if has_deadlines {
+                                                        let cfg = deadlines_config.clone();
+                                                        let lid = current_list_id.clone();
+                                                        view! {
+                                                            <DeadlinesConfig
+                                                                list_id=lid
+                                                                config=cfg
+                                                                on_changed=Callback::new(move |_| set_refresh.update(|n| *n += 1))
+                                                            />
+                                                        }.into_any()
+                                                    } else {
+                                                        view! {}.into_any()
+                                                    }}
                                                     <li>
                                                         <label class="flex items-center gap-2 cursor-pointer">
                                                             <input
@@ -436,21 +469,25 @@ pub fn ListPage() -> impl IntoView {
                                                     type="button"
                                                     class="text-warning"
                                                     data-testid="action-archive"
-                                                    on:click={
-                                                        let nav = navigate.clone();
-                                                        move |_| {
-                                                            let lid = list_id();
-                                                            let nav = nav.clone();
-                                                            leptos::task::spawn_local(async move {
-                                                                match archive_list(lid).await {
-                                                                    Ok(_) => nav("/", Default::default()),
-                                                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                                }
-                                                            });
-                                                        }
+                                                    on:click=move |_| {
+                                                        confirm_action.set(Some(ConfirmAction::Archive));
+                                                        confirm_open.set(true);
                                                     }
                                                 >
                                                     {if list_archived { "📂 Przywróć" } else { "🗄 Archiwizuj" }}
+                                                </button>
+                                            </li>
+                                            <li>
+                                                <button
+                                                    type="button"
+                                                    class="text-error"
+                                                    data-testid="action-delete"
+                                                    on:click=move |_| {
+                                                        confirm_action.set(Some(ConfirmAction::Delete));
+                                                        confirm_open.set(true);
+                                                    }
+                                                >
+                                                    "🗑 Usuń listę"
                                                 </button>
                                             </li>
                                         </ul>
@@ -460,9 +497,76 @@ pub fn ListPage() -> impl IntoView {
                                     "Utworzono: " {created_at_local}
                                 </p>
 
-                                {list_description.map(|desc| view! {
-                                    <p class="text-base-content/60 mb-4">{desc}</p>
-                                })}
+                                {
+                                    let desc_for_edit = list_description.clone();
+                                    move || {
+                                        let lid = list_id();
+                                        let lname = list_name_for_desc.clone();
+                                        if editing_description.get() {
+                                            view! {
+                                                <div class="mb-4 flex gap-2">
+                                                    <input
+                                                        type="text"
+                                                        class="input input-bordered flex-1 text-sm"
+                                                        placeholder="Opis listy…"
+                                                        prop:value=description_input
+                                                        on:input=move |ev| set_description_input.set(event_target_value(&ev))
+                                                        on:keydown={
+                                                            let lid2 = lid.clone();
+                                                            let lname2 = lname.clone();
+                                                            move |ev: leptos::ev::KeyboardEvent| {
+                                                                if ev.key() == "Enter" {
+                                                                    let desc = description_input.get_untracked();
+                                                                    set_editing_description.set(false);
+                                                                    let lid3 = lid2.clone();
+                                                                    let lname3 = lname2.clone();
+                                                                    leptos::task::spawn_local(async move {
+                                                                        let desc_opt = if desc.trim().is_empty() { None } else { Some(desc) };
+                                                                        match rename_list(lid3, lname3, desc_opt).await {
+                                                                            Ok(_) => set_refresh.update(|n| *n += 1),
+                                                                            Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                                        }
+                                                                    });
+                                                                } else if ev.key() == "Escape" {
+                                                                    set_editing_description.set(false);
+                                                                }
+                                                            }
+                                                        }
+                                                    />
+                                                </div>
+                                            }.into_any()
+                                        } else {
+                                            let current_desc = desc_for_edit.clone();
+                                            view! {
+                                                <div class="mb-4">
+                                                    {if let Some(desc) = current_desc {
+                                                        let desc_display = desc.clone();
+                                                        view! {
+                                                            <p
+                                                                class="text-base-content/60 cursor-pointer hover:underline decoration-dotted"
+                                                                title="Kliknij aby edytować"
+                                                                on:click=move |_| {
+                                                                    set_description_input.set(desc.clone());
+                                                                    set_editing_description.set(true);
+                                                                }
+                                                            >{desc_display}</p>
+                                                        }.into_any()
+                                                    } else {
+                                                        view! {
+                                                            <p
+                                                                class="text-base-content/30 text-sm cursor-pointer italic"
+                                                                on:click=move |_| {
+                                                                    set_description_input.set(String::new());
+                                                                    set_editing_description.set(true);
+                                                                }
+                                                            >"Dodaj opis…"</p>
+                                                        }.into_any()
+                                                    }}
+                                                </div>
+                                            }.into_any()
+                                        }
+                                    }
+                                }
 
                                 // Tags
                                 <div class="mb-4" data-testid="list-tags-section">
@@ -689,6 +793,73 @@ pub fn ListPage() -> impl IntoView {
                     }
                 })}
             </Transition>
+
+            // Confirmation modal — rendered outside Transition so it stays visible during refetch
+            {move || {
+                let action = confirm_action.get()?;
+                let list_name_str = data_res.get()?.ok()?.list.name.clone();
+                let (title, message, label, variant) = match action {
+                    ConfirmAction::Delete => (
+                        "Usuń listę".to_string(),
+                        format!("Czy na pewno chcesz usunąć listę \"{}\"? Tej operacji nie można cofnąć.", list_name_str),
+                        "Usuń".to_string(),
+                        ConfirmVariant::Danger,
+                    ),
+                    ConfirmAction::Archive => (
+                        "Archiwizuj listę".to_string(),
+                        format!("Czy archiwizować listę \"{}\"?", list_name_str),
+                        "Archiwizuj".to_string(),
+                        ConfirmVariant::Warning,
+                    ),
+                    ConfirmAction::Reset => (
+                        "Resetuj listę".to_string(),
+                        format!("Odznaczyć wszystkie ukończone elementy na liście \"{}\"?", list_name_str),
+                        "Resetuj".to_string(),
+                        ConfirmVariant::Warning,
+                    ),
+                };
+                let nav = navigate.clone();
+                Some(view! {
+                    <ConfirmModal
+                        open=confirm_open
+                        title=title
+                        message=message
+                        confirm_label=label
+                        variant=variant
+                        on_confirm=Callback::new(move |_| {
+                            let lid = list_id();
+                            let nav2 = nav.clone();
+                            match action {
+                                ConfirmAction::Delete => {
+                                    leptos::task::spawn_local(async move {
+                                        match delete_list(lid).await {
+                                            Ok(_) => nav2("/", Default::default()),
+                                            Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                        }
+                                    });
+                                }
+                                ConfirmAction::Archive => {
+                                    leptos::task::spawn_local(async move {
+                                        match archive_list(lid).await {
+                                            Ok(_) => nav2("/", Default::default()),
+                                            Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                        }
+                                    });
+                                }
+                                ConfirmAction::Reset => {
+                                    leptos::task::spawn_local(async move {
+                                        match reset_list(lid).await {
+                                            Ok(_) => set_refresh.update(|n| *n += 1),
+                                            Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                        }
+                                    });
+                                }
+                            }
+                            confirm_action.set(None);
+                        })
+                    />
+                })
+            }}
         </div>
     }
 }
