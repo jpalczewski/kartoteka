@@ -21,18 +21,19 @@ pub type DateSavePayload = (
     Option<String>,
 );
 
-fn flex_date_display(item: &Item) -> Option<(String, &'static str, bool)> {
-    // Show the most important date: hard_deadline > deadline > start_date
+fn date_chips(item: &Item) -> Vec<(&'static str, String, bool)> {
+    // (icon, date_string, is_danger) — hard_deadline first, then deadline, then start
+    let mut chips = Vec::new();
     if let Some(ref d) = item.hard_deadline {
-        return Some((d.to_string(), "🚨", false));
+        chips.push(("🚨", d.to_string(), true));
     }
     if let Some(ref d) = item.deadline {
-        return Some((d.to_string(), "⏰", false));
+        chips.push(("⏰", d.to_string(), false));
     }
     if let Some(ref d) = item.start_date {
-        return Some((d.to_string(), "📅", true));
+        chips.push(("📅", d.to_string(), false));
     }
-    None
+    chips
 }
 
 #[component]
@@ -95,7 +96,8 @@ pub fn ItemRow(
             .unwrap_or_default(),
     );
 
-    let date_info = flex_date_display(&item);
+    let chips = date_chips(&item);
+    let has_date_save = on_date_save.is_some();
 
     let show_stepper = has_quantity && item.quantity.is_some();
     let stepper = show_stepper.then(|| {
@@ -168,20 +170,32 @@ pub fn ItemRow(
                         }).collect::<Vec<_>>()}
                     </div>
                 })}
-                {date_info.map(|(date_str, icon, _is_start)| {
-                    let date_color = if completed {
-                        "text-xs text-base-content/40 shrink-0"
-                    } else {
-                        "text-xs text-base-content/60 shrink-0"
-                    };
-                    view! {
-                        <span
-                            class=format!("{date_color} cursor-pointer hover:opacity-80")
-                            title="Kliknij ▼ aby edytować daty"
-                        >
-                            {icon} {date_str}
-                        </span>
-                    }
+                {(!chips.is_empty()).then(move || {
+                    let views: Vec<_> = chips.into_iter().map(|(icon, date_str, is_danger)| {
+                        let chip_class = if completed {
+                            "badge badge-ghost badge-sm opacity-40 shrink-0"
+                        } else if is_danger {
+                            "badge badge-error badge-sm shrink-0 cursor-pointer"
+                        } else {
+                            "badge badge-ghost badge-sm shrink-0 cursor-pointer hover:badge-primary"
+                        };
+                        if has_date_save && !completed {
+                            view! {
+                                <button
+                                    type="button"
+                                    class=chip_class
+                                    on:click=move |_| expanded.set(true)
+                                >
+                                    {icon} " " {date_str}
+                                </button>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <span class=chip_class>{icon} " " {date_str}</span>
+                            }.into_any()
+                        }
+                    }).collect();
+                    view! { <div class="flex gap-1 flex-wrap shrink-0">{views}</div> }
                 })}
                 {stepper}
                 {on_move

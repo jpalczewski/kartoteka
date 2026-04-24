@@ -2,9 +2,9 @@ use leptos::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
 fn random_hex_color() -> String {
-    let r = (js_sys::Math::random() * 256.0) as u8;
-    let g = (js_sys::Math::random() * 256.0) as u8;
-    let b = (js_sys::Math::random() * 256.0) as u8;
+    let r = (web_sys::js_sys::Math::random() * 256.0) as u8;
+    let g = (web_sys::js_sys::Math::random() * 256.0) as u8;
+    let b = (web_sys::js_sys::Math::random() * 256.0) as u8;
     format!("#{:02x}{:02x}{:02x}", r, g, b)
 }
 

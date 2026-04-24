@@ -3,7 +3,7 @@ use leptos::prelude::*;
 /// Today's date in the browser's local timezone as YYYY-MM-DD. On SSR falls back to empty
 /// — time-sensitive quick buttons are click-only so SSR correctness is not required.
 #[cfg(target_arch = "wasm32")]
-fn format_date(d: &js_sys::Date) -> String {
+fn format_date(d: &web_sys::js_sys::Date) -> String {
     format!(
         "{:04}-{:02}-{:02}",
         d.get_full_year(),
@@ -15,7 +15,7 @@ fn format_date(d: &js_sys::Date) -> String {
 pub fn today_str() -> String {
     #[cfg(target_arch = "wasm32")]
     {
-        format_date(&js_sys::Date::new_0())
+        format_date(&web_sys::js_sys::Date::new_0())
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -26,7 +26,7 @@ pub fn today_str() -> String {
 pub fn tomorrow_str() -> String {
     #[cfg(target_arch = "wasm32")]
     {
-        let d = js_sys::Date::new_0();
+        let d = web_sys::js_sys::Date::new_0();
         d.set_date(d.get_date() + 1);
         format_date(&d)
     }
@@ -40,7 +40,7 @@ pub fn tomorrow_str() -> String {
 pub fn next_monday_str() -> String {
     #[cfg(target_arch = "wasm32")]
     {
-        let d = js_sys::Date::new_0();
+        let d = web_sys::js_sys::Date::new_0();
         let dow = d.get_day(); // 0=Sun..6=Sat
         let days: u32 = if dow == 0 { 1 } else { (8 - dow) % 7 };
         let days = if days == 0 { 7 } else { days };

@@ -27,11 +27,6 @@ dev-gateway:
     cp locales/pl/mcp.ftl gateway/locales/pl/mcp.txt
     cd gateway && npx wrangler dev --env local --local --port 8788
 
-# Uruchom frontend (proxy config in Trunk.toml)
-dev-frontend:
-    cd crates/frontend && npm install
-    cd crates/frontend && trunk serve
-
 # Wystaw Gateway przez HTTPS via cloudflared tunnel
 dev-tunnel:
     cloudflared tunnel --url http://localhost:8788
@@ -52,24 +47,6 @@ dev-tailwind:
 dev-leptos:
     OAUTH_SIGNING_SECRET="${OAUTH_SIGNING_SECRET:-dev-secret-min-32-chars-abcdefgh}" cargo leptos watch
 
-# [legacy] Stary CF Workers dev (deprecated)
-dev-ssr:
-    #!/usr/bin/env bash
-    trap 'kill 0' EXIT
-    just dev-tailwind &
-    just dev-leptos &
-    wait
-
-# [legacy] Stary CF Workers stack
-dev-cf:
-    #!/usr/bin/env bash
-    trap 'kill 0' EXIT
-    just dev-api &
-    just dev-gateway &
-    just dev-frontend &
-    just dev-tunnel &
-    wait
-
 # === BUILD ===
 
 # Sprawdź kompilację workspace
@@ -80,14 +57,14 @@ check:
 check-ssr:
     cargo check -p kartoteka-server -p kartoteka-frontend-v2 --features ssr
 
-build: build-api build-frontend build-gateway
+build: build-api build-server build-gateway
 
 build-api:
     cd crates/api && worker-build --release
 
-build-frontend:
-    cd crates/frontend && npm install
-    cd crates/frontend && trunk build --release
+build-server:
+    cd crates/frontend-v2 && npm install
+    cargo leptos build --release
 
 build-gateway:
     cd gateway && npx wrangler deploy --dry-run
@@ -124,7 +101,7 @@ migrate-gateway-prod:
 
 # === DEPLOY ===
 
-deploy: deploy-migrate deploy-api deploy-gateway migrate-gateway-prod deploy-frontend
+deploy: deploy-migrate deploy-api deploy-gateway migrate-gateway-prod
 
 deploy-gateway-dev:
     cp -r locales gateway/locales
@@ -132,7 +109,7 @@ deploy-gateway-dev:
     cp locales/pl/mcp.ftl gateway/locales/pl/mcp.txt
     cd gateway && npx wrangler deploy --env dev
 
-deploy-dev: migrate-dev deploy-api-dev deploy-gateway-dev migrate-gateway-dev deploy-frontend-dev
+deploy-dev: migrate-dev deploy-api-dev deploy-gateway-dev migrate-gateway-dev
 
 deploy-migrate:
     cd crates/api && npx wrangler d1 migrations apply kartoteka-db --remote
@@ -148,16 +125,6 @@ deploy-gateway:
     cp locales/en/mcp.ftl gateway/locales/en/mcp.txt
     cp locales/pl/mcp.ftl gateway/locales/pl/mcp.txt
     cd gateway && npx wrangler deploy
-
-deploy-frontend:
-    cd crates/frontend && npm install
-    cd crates/frontend && API_BASE_URL="${GATEWAY_URL}/api" trunk build --release
-    npx wrangler pages deploy crates/frontend/dist --project-name=kartoteka --branch=main --commit-dirty=true
-
-deploy-frontend-dev:
-    cd crates/frontend && npm install
-    cd crates/frontend && API_BASE_URL="${GATEWAY_DEV_URL}/api" trunk build --release
-    npx wrangler pages deploy crates/frontend/dist --project-name=kartoteka --branch=dev --commit-dirty=true
 
 # === QUALITY ===
 

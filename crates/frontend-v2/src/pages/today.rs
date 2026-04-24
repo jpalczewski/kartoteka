@@ -3,22 +3,27 @@ use std::collections::HashSet;
 use leptos::prelude::*;
 use leptos_router::components::A;
 
-use kartoteka_shared::types::DateItem;
+use kartoteka_shared::types::{DateItem, Tag};
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::list_filter_chips::ListFilterChips;
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::items::{delete_item, get_today_data, toggle_item};
+use crate::server_fns::tags::{get_all_item_tag_links, get_all_tags};
 use crate::utils::group_by_list;
 
 #[component]
 pub fn TodayPage() -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let (refresh, set_refresh) = signal(0u32);
-    let (show_completed, set_show_completed) = signal(true);
+    let show_completed = RwSignal::new(true);
     let hidden_lists: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
 
     let today_res = Resource::new(move || refresh.get(), |_| get_today_data());
+    let all_tags_res = Resource::new(|| (), |_| get_all_tags());
+    let item_tag_links_res = Resource::new(|| (), |_| get_all_item_tag_links());
+
+    let hidden_tags: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
 
     let on_toggle = move |item_id: String| {
         leptos::task::spawn_local(async move {
@@ -61,6 +66,18 @@ pub fn TodayPage() -> impl IntoView {
                             }
                         }
 
+                        let item_ids: HashSet<String> = all_items.iter().map(|di| di.item.id.clone()).collect();
+                        let all_tags: Vec<Tag> = all_tags_res.get().and_then(|r| r.ok()).unwrap_or_default();
+                        let links = item_tag_links_res.get().and_then(|r| r.ok()).unwrap_or_default();
+                        let relevant_tag_ids: HashSet<String> = links.iter()
+                            .filter(|l| item_ids.contains(&l.item_id))
+                            .map(|l| l.tag_id.clone())
+                            .collect();
+                        let relevant_tags: Vec<Tag> = all_tags.into_iter()
+                            .filter(|t| relevant_tag_ids.contains(&t.id))
+                            .collect();
+                        let links = StoredValue::new(links);
+
                         let overdue_items = data.overdue;
                         let today_items = data.today;
 
@@ -91,21 +108,34 @@ pub fn TodayPage() -> impl IntoView {
                                                         class="toggle toggle-xs"
                                                         data-testid="hide-completed-toggle"
                                                         prop:checked=move || !show_completed.get()
-                                                        on:change=move |ev| set_show_completed.set(!event_target_checked(&ev))
+                                                        on:change=move |ev| show_completed.set(!event_target_checked(&ev))
                                                     />
                                                 </label>
                                             </div>
 
-                                            <ListFilterChips lists=unique_lists hidden_lists=hidden_lists />
+                                            <ListFilterChips
+                                                lists=unique_lists
+                                                hidden_lists=hidden_lists
+                                                tags=relevant_tags
+                                                hidden_tags=hidden_tags
+                                                show_completed=show_completed
+                                            />
 
                                             {move || {
                                                 let hl = hidden_lists.get();
                                                 let sc = show_completed.get();
+                                                let ht = hidden_tags.get();
 
                                                 let filter = |items: &Vec<DateItem>| -> Vec<DateItem> {
                                                     items.iter()
                                                         .filter(|di| !hl.contains(&di.item.list_id))
                                                         .filter(|di| sc || !di.item.completed)
+                                                        .filter(|di| {
+                                                            if ht.is_empty() { return true; }
+                                                            !links.get_value().iter()
+                                                                .filter(|l| l.item_id == di.item.id)
+                                                                .any(|l| ht.contains(&l.tag_id))
+                                                        })
                                                         .cloned()
                                                         .collect()
                                                 };

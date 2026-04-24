@@ -12,5 +12,4 @@ jobs:
       environment: dev
       wrangler_env: dev
       d1_database: kartoteka-dev
-      pages_branch: dev
     secrets: inherit

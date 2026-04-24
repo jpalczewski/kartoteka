@@ -12,5 +12,4 @@ jobs:
       environment: production
       wrangler_env: ""
       d1_database: kartoteka-db
-      pages_branch: main
     secrets: inherit

@@ -16,10 +16,6 @@ on:
         required: true
         type: string
         description: "D1 database name for API migrations"
-      pages_branch:
-        required: true
-        type: string
-        description: "CF Pages branch (dev or main)"
 
 permissions:
   contents: read
@@ -111,54 +107,3 @@ jobs:
             exit 1
           fi
           echo "Gateway migration completed (HTTP $HTTP_CODE)"
-
-  # --- Frontend (parallel with backend) ---
-  deploy-frontend:
-    name: Frontend (${{ inputs.environment }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    environment: ${{ inputs.environment }}
-    concurrency:
-      group: deploy-frontend-${{ inputs.environment }}
-      cancel-in-progress: ${{ inputs.environment == 'dev' }}
-    env:
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: deploy
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: crates/frontend/package-lock.json
-
-      - name: Install trunk
-        uses: taiki-e/install-action@v2
-        with:
-          tool: trunk
-
-      - name: Install frontend deps
-        run: cd crates/frontend && npm ci
-
-      - name: Build frontend
-        env:
-          API_BASE_URL: ${{ secrets.GATEWAY_URL }}/api
-        run: cd crates/frontend && trunk build --release
-
-      - name: Deploy frontend to CF Pages
-        uses: ./.github/actions/deploy-wrangler
-        with:
-          api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: "pages deploy crates/frontend/dist --project-name=kartoteka --branch=${{ inputs.pages_branch }} --commit-dirty=true"
