@@ -3,7 +3,7 @@ use leptos::prelude::*;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::{
-    confirm_delete_modal::ConfirmDeleteModal, loading::LoadingSpinner,
+    confirm_modal::{ConfirmModal, ConfirmVariant}, loading::LoadingSpinner,
 };
 use crate::components::home::{
     pinned_section::PinnedSection, recent_section::RecentSection, root_section::RootSection,
@@ -137,14 +137,20 @@ pub fn HomePage() -> impl IntoView {
         <div class="container mx-auto max-w-2xl p-4">
             <h2 class="text-2xl font-bold mb-4">"Strona główna"</h2>
 
-            // Delete confirmation modal
             {move || pending_delete.get().map(|(lid, lname)| {
                 let lid_confirm = lid.clone();
                 view! {
-                    <ConfirmDeleteModal
-                        list_name=lname
-                        on_confirm=Callback::new(move |_| on_delete_list_confirmed.run(lid_confirm.clone()))
-                        on_cancel=Callback::new(move |_| pending_delete.set(None))
+                    <ConfirmModal
+                        open=Signal::derive(move || pending_delete.get().is_some())
+                        title="Usuń listę".to_string()
+                        message=format!("Czy na pewno chcesz usunąć listę \"{}\"?", lname)
+                        confirm_label="Usuń".to_string()
+                        variant=ConfirmVariant::Danger
+                        on_close=Callback::new(move |_| pending_delete.set(None))
+                        on_confirm=Callback::new(move |_| {
+                            pending_delete.set(None);
+                            on_delete_list_confirmed.run(lid_confirm.clone());
+                        })
                     />
                 }
             })}

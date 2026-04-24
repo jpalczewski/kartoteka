@@ -195,11 +195,8 @@ pub fn ListPage() -> impl IntoView {
 
     let (adding_sublist, set_adding_sublist) = signal(false);
 
-    // ── Confirmation dialog state ─────────────────────────────────
-    let confirm_open: RwSignal<bool> = RwSignal::new(false);
     let confirm_action: RwSignal<Option<ConfirmAction>> = RwSignal::new(None);
-
-    // ── Description inline edit ────────────────────────────────────
+    let confirm_list_name: RwSignal<String> = RwSignal::new(String::new());
     let (editing_description, set_editing_description) = signal(false);
     let (description_input, set_description_input) = signal(String::new());
 
@@ -271,6 +268,9 @@ pub fn ListPage() -> impl IntoView {
                         let icon = list_type_icon(&data.list.list_type);
                         let list_name = data.list.name.clone();
                         let list_name_for_desc = list_name.clone();
+                        let list_name_for_reset = list_name.clone();
+                        let list_name_for_archive = list_name.clone();
+                        let list_name_for_delete = list_name.clone();
                         let list_description = data.list.description.clone();
                         let list_pinned = data.list.pinned;
                         let list_archived = data.list.archived;
@@ -385,8 +385,8 @@ pub fn ListPage() -> impl IntoView {
                                                     type="button"
                                                     data-testid="action-reset"
                                                     on:click=move |_| {
+                                                        confirm_list_name.set(list_name_for_reset.clone());
                                                         confirm_action.set(Some(ConfirmAction::Reset));
-                                                        confirm_open.set(true);
                                                     }
                                                 >
                                                     "↺ Resetuj ukończone"
@@ -470,8 +470,8 @@ pub fn ListPage() -> impl IntoView {
                                                     class="text-warning"
                                                     data-testid="action-archive"
                                                     on:click=move |_| {
+                                                        confirm_list_name.set(list_name_for_archive.clone());
                                                         confirm_action.set(Some(ConfirmAction::Archive));
-                                                        confirm_open.set(true);
                                                     }
                                                 >
                                                     {if list_archived { "📂 Przywróć" } else { "🗄 Archiwizuj" }}
@@ -483,8 +483,8 @@ pub fn ListPage() -> impl IntoView {
                                                     class="text-error"
                                                     data-testid="action-delete"
                                                     on:click=move |_| {
+                                                        confirm_list_name.set(list_name_for_delete.clone());
                                                         confirm_action.set(Some(ConfirmAction::Delete));
-                                                        confirm_open.set(true);
                                                     }
                                                 >
                                                     "🗑 Usuń listę"
@@ -511,25 +511,21 @@ pub fn ListPage() -> impl IntoView {
                                                         placeholder="Opis listy…"
                                                         prop:value=description_input
                                                         on:input=move |ev| set_description_input.set(event_target_value(&ev))
-                                                        on:keydown={
-                                                            let lid2 = lid.clone();
-                                                            let lname2 = lname.clone();
-                                                            move |ev: leptos::ev::KeyboardEvent| {
-                                                                if ev.key() == "Enter" {
-                                                                    let desc = description_input.get_untracked();
-                                                                    set_editing_description.set(false);
-                                                                    let lid3 = lid2.clone();
-                                                                    let lname3 = lname2.clone();
-                                                                    leptos::task::spawn_local(async move {
-                                                                        let desc_opt = if desc.trim().is_empty() { None } else { Some(desc) };
-                                                                        match rename_list(lid3, lname3, desc_opt).await {
-                                                                            Ok(_) => set_refresh.update(|n| *n += 1),
-                                                                            Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                                        }
-                                                                    });
-                                                                } else if ev.key() == "Escape" {
-                                                                    set_editing_description.set(false);
-                                                                }
+                                                        on:keydown=move |ev: leptos::ev::KeyboardEvent| {
+                                                            if ev.key() == "Enter" {
+                                                                let desc = description_input.get_untracked();
+                                                                let lid = lid.clone();
+                                                                let lname = lname.clone();
+                                                                set_editing_description.set(false);
+                                                                leptos::task::spawn_local(async move {
+                                                                    let desc_opt = if desc.trim().is_empty() { None } else { Some(desc) };
+                                                                    match rename_list(lid, lname, desc_opt).await {
+                                                                        Ok(_) => set_refresh.update(|n| *n += 1),
+                                                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                                    }
+                                                                });
+                                                            } else if ev.key() == "Escape" {
+                                                                set_editing_description.set(false);
                                                             }
                                                         }
                                                     />
@@ -794,68 +790,63 @@ pub fn ListPage() -> impl IntoView {
                 })}
             </Transition>
 
-            // Confirmation modal — rendered outside Transition so it stays visible during refetch
             {move || {
                 let action = confirm_action.get()?;
-                let list_name_str = data_res.get()?.ok()?.list.name.clone();
+                let name = confirm_list_name.get();
                 let (title, message, label, variant) = match action {
                     ConfirmAction::Delete => (
-                        "Usuń listę".to_string(),
-                        format!("Czy na pewno chcesz usunąć listę \"{}\"? Tej operacji nie można cofnąć.", list_name_str),
-                        "Usuń".to_string(),
+                        "Usuń listę",
+                        format!("Czy na pewno chcesz usunąć listę \"{}\"? Tej operacji nie można cofnąć.", name),
+                        "Usuń",
                         ConfirmVariant::Danger,
                     ),
                     ConfirmAction::Archive => (
-                        "Archiwizuj listę".to_string(),
-                        format!("Czy archiwizować listę \"{}\"?", list_name_str),
-                        "Archiwizuj".to_string(),
+                        "Archiwizuj listę",
+                        format!("Czy archiwizować listę \"{}\"?", name),
+                        "Archiwizuj",
                         ConfirmVariant::Warning,
                     ),
                     ConfirmAction::Reset => (
-                        "Resetuj listę".to_string(),
-                        format!("Odznaczyć wszystkie ukończone elementy na liście \"{}\"?", list_name_str),
-                        "Resetuj".to_string(),
+                        "Resetuj listę",
+                        format!("Odznaczyć wszystkie ukończone elementy na liście \"{}\"?", name),
+                        "Resetuj",
                         ConfirmVariant::Warning,
                     ),
                 };
                 let nav = navigate.clone();
+                let close = Callback::new(move |_| confirm_action.set(None));
                 Some(view! {
                     <ConfirmModal
-                        open=confirm_open
-                        title=title
+                        open=Signal::derive(move || confirm_action.get().is_some())
+                        title=title.to_string()
                         message=message
-                        confirm_label=label
+                        confirm_label=label.to_string()
                         variant=variant
+                        on_close=close
                         on_confirm=Callback::new(move |_| {
+                            confirm_action.set(None);
                             let lid = list_id();
                             let nav2 = nav.clone();
                             match action {
-                                ConfirmAction::Delete => {
-                                    leptos::task::spawn_local(async move {
-                                        match delete_list(lid).await {
-                                            Ok(_) => nav2("/", Default::default()),
-                                            Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                        }
-                                    });
-                                }
-                                ConfirmAction::Archive => {
-                                    leptos::task::spawn_local(async move {
-                                        match archive_list(lid).await {
-                                            Ok(_) => nav2("/", Default::default()),
-                                            Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                        }
-                                    });
-                                }
-                                ConfirmAction::Reset => {
-                                    leptos::task::spawn_local(async move {
-                                        match reset_list(lid).await {
-                                            Ok(_) => set_refresh.update(|n| *n += 1),
-                                            Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                        }
-                                    });
-                                }
+                                ConfirmAction::Delete => leptos::task::spawn_local(async move {
+                                    match delete_list(lid).await {
+                                        Ok(_) => nav2("/", Default::default()),
+                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                    }
+                                }),
+                                ConfirmAction::Archive => leptos::task::spawn_local(async move {
+                                    match archive_list(lid).await {
+                                        Ok(_) => nav2("/", Default::default()),
+                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                    }
+                                }),
+                                ConfirmAction::Reset => leptos::task::spawn_local(async move {
+                                    match reset_list(lid).await {
+                                        Ok(_) => set_refresh.update(|n| *n += 1),
+                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                    }
+                                }),
                             }
-                            confirm_action.set(None);
                         })
                     />
                 })

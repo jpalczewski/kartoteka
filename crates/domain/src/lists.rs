@@ -94,16 +94,14 @@ pub struct SetFeaturesRequest {
 
 // ── Conversion from db row ────────────────────────────────────────────────────
 
-/// Parse a features JSON object `{"name": {...config}}` into the canonical Vec<ListFeature>.
+fn parse_features_map(json: &str) -> Result<serde_json::Map<String, serde_json::Value>, DomainError> {
+    serde_json::from_str(json).map_err(|e| DomainError::Internal(e.to_string()))
+}
+
 pub(crate) fn parse_features(json: &str) -> Result<Vec<ListFeature>, DomainError> {
-    let obj: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(json).map_err(|e| DomainError::Internal(e.to_string()))?;
-    Ok(obj
+    Ok(parse_features_map(json)?
         .into_iter()
-        .map(|(feature_name, config)| ListFeature {
-            feature_name,
-            config,
-        })
+        .map(|(feature_name, config)| ListFeature { feature_name, config })
         .collect())
 }
 
@@ -378,9 +376,7 @@ pub async fn update_feature_config(
         .ok_or(DomainError::NotFound("list"))?;
 
     // Phase 2: THINK
-    let mut features: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(&current.features)
-            .map_err(|e| DomainError::Internal(e.to_string()))?;
+    let mut features = parse_features_map(&current.features)?;
     if !features.contains_key(feature_name) {
         return Err(DomainError::NotFound("feature"));
     }
