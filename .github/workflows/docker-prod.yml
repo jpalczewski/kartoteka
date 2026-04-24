@@ -1,0 +1,50 @@
+name: Docker Prod
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag to deploy (e.g. v0.4.1 or latest)
+        required: true
+        type: string
+        default: latest
+
+concurrency:
+  group: docker-prod
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      image_tag: latest
+      cargo_profile: release
+      extra_tags: |
+        ${{ github.ref_name }}
+    secrets: inherit
+
+  deploy:
+    needs: [build]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || needs.build.result == 'success') }}
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_TAG: ${{ github.event.inputs.tag || 'latest' }}
+    steps:
+      - uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: DEPLOY_TAG
+          script: |
+            set -eu
+            cd /srv/kartoteka
+            if [ "${DEPLOY_TAG}" != "latest" ]; then
+              export KARTOTEKA_PROD_TAG="${DEPLOY_TAG}"
+            fi
+            docker compose pull prod
+            docker compose up -d --no-deps prod
+            docker image prune -f

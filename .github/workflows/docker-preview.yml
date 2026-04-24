@@ -1,0 +1,33 @@
+name: Docker Preview
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+concurrency:
+  group: docker-preview
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      image_tag: preview
+      cargo_profile: debug
+    secrets: inherit
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -eu
+            cd /srv/kartoteka
+            docker compose pull preview
+            docker compose up -d --no-deps preview
+            docker image prune -f
