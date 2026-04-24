@@ -1,7 +1,7 @@
-use kartoteka_shared::FEATURE_DEADLINES;
-use leptos::prelude::*;
 use crate::app::{ToastContext, ToastKind};
 use crate::server_fns::lists::update_feature_config;
+use kartoteka_shared::FEATURE_DEADLINES;
+use leptos::prelude::*;
 
 #[component]
 pub fn DeadlinesConfig(
@@ -11,9 +11,24 @@ pub fn DeadlinesConfig(
 ) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
 
-    let start = RwSignal::new(config.get("has_start_date").and_then(|v| v.as_bool()).unwrap_or(false));
-    let deadline = RwSignal::new(config.get("has_deadline").and_then(|v| v.as_bool()).unwrap_or(true));
-    let hard = RwSignal::new(config.get("has_hard_deadline").and_then(|v| v.as_bool()).unwrap_or(false));
+    let start = RwSignal::new(
+        config
+            .get("has_start_date")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+    );
+    let deadline = RwSignal::new(
+        config
+            .get("has_deadline")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true),
+    );
+    let hard = RwSignal::new(
+        config
+            .get("has_hard_deadline")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+    );
 
     let make_toggle = move |signal: RwSignal<bool>| {
         let lid = list_id.clone();

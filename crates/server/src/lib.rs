@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod error;
 pub mod extractors;
+pub mod health;
 pub mod items;
 pub mod lists;
 pub mod relations;
@@ -165,6 +166,7 @@ pub fn router(
             "/leptos/{*fn_name}",
             axum::routing::get(server_fn_handler).post(server_fn_handler),
         )
+        .route("/health", axum::routing::get(health::health))
         // SSR page rendering for all Leptos routes (/, /today, /lists/:id, etc.)
         .leptos_routes_with_handler(routes, axum::routing::get(leptos_routes_handler))
         // Static asset serving from target/site

@@ -6,6 +6,7 @@ use leptos_router::components::A;
 use kartoteka_shared::types::DateItem;
 
 use crate::app::{ToastContext, ToastKind};
+use crate::components::common::list_filter_chips::ListFilterChips;
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::items::{delete_item, get_today_data, toggle_item};
 use crate::utils::group_by_list;
@@ -95,35 +96,7 @@ pub fn TodayPage() -> impl IntoView {
                                                 </label>
                                             </div>
 
-                                            {if unique_lists.len() > 1 {
-                                                view! {
-                                                    <div class="flex flex-wrap gap-1 mb-4">
-                                                        {unique_lists.iter().map(|(lid, lname)| {
-                                                            let lid = lid.clone();
-                                                            let lid2 = lid.clone();
-                                                            let lname = lname.clone();
-                                                            view! {
-                                                                <button
-                                                                    class=move || {
-                                                                        if hidden_lists.get().contains(&lid) {
-                                                                            "badge badge-ghost opacity-40 cursor-pointer"
-                                                                        } else {
-                                                                            "badge badge-primary cursor-pointer"
-                                                                        }
-                                                                    }
-                                                                    on:click=move |_| {
-                                                                        hidden_lists.update(|hl| {
-                                                                            if hl.contains(&lid2) { hl.remove(&lid2); } else { hl.insert(lid2.clone()); }
-                                                                        });
-                                                                    }
-                                                                >
-                                                                    {lname}
-                                                                </button>
-                                                            }
-                                                        }).collect_view()}
-                                                    </div>
-                                                }.into_any()
-                                            } else { ().into_any() }}
+                                            <ListFilterChips lists=unique_lists hidden_lists=hidden_lists />
 
                                             {move || {
                                                 let hl = hidden_lists.get();

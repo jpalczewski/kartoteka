@@ -5,14 +5,15 @@ use kartoteka_shared::{FEATURE_DEADLINES, FEATURE_LOCATION, FEATURE_QUANTITY};
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::CommentSection;
+use crate::components::common::breadcrumbs::Breadcrumbs;
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::dnd::{DetachDropZone, ItemDropTargetMarker};
+use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::items::item_row::ItemRow;
 use crate::components::lists::{
-    add_input::AddInput, add_item_input::AddItemInput,
-    deadlines_config::DeadlinesConfig, list_card::list_type_icon,
-    sublist_section::SublistSection,
+    add_input::AddInput, add_item_input::AddItemInput, deadlines_config::DeadlinesConfig,
+    list_card::list_type_icon, sublist_section::SublistSection,
 };
 use crate::components::tags::tag_filter_bar::TagFilterBar;
 use crate::components::tags::tag_list::TagList;
@@ -26,7 +27,8 @@ use crate::server_fns::lists::{
     reset_list, update_list_features,
 };
 use crate::server_fns::tags::{
-    assign_tag_to_list, get_all_tags, get_list_tag_links, remove_tag_from_list,
+    assign_tag_to_item, assign_tag_to_list, get_all_tags, get_list_tag_links, remove_tag_from_item,
+    remove_tag_from_list,
 };
 use crate::state::dnd::{
     DndState, EntityKind, ItemDndState, ItemDropPlan, ItemDropTarget, build_item_drop_plan,
@@ -51,8 +53,6 @@ pub fn ListPage() -> impl IntoView {
 
     let (refresh, set_refresh) = signal(0u32);
     let (show_completed, set_show_completed) = signal(true);
-    let (editing_name, set_editing_name) = signal(false);
-    let (name_input, set_name_input) = signal(String::new());
     let active_tag: RwSignal<Option<String>> = RwSignal::new(None);
 
     let data_res = Resource::new(
@@ -164,9 +164,36 @@ pub fn ListPage() -> impl IntoView {
         });
     });
 
-    let on_date_save = Callback::new(move |(item_id, start, deadline, hard): crate::components::items::item_row::DateSavePayload| {
+    let on_date_save = Callback::new(
+        move |payload: crate::components::items::item_row::DateSavePayload| {
+            let (item_id, start, start_time, deadline, deadline_time, hard) = payload;
+            leptos::task::spawn_local(async move {
+                match update_item_dates(item_id, start, start_time, deadline, deadline_time, hard)
+                    .await
+                {
+                    Ok(_) => set_refresh.update(|n| *n += 1),
+                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                }
+            });
+        },
+    );
+
+    let on_item_tag_toggle = Callback::new(move |(item_id, tag_id): (String, String)| {
+        let links = data_res
+            .get()
+            .and_then(|r| r.ok())
+            .map(|d| d.item_tag_links)
+            .unwrap_or_default();
+        let is_assigned = links
+            .iter()
+            .any(|l| l.item_id == item_id && l.tag_id == tag_id);
         leptos::task::spawn_local(async move {
-            match update_item_dates(item_id, start, deadline, hard).await {
+            let result = if is_assigned {
+                remove_tag_from_item(item_id, tag_id).await
+            } else {
+                assign_tag_to_item(item_id, tag_id).await
+            };
+            match result {
                 Ok(_) => set_refresh.update(|n| *n += 1),
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
@@ -197,8 +224,6 @@ pub fn ListPage() -> impl IntoView {
 
     let confirm_action: RwSignal<Option<ConfirmAction>> = RwSignal::new(None);
     let confirm_list_name: RwSignal<String> = RwSignal::new(String::new());
-    let (editing_description, set_editing_description) = signal(false);
-    let (description_input, set_description_input) = signal(String::new());
 
     // ── DnD state + callbacks ─────────────────────────────────────
     let dnd_state: RwSignal<DndState> = RwSignal::new(DndState::default());
@@ -291,6 +316,15 @@ pub fn ListPage() -> impl IntoView {
                         let item_tag_links_filter = data.item_tag_links.clone();
                         let all_tags_for_filter = data.all_tags.clone();
                         let all_tags_for_rows = data.all_tags.clone();
+                        let all_tags_for_selector = data.all_tags.clone();
+                        let today_date = data.today_date.clone();
+                        let breadcrumb_crumbs = if let Some(ref cname) = data.container_name {
+                            let cid = data.list.container_id.clone().unwrap_or_default();
+                            vec![(format!("/containers/{cid}"), cname.clone())]
+                        } else {
+                            vec![]
+                        };
+                        let breadcrumb_current = list_name.clone();
                         let current_features: Vec<String> = data
                             .list
                             .features
@@ -310,53 +344,25 @@ pub fn ListPage() -> impl IntoView {
 
                         view! {
                             <div>
+                                <Breadcrumbs crumbs=breadcrumb_crumbs current=breadcrumb_current />
+
                                 // Header
                                 <div class="mb-1 flex items-center gap-2">
                                     <span class="text-2xl">{icon}</span>
-                                    {move || if editing_name.get() {
-                                        let lid = list_id();
-                                        view! {
-                                            <input
-                                                type="text"
-                                                class="input input-bordered text-2xl font-bold flex-1"
-                                                data-testid="list-name-input"
-                                                prop:value=name_input
-                                                on:input=move |ev| set_name_input.set(event_target_value(&ev))
-                                                on:keydown=move |ev: leptos::ev::KeyboardEvent| {
-                                                    if ev.key() == "Enter" {
-                                                        let lid2 = lid.clone();
-                                                        let new_name = name_input.get_untracked();
-                                                        // Dismiss input first; heading briefly shows old name until refresh.
-                                                        // Deliberate: optimistic display adds complexity for minimal gain.
-                                                        set_editing_name.set(false);
-                                                        leptos::task::spawn_local(async move {
-                                                            match rename_list(lid2, new_name, None).await {
-                                                                Ok(_) => set_refresh.update(|n| *n += 1),
-                                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                            }
-                                                        });
-                                                    } else if ev.key() == "Escape" {
-                                                        set_editing_name.set(false);
-                                                    }
+                                    <EditableText
+                                        value=list_name.clone()
+                                        on_save=Callback::new(move |new_name: String| {
+                                            let lid = list_id();
+                                            leptos::task::spawn_local(async move {
+                                                match rename_list(lid, new_name, None).await {
+                                                    Ok(_) => set_refresh.update(|n| *n += 1),
+                                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                                 }
-                                            />
-                                        }.into_any()
-                                    } else {
-                                        let name_for_click = list_name.clone();
-                                        view! {
-                                            <h2
-                                                class="text-2xl font-bold cursor-pointer hover:underline decoration-dotted"
-                                                title="Kliknij aby edytować"
-                                                data-testid="list-name-heading"
-                                                on:click=move |_| {
-                                                    set_name_input.set(name_for_click.clone());
-                                                    set_editing_name.set(true);
-                                                }
-                                            >
-                                                {list_name.clone()}
-                                            </h2>
-                                        }.into_any()
-                                    }}
+                                            });
+                                        })
+                                        class="text-2xl font-bold cursor-pointer hover:underline decoration-dotted"
+                                        testid="list-name-heading"
+                                    />
                                     // Dropdown at the end, pushed right via ml-auto
                                     <div class="dropdown dropdown-end ml-auto">
                                         <div tabindex="0" role="button" class="btn btn-ghost btn-sm btn-circle" data-testid="list-actions-btn">
@@ -497,72 +503,25 @@ pub fn ListPage() -> impl IntoView {
                                     "Utworzono: " {created_at_local}
                                 </p>
 
-                                {
-                                    let desc_for_edit = list_description.clone();
-                                    move || {
-                                        let lid = list_id();
-                                        let lname = list_name_for_desc.clone();
-                                        if editing_description.get() {
-                                            view! {
-                                                <div class="mb-4 flex gap-2">
-                                                    <input
-                                                        type="text"
-                                                        class="input input-bordered flex-1 text-sm"
-                                                        placeholder="Opis listy…"
-                                                        prop:value=description_input
-                                                        on:input=move |ev| set_description_input.set(event_target_value(&ev))
-                                                        on:keydown=move |ev: leptos::ev::KeyboardEvent| {
-                                                            if ev.key() == "Enter" {
-                                                                let desc = description_input.get_untracked();
-                                                                let lid = lid.clone();
-                                                                let lname = lname.clone();
-                                                                set_editing_description.set(false);
-                                                                leptos::task::spawn_local(async move {
-                                                                    let desc_opt = if desc.trim().is_empty() { None } else { Some(desc) };
-                                                                    match rename_list(lid, lname, desc_opt).await {
-                                                                        Ok(_) => set_refresh.update(|n| *n += 1),
-                                                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                                    }
-                                                                });
-                                                            } else if ev.key() == "Escape" {
-                                                                set_editing_description.set(false);
-                                                            }
-                                                        }
-                                                    />
-                                                </div>
-                                            }.into_any()
-                                        } else {
-                                            let current_desc = desc_for_edit.clone();
-                                            view! {
-                                                <div class="mb-4">
-                                                    {if let Some(desc) = current_desc {
-                                                        let desc_display = desc.clone();
-                                                        view! {
-                                                            <p
-                                                                class="text-base-content/60 cursor-pointer hover:underline decoration-dotted"
-                                                                title="Kliknij aby edytować"
-                                                                on:click=move |_| {
-                                                                    set_description_input.set(desc.clone());
-                                                                    set_editing_description.set(true);
-                                                                }
-                                                            >{desc_display}</p>
-                                                        }.into_any()
-                                                    } else {
-                                                        view! {
-                                                            <p
-                                                                class="text-base-content/30 text-sm cursor-pointer italic"
-                                                                on:click=move |_| {
-                                                                    set_description_input.set(String::new());
-                                                                    set_editing_description.set(true);
-                                                                }
-                                                            >"Dodaj opis…"</p>
-                                                        }.into_any()
-                                                    }}
-                                                </div>
-                                            }.into_any()
-                                        }
-                                    }
-                                }
+                                <div class="mb-4">
+                                    <EditableText
+                                        value=list_description.clone().unwrap_or_default()
+                                        on_save=Callback::new(move |new_desc: String| {
+                                            let lid = list_id();
+                                            let current_name = list_name_for_desc.clone();
+                                            let val = if new_desc.trim().is_empty() { None } else { Some(new_desc) };
+                                            leptos::task::spawn_local(async move {
+                                                match rename_list(lid, current_name, val).await {
+                                                    Ok(_) => set_refresh.update(|n| *n += 1),
+                                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                }
+                                            });
+                                        })
+                                        multiline=true
+                                        placeholder="Dodaj opis..."
+                                        class="text-base-content/60 cursor-pointer hover:underline decoration-dotted"
+                                    />
+                                </div>
 
                                 // Tags
                                 <div class="mb-4" data-testid="list-tags-section">
@@ -736,44 +695,102 @@ pub fn ListPage() -> impl IntoView {
                                                         />
                                                     </label>
                                                 </div>
-                                                <div class="flex flex-col">
-                                                    {visible.into_iter().map(|item| {
-                                                        let item_tags: Vec<kartoteka_shared::types::Tag> = item_tag_links_filter
-                                                            .iter()
-                                                            .filter(|l| l.item_id == item.id)
-                                                            .filter_map(|l| all_tags_for_rows.iter().find(|t| t.id == l.tag_id).cloned())
-                                                            .collect();
-                                                        let mt = targets_for_items.clone();
-                                                        let iid = item.id.clone();
-                                                        let before_tgt = ItemDropTarget::before(current_list_id.clone(), iid);
+                                                {if has_deadlines {
+                                                    let (overdue, upcoming, done) = partition_by_deadline(&visible, &today_date);
+                                                    let render_section = |items: Vec<kartoteka_shared::types::Item>, label: &'static str, label_class: &'static str| {
+                                                        if items.is_empty() { return view! {}.into_any(); }
+                                                        let rows = items.into_iter().map(|item| {
+                                                            let item_tags: Vec<kartoteka_shared::types::Tag> = item_tag_links_filter
+                                                                .iter()
+                                                                .filter(|l| l.item_id == item.id)
+                                                                .filter_map(|l| all_tags_for_rows.iter().find(|t| t.id == l.tag_id).cloned())
+                                                                .collect();
+                                                            let mt = targets_for_items.clone();
+                                                            let iid_tag = item.id.clone();
+                                                            let selector_tags = all_tags_for_selector.clone();
+                                                            let tag_cb = Callback::new(move |tag_id: String| {
+                                                                on_item_tag_toggle.run((iid_tag.clone(), tag_id));
+                                                            });
+                                                            view! {
+                                                                <ItemRow
+                                                                    item=item
+                                                                    item_tags=item_tags
+                                                                    on_toggle=on_toggle_item
+                                                                    on_delete=on_delete_item
+                                                                    has_quantity=has_quantity
+                                                                    on_quantity_change=on_quantity_change
+                                                                    on_description_save=on_description_save
+                                                                    on_date_save=on_date_save
+                                                                    move_targets=mt
+                                                                    on_move=on_move_item
+                                                                    on_tag_toggle=tag_cb
+                                                                    all_tags_for_selector=selector_tags
+                                                                />
+                                                            }
+                                                        }).collect::<Vec<_>>();
                                                         view! {
+                                                            <div class="mb-4">
+                                                                <p class=format!("text-xs font-semibold uppercase tracking-wide mb-2 {label_class}")>{label}</p>
+                                                                <div class="flex flex-col gap-2">{rows}</div>
+                                                            </div>
+                                                        }.into_any()
+                                                    };
+                                                    view! {
+                                                        <div class="flex flex-col">
+                                                            {render_section(overdue, "Zaległe", "text-error")}
+                                                            {render_section(upcoming, "Nadchodzące", "text-base-content/60")}
+                                                            {render_section(done, "Ukończone", "text-base-content/40")}
+                                                        </div>
+                                                    }.into_any()
+                                                } else {
+                                                    view! {
+                                                        <div class="flex flex-col">
+                                                            {visible.into_iter().map(|item| {
+                                                                let item_tags: Vec<kartoteka_shared::types::Tag> = item_tag_links_filter
+                                                                    .iter()
+                                                                    .filter(|l| l.item_id == item.id)
+                                                                    .filter_map(|l| all_tags_for_rows.iter().find(|t| t.id == l.tag_id).cloned())
+                                                                    .collect();
+                                                                let mt = targets_for_items.clone();
+                                                                let iid = item.id.clone();
+                                                                let iid_tag = item.id.clone();
+                                                                let before_tgt = ItemDropTarget::before(current_list_id.clone(), iid);
+                                                                let selector_tags = all_tags_for_selector.clone();
+                                                                let tag_cb = Callback::new(move |tag_id: String| {
+                                                                    on_item_tag_toggle.run((iid_tag.clone(), tag_id));
+                                                                });
+                                                                view! {
+                                                                    <ItemDropTargetMarker
+                                                                        dnd_state=item_dnd_state
+                                                                        target=before_tgt
+                                                                        on_drop=on_item_drop
+                                                                    />
+                                                                    <ItemRow
+                                                                        item=item
+                                                                        item_tags=item_tags
+                                                                        on_toggle=on_toggle_item
+                                                                        on_delete=on_delete_item
+                                                                        has_quantity=has_quantity
+                                                                        on_quantity_change=on_quantity_change
+                                                                        on_description_save=on_description_save
+                                                                        on_date_save=on_date_save
+                                                                        move_targets=mt
+                                                                        on_move=on_move_item
+                                                                        dnd_state=item_dnd_state
+                                                                        on_tag_toggle=tag_cb
+                                                                        all_tags_for_selector=selector_tags
+                                                                    />
+                                                                }
+                                                            }).collect::<Vec<_>>()}
                                                             <ItemDropTargetMarker
                                                                 dnd_state=item_dnd_state
-                                                                target=before_tgt
+                                                                target=ItemDropTarget::end(current_list_id.clone())
                                                                 on_drop=on_item_drop
+                                                                label="Upuść na koniec"
                                                             />
-                                                            <ItemRow
-                                                                item=item
-                                                                item_tags=item_tags
-                                                                on_toggle=on_toggle_item
-                                                                on_delete=on_delete_item
-                                                                has_quantity=has_quantity
-                                                                on_quantity_change=on_quantity_change
-                                                                on_description_save=on_description_save
-                                                                on_date_save=on_date_save
-                                                                move_targets=mt
-                                                                on_move=on_move_item
-                                                                dnd_state=item_dnd_state
-                                                            />
-                                                        }
-                                                    }).collect::<Vec<_>>()}
-                                                    <ItemDropTargetMarker
-                                                        dnd_state=item_dnd_state
-                                                        target=ItemDropTarget::end(current_list_id.clone())
-                                                        on_drop=on_item_drop
-                                                        label="Upuść na koniec"
-                                                    />
-                                                </div>
+                                                        </div>
+                                                    }.into_any()
+                                                }}
                                             </div>
                                         }.into_any()
                                     }
@@ -853,4 +870,38 @@ pub fn ListPage() -> impl IntoView {
             }}
         </div>
     }
+}
+
+/// Split items into (overdue, upcoming, done) buckets for the deadline date-view.
+/// - done: `item.completed`
+/// - overdue: not completed and deadline < today
+/// - upcoming: everything else (no deadline, deadline >= today)
+fn partition_by_deadline(
+    items: &[kartoteka_shared::types::Item],
+    today: &str,
+) -> (
+    Vec<kartoteka_shared::types::Item>,
+    Vec<kartoteka_shared::types::Item>,
+    Vec<kartoteka_shared::types::Item>,
+) {
+    let mut overdue = Vec::new();
+    let mut upcoming = Vec::new();
+    let mut done = Vec::new();
+
+    for item in items {
+        if item.completed {
+            done.push(item.clone());
+        } else if item
+            .deadline
+            .as_ref()
+            .map(|d| d.start().format("%Y-%m-%d").to_string().as_str() < today)
+            .unwrap_or(false)
+        {
+            overdue.push(item.clone());
+        } else {
+            upcoming.push(item.clone());
+        }
+    }
+
+    (overdue, upcoming, done)
 }

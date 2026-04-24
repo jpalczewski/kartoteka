@@ -3,11 +3,15 @@ use leptos_router::hooks::use_params_map;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::CommentSection;
+use crate::components::common::breadcrumbs::Breadcrumbs;
 use crate::components::common::dnd::{DetachDropZone, ReorderDropTarget};
+use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::lists::{container_card::ContainerCard, list_card::ListCard};
 use crate::context::GlobalRefresh;
-use crate::server_fns::containers::{get_container_data, move_container, reorder_containers};
+use crate::server_fns::containers::{
+    get_container_data, move_container, rename_container, reorder_containers,
+};
 use crate::server_fns::lists::{move_list, reorder_lists};
 use crate::state::dnd::{DndState, DropTarget, EntityKind};
 
@@ -27,10 +31,11 @@ pub fn ContainerPage() -> impl IntoView {
     let container_id = Signal::derive(move || params.read().get("id").unwrap_or_default());
     let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let (refresh, set_refresh) = signal(0u32);
 
     let data_res = Resource::new(
-        move || (container_id.get(), global_refresh.get()),
-        |(id, _)| get_container_data(id),
+        move || (container_id.get(), global_refresh.get(), refresh.get()),
+        |(id, _, _)| get_container_data(id),
     );
 
     // Single state — lists and containers share it; handlers branch on kind.
@@ -47,10 +52,15 @@ pub fn ContainerPage() -> impl IntoView {
                         let icon = container_status_icon(data.container.status.as_deref());
                         let name = data.container.name.clone();
                         let desc = data.container.description.clone();
+                        let ancestors = data.ancestors.clone();
                         let lists = data.lists.clone();
                         let children = data.children.clone();
                         let parent_id = data.container.parent_container_id.clone();
                         let current_id = data.container.id.clone();
+                        let container_id_for_rename = data.container.id.clone();
+                        let container_id_for_desc = data.container.id.clone();
+                        let desc_for_rename = data.container.description.clone();
+                        let name_for_desc = name.clone();
                         let child_ids: Vec<String> = children.iter().map(|c| c.id.clone())
                             .chain(lists.iter().map(|l| l.id.clone()))
                             .collect();
@@ -178,14 +188,43 @@ pub fn ContainerPage() -> impl IntoView {
                                     label="Upuść tutaj, aby wyjąć do rodzica"
                                 />
 
+                                <Breadcrumbs crumbs=ancestors current=name.clone() />
+
                                 // Header
                                 <div class="flex items-center gap-3">
                                     <span class="text-3xl">{icon}</span>
-                                    <div>
-                                        <h2 class="text-2xl font-bold">{name}</h2>
-                                        {desc.map(|d| view! {
-                                            <p class="text-base-content/60 text-sm mt-1">{d}</p>
-                                        })}
+                                    <div class="flex flex-col gap-1">
+                                        <EditableText
+                                            value=name.clone()
+                                            on_save=Callback::new(move |new_name: String| {
+                                                let lid = container_id_for_rename.clone();
+                                                let current_desc = desc_for_rename.clone();
+                                                leptos::task::spawn_local(async move {
+                                                    match rename_container(lid, new_name, current_desc).await {
+                                                        Ok(_) => set_refresh.update(|n| *n += 1),
+                                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                    }
+                                                });
+                                            })
+                                            class="text-2xl font-bold cursor-pointer hover:underline decoration-dotted"
+                                        />
+                                        <EditableText
+                                            value=desc.clone().unwrap_or_default()
+                                            on_save=Callback::new(move |new_desc: String| {
+                                                let lid = container_id_for_desc.clone();
+                                                let current_name = name_for_desc.clone();
+                                                let desc_opt = if new_desc.trim().is_empty() { None } else { Some(new_desc) };
+                                                leptos::task::spawn_local(async move {
+                                                    match rename_container(lid, current_name, desc_opt).await {
+                                                        Ok(_) => set_refresh.update(|n| *n += 1),
+                                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                    }
+                                                });
+                                            })
+                                            multiline=true
+                                            placeholder="Dodaj opis..."
+                                            class="text-base-content/60 text-sm cursor-pointer hover:underline decoration-dotted"
+                                        />
                                     </div>
                                 </div>
 

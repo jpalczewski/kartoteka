@@ -94,14 +94,19 @@ pub struct SetFeaturesRequest {
 
 // ── Conversion from db row ────────────────────────────────────────────────────
 
-fn parse_features_map(json: &str) -> Result<serde_json::Map<String, serde_json::Value>, DomainError> {
+fn parse_features_map(
+    json: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, DomainError> {
     serde_json::from_str(json).map_err(|e| DomainError::Internal(e.to_string()))
 }
 
 pub(crate) fn parse_features(json: &str) -> Result<Vec<ListFeature>, DomainError> {
     Ok(parse_features_map(json)?
         .into_iter()
-        .map(|(feature_name, config)| ListFeature { feature_name, config })
+        .map(|(feature_name, config)| ListFeature {
+            feature_name,
+            config,
+        })
         .collect())
 }
 

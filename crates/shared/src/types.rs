@@ -290,6 +290,10 @@ pub struct ListData {
     pub item_tag_links: Vec<ItemTagLink>,
     /// All tags for the user. Used to resolve tag names/colors for item rows and the filter bar.
     pub all_tags: Vec<Tag>,
+    /// Today's date as "YYYY-MM-DD" in user's timezone — used for deadline grouping.
+    pub today_date: String,
+    /// Name of the parent container, if any — used for breadcrumbs.
+    pub container_name: Option<String>,
 }
 
 /// Item enriched with its parent list's display name.
@@ -483,6 +487,8 @@ pub struct ContainerData {
     pub container: Container,
     pub lists: Vec<List>,
     pub children: Vec<Container>,
+    /// Ordered ancestor chain from root to parent: `(id, name)` pairs.
+    pub ancestors: Vec<(String, String)>,
 }
 
 // --- Templates ---

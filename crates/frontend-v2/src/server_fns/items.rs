@@ -102,6 +102,17 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
 
     let created_at_local = format_datetime_in_tz(&list.created_at, tz);
 
+    let today_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
+    let container_name = if let Some(ref cid) = list.container_id {
+        domain::containers::get_one(&pool, cid, &user.id)
+            .await
+            .ok()
+            .map(|c| c.name)
+    } else {
+        None
+    };
+
     Ok(ListData {
         list: domain_list_to_shared(list),
         items: items.into_iter().map(domain_item_to_shared).collect(),
@@ -115,6 +126,8 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
             .into_iter()
             .map(domain_tag_to_shared)
             .collect(),
+        today_date,
+        container_name,
     })
 }
 
@@ -444,7 +457,9 @@ pub async fn update_item_description(
 pub async fn update_item_dates(
     item_id: String,
     start_date: Option<String>,
+    start_time: Option<String>,
     deadline: Option<String>,
+    deadline_time: Option<String>,
     hard_deadline: Option<String>,
 ) -> Result<Item, ServerFnError> {
     let pool = expect_context::<SqlitePool>();
@@ -465,9 +480,9 @@ pub async fn update_item_dates(
         actual_quantity: None,
         unit: None,
         start_date: to_field(start_date),
-        start_time: None,
+        start_time: to_field(start_time),
         deadline: to_field(deadline),
-        deadline_time: None,
+        deadline_time: to_field(deadline_time),
         hard_deadline: to_field(hard_deadline),
         estimated_duration: None,
     };

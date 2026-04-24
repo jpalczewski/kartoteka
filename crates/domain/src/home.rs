@@ -1,8 +1,7 @@
 use crate::DomainError;
+use crate::lists::parse_features;
 use kartoteka_db::{SqlitePool, home as db_home};
 use kartoteka_shared::types::{Container, HomeData, List};
-use crate::lists::parse_features;
-
 
 fn row_to_container(r: kartoteka_db::types::ContainerRow) -> Container {
     Container {

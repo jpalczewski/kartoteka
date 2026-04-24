@@ -1,11 +1,17 @@
 pub mod day;
 
+use std::collections::HashSet;
+
 use leptos::prelude::*;
 use leptos_router::components::A;
 
+use kartoteka_shared::types::{CalendarWeekDay, DateItem, Tag};
+
 use crate::components::calendar::week_view::WeekView;
+use crate::components::common::list_filter_chips::ListFilterChips;
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::items::{get_calendar_month, get_calendar_week};
+use crate::server_fns::tags::{get_all_item_tag_links, get_all_tags};
 
 pub(super) fn add_days(date: &str, days: i64) -> String {
     use chrono::{Duration, NaiveDate};
@@ -94,6 +100,70 @@ enum ViewMode {
     Week,
 }
 
+/// Apply list/tag/completed filters to a week's data and return:
+/// - the unique (list_id, list_name) pairs present in the unfiltered week (stable filter-chip order)
+/// - the tags actually referenced by items in the unfiltered week
+/// - the filtered days, preserving the original day sequence
+fn filter_week(
+    days: Vec<CalendarWeekDay>,
+    all_tags: &[Tag],
+    links: &[kartoteka_shared::types::ItemTagLink],
+    hidden_lists: &HashSet<String>,
+    hidden_tags: &HashSet<String>,
+    show_completed: bool,
+) -> (Vec<(String, String)>, Vec<Tag>, Vec<CalendarWeekDay>) {
+    let mut unique_lists: Vec<(String, String)> = Vec::new();
+    let mut seen_list_ids: HashSet<String> = HashSet::new();
+    let mut item_ids: HashSet<String> = HashSet::new();
+    for day in &days {
+        for di in &day.items {
+            if seen_list_ids.insert(di.item.list_id.clone()) {
+                unique_lists.push((di.item.list_id.clone(), di.list_name.clone()));
+            }
+            item_ids.insert(di.item.id.clone());
+        }
+    }
+
+    let relevant_tag_ids: HashSet<String> = links
+        .iter()
+        .filter(|l| item_ids.contains(&l.item_id))
+        .map(|l| l.tag_id.clone())
+        .collect();
+    let relevant_tags: Vec<Tag> = all_tags
+        .iter()
+        .filter(|t| relevant_tag_ids.contains(&t.id))
+        .cloned()
+        .collect();
+
+    let filtered_days: Vec<CalendarWeekDay> = days
+        .into_iter()
+        .map(|day| {
+            let filtered_items: Vec<DateItem> = day
+                .items
+                .into_iter()
+                .filter(|di| !hidden_lists.contains(&di.item.list_id))
+                .filter(|di| show_completed || !di.item.completed)
+                .filter(|di| {
+                    if hidden_tags.is_empty() {
+                        return true;
+                    }
+                    // Hide items carrying any hidden tag.
+                    !links
+                        .iter()
+                        .filter(|l| l.item_id == di.item.id)
+                        .any(|l| hidden_tags.contains(&l.tag_id))
+                })
+                .collect();
+            CalendarWeekDay {
+                date: day.date,
+                items: filtered_items,
+            }
+        })
+        .collect();
+
+    (unique_lists, relevant_tags, filtered_days)
+}
+
 #[component]
 pub fn CalendarPage() -> impl IntoView {
     let (view_mode, set_view_mode) = signal(ViewMode::Month);
@@ -102,6 +172,14 @@ pub fn CalendarPage() -> impl IntoView {
 
     let cal_res = Resource::new(move || current_ym.get(), get_calendar_month);
     let week_res = Resource::new(move || week_start.get(), get_calendar_week);
+    let all_tags_res = Resource::new(|| (), |_| get_all_tags());
+    let item_tag_links_res = Resource::new(|| (), |_| get_all_item_tag_links());
+
+    // Filter state for the week view. Kept at the page level so toggling the view mode preserves
+    // the user's filter choices.
+    let hidden_lists: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
+    let hidden_tags: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
+    let show_completed = RwSignal::new(true);
 
     Effect::new(move |_| {
         if let Some(Ok(ref cal)) = cal_res.get() {
@@ -220,23 +298,42 @@ pub fn CalendarPage() -> impl IntoView {
 
                 ViewMode::Week => view! {
                     <Suspense fallback=|| view! { <LoadingSpinner/> }>
-                        {move || week_res.get().map(|result| match result {
-                            Err(e) => view! { <p class="text-error">"Błąd: " {e.to_string()}</p> }.into_any(),
-                            Ok(days) => {
-                                let monday = days.first().map(|d| d.date.clone()).unwrap_or_default();
-                                let label = format_week_range_label(&monday);
-                                view! {
-                                    <div>
-                                        <div class="flex items-center justify-between mb-4">
-                                            <button class="btn btn-ghost btn-sm" on:click=on_prev>"‹"</button>
-                                            <span class="text-base font-semibold">{label}</span>
-                                            <button class="btn btn-ghost btn-sm" on:click=on_next>"›"</button>
-                                        </div>
-                                        <WeekView days=days/>
+                        {move || {
+                            let Some(days_result) = week_res.get() else { return view! {}.into_any(); };
+                            let days = match days_result {
+                                Err(e) => return view! { <p class="text-error">"Błąd: " {e.to_string()}</p> }.into_any(),
+                                Ok(d) => d,
+                            };
+                            let all_tags = all_tags_res.get()
+                                .and_then(|r| r.ok())
+                                .unwrap_or_default();
+                            let links = item_tag_links_res.get()
+                                .and_then(|r| r.ok())
+                                .unwrap_or_default();
+
+                            let monday = days.first().map(|d| d.date.clone()).unwrap_or_default();
+                            let label = format_week_range_label(&monday);
+                            let (unique_lists, relevant_tags, filtered_days) =
+                                filter_week(days, &all_tags, &links, &hidden_lists.get(), &hidden_tags.get(), show_completed.get());
+
+                            view! {
+                                <div>
+                                    <div class="flex items-center justify-between mb-4">
+                                        <button class="btn btn-ghost btn-sm" on:click=on_prev>"‹"</button>
+                                        <span class="text-base font-semibold">{label}</span>
+                                        <button class="btn btn-ghost btn-sm" on:click=on_next>"›"</button>
                                     </div>
-                                }.into_any()
-                            }
-                        })}
+                                    <ListFilterChips
+                                        lists=unique_lists
+                                        hidden_lists=hidden_lists
+                                        tags=relevant_tags
+                                        hidden_tags=hidden_tags
+                                        show_completed=show_completed
+                                    />
+                                    <WeekView days=filtered_days/>
+                                </div>
+                            }.into_any()
+                        }}
                     </Suspense>
                 }.into_any(),
             }}

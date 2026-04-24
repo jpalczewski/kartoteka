@@ -3,7 +3,8 @@ use leptos::prelude::*;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::{
-    confirm_modal::{ConfirmModal, ConfirmVariant}, loading::LoadingSpinner,
+    confirm_modal::{ConfirmModal, ConfirmVariant},
+    loading::LoadingSpinner,
 };
 use crate::components::home::{
     pinned_section::PinnedSection, recent_section::RecentSection, root_section::RootSection,

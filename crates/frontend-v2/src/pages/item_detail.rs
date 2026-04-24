@@ -60,7 +60,9 @@ pub fn ItemDetailPage() -> impl IntoView {
     let actual_quantity_input: RwSignal<String> = RwSignal::new(String::new());
     let unit_input: RwSignal<String> = RwSignal::new(String::new());
     let start_date_input: RwSignal<String> = RwSignal::new(String::new());
+    let start_time_input: RwSignal<String> = RwSignal::new(String::new());
     let deadline_input: RwSignal<String> = RwSignal::new(String::new());
+    let deadline_time_input: RwSignal<String> = RwSignal::new(String::new());
     let hard_deadline_input: RwSignal<String> = RwSignal::new(String::new());
 
     let on_save = move |_: leptos::ev::MouseEvent| {
@@ -78,10 +80,12 @@ pub fn ItemDetailPage() -> impl IntoView {
     let on_save_dates = move |_: leptos::ev::MouseEvent| {
         let id = item_id();
         let sd = Some(start_date_input.get());
+        let st = Some(start_time_input.get());
         let dl = Some(deadline_input.get());
+        let dt = Some(deadline_time_input.get());
         let hd = Some(hard_deadline_input.get());
         leptos::task::spawn_local(async move {
-            match update_item_dates(id, sd, dl, hd).await {
+            match update_item_dates(id, sd, st, dl, dt, hd).await {
                 Ok(_) => set_refresh.update(|n| *n += 1),
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
@@ -130,12 +134,14 @@ pub fn ItemDetailPage() -> impl IntoView {
                     .map(|d| d.to_string())
                     .unwrap_or_default(),
             );
+            start_time_input.set(item.start_time.clone().unwrap_or_default());
             deadline_input.set(
                 item.deadline
                     .as_ref()
                     .map(|d| d.to_string())
                     .unwrap_or_default(),
             );
+            deadline_time_input.set(item.deadline_time.clone().unwrap_or_default());
             hard_deadline_input.set(
                 item.hard_deadline
                     .as_ref()
@@ -267,15 +273,19 @@ pub fn ItemDetailPage() -> impl IntoView {
                                     <DateFieldInput
                                         label="📅 Rozpoczęcie"
                                         value=start_date_input
+                                        time_value=start_time_input
                                         data_testid="item-detail-start-date"
                                         show_clear=true
+                                        show_quick=true
                                         large=true
                                     />
                                     <DateFieldInput
                                         label="⏰ Termin"
                                         value=deadline_input
+                                        time_value=deadline_time_input
                                         data_testid="item-detail-deadline"
                                         show_clear=true
+                                        show_quick=true
                                         large=true
                                     />
                                     <DateFieldInput
@@ -283,6 +293,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                         value=hard_deadline_input
                                         data_testid="item-detail-hard-deadline"
                                         show_clear=true
+                                        show_quick=true
                                         large=true
                                     />
                                     <button

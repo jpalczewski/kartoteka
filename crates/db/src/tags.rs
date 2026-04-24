@@ -488,6 +488,27 @@ pub async fn get_all_list_tag_links(
     Ok(rows)
 }
 
+/// Returns all item-tag links for a given user (joined through items → lists.user_id).
+/// Used by calendar and today filter chips to map items to their tags.
+#[tracing::instrument(skip(pool))]
+pub async fn get_all_item_tag_links(
+    pool: &SqlitePool,
+    user_id: &str,
+) -> Result<Vec<(String, String)>, DbError> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT it.item_id, it.tag_id \
+         FROM item_tags it \
+         JOIN items i ON i.id = it.item_id \
+         JOIN lists l ON l.id = i.list_id \
+         WHERE l.user_id = ?",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(rows)
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn add_container_tag(
     pool: &SqlitePool,

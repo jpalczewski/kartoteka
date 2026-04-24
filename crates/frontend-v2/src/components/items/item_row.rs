@@ -7,9 +7,19 @@ use super::date_field::DateFieldInput;
 use super::quantity_stepper::QuantityStepper;
 use crate::components::common::dnd::ItemDragHandleButton;
 use crate::components::tags::tag_badge::TagBadge;
+use crate::components::tags::tag_selector_dropdown::TagSelectorDropdown;
 use crate::state::dnd::{DraggedItem, ItemDndState, begin_item_drag, clear_item_dnd_state};
 
-pub type DateSavePayload = (String, Option<String>, Option<String>, Option<String>);
+/// `(item_id, start_date, start_time, deadline, deadline_time, hard_deadline)` — times are
+/// independent of their dates so the caller can clear/update either half separately.
+pub type DateSavePayload = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 
 fn flex_date_display(item: &Item) -> Option<(String, &'static str, bool)> {
     // Show the most important date: hard_deadline > deadline > start_date
@@ -40,6 +50,12 @@ pub fn ItemRow(
     /// When provided, the row gains a drag handle and participates in DnD.
     #[prop(optional)]
     dnd_state: Option<RwSignal<ItemDndState>>,
+    /// When provided together with `all_tags_for_selector`, renders a tag assignment dropdown.
+    #[prop(optional)]
+    on_tag_toggle: Option<Callback<String>>,
+    /// Full tag catalog — used to populate the tag selector dropdown.
+    #[prop(optional)]
+    all_tags_for_selector: Option<Vec<Tag>>,
 ) -> impl IntoView {
     let item_id_toggle = item.id.clone();
     let item_id_delete = item.id.clone();
@@ -64,12 +80,14 @@ pub fn ItemRow(
             .map(|d| d.to_string())
             .unwrap_or_default(),
     );
+    let start_time_input = RwSignal::new(item.start_time.clone().unwrap_or_default());
     let deadline_input = RwSignal::new(
         item.deadline
             .as_ref()
             .map(|d| d.to_string())
             .unwrap_or_default(),
     );
+    let deadline_time_input = RwSignal::new(item.deadline_time.clone().unwrap_or_default());
     let hard_deadline_input = RwSignal::new(
         item.hard_deadline
             .as_ref()
@@ -145,7 +163,7 @@ pub fn ItemRow(
                 </A>
                 {(!item_tags.is_empty()).then(|| view! {
                     <div class="flex gap-1 shrink-0">
-                        {item_tags.into_iter().map(|tag| view! {
+                        {item_tags.clone().into_iter().map(|tag| view! {
                             <TagBadge tag=tag />
                         }).collect::<Vec<_>>()}
                     </div>
@@ -203,6 +221,15 @@ pub fn ItemRow(
                         }
                     })
                 }
+                {on_tag_toggle.zip(all_tags_for_selector).map(|(cb, all_tags)| {
+                    view! {
+                        <TagSelectorDropdown
+                            all_tags=all_tags
+                            item_tags=item_tags.clone()
+                            on_toggle=cb
+                        />
+                    }
+                })}
                 <button
                     type="button"
                     class="btn btn-ghost btn-xs btn-circle text-error"
@@ -239,10 +266,27 @@ pub fn ItemRow(
                             {on_date_save.map(|save_cb| {
                                 let id = id_dates.clone();
                                 view! {
-                                    <div class="flex flex-col gap-1 text-sm">
-                                        <DateFieldInput label="📅 Rozpoczęcie" value=start_input show_clear=true/>
-                                        <DateFieldInput label="⏰ Termin" value=deadline_input show_clear=true/>
-                                        <DateFieldInput label="🚨 Ostateczny" value=hard_deadline_input show_clear=true/>
+                                    <div class="flex flex-col gap-2 text-sm">
+                                        <DateFieldInput
+                                            label="📅 Rozpoczęcie"
+                                            value=start_input
+                                            time_value=start_time_input
+                                            show_clear=true
+                                            show_quick=true
+                                        />
+                                        <DateFieldInput
+                                            label="⏰ Termin"
+                                            value=deadline_input
+                                            time_value=deadline_time_input
+                                            show_clear=true
+                                            show_quick=true
+                                        />
+                                        <DateFieldInput
+                                            label="🚨 Ostateczny"
+                                            value=hard_deadline_input
+                                            show_clear=true
+                                            show_quick=true
+                                        />
                                         <button
                                             type="button"
                                             class="btn btn-xs btn-primary self-start mt-1"
@@ -250,7 +294,9 @@ pub fn ItemRow(
                                                 save_cb.run((
                                                     id.clone(),
                                                     Some(start_input.get_untracked()),
+                                                    Some(start_time_input.get_untracked()),
                                                     Some(deadline_input.get_untracked()),
+                                                    Some(deadline_time_input.get_untracked()),
                                                     Some(hard_deadline_input.get_untracked()),
                                                 ));
                                             }

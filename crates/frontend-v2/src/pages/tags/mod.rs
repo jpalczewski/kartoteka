@@ -5,6 +5,7 @@ use leptos::prelude::*;
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::tags::color_picker::TagColorPicker;
+use crate::components::tags::tag_tree::{TagTreeRow, build_tag_tree};
 use crate::server_fns::tags::{create_tag, delete_tag, get_all_tags};
 
 #[component]
@@ -17,19 +18,27 @@ pub fn TagsPage() -> impl IntoView {
     let (new_name, set_new_name) = signal(String::new());
     let (new_color, set_new_color) = signal("#6366f1".to_string());
 
-    let on_create = Callback::new(move |_: ()| {
-        let name = new_name.get();
-        if name.trim().is_empty() {
-            return;
-        }
-        let color = new_color.get();
+    let create_with_parent = move |name: String, parent_tag_id: Option<String>| {
+        let color = new_color.get_untracked();
         leptos::task::spawn_local(async move {
-            match create_tag(name, None, Some(color), None).await {
+            match create_tag(name, None, Some(color), parent_tag_id).await {
                 Ok(_) => set_refresh.update(|n| *n += 1),
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
         });
+    };
+
+    let on_create_root = Callback::new(move |_: ()| {
+        let name = new_name.get();
+        if name.trim().is_empty() {
+            return;
+        }
+        create_with_parent(name, None);
         set_new_name.set(String::new());
+    });
+
+    let on_create_child = Callback::new(move |(parent_id, name): (String, String)| {
+        create_with_parent(name, Some(parent_id));
     });
 
     let on_delete = Callback::new(move |id: String| {
@@ -45,7 +54,7 @@ pub fn TagsPage() -> impl IntoView {
         <div class="container mx-auto max-w-2xl p-4">
             <h2 class="text-2xl font-bold mb-4">"Tagi"</h2>
 
-            // Create tag form
+            // Create-root form
             <div class="flex gap-2 mb-6">
                 <TagColorPicker
                     value=Signal::derive(move || new_color.get())
@@ -60,7 +69,7 @@ pub fn TagsPage() -> impl IntoView {
                     on:input=move |ev| set_new_name.set(event_target_value(&ev))
                     on:keydown=move |ev| {
                         if ev.key() == "Enter" {
-                            on_create.run(());
+                            on_create_root.run(());
                         }
                     }
                 />
@@ -68,7 +77,7 @@ pub fn TagsPage() -> impl IntoView {
                     type="button"
                     class="btn btn-primary"
                     data-testid="create-tag-btn"
-                    on:click=move |_| on_create.run(())
+                    on:click=move |_| on_create_root.run(())
                 >
                     "Dodaj"
                 </button>
@@ -87,33 +96,17 @@ pub fn TagsPage() -> impl IntoView {
                                 </div>
                             }.into_any();
                         }
+                        let tree = build_tag_tree(&tags);
                         view! {
-                            <div class="flex flex-col gap-2">
-                                {tags.into_iter().map(|tag| {
-                                    let tid = tag.id.clone();
-                                    let color = tag.color.clone().unwrap_or_else(|| "#6366f1".to_string());
-                                    let href = format!("/tags/{}", &tag.id);
+                            <div data-testid="tag-tree">
+                                {tree.into_iter().map(|node| {
                                     view! {
-                                        <div class="flex items-center justify-between p-3 bg-base-200 rounded-lg" data-testid="tag-item">
-                                            <a href=href class="flex items-center gap-2 flex-1" data-testid="tag-link">
-                                                {tag.icon.as_deref().map(|i| view! { <span>{i.to_string()}</span> })}
-                                                <span
-                                                    class="badge badge-outline font-medium"
-                                                    style=format!("border-color: {color}; color: {color}")
-                                                >
-                                                    {tag.name.clone()}
-                                                </span>
-                                                <span class="text-xs text-base-content/40">{tag.tag_type.clone()}</span>
-                                            </a>
-                                            <button
-                                                type="button"
-                                                class="btn btn-ghost btn-xs btn-circle text-error"
-                                                data-testid="delete-tag-btn"
-                                                on:click=move |_| on_delete.run(tid.clone())
-                                            >
-                                                {"✕"}
-                                            </button>
-                                        </div>
+                                        <TagTreeRow
+                                            node=node
+                                            depth=0
+                                            on_create_child=on_create_child
+                                            on_delete=on_delete
+                                        />
                                     }
                                 }).collect::<Vec<_>>()}
                             </div>
