@@ -1,6 +1,10 @@
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use tracing::instrument;
 
+// Intentionally no action field — polled every 30s by Docker healthcheck,
+// logging each call would flood prod logs.
+#[instrument(skip_all)]
 pub async fn health() -> impl IntoResponse {
     StatusCode::OK
 }
@@ -9,7 +13,6 @@ pub async fn health() -> impl IntoResponse {
 mod tests {
     use super::*;
     use axum::body::to_bytes;
-    use axum::response::IntoResponse;
 
     #[tokio::test]
     async fn health_returns_200() {
