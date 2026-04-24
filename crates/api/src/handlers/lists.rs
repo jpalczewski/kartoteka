@@ -228,9 +228,11 @@ pub async fn reset(_req: Request, ctx: RouteContext<String>) -> Result<Response>
         return json_error("list_not_found", 404);
     }
 
-    // Reset items in main list
+    // Reset items in main list — preserve actual_quantity = NULL for items without quantity tracking
     d1.prepare(
-        "UPDATE items SET completed = 0, actual_quantity = 0, updated_at = datetime('now') WHERE list_id = ?1",
+        "UPDATE items SET completed = 0, \
+         actual_quantity = CASE WHEN actual_quantity IS NOT NULL THEN 0 ELSE NULL END, \
+         updated_at = datetime('now') WHERE list_id = ?1",
     )
     .bind(&[id.clone().into()])?
     .run()
@@ -238,7 +240,9 @@ pub async fn reset(_req: Request, ctx: RouteContext<String>) -> Result<Response>
 
     // Reset items in all sublists
     d1.prepare(
-        "UPDATE items SET completed = 0, actual_quantity = 0, updated_at = datetime('now') \
+        "UPDATE items SET completed = 0, \
+         actual_quantity = CASE WHEN actual_quantity IS NOT NULL THEN 0 ELSE NULL END, \
+         updated_at = datetime('now') \
          WHERE list_id IN (SELECT id FROM lists WHERE parent_list_id = ?1)",
     )
     .bind(&[id.into()])?
