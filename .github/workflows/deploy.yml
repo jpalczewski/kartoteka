@@ -12,16 +12,12 @@ on:
         type: string
         default: ""
         description: "Wrangler --env flag value (empty for prod)"
-      d1_database:
-        required: true
-        type: string
-        description: "D1 database name for API migrations"
 
 permissions:
   contents: read
 
 jobs:
-  # --- API Worker + Gateway (sequential, gateway depends on API) ---
+  # --- Gateway Worker ---
   deploy-backend:
     name: Backend (${{ inputs.environment }})
     runs-on: ubuntu-latest
@@ -36,15 +32,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: deploy
-
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -52,31 +39,6 @@ jobs:
           cache: "npm"
           cache-dependency-path: gateway/package-lock.json
 
-      - uses: cargo-bins/cargo-binstall@main
-
-      - name: Install worker-build
-        run: cargo binstall worker-build --no-confirm
-
-      # API Worker
-      - name: Run D1 migrations
-        uses: ./.github/actions/deploy-wrangler
-        with:
-          api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          working-directory: crates/api
-          command: "d1 migrations apply ${{ inputs.d1_database }} --remote"
-          env-flag: ${{ inputs.wrangler_env }}
-
-      - name: Deploy API Worker
-        uses: ./.github/actions/deploy-wrangler
-        with:
-          api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          working-directory: crates/api
-          command: deploy
-          env-flag: ${{ inputs.wrangler_env }}
-
-      # Gateway Worker
       - name: Copy locales to gateway
         run: |
           cp -r locales gateway/locales

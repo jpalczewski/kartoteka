@@ -16,10 +16,6 @@ setup:
 
 # === DEV ===
 
-# Uruchom API worker lokalnie
-dev-api:
-    cd crates/api && npx wrangler dev --env local --local --port 8787
-
 # Uruchom Gateway worker lokalnie
 dev-gateway:
     cp -r locales gateway/locales
@@ -57,10 +53,7 @@ check:
 check-ssr:
     cargo check -p kartoteka-server -p kartoteka-frontend-v2 --features ssr
 
-build: build-api build-server build-gateway
-
-build-api:
-    cd crates/api && worker-build --release
+build: build-server build-gateway
 
 build-server:
     cd crates/frontend-v2 && npm install
@@ -70,24 +63,6 @@ build-gateway:
     cd gateway && npx wrangler deploy --dry-run
 
 # === MIGRACJE ===
-
-# Utwórz nową migrację D1 (API worker)
-migrate-create NAME:
-    cd crates/api && npx wrangler d1 migrations create kartoteka-db {{NAME}}
-
-# Zastosuj migracje API lokalnie
-migrate-local:
-    cd crates/api && npx wrangler d1 migrations apply kartoteka-api-local --env local --local
-
-# Zastosuj migracje API na dev
-migrate-dev:
-    cd crates/api && npx wrangler d1 migrations apply kartoteka-dev --env dev --remote
-
-# Zastosuj migracje API na produkcję
-migrate-prod:
-    cd crates/api && npx wrangler d1 migrations apply kartoteka-db --env="" --remote
-
-migrate-remote: migrate-prod
 
 # Gateway auth DB migrations — uses /migrate endpoint (programmatic, Better Auth generates schema)
 migrate-gateway-local:
@@ -101,7 +76,7 @@ migrate-gateway-prod:
 
 # === DEPLOY ===
 
-deploy: deploy-migrate deploy-api deploy-gateway migrate-gateway-prod
+deploy: deploy-gateway migrate-gateway-prod
 
 deploy-gateway-dev:
     cp -r locales gateway/locales
@@ -109,16 +84,7 @@ deploy-gateway-dev:
     cp locales/pl/mcp.ftl gateway/locales/pl/mcp.txt
     cd gateway && npx wrangler deploy --env dev
 
-deploy-dev: migrate-dev deploy-api-dev deploy-gateway-dev migrate-gateway-dev
-
-deploy-migrate:
-    cd crates/api && npx wrangler d1 migrations apply kartoteka-db --remote
-
-deploy-api:
-    cd crates/api && npx wrangler deploy
-
-deploy-api-dev:
-    cd crates/api && npx wrangler deploy --env dev
+deploy-dev: deploy-gateway-dev migrate-gateway-dev
 
 deploy-gateway:
     cp -r locales gateway/locales

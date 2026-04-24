@@ -17,11 +17,6 @@ database_id = "1818f2fe-8b1c-40ba-84c1-347c59a91daf"
 binding = "OAUTH_KV"
 id = "ac4a1624550d420697c409349b5fa6be"
 
-# Service binding to Rust API Worker
-[[services]]
-binding = "API_WORKER"
-service = "kartoteka-api"
-
 # Secrets — configure before first deploy:
 #   wrangler secret put BETTER_AUTH_SECRET
 #   wrangler secret put BETTER_AUTH_URL      (https://kartoteka-gateway.jpalczewski.workers.dev)
@@ -50,10 +45,6 @@ database_id = "4691f730-db3d-407a-bf90-17ce018194b6"
 binding = "OAUTH_KV"
 id = "6917f81d01bb4f9b839990fe93ecc9a8"
 
-[[env.dev.services]]
-binding = "API_WORKER"
-service = "kartoteka-api-dev"
-
 # Local dev environment
 [env.local]
 name = "kartoteka-gateway-local"
@@ -74,10 +65,6 @@ database_id = "00000000-0000-0000-0000-000000000000"
 [[env.local.kv_namespaces]]
 binding = "OAUTH_KV"
 id = "00000000-0000-0000-0000-000000000000"
-
-[[env.local.services]]
-binding = "API_WORKER"
-service = "kartoteka-api"
 
 [observability]
 enabled = true
