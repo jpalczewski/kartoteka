@@ -36,64 +36,59 @@ The `data/` subdirectory will hold SQLite database files.
 
 ### 3. Copy deploy files
 
-From the repository's `deploy/` directory, copy the templates to `/srv/kartoteka/`:
+Copy the templates from `deploy/` in this repo to `/srv/kartoteka/` on the VPS (via scp or your preferred method):
 
 ```bash
-# As deploy user (or via ssh)
-cd /srv/kartoteka
-git clone https://github.com/jpalczewski/kartoteka-a1.git repo
-cp repo/deploy/compose.yml .
-cp repo/deploy/Caddyfile .
-cp repo/deploy/.env.example .
+scp deploy/compose.yml deploy/Caddyfile deploy/.env.example deploy/.env.app.example \
+    deploy@your-vps:/srv/kartoteka/
 ```
 
-Or manually copy `compose.yml`, `Caddyfile`, and `.env.example` from this repo.
+Avoid cloning the full repo on the VPS — it creates a stale checkout that rots over time.
 
 ### 4. Create per-environment env files
 
+Use `.env.app.example` as the template (not `.env.example` — that one is for Caddy only and must not contain app secrets).
+
 ```bash
 cd /srv/kartoteka
-
-# Copy template for each environment
-cp .env.example .env.prod
-cp .env.example .env.dev
-cp .env.example .env.preview
+cp .env.app.example .env.prod
+cp .env.app.example .env.dev
+cp .env.app.example .env.preview
 ```
 
-Edit each file with environment-specific values:
+Edit each file. The only values that differ per-env are `PUBLIC_BASE_URL` and `OAUTH_SIGNING_SECRET` (generate a separate secret per env with `openssl rand -base64 32`):
 
-**`.env.prod`** (production):
+**`.env.prod`**:
 ```bash
-KARTOTEKA_DOMAIN=kartoteka.example.com
 DATABASE_URL=sqlite:///app/kartoteka.db?mode=rwc
-OAUTH_SIGNING_SECRET=<generate-32-char-random-string>
+OAUTH_SIGNING_SECRET=<32-char-random>
 PUBLIC_BASE_URL=https://kartoteka.example.com
 APP_ENV=production
 BIND_ADDR=0.0.0.0:3000
 RUST_LOG=info
 ```
 
-**`.env.dev`** (development):
+**`.env.dev`**:
 ```bash
-KARTOTEKA_DOMAIN=kartoteka.example.com
 DATABASE_URL=sqlite:///app/kartoteka.db?mode=rwc
-OAUTH_SIGNING_SECRET=<different-32-char-random-string>
+OAUTH_SIGNING_SECRET=<different-32-char-random>
 PUBLIC_BASE_URL=https://dev.kartoteka.example.com
-APP_ENV=development
+APP_ENV=production
 BIND_ADDR=0.0.0.0:3000
 RUST_LOG=debug
 ```
 
-**`.env.preview`** (preview/PR):
+**`.env.preview`**:
 ```bash
-KARTOTEKA_DOMAIN=kartoteka.example.com
 DATABASE_URL=sqlite:///app/kartoteka.db?mode=rwc
-OAUTH_SIGNING_SECRET=<different-32-char-random-string>
+OAUTH_SIGNING_SECRET=<different-32-char-random>
 PUBLIC_BASE_URL=https://pr.kartoteka.example.com
-APP_ENV=staging
+APP_ENV=production
 BIND_ADDR=0.0.0.0:3000
 RUST_LOG=info
 ```
+
+> `APP_ENV=production` on all envs — the server uses this to enable structured JSON logs. Use `RUST_LOG=debug` on dev/preview for verbose output instead.
 
 Set restrictive permissions:
 
@@ -105,10 +100,11 @@ chmod 600 .env.prod .env.dev .env.preview
 
 ```bash
 cd /srv/kartoteka
-printf "KARTOTEKA_DOMAIN=kartoteka.example.com\n" > .env
+cp .env.example .env
+# Edit: replace kartoteka.example.com with your actual domain
 ```
 
-This allows Caddy to read the domain from the compose environment.
+This file is read only by the Caddy service (`env_file: .env` in compose.yml). Keep it separate from per-app env files — it must not contain app secrets.
 
 ### 6. Create empty SQLite databases
 
