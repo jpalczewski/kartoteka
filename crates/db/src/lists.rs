@@ -409,7 +409,7 @@ mod tests {
         assert_eq!(row.list_type, "checklist");
         assert_eq!(row.archived, 0);
         assert_eq!(row.pinned, 0);
-        assert_eq!(row.features_json, "[]");
+        assert_eq!(row.features, "{}");
     }
 
     #[tokio::test]
@@ -442,21 +442,17 @@ mod tests {
         let user_id = create_test_user(&pool).await;
         let id = insert_test_list(&pool, &user_id, "With Features").await;
 
+        let features_json = serde_json::json!({"deadlines": {}, "quantity": {}});
         let mut tx = pool.begin().await.unwrap();
-        replace_features(&mut tx, &id, &["deadlines".into(), "quantity".into()])
-            .await
-            .unwrap();
+        set_features(&mut tx, &id, &features_json).await.unwrap();
         tx.commit().await.unwrap();
 
         let row = get_one(&pool, &id, &user_id).await.unwrap().unwrap();
-        let features: Vec<serde_json::Value> = serde_json::from_str(&row.features_json).unwrap();
-        assert_eq!(features.len(), 2);
-        let names: Vec<&str> = features
-            .iter()
-            .map(|f| f["feature_name"].as_str().unwrap())
-            .collect();
-        assert!(names.contains(&"deadlines"));
-        assert!(names.contains(&"quantity"));
+        let obj: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&row.features).unwrap();
+        assert_eq!(obj.len(), 2);
+        assert!(obj.contains_key("deadlines"));
+        assert!(obj.contains_key("quantity"));
     }
 
     #[tokio::test]
@@ -480,10 +476,9 @@ mod tests {
         let user_id = create_test_user(&pool).await;
         let id = insert_test_list(&pool, &user_id, "Empty List").await;
 
+        let features_json = serde_json::json!({"deadlines": {}});
         let mut tx = pool.begin().await.unwrap();
-        replace_features(&mut tx, &id, &["deadlines".into()])
-            .await
-            .unwrap();
+        set_features(&mut tx, &id, &features_json).await.unwrap();
         tx.commit().await.unwrap();
 
         let ctx = get_create_item_context(&pool, &id, &user_id)

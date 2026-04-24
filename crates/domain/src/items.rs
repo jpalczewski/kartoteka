@@ -331,10 +331,15 @@ mod tests {
             .execute(pool)
             .await
             .unwrap();
-        for feature in features {
-            sqlx::query("INSERT INTO list_features (list_id, feature_name) VALUES (?, ?)")
+        if !features.is_empty() {
+            let obj: serde_json::Map<String, serde_json::Value> = features
+                .iter()
+                .map(|n| (n.to_string(), serde_json::json!({})))
+                .collect();
+            let json = serde_json::to_string(&obj).unwrap();
+            sqlx::query("UPDATE lists SET features = ? WHERE id = ?")
+                .bind(json)
                 .bind(&list_id)
-                .bind(feature)
                 .execute(pool)
                 .await
                 .unwrap();

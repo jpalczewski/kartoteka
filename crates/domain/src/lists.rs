@@ -1,5 +1,6 @@
 use crate::{DomainError, rules};
 use kartoteka_db as db;
+use kartoteka_shared::types::ListFeature;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -37,12 +38,6 @@ impl TryFrom<&str> for ListType {
             _ => Err(DomainError::Validation("unknown_list_type")),
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ListFeature {
-    pub feature_name: String,
-    pub config: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -99,9 +94,30 @@ pub struct SetFeaturesRequest {
 
 // ── Conversion from db row ────────────────────────────────────────────────────
 
+/// Parse a features JSON object `{"name": {...config}}` into the canonical Vec<ListFeature>.
+pub(crate) fn parse_features(json: &str) -> Result<Vec<ListFeature>, DomainError> {
+    let obj: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(json).map_err(|e| DomainError::Internal(e.to_string()))?;
+    Ok(obj
+        .into_iter()
+        .map(|(feature_name, config)| ListFeature {
+            feature_name,
+            config,
+        })
+        .collect())
+}
+
+/// Build a features JSON object from a list of names (each gets an empty config).
+fn features_from_names(names: &[String]) -> serde_json::Value {
+    let obj: serde_json::Map<String, serde_json::Value> = names
+        .iter()
+        .map(|n| (n.clone(), serde_json::json!({})))
+        .collect();
+    serde_json::Value::Object(obj)
+}
+
 pub(crate) fn row_to_list(row: db::lists::ListRow) -> Result<List, DomainError> {
-    let features: Vec<ListFeature> = serde_json::from_str(&row.features_json)
-        .map_err(|e| DomainError::Internal(e.to_string()))?;
+    let features = parse_features(&row.features)?;
     Ok(List {
         id: row.id,
         user_id: row.user_id,
@@ -194,7 +210,7 @@ pub async fn create(
     )
     .await?;
     if !req.features.is_empty() {
-        db::lists::replace_features(&mut tx, &list_id, &req.features).await?;
+        db::lists::set_features(&mut tx, &list_id, &features_from_names(&req.features)).await?;
     }
     tx.commit().await.map_err(db::DbError::Sqlx)?;
 
@@ -220,8 +236,7 @@ pub async fn update(
 
     // Phase 2: THINK — validate new list_type against existing features
     if let Some(new_type) = req.list_type.as_deref() {
-        let features: Vec<ListFeature> = serde_json::from_str(&current.features_json)
-            .map_err(|e| DomainError::Internal(e.to_string()))?;
+        let features = parse_features(&current.features)?;
         let feature_names: Vec<String> = features.iter().map(|f| f.feature_name.clone()).collect();
         rules::lists::validate_list_type_features(new_type, &feature_names)?;
     }
@@ -338,13 +353,45 @@ pub async fn set_features(
 
     // Phase 3: WRITE
     let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
-    db::lists::replace_features(&mut tx, id, &req.features).await?;
+    db::lists::set_features(&mut tx, id, &features_from_names(&req.features)).await?;
     tx.commit().await.map_err(db::DbError::Sqlx)?;
 
     db::lists::get_one(pool, id, user_id)
         .await?
         .map(row_to_list)
         .transpose()
+}
+
+/// Update the config of a single feature without affecting other features.
+/// Returns `DomainError::NotFound("feature")` if the feature is not enabled on the list.
+#[tracing::instrument(skip(pool))]
+pub async fn update_feature_config(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    feature_name: &str,
+    config: serde_json::Value,
+) -> Result<(), DomainError> {
+    // Phase 1: READ
+    let current = db::lists::get_one(pool, id, user_id)
+        .await?
+        .ok_or(DomainError::NotFound("list"))?;
+
+    // Phase 2: THINK
+    let mut features: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(&current.features)
+            .map_err(|e| DomainError::Internal(e.to_string()))?;
+    if !features.contains_key(feature_name) {
+        return Err(DomainError::NotFound("feature"));
+    }
+    features.insert(feature_name.to_string(), config);
+
+    // Phase 3: WRITE
+    let new_features = serde_json::Value::Object(features);
+    let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
+    db::lists::set_features(&mut tx, id, &new_features).await?;
+    tx.commit().await.map_err(db::DbError::Sqlx)?;
+    Ok(())
 }
 
 // Re-export CreateItemContext so server/mcp don't import db directly

@@ -6,7 +6,7 @@ use {
     axum_login::AuthSession,
     kartoteka_auth::KartotekaBackend,
     kartoteka_domain as domain,
-    kartoteka_shared::types::{ListFeature, Tag},
+    kartoteka_shared::types::Tag,
     sqlx::SqlitePool,
 };
 
@@ -29,14 +29,7 @@ pub(crate) fn domain_list_to_shared(l: domain::lists::List) -> List {
         last_opened_at: l.last_opened_at,
         created_at: l.created_at,
         updated_at: l.updated_at,
-        features: l
-            .features
-            .into_iter()
-            .map(|f| ListFeature {
-                feature_name: f.feature_name,
-                config: f.config,
-            })
-            .collect(),
+        features: l.features,
     }
 }
 

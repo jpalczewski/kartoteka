@@ -139,6 +139,25 @@ pub async fn update_list_features(
     .ok_or_else(|| ServerFnError::new("list not found".to_string()))
 }
 
+/// Update the config of a single feature (e.g. deadlines sub-flags) without touching others.
+#[server(prefix = "/leptos")]
+pub async fn update_feature_config(
+    list_id: String,
+    feature_name: String,
+    config: serde_json::Value,
+) -> Result<(), ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    domain::lists::update_feature_config(&pool, &list_id, &user.id, &feature_name, config)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))
+}
+
 /// Get feature names enabled for a list. Lightweight alternative to get_list_data.
 #[server(prefix = "/leptos")]
 pub async fn get_list_feature_names(list_id: String) -> Result<Vec<String>, ServerFnError> {

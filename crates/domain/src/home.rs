@@ -1,6 +1,8 @@
 use crate::DomainError;
 use kartoteka_db::{SqlitePool, home as db_home};
-use kartoteka_shared::types::{Container, HomeData, List, ListFeature};
+use kartoteka_shared::types::{Container, HomeData, List};
+use crate::lists::parse_features;
+
 
 fn row_to_container(r: kartoteka_db::types::ContainerRow) -> Container {
     Container {
@@ -20,8 +22,7 @@ fn row_to_container(r: kartoteka_db::types::ContainerRow) -> Container {
 }
 
 fn row_to_list(r: kartoteka_db::lists::ListRow) -> Result<List, DomainError> {
-    let features: Vec<ListFeature> =
-        serde_json::from_str(&r.features_json).map_err(|e| DomainError::Internal(e.to_string()))?;
+    let features = parse_features(&r.features)?;
     Ok(List {
         id: r.id,
         user_id: r.user_id,
