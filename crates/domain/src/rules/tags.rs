@@ -47,15 +47,11 @@ pub fn validate_location_hierarchy(
     parent_tag_type: Option<&str>,
 ) -> Result<(), DomainError> {
     match tag_type {
-        "city" => {
-            if parent_tag_type != Some("country") {
-                return Err(DomainError::Validation("city_requires_country_parent"));
-            }
+        "city" if parent_tag_type != Some("country") => {
+            return Err(DomainError::Validation("city_requires_country_parent"));
         }
-        "address" => {
-            if parent_tag_type != Some("city") {
-                return Err(DomainError::Validation("address_requires_city_parent"));
-            }
+        "address" if parent_tag_type != Some("city") => {
+            return Err(DomainError::Validation("address_requires_city_parent"));
         }
         _ => {}
     }

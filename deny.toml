@@ -3,6 +3,11 @@ yanked = "deny"
 unmaintained = "workspace"
 unsound = "workspace"
 
+ignore = [
+    # rsa crate: Marvin Attack timing side-channel, no patch available upstream
+    "RUSTSEC-2023-0071",
+]
+
 [licenses]
 allow = [
     "MIT",
