@@ -1,12 +1,43 @@
+# Rust build artifacts
 target/
+**/target/
+
+# Node / frontend
+node_modules/
+**/node_modules/
+crates/frontend/dist/
+crates/frontend-v2/dist/
+
+# Git + editor
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Local env & wrangler
+.env
+.env.local
 .wrangler/
 build/
-crates/frontend/dist/
-crates/frontend-v2/node_modules/
+
+# Docs & plans
+docs/
+
+# Old Cloudflare artifacts
+gateway/node_modules/
+gateway/.wrangler/
+
+# Playwright / tests
+tests/e2e/
+tests/node_modules/
+tests/test-results/
+tests/playwright-report/
+
+# SQLite local files
 *.db
 *.db-shm
 *.db-wal
-.env
-docs/
-tests/e2e/
-gateway/node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
