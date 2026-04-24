@@ -11,10 +11,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN rustup target add wasm32-unknown-unknown
 
 # cargo-binstall installs prebuilt cargo-leptos binary (saves ~3 min vs from-source)
+# Pinned to specific release to prevent supply-chain surprises from main-branch changes.
 RUN curl -L --proto '=https' --tlsv1.2 -sSf \
-      https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh \
+      https://raw.githubusercontent.com/cargo-bins/cargo-binstall/v1.18.1/install-from-binstall-release.sh \
     | bash
-RUN cargo binstall -y cargo-leptos
+RUN cargo binstall -y cargo-leptos@0.3.5
 
 WORKDIR /app
 COPY . .
