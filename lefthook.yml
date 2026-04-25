@@ -5,7 +5,4 @@ pre-commit:
       run: cargo fmt --all -- --check
       fail_text: "Run `just fmt` to fix formatting"
     clippy:
-      run: cargo clippy --workspace --exclude kartoteka-frontend -- -D warnings
-    tsc:
-      root: gateway/
-      run: npx tsc --noEmit
+      run: cargo clippy --workspace -- -D warnings

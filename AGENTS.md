@@ -2,64 +2,54 @@
 
 ## Repo Basics
 
-- Monorepo: `crates/shared`, `crates/api`, `crates/frontend`, `gateway/`
-- API: Cloudflare Workers + D1 (`worker`, `sqlx-d1`)
-- Frontend: Leptos 0.8 CSR
-- Gateway: TypeScript Worker z MCP i proxy do API
+- Monorepo: `crates/shared`, `crates/db`, `crates/domain`, `crates/auth`, `crates/mcp`, `crates/oauth`, `crates/jobs`, `crates/i18n`, `crates/frontend-v2`, `crates/server`
+- API + Frontend: Leptos 0.8 SSR (`crates/server` + `crates/frontend-v2`), Axum, SQLite via `sqlx`
+- Auth: Better Auth (cookie-based, email+password + GitHub OAuth)
+- DB: SQLite, migracje w `crates/db/migrations/`
 
 ## Tracing / Logging
 
-Każdy handler w `crates/api/src/handlers/` musi mieć `#[instrument]`.
+Każdy handler w `crates/server/src/` musi mieć `#[instrument]`.
 
-Wzorzec:
+Wzorzec (Axum — Path extractor daje ID na wejściu):
 
 ```rust
-#[instrument(skip_all, fields(action = "create_list", list_id = tracing::field::Empty))]
-pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
-    let id = Uuid::new_v4().to_string();
-    Span::current().record("list_id", tracing::field::display(&id));
+#[instrument(fields(action = "create_list", list_id = %id))]
+pub async fn create(Path(id): Path<String>, ...) -> impl IntoResponse {
     // ...
 }
 ```
 
-- `skip_all` dla `req` i `ctx`
 - `action` w formacie `verb_noun`
-- jeśli handler tworzy lub operuje na konkretnym encji ID, dodaj pole jako `tracing::field::Empty` i uzupełnij je przez `Span::current().record(...)` po poznaniu wartości
+- Entity ID bezpośrednio w polu (`%id`), nie przez `Span::current().record(...)`
 - bez zbędnego `&` przed `tracing::field::display(...)`
 
-## Workers / D1
+## Frontend (Leptos 0.8 SSR)
 
-- D1 zwraca boolean jako `0.0` / `1.0`; używaj istniejących deserializerów z `crates/shared/src/deserializers.rs`
-- D1 bind: `ctx.env.d1("DB")?`
-- parametry SQL przekazuj jako `JsValue`
-- `Response::empty()?.with_status(204)` zwraca `Response`, więc owiń wynik w `Ok(...)`
-- `Headers::new()` nie wymaga `mut`
-
-## Frontend
-
-- W Leptos 0.8 używaj `LocalResource`, nie `Resource`, dla futures opartych o `gloo-net`
-- `LocalResource::get()` zwraca `Option<T>` bezpośrednio; typowy wzorzec to `if let Some(Ok(data)) = resource.get()`
-- HTTP przechodzi przez `HttpClient` z `crates/frontend/src/api/client.rs`
-- przy optymistycznych update'ach używaj snapshot + rollback
+- Używaj `Resource::new`, nie `LocalResource` — SSR futures muszą być `Send`
+- `Resource::get()` zwraca `Option<T>`; wzorzec: `if let Some(Ok(data)) = resource.get()`
+- Server functions przez `#[server]` makro w `crates/frontend-v2/src/server_fns/`
+- `use_context` tylko w ciele komponentu (nie w closures typu `Fn`)
+- Non-Copy typy w `Fn` closure → `StoredValue::new()` lub `.clone()` przed wejściem
 
 ## Shared Crate
 
-- `crates/shared` re-eksportuje moduły flat przez `lib.rs`; preferuj importy z `kartoteka_shared::*`
-- DTO są w `crates/shared/src/dto/`, modele w `crates/shared/src/models/`
-- logika dat powinna reuse'ować helpery z `crates/shared/src/date_utils.rs` i `crates/shared/src/validation.rs`
+- `crates/shared` re-eksportuje moduły flat przez `lib.rs`; importuj z `kartoteka_shared::*`
+- DTO w `crates/shared/src/dto/`, modele w `crates/shared/src/models/`
+- Helpery dat w `crates/shared/src/date_utils.rs`
 
-## Validation / Helpers
+## DB / Domain
 
-- przed dodaniem nowych helperów sprawdź istniejące w `crates/api/src/helpers.rs`
-- dla nullable string patchy reuse'uj istniejące konwersje do `JsValue` zamiast dopisywać kolejną lokalną wersję
-- dla ownership/list-item relacji preferuj helpery z `helpers.rs`, nie ad-hoc query w handlerach
+- Logika DB w `crates/db/src/` (sqlx queries)
+- Reguły biznesowe w `crates/domain/src/rules/` (czyste funkcje, testowalne bez DB)
 
 ## Commands
 
-- lokalny smoke test API/shared: `cargo test -p kartoteka-api` i `cargo test -p kartoteka-shared`
-- gateway: `cd gateway && npm run typecheck`
-- pełniejszy lokalny check: `just ci`
+- lokalny check: `just check`
+- testy: `cargo test --workspace`
+- pełny CI check: `just ci`
+- lokalny dev (SSR + Tailwind): `just dev`
 
 ## Git / Commits
 
-- każdy commit musi używać formatu Conventional Commits, np. `feat: ...`, `fix: ...`, `chore: ...`
+- Conventional Commits: `feat: ...`, `fix: ...`, `chore: ...`
