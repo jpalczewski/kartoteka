@@ -54,6 +54,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /out-kartoteka /app/kartoteka
 COPY --from=builder /out-site /app/site
+COPY locales/ /app/locales/
 RUN chown -R app:app /app
 
 WORKDIR /app
