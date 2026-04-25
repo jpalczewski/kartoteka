@@ -1,5 +1,5 @@
 [package]
-name = "kartoteka-frontend-v2"
+name = "kartoteka-frontend"
 version.workspace = true
 edition.workspace = true
 publish = false

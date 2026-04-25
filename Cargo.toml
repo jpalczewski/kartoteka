@@ -9,7 +9,7 @@ members = [
     "crates/mcp",
     "crates/oauth",
     "crates/jobs",
-    "crates/frontend-v2",
+    "crates/frontend",
     "crates/server",
 ]
 
@@ -54,16 +54,16 @@ axum-macros = { version = "0.5" }
 name = "kartoteka"
 bin-package = "kartoteka-server"
 bin-exe-name = "kartoteka"
-lib-package = "kartoteka-frontend-v2"
+lib-package = "kartoteka-frontend"
 site-root = "target/site"
 site-pkg-dir = "pkg"
 site-addr = "127.0.0.1:3000"
 reload-port = 3001
 bin-features = []
 lib-features = ["hydrate"]
-assets-dir = "crates/frontend-v2/public"
-style-file = "crates/frontend-v2/style/main.css"
-tailwind-input-file = "crates/frontend-v2/style/input.css"
+assets-dir = "crates/frontend/public"
+style-file = "crates/frontend/style/main.css"
+tailwind-input-file = "crates/frontend/style/input.css"
 hash-files = false
 wasm-opt-features = ["-Oz", "--enable-bulk-memory"]
 

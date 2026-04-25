@@ -22,7 +22,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use kartoteka_db::SqlitePool;
-use kartoteka_frontend_v2::{App, shell};
+use kartoteka_frontend::{App, shell};
 use kartoteka_mcp::McpI18n;
 use kartoteka_oauth::OAuthState;
 use leptos::prelude::*;
@@ -50,7 +50,7 @@ pub type AuthLayer = axum_login::AuthManagerLayer<
 >;
 
 /// Handles Leptos server function calls at `/leptos/{*fn_name}`.
-/// All `#[server]` functions in frontend-v2 must use `#[server(prefix = "/leptos")]`.
+/// All `#[server]` functions in frontend must use `#[server(prefix = "/leptos")]`.
 pub async fn server_fn_handler(
     State(state): State<AppState>,
     req: Request<Body>,
@@ -59,7 +59,7 @@ pub async fn server_fn_handler(
         move || {
             provide_context(state.pool.clone());
             provide_context(state.clone());
-            provide_context(kartoteka_frontend_v2::server_fns::settings::SigningSecret(
+            provide_context(kartoteka_frontend::server_fns::settings::SigningSecret(
                 state.signing_secret.clone(),
             ));
         },
@@ -79,7 +79,7 @@ pub async fn leptos_routes_handler(State(state): State<AppState>, req: Request<B
         move || {
             provide_context(pool.clone());
             provide_context(s.clone());
-            provide_context(kartoteka_frontend_v2::server_fns::settings::SigningSecret(
+            provide_context(kartoteka_frontend::server_fns::settings::SigningSecret(
                 signing_secret.clone(),
             ));
         },

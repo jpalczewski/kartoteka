@@ -1739,7 +1739,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kartoteka-frontend-v2"
+name = "kartoteka-frontend"
 version = "0.1.1"
 dependencies = [
  "axum",
@@ -1853,7 +1853,7 @@ dependencies = [
  "kartoteka-auth",
  "kartoteka-db",
  "kartoteka-domain",
- "kartoteka-frontend-v2",
+ "kartoteka-frontend",
  "kartoteka-jobs",
  "kartoteka-mcp",
  "kartoteka-oauth",

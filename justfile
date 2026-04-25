@@ -12,7 +12,7 @@ default:
 setup:
     cargo install cargo-leptos
     rustup target add wasm32-unknown-unknown
-    cd crates/frontend-v2 && npm install
+    cd crates/frontend && npm install
 
 # === DEV ===
 
@@ -37,7 +37,7 @@ dev:
 
 # Tailwind 4 CSS compilation (watch mode)
 dev-tailwind:
-    crates/frontend-v2/node_modules/.bin/tailwindcss -i crates/frontend-v2/style/input.css -o crates/frontend-v2/style/main.css --watch
+    crates/frontend/node_modules/.bin/tailwindcss -i crates/frontend/style/input.css -o crates/frontend/style/main.css --watch
 
 # SSR server: cargo-leptos hot reload
 dev-leptos:
@@ -51,12 +51,12 @@ check:
 
 # Build check for SSR server (fast, no WASM)
 check-ssr:
-    cargo check -p kartoteka-server -p kartoteka-frontend-v2 --features ssr
+    cargo check -p kartoteka-server -p kartoteka-frontend --features ssr
 
 build: build-server build-gateway
 
 build-server:
-    cd crates/frontend-v2 && npm install
+    cd crates/frontend && npm install
     cargo leptos build --release
 
 build-gateway:

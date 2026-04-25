@@ -20,10 +20,10 @@ RUN rustup target add wasm32-unknown-unknown
 WORKDIR /app
 
 # npm deps — zakeszowane osobno (zmienia się tylko przy package-lock.json)
-COPY crates/frontend-v2/package.json crates/frontend-v2/package-lock.json \
-     crates/frontend-v2/
+COPY crates/frontend/package.json crates/frontend/package-lock.json \
+     crates/frontend/
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --prefix crates/frontend-v2
+    npm ci --prefix crates/frontend
 
 # Kod źródłowy
 COPY . .
