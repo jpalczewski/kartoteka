@@ -8,8 +8,8 @@ publish = false
 workspace = true
 
 [dependencies]
-kartoteka-shared = { path = "../shared", version = "0.1.1" }
-kartoteka-db = { path = "../db", version = "0.1.1" }
+kartoteka-shared = { path = "../shared" }
+kartoteka-db = { path = "../db" }
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -27,4 +27,4 @@ jsonwebtoken.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
-kartoteka-db = { path = "../db", version = "0.1.1", features = ["test-helpers"] }
+kartoteka-db = { path = "../db", features = ["test-helpers"] }

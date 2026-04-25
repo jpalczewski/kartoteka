@@ -11,8 +11,8 @@ crate-type = ["cdylib", "rlib"]
 workspace = true
 
 [dependencies]
-kartoteka-shared = { path = "../shared", version = "0.1.1" }
-kartoteka-i18n = { path = "../i18n", version = "0.1.1" }
+kartoteka-shared = { path = "../shared" }
+kartoteka-i18n = { path = "../i18n" }
 leptos = { workspace = true }
 leptos_router = { workspace = true }
 leptos_meta = { workspace = true, optional = true }
@@ -37,10 +37,10 @@ leptos_axum = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
 axum-login = { workspace = true, optional = true }
 sqlx = { workspace = true, optional = true }
-kartoteka-domain = { path = "../domain", version = "0.1.1", optional = true }
-kartoteka-auth = { path = "../auth", version = "0.1.1", optional = true }
-kartoteka-db = { path = "../db", version = "0.1.1", optional = true }
-kartoteka-oauth = { path = "../oauth", version = "0.1.1", optional = true }
+kartoteka-domain = { path = "../domain", optional = true }
+kartoteka-auth = { path = "../auth", optional = true }
+kartoteka-db = { path = "../db", optional = true }
+kartoteka-oauth = { path = "../oauth", optional = true }
 tower-sessions = { workspace = true, optional = true }
 chrono-tz = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
