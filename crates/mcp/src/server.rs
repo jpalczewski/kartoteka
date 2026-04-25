@@ -734,7 +734,7 @@ impl ServerHandler for KartotekaServer {
                     .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
             }
             ResourceUri::ListItems { list_id, .. } => {
-                let data = kartoteka_domain::items::list_for_list(&self.pool, &user_id, &list_id)
+                let data = kartoteka_domain::items::list_for_list(&self.pool, &list_id, &user_id)
                     .await
                     .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
                 serde_json::to_value(data)

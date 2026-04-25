@@ -360,6 +360,15 @@ pub async fn validate_jwt(
             return Err(DomainError::Validation("invalid_token"));
         }
 
+        // Enforce DB-side expiry so revocation via expires_at update works immediately.
+        if let Some(exp_str) = &row.expires_at {
+            let exp = chrono::DateTime::parse_from_rfc3339(exp_str)
+                .map_err(|_| DomainError::Internal("bad expires_at in db".into()))?;
+            if exp <= chrono::Utc::now() {
+                return Err(DomainError::Validation("token_expired"));
+            }
+        }
+
         // Update last_used_at; ignore errors — token is still valid
         let _ = db::personal_tokens::touch_last_used(pool, &claims.jti).await;
     }

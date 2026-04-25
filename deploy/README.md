@@ -218,6 +218,48 @@ For free public image pulls from the VPS without docker login:
 
 Note: The `:develop` and `:preview` tags are overwritten on each build to the respective branches. Tag production builds with semantic versions (e.g., `v0.4.1`).
 
+## Environment Variables Reference
+
+All variables go into the per-environment file (`.env.prod`, `.env.dev`, `.env.preview`).
+See `.env.app.example` for a ready-to-copy template.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `DATABASE_URL` | yes | — | SQLite connection string. Format: `sqlite:///absolute/path/kartoteka.db?mode=rwc`. Use a separate file per environment. |
+| `OAUTH_SIGNING_SECRET` | yes | — | HMAC-HS256 key used to sign OAuth access tokens and personal access tokens. **Minimum 32 characters, cryptographically random.** Generate with `openssl rand -base64 32`. Use a **distinct secret per environment** — a shared key means a dev token works in prod. |
+| `PUBLIC_BASE_URL` | yes | `http://localhost:3000` | Full public origin (scheme + host, no trailing slash), e.g. `https://kartoteka.example.com`. Used in OAuth metadata (`issuer`, `authorization_endpoint`), redirect URI validation, and OAuth redirect construction. Also triggers `Secure` session cookies automatically when it starts with `https://`. |
+| `APP_ENV` | no | _(unset)_ | Set to `production` on all deployed environments. Controls: (1) structured JSON log output; (2) `Secure` flag on session cookies so they are only sent over HTTPS. |
+| `BIND_ADDR` | no | from Leptos config (`0.0.0.0:3000`) | TCP address the server listens on inside the container. Caddy forwards external traffic to this. |
+| `RUST_LOG` | no | `kartoteka_server=debug,...` | Log filter in `tracing-subscriber` `EnvFilter` format. Use `info` for prod, `debug` for dev/preview. |
+
+### Security: `OAUTH_SIGNING_SECRET`
+
+The secret is the HMAC key for:
+- **MCP OAuth access tokens** — short-lived (~1 h TTL, `scope=mcp`)
+- **Personal access tokens** — user-created, default 90-day TTL, max 365 days (`scope=full`)
+
+If it leaks, all tokens signed with it must be considered compromised. To rotate:
+
+1. Generate a new secret: `openssl rand -base64 32`
+2. Update `.env.prod` on the VPS
+3. Restart: `docker compose up -d prod`
+
+After restart all existing tokens are invalid — users must re-authenticate MCP clients and recreate personal access tokens.
+
+### Security: `APP_ENV` and session cookies
+
+Session cookies carry the authenticated user identity and the OAuth consent CSRF token.
+
+When `APP_ENV=production` **or** `PUBLIC_BASE_URL` starts with `https://`, cookies are issued with:
+
+```
+Set-Cookie: id=...; Secure; HttpOnly; SameSite=Lax
+```
+
+Without `Secure`, browsers send the cookie over plain HTTP, enabling session hijacking on hostile networks.
+
+For local dev (`http://localhost`) leave `APP_ENV` unset — `Secure` cookies do not work over HTTP.
+
 ## Troubleshooting
 
 ### Caddy won't start

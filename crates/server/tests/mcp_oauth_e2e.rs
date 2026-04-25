@@ -62,7 +62,7 @@ async fn dcr_then_token_then_mcp_initialize() {
                 .uri("/oauth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"client_name":"Test","redirect_uris":["http://x/cb"]}"#,
+                    r#"{"client_name":"Test","redirect_uris":["http://localhost/cb"]}"#,
                 ))
                 .unwrap(),
         )
@@ -85,7 +85,7 @@ async fn dcr_then_token_then_mcp_initialize() {
         &uid,
         &challenge,
         "mcp",
-        "http://x/cb",
+        "http://localhost/cb",
         Utc::now() + Duration::minutes(5),
     )
     .await
@@ -93,7 +93,7 @@ async fn dcr_then_token_then_mcp_initialize() {
 
     // 3. Token exchange
     let form = format!(
-        "grant_type=authorization_code&code=code-e2e-test&redirect_uri=http%3A%2F%2Fx%2Fcb&client_id={client_id}&code_verifier={verifier}"
+        "grant_type=authorization_code&code=code-e2e-test&redirect_uri=http%3A%2F%2Flocalhost%2Fcb&client_id={client_id}&code_verifier={verifier}"
     );
     let tok_res = app
         .clone()

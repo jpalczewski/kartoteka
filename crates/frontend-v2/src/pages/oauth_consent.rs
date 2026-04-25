@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct ConsentData {
     pub client_name: String,
     pub scope: String,
+    pub redirect_uri: String,
     pub csrf_token: String,
 }
 
@@ -32,6 +33,7 @@ pub async fn load_consent_data() -> Result<ConsentData, ServerFnError> {
     Ok(ConsentData {
         client_name: client.name,
         scope: pending.scope,
+        redirect_uri: pending.redirect_uri,
         csrf_token: pending.csrf_token,
     })
 }
@@ -72,8 +74,12 @@ fn ConsentForm(data: ConsentData) -> impl IntoView {
                 <p class="text-sm opacity-70">"Permissions requested:"</p>
                 <p class="font-mono">{data.scope}</p>
             </div>
+            <div class="bg-base-300 p-3 rounded">
+                <p class="text-sm opacity-70">"Will redirect to:"</p>
+                <p class="font-mono text-xs break-all">{data.redirect_uri}</p>
+            </div>
             <p class="text-sm opacity-70">
-                "Only approve if you trust this application."
+                "Only approve if you trust this application and the redirect destination above."
             </p>
             <input type="hidden" name="csrf_token" value=data.csrf_token />
             <div class="card-actions justify-end gap-2">

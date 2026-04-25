@@ -39,8 +39,12 @@ async fn main() {
         .await
         .expect("session store migrate");
 
+    let secure_cookies = std::env::var("APP_ENV").as_deref() == Ok("production")
+        || std::env::var("PUBLIC_BASE_URL")
+            .map(|u| u.starts_with("https://"))
+            .unwrap_or(false);
     let session_layer = SessionManagerLayer::new(session_store)
-        .with_secure(false)
+        .with_secure(secure_cookies)
         .with_same_site(tower_sessions::cookie::SameSite::Lax)
         .with_expiry(Expiry::OnInactivity(time::Duration::days(7)));
 

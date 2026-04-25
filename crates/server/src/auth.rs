@@ -73,10 +73,14 @@ pub struct TokenListItem {
     pub created_at: String,
 }
 
-const PENDING_USER_KEY: &str = "pending_user_id";
-const PENDING_2FA_ATTEMPTS_KEY: &str = "pending_2fa_attempts";
-const MAX_2FA_ATTEMPTS: u32 = 5;
-const RETURN_TO_KEY: &str = "return_to";
+use kartoteka_shared::constants::{
+    SESSION_MAX_2FA_ATTEMPTS, SESSION_PENDING_2FA_ATTEMPTS_KEY, SESSION_PENDING_USER_KEY,
+    SESSION_RETURN_TO_KEY,
+};
+const PENDING_USER_KEY: &str = SESSION_PENDING_USER_KEY;
+const PENDING_2FA_ATTEMPTS_KEY: &str = SESSION_PENDING_2FA_ATTEMPTS_KEY;
+const MAX_2FA_ATTEMPTS: u32 = SESSION_MAX_2FA_ATTEMPTS;
+const RETURN_TO_KEY: &str = SESSION_RETURN_TO_KEY;
 
 /// Extract a bearer token from the Authorization header.
 fn extract_bearer_token(headers: &axum::http::HeaderMap) -> Option<&str> {
@@ -408,6 +412,9 @@ pub async fn set_server_config(
     }))
 }
 
+const DEFAULT_TOKEN_TTL_DAYS: i64 = 90;
+const MAX_TOKEN_TTL_DAYS: i64 = 365;
+
 /// POST /auth/tokens — create a personal access token (session auth required)
 #[tracing::instrument(skip_all, fields(action = "create_token"))]
 pub async fn create_token_handler(
@@ -418,23 +425,36 @@ pub async fn create_token_handler(
     let user = auth_session.user.ok_or(AppError::Unauthorized)?;
     let scope = req.scope.as_deref().unwrap_or("full");
 
-    // "mcp" is reserved for internally-issued OAuth tokens (no DB revocation row).
-    // User-created tokens with this scope would be irrevocable — reject.
-    if scope == "mcp" {
-        return Err(AppError::Validation("scope 'mcp' is reserved".to_string()));
+    const ALLOWED_SCOPES: &[&str] = &["full", "readonly"];
+    if !ALLOWED_SCOPES.contains(&scope) {
+        return Err(AppError::Validation(format!(
+            "invalid scope '{scope}': must be one of: full, readonly"
+        )));
     }
 
-    let expires_at = req
-        .expires_at
-        .as_deref()
-        .map(|s| {
-            chrono::DateTime::parse_from_rfc3339(s)
+    let now = chrono::Utc::now();
+    let expires_at = match req.expires_at.as_deref() {
+        Some(s) => {
+            let dt = chrono::DateTime::parse_from_rfc3339(s)
                 .map(|dt| dt.with_timezone(&chrono::Utc))
                 .map_err(|_| {
                     AppError::Validation("invalid expires_at: expected RFC3339".to_string())
-                })
-        })
-        .transpose()?;
+                })?;
+            if dt <= now {
+                return Err(AppError::Validation(
+                    "expires_at must be in the future".to_string(),
+                ));
+            }
+            let max = now + chrono::Duration::days(MAX_TOKEN_TTL_DAYS);
+            if dt > max {
+                return Err(AppError::Validation(format!(
+                    "expires_at exceeds maximum of {MAX_TOKEN_TTL_DAYS} days"
+                )));
+            }
+            dt
+        }
+        None => now + chrono::Duration::days(DEFAULT_TOKEN_TTL_DAYS),
+    };
 
     let created = kartoteka_domain::auth::create_token(
         &state.pool,
@@ -442,7 +462,7 @@ pub async fn create_token_handler(
         &user.id,
         &req.name,
         scope,
-        expires_at,
+        Some(expires_at),
     )
     .await?;
 

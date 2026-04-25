@@ -63,6 +63,7 @@ bin-features = []
 lib-features = ["hydrate"]
 assets-dir = "crates/frontend-v2/public"
 style-file = "crates/frontend-v2/style/main.css"
+tailwind-input-file = "crates/frontend-v2/style/input.css"
 hash-files = false
 wasm-opt-features = ["-Oz", "--enable-bulk-memory"]
 

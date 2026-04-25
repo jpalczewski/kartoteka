@@ -46,6 +46,30 @@ pub async fn metadata_pr(State(s): State<OAuthState>) -> Json<ProtectedResourceM
     })
 }
 
+// ── Redirect URI validation ───────────────────────────────────────────────────
+
+/// Enforce an allow-list of schemes for redirect_uris (RFC 8252).
+/// Allowed: https://, http://localhost/127.0.0.1/[::1], private-use (scheme contains '.')
+fn validate_redirect_uri_scheme(uri: &str) -> Result<(), OAuthError> {
+    let parsed = Url::parse(uri)
+        .map_err(|_| OAuthError::InvalidRequest("redirect_uri is not a valid absolute URL"))?;
+    let scheme = parsed.scheme();
+    let host = parsed.host_str().unwrap_or("");
+    let ok = match scheme {
+        "https" => true,
+        "http" => matches!(host, "localhost" | "127.0.0.1" | "[::1]"),
+        // RFC 8252 §7.1 — private-use schemes contain a dot (e.g. com.example.app)
+        s => s.contains('.'),
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(OAuthError::InvalidRequest(
+            "redirect_uri scheme not allowed",
+        ))
+    }
+}
+
 // ── DCR ──────────────────────────────────────────────────────────────────────
 
 pub async fn register(
@@ -58,8 +82,7 @@ pub async fn register(
         ));
     }
     for uri in &req.redirect_uris {
-        Url::parse(uri)
-            .map_err(|_| OAuthError::InvalidRequest("redirect_uri is not a valid absolute URL"))?;
+        validate_redirect_uri_scheme(uri)?;
     }
     if let Some(m) = &req.token_endpoint_auth_method {
         if m != "none" {
@@ -122,6 +145,8 @@ pub async fn authorize_get(
             "redirect_uri does not match registered",
         ));
     }
+    // Defense-in-depth: re-validate scheme even for pre-registered URIs.
+    validate_redirect_uri_scheme(&params.redirect_uri)?;
 
     if auth.user.is_none() {
         let qs = serde_urlencoded::to_string(&params).unwrap_or_default();

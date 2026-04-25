@@ -904,7 +904,7 @@ async fn bearer_non_full_scope_rejected_on_api_routes() {
     let app = test_app().await;
     let cookie = register_and_login(app.clone(), "user@example.com", TEST_PW).await;
 
-    // Create a calendar-scope token
+    // Create a readonly-scope token
     let resp = app
         .clone()
         .oneshot(
@@ -914,7 +914,7 @@ async fn bearer_non_full_scope_rejected_on_api_routes() {
                 .header("content-type", "application/json")
                 .header("cookie", &cookie)
                 .body(json_body(
-                    serde_json::json!({"name": "Cal Token", "scope": "calendar"}),
+                    serde_json::json!({"name": "Readonly Token", "scope": "readonly"}),
                 ))
                 .unwrap(),
         )
@@ -928,7 +928,7 @@ async fn bearer_non_full_scope_rejected_on_api_routes() {
     .unwrap();
     let jwt = body["token"].as_str().unwrap().to_string();
 
-    // calendar-scope token must be rejected on /api/* routes (only "full" scope allowed)
+    // readonly-scope token must be rejected on /api/* routes (only "full" scope allowed)
     let resp = app
         .oneshot(
             Request::builder()

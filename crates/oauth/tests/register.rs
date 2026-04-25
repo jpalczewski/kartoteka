@@ -32,6 +32,69 @@ async fn dcr_creates_client() {
 }
 
 #[tokio::test]
+async fn dcr_rejects_javascript_scheme() {
+    let pool = test_pool().await;
+    let state = OAuthState {
+        pool,
+        signing_secret: "x".repeat(32),
+        public_base_url: "http://localhost:3000".into(),
+    };
+    let app = routes().with_state(state);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"client_name":"Evil","redirect_uris":["javascript:alert(1)"]}"#,
+        ))
+        .unwrap();
+    let res = app.oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn dcr_rejects_http_non_localhost() {
+    let pool = test_pool().await;
+    let state = OAuthState {
+        pool,
+        signing_secret: "x".repeat(32),
+        public_base_url: "http://localhost:3000".into(),
+    };
+    let app = routes().with_state(state);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"client_name":"Evil","redirect_uris":["http://evil.example.com/cb"]}"#,
+        ))
+        .unwrap();
+    let res = app.oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn dcr_accepts_https_external() {
+    let pool = test_pool().await;
+    let state = OAuthState {
+        pool,
+        signing_secret: "x".repeat(32),
+        public_base_url: "http://localhost:3000".into(),
+    };
+    let app = routes().with_state(state);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"client_name":"App","redirect_uris":["https://myapp.example.com/callback"]}"#,
+        ))
+        .unwrap();
+    let res = app.oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn dcr_rejects_empty_redirect_uris() {
     let pool = test_pool().await;
     let state = OAuthState {
