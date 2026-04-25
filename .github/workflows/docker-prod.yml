@@ -33,7 +33,7 @@ jobs:
     env:
       DEPLOY_TAG: ${{ github.event.inputs.tag || 'latest' }}
     steps:
-      - uses: appleboy/ssh-action@v1
+      - uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
