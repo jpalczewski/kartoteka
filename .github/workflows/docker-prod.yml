@@ -27,6 +27,7 @@ jobs:
     secrets: inherit
 
   deploy:
+    permissions: {}
     needs: [build]
     if: ${{ always() && (github.event_name == 'workflow_dispatch' || needs.build.result == 'success') }}
     runs-on: ubuntu-latest

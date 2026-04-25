@@ -398,10 +398,13 @@ mod tests {
     use super::*;
     use kartoteka_db::test_helpers::test_pool;
 
+    const TEST_PW: &str = "test-placeholder-pw";
+    const WRONG_PW: &str = "test-wrong-pw";
+
     #[tokio::test]
     async fn first_user_becomes_admin() {
         let pool = test_pool().await;
-        let user = register(&pool, "admin@example.com", "password123", Some("Admin"))
+        let user = register(&pool, "admin@example.com", TEST_PW, Some("Admin"))
             .await
             .unwrap();
         assert_eq!(user.role, "admin");
@@ -411,10 +414,10 @@ mod tests {
     #[tokio::test]
     async fn second_user_is_not_admin() {
         let pool = test_pool().await;
-        register(&pool, "first@example.com", "pass1", None)
+        register(&pool, "first@example.com", TEST_PW, None)
             .await
             .unwrap();
-        let second = register(&pool, "second@example.com", "pass2", None)
+        let second = register(&pool, "second@example.com", TEST_PW, None)
             .await
             .unwrap();
         assert_eq!(second.role, "user");
@@ -423,10 +426,10 @@ mod tests {
     #[tokio::test]
     async fn duplicate_email_returns_validation_error() {
         let pool = test_pool().await;
-        register(&pool, "alice@example.com", "pass1", None)
+        register(&pool, "alice@example.com", TEST_PW, None)
             .await
             .unwrap();
-        let err = register(&pool, "alice@example.com", "pass2", None)
+        let err = register(&pool, "alice@example.com", TEST_PW, None)
             .await
             .unwrap_err();
         assert!(matches!(err, DomainError::Validation("email_taken")));
@@ -438,7 +441,7 @@ mod tests {
         kartoteka_db::server_config::set(&pool, "registration_enabled", "false")
             .await
             .unwrap();
-        let err = register(&pool, "user@example.com", "pass", None)
+        let err = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap_err();
         assert!(matches!(err, DomainError::Forbidden));
@@ -461,13 +464,13 @@ mod tests {
 
     #[tokio::test]
     async fn hash_and_verify_password_roundtrip() {
-        let hash = hash_password("my_password".to_string()).await.unwrap();
+        let hash = hash_password(TEST_PW.to_string()).await.unwrap();
         assert!(
-            verify_password("my_password".to_string(), hash.clone())
+            verify_password(TEST_PW.to_string(), hash.clone())
                 .await
                 .unwrap()
         );
-        assert!(!verify_password("wrong".to_string(), hash).await.unwrap());
+        assert!(!verify_password(WRONG_PW.to_string(), hash).await.unwrap());
     }
 
     #[tokio::test]
@@ -488,7 +491,7 @@ mod tests {
     #[tokio::test]
     async fn setup_totp_returns_secret_and_url() {
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None)
+        let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
         let setup = setup_totp(&pool, &user.id, &user.email).await.unwrap();
@@ -501,7 +504,7 @@ mod tests {
     async fn verify_totp_setup_marks_verified() {
         use totp_rs::{Algorithm, Secret, TOTP};
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None)
+        let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
         let setup = setup_totp(&pool, &user.id, &user.email).await.unwrap();
@@ -515,7 +518,7 @@ mod tests {
     #[tokio::test]
     async fn verify_totp_setup_with_wrong_code_returns_error() {
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None)
+        let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
         setup_totp(&pool, &user.id, &user.email).await.unwrap();
@@ -529,7 +532,7 @@ mod tests {
     async fn disable_totp_removes_secret() {
         use totp_rs::{Algorithm, Secret, TOTP};
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None)
+        let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
         let setup = setup_totp(&pool, &user.id, &user.email).await.unwrap();
@@ -544,7 +547,7 @@ mod tests {
     #[tokio::test]
     async fn check_totp_code_returns_false_when_totp_not_enabled() {
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None)
+        let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
         let result = check_totp_code(&pool, &user.id, "123456").await.unwrap();
@@ -556,7 +559,7 @@ mod tests {
         // A valid code that is accepted once must be rejected on the second use,
         // even while still inside the TOTP validity window.
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None)
+        let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
         let setup = setup_totp(&pool, &user.id, "user@example.com")
@@ -584,7 +587,7 @@ mod tests {
     #[tokio::test]
     async fn create_token_returns_jwt_and_row() {
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None)
+        let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
         let created = create_token(&pool, TEST_SECRET, &user.id, "My Token", "full", None)
@@ -605,7 +608,7 @@ mod tests {
     #[tokio::test]
     async fn validate_jwt_with_wrong_secret_fails() {
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None)
+        let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
         let created = create_token(&pool, TEST_SECRET, &user.id, "Token", "full", None)
@@ -618,7 +621,7 @@ mod tests {
     #[tokio::test]
     async fn validate_jwt_revoked_token_fails() {
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None)
+        let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
         let created = create_token(&pool, TEST_SECRET, &user.id, "Token", "full", None)
@@ -632,7 +635,7 @@ mod tests {
     #[tokio::test]
     async fn list_tokens_returns_user_tokens() {
         let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "pass", None)
+        let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
         create_token(&pool, TEST_SECRET, &user.id, "Token A", "full", None)
@@ -648,10 +651,10 @@ mod tests {
     #[tokio::test]
     async fn revoke_token_not_owned_returns_not_found() {
         let pool = test_pool().await;
-        let user1 = register(&pool, "u1@example.com", "pass", None)
+        let user1 = register(&pool, "u1@example.com", TEST_PW, None)
             .await
             .unwrap();
-        let user2 = register(&pool, "u2@example.com", "pass2", None)
+        let user2 = register(&pool, "u2@example.com", TEST_PW, None)
             .await
             .unwrap();
         let created = create_token(&pool, TEST_SECRET, &user1.id, "Token", "full", None)
@@ -714,7 +717,7 @@ mod tests {
         // Cross-check: a forged token whose jti points to user A but sub claims user B
         // must be rejected even though the jti is present in personal_tokens.
         let pool = test_pool().await;
-        let user_a = register(&pool, "a@example.com", "pass", None)
+        let user_a = register(&pool, "a@example.com", TEST_PW, None)
             .await
             .unwrap();
         let created = create_token(&pool, TEST_SECRET, &user_a.id, "Token", "full", None)

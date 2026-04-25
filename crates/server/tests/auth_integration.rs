@@ -1,5 +1,8 @@
 //! Integration tests for auth endpoints (C1 + C2 combined).
 
+const TEST_PW: &str = "test-placeholder-pw";
+const WRONG_PW: &str = "test-wrong-pw";
+
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -106,7 +109,7 @@ async fn register_creates_first_user_as_admin() {
 #[tokio::test]
 async fn login_wrong_password_returns_401() {
     let pool = kartoteka_db::test_helpers::test_pool().await;
-    kartoteka_domain::auth::register(&pool, "user@example.com", "correct", None)
+    kartoteka_domain::auth::register(&pool, "user@example.com", TEST_PW, None)
         .await
         .unwrap();
 
@@ -128,7 +131,7 @@ async fn login_wrong_password_returns_401() {
                 .uri("/auth/login")
                 .header("content-type", "application/json")
                 .body(json_body(
-                    serde_json::json!({"email": "user@example.com", "password": "wrong"}),
+                    serde_json::json!({"email": "user@example.com", "password": WRONG_PW}),
                 ))
                 .unwrap(),
         )
@@ -562,7 +565,7 @@ async fn delete_totp_disables_2fa() {
 #[tokio::test]
 async fn create_token_and_use_bearer_on_api_route() {
     let app = test_app().await;
-    let cookie = register_and_login(app.clone(), "user@example.com", "secret123").await;
+    let cookie = register_and_login(app.clone(), "user@example.com", TEST_PW).await;
 
     // Create a token via session
     let resp = app
@@ -607,7 +610,7 @@ async fn create_token_and_use_bearer_on_api_route() {
 #[tokio::test]
 async fn revoked_bearer_token_returns_401() {
     let app = test_app().await;
-    let cookie = register_and_login(app.clone(), "user@example.com", "secret123").await;
+    let cookie = register_and_login(app.clone(), "user@example.com", TEST_PW).await;
 
     // Create token
     let resp = app
@@ -665,7 +668,7 @@ async fn revoked_bearer_token_returns_401() {
 #[tokio::test]
 async fn list_tokens_returns_created_tokens() {
     let app = test_app().await;
-    let cookie = register_and_login(app.clone(), "user@example.com", "secret123").await;
+    let cookie = register_and_login(app.clone(), "user@example.com", TEST_PW).await;
 
     // Initially empty
     let resp = app
@@ -879,7 +882,7 @@ async fn verify_2fa_locks_out_after_max_attempts() {
 #[tokio::test]
 async fn create_token_with_mcp_scope_is_rejected() {
     let app = test_app().await;
-    let cookie = register_and_login(app.clone(), "mcp@test.com", "secret123").await;
+    let cookie = register_and_login(app.clone(), "mcp@test.com", TEST_PW).await;
     let resp = app
         .oneshot(
             Request::builder()
@@ -899,7 +902,7 @@ async fn create_token_with_mcp_scope_is_rejected() {
 #[tokio::test]
 async fn bearer_non_full_scope_rejected_on_api_routes() {
     let app = test_app().await;
-    let cookie = register_and_login(app.clone(), "user@example.com", "secret123").await;
+    let cookie = register_and_login(app.clone(), "user@example.com", TEST_PW).await;
 
     // Create a calendar-scope token
     let resp = app
