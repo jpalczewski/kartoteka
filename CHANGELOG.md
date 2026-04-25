@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0](https://github.com/jpalczewski/kartoteka/compare/v0.4.1...v1.0.0) (2026-04-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* small typo ([#124](https://github.com/jpalczewski/kartoteka/issues/124))
+
+### Features
+
+* add cursor pagination for search and collections ([#103](https://github.com/jpalczewski/kartoteka/issues/103)) ([11cad5d](https://github.com/jpalczewski/kartoteka/commit/11cad5df65fcdea0ec559f4af1ca4df709a68143))
+* batch item operations and MCP placement fixes ([#102](https://github.com/jpalczewski/kartoteka/issues/102)) ([d6082ad](https://github.com/jpalczewski/kartoteka/commit/d6082ad8542a58bf926407e8a8e8925aadd9e285))
+* **frontend:** add item detail links in date rows ([#99](https://github.com/jpalczewski/kartoteka/issues/99)) ([446a2f6](https://github.com/jpalczewski/kartoteka/commit/446a2f6b5d673a8fc6af88c5d0964e10e5dea863))
+* **frontend:** show landing screen for unauthenticated users ([#88](https://github.com/jpalczewski/kartoteka/issues/88)) ([a94e845](https://github.com/jpalczewski/kartoteka/commit/a94e84521a54dd3acaec45bfa4cd3f157be0ca0a))
+* refine tag and item detail pages ([#101](https://github.com/jpalczewski/kartoteka/issues/101)) ([073f771](https://github.com/jpalczewski/kartoteka/commit/073f7712131c40d3c26ea8370edaece343010636))
+* support HTML5 drag and drop reordering ([#97](https://github.com/jpalczewski/kartoteka/issues/97)) ([fbf974c](https://github.com/jpalczewski/kartoteka/commit/fbf974cb0bcc7a22a6e3b0b07654fa5a9bba07d4))
+
+
+### Bug Fixes
+
+* **docker:** remove tailwind-input-file to prevent double Tailwind compilation ([#132](https://github.com/jpalczewski/kartoteka/issues/132)) ([fc143ca](https://github.com/jpalczewski/kartoteka/commit/fc143ca949108180b0da55b2b43655b7845db07a))
+* **release:** fix release-please Cargo.toml version bumping ([#135](https://github.com/jpalczewski/kartoteka/issues/135)) ([955264e](https://github.com/jpalczewski/kartoteka/commit/955264ea54cbe5c97a66ec9d0b98b8881fe2cbb2))
+* **release:** switch to generic updater for Cargo.toml version bump ([#136](https://github.com/jpalczewski/kartoteka/issues/136)) ([ff198fc](https://github.com/jpalczewski/kartoteka/commit/ff198fc2f95ebf945c5daeef3947900d27767a1c))
+* repair manifest and tag UX regressions ([#95](https://github.com/jpalczewski/kartoteka/issues/95)) ([93e27dd](https://github.com/jpalczewski/kartoteka/commit/93e27dd7b0c298adaa6ffeac3d7a0c705c9e18b7))
+* restore calendar item detail navigation and week layout ([#100](https://github.com/jpalczewski/kartoteka/issues/100)) ([2e32f44](https://github.com/jpalczewski/kartoteka/commit/2e32f44371b193863967e23d71276dd40c57275a))
+* small typo ([#124](https://github.com/jpalczewski/kartoteka/issues/124)) ([019eba8](https://github.com/jpalczewski/kartoteka/commit/019eba83b3eb0ff3a0efb22cd0303f38fe3ee103))
+* test annother approach to deployment ([f762f3b](https://github.com/jpalczewski/kartoteka/commit/f762f3b1d587d1503b14a4810d5e4e33b9e0117b))
+* Validate item dates and calendar query params ([#94](https://github.com/jpalczewski/kartoteka/issues/94)) ([81217d9](https://github.com/jpalczewski/kartoteka/commit/81217d9c9e8511e44c02f9bc0dfb5718d3bc4266))
+* validate service worker skip waiting messages ([#96](https://github.com/jpalczewski/kartoteka/issues/96)) ([4e0ec26](https://github.com/jpalczewski/kartoteka/commit/4e0ec26108c545616274839197ab2929f70003c8))
+
 ## [0.4.1](https://github.com/jpalczewski/kartoteka/compare/v0.4.0...v0.4.1) (2026-03-30)
 
 
