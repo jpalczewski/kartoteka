@@ -15,6 +15,10 @@ concurrency:
   group: docker-prod
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build:
     if: github.event_name == 'push'
