@@ -29,9 +29,9 @@ pub fn build_tag_tree(tags: &[Tag]) -> Vec<TagNode> {
         }
     }
 
-    roots.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    roots.sort_by_key(|a| a.name.to_lowercase());
     for children in children_map.values_mut() {
-        children.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        children.sort_by_key(|a| a.name.to_lowercase());
     }
 
     fn build_subtree_inner<'a>(
