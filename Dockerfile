@@ -49,17 +49,20 @@ FROM debian:trixie-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd -u 1001 -m app
+    && useradd -u 1001 -m app \
+    && mkdir -p /data && chown app:app /data
 
 COPY --from=builder /out-kartoteka /app/kartoteka
 COPY --from=builder /out-site /app/site
+RUN chown -R app:app /app
 
 WORKDIR /app
 USER app
 
 ENV BIND_ADDR=0.0.0.0:3000 \
     LEPTOS_SITE_ROOT=site \
-    RUST_LOG=info
+    RUST_LOG=info \
+    DATABASE_URL=sqlite:////data/data.db
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
