@@ -1,4 +1,4 @@
-use crate::*;
+use crate::dto::requests::CreateTagRequest;
 
 #[test]
 fn create_tag_request_accepts_missing_color() {

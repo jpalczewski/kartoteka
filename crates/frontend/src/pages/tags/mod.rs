@@ -1,90 +1,119 @@
 pub mod detail;
 
-use crate::api;
-use crate::api::client::GlooClient;
-use crate::components::add_input::AddInput;
-use crate::components::common::loading::LoadingSpinner;
-use crate::components::tag_tree::{TagTreeRow, build_tag_tree};
-use kartoteka_shared::{CreateTagRequest, Tag};
 use leptos::prelude::*;
-use leptos_fluent::move_tr;
+
+use crate::app::{ToastContext, ToastKind};
+use crate::components::common::loading::LoadingSpinner;
+use crate::components::tags::color_picker::TagColorPicker;
+use crate::components::tags::tag_tree::{TagTreeRow, build_tag_tree};
+use crate::server_fns::tags::{create_tag, delete_tag, get_all_tags};
 
 #[component]
 pub fn TagsPage() -> impl IntoView {
-    let client = use_context::<GlooClient>().expect("GlooClient not provided");
-    let tags = RwSignal::new(Vec::<Tag>::new());
-    let (loading, set_loading) = signal(true);
-    let (new_color, set_new_color) = signal("#e94560".to_string());
+    let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let (refresh, set_refresh) = signal(0u32);
 
-    {
-        let client = client.clone();
+    let tags_res = Resource::new(move || refresh.get(), |_| get_all_tags());
+
+    let (new_name, set_new_name) = signal(String::new());
+    let (new_color, set_new_color) = signal("#6366f1".to_string());
+
+    let create_with_parent = move |name: String, parent_tag_id: Option<String>| {
+        let color = new_color.get_untracked();
         leptos::task::spawn_local(async move {
-            if let Ok(fetched) = api::fetch_tags(&client).await {
-                tags.set(fetched);
+            match create_tag(name, None, Some(color), parent_tag_id).await {
+                Ok(_) => set_refresh.update(|n| *n += 1),
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
-            set_loading.set(false);
         });
-    }
-
-    let on_create_root = {
-        let client = client.clone();
-        Callback::new(move |name: String| {
-            let color = new_color.get_untracked();
-            let client = client.clone();
-            leptos::task::spawn_local(async move {
-                let req = CreateTagRequest {
-                    name,
-                    color: Some(color),
-                    parent_tag_id: None,
-                };
-                if let Ok(tag) = api::create_tag(&client, &req).await {
-                    tags.update(|t| t.push(tag));
-                }
-            });
-        })
     };
+
+    let on_create_root = Callback::new(move |_: ()| {
+        let name = new_name.get();
+        if name.trim().is_empty() {
+            return;
+        }
+        create_with_parent(name, None);
+        set_new_name.set(String::new());
+    });
+
+    let on_create_child = Callback::new(move |(parent_id, name): (String, String)| {
+        create_with_parent(name, Some(parent_id));
+    });
+
+    let on_delete = Callback::new(move |id: String| {
+        leptos::task::spawn_local(async move {
+            match delete_tag(id).await {
+                Ok(_) => set_refresh.update(|n| *n += 1),
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+        });
+    });
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            <h2 class="text-2xl font-bold mb-6">{move_tr!("tags-title")}</h2>
+            <h2 class="text-2xl font-bold mb-4">"Tagi"</h2>
 
-            <div class="flex gap-2 items-center mb-4">
-                <input
-                    type="color"
-                    aria-label={move_tr!("tags-color-aria")}
-                    class="w-8 h-8 rounded cursor-pointer border-0 p-0"
-                    prop:value=move || new_color.get()
-                    on:input=move |ev| set_new_color.set(event_target_value(&ev))
+            // Create-root form
+            <div class="flex gap-2 mb-6">
+                <TagColorPicker
+                    value=Signal::derive(move || new_color.get())
+                    on_change=Callback::new(move |c: String| set_new_color.set(c))
                 />
-                <AddInput placeholder=move_tr!("tags-new-placeholder") button_label=move_tr!("common-add") on_submit=on_create_root />
+                <input
+                    type="text"
+                    class="input input-bordered flex-1"
+                    placeholder="Nowy tag..."
+                    data-testid="new-tag-input"
+                    prop:value=move || new_name.get()
+                    on:input=move |ev| set_new_name.set(event_target_value(&ev))
+                    on:keydown=move |ev| {
+                        if ev.key() == "Enter" {
+                            on_create_root.run(());
+                        }
+                    }
+                />
+                <button
+                    type="button"
+                    class="btn btn-primary"
+                    data-testid="create-tag-btn"
+                    on:click=move |_| on_create_root.run(())
+                >
+                    "Dodaj"
+                </button>
             </div>
 
-            {move || {
-                if loading.get() {
-                    return view! { <LoadingSpinner/> }.into_any();
-                }
-                let all_tags = tags.get();
-                if all_tags.is_empty() {
-                    return view! { <p class="text-center text-base-content/50 py-12">{move_tr!("tags-empty")}</p> }.into_any();
-                }
-
-                let tree = build_tag_tree(&all_tags);
-                view! {
-                    <div>
-                        {tree.into_iter().map(|node| {
-                            view! {
-                                <TagTreeRow
-                                    node=node
-                                    depth=0
-                                    tags=tags
-                                    new_color=new_color
-                                />
-                            }
-                        }).collect_view()}
-                    </div>
-                }.into_any()
-            }}
+            <Suspense fallback=|| view! { <LoadingSpinner/> }>
+                {move || tags_res.get().map(|result| match result {
+                    Err(e) => view! {
+                        <p class="text-error">"Błąd: " {e.to_string()}</p>
+                    }.into_any(),
+                    Ok(tags) => {
+                        if tags.is_empty() {
+                            return view! {
+                                <div class="text-center text-base-content/50 py-8" data-testid="tags-empty-state">
+                                    "Brak tagów. Dodaj pierwszy powyżej."
+                                </div>
+                            }.into_any();
+                        }
+                        let tree = build_tag_tree(&tags);
+                        view! {
+                            <div data-testid="tag-tree">
+                                {tree.into_iter().map(|node| {
+                                    view! {
+                                        <TagTreeRow
+                                            node=node
+                                            depth=0
+                                            on_create_child=on_create_child
+                                            on_delete=on_delete
+                                        />
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </div>
+                        }.into_any()
+                    }
+                })}
+            </Suspense>
         </div>
     }
-    .into_any()
 }

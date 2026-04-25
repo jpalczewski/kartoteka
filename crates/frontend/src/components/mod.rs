@@ -1,25 +1,11 @@
 pub mod calendar;
+pub mod comments;
 pub mod common;
-pub mod filters;
+pub mod home;
 pub mod items;
 pub mod lists;
 pub mod nav;
-pub mod pwa_runtime;
-pub mod sync_locale;
+pub mod relations;
 pub mod tags;
-
-// Re-exports for backward compatibility with existing imports
-pub use common::confirm_delete_modal;
-pub use common::editable_color;
-pub use common::editable_title;
-pub use common::toast_container;
-
-pub use items::add_input;
-
-pub use tags::tag_badge;
-pub use tags::tag_list;
-pub use tags::tag_tree;
-
-pub use lists::container_card;
-pub use lists::create_entity_input;
-pub use lists::list_card;
+pub mod time_entries;
+pub mod toast_container;

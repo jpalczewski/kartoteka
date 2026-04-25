@@ -1,501 +1,415 @@
-use crate::api;
-use crate::api::client::GlooClient;
-use crate::app::{ToastContext, ToastKind};
-use crate::components::common::breadcrumbs::{BreadcrumbCrumb, Breadcrumbs};
-use crate::components::common::editable_description::EditableDescription;
-use crate::components::common::editable_title::EditableTitle;
-use crate::components::common::inline_confirm_button::InlineConfirmButton;
-use crate::components::common::loading::LoadingSpinner;
-use crate::components::items::date_editor::DateEditor;
-use crate::components::items::quantity_stepper::QuantityStepper;
-use kartoteka_shared::*;
 use leptos::prelude::*;
-use leptos_router::hooks::{use_navigate, use_params_map};
+use leptos_router::{components::A, hooks::use_params_map};
 
-fn section_card(title: &'static str, body: impl IntoView) -> impl IntoView {
-    view! {
-        <section class="rounded-[1.75rem] border border-base-300/80 bg-base-200/75 shadow-[0_24px_70px_-42px_rgba(0,0,0,0.9)] backdrop-blur-sm">
-            <div class="p-5 sm:p-6">
-                <div class="mb-4 flex items-center gap-3">
-                    <div class="h-px flex-1 bg-base-300/80"></div>
-                    <h2 class="text-sm font-semibold uppercase tracking-[0.2em] text-base-content/55">
-                        {title}
-                    </h2>
-                    <div class="h-px w-8 bg-primary/45"></div>
-                </div>
-                {body.into_view()}
-            </div>
-        </section>
-    }
-}
+use crate::app::{ToastContext, ToastKind};
+use crate::components::comments::CommentSection;
+use crate::components::common::loading::LoadingSpinner;
+use crate::components::items::date_field::DateFieldInput;
+use crate::components::relations::RelatedEntities;
+use crate::components::tags::tag_list::TagList;
+use crate::components::time_entries::ItemTimerWidget;
+use crate::server_fns::items::{
+    get_item, toggle_item, update_item, update_item_dates, update_item_quantity,
+};
+use crate::server_fns::lists::get_list_feature_names;
+use crate::server_fns::tags::{
+    assign_tag_to_item, get_all_tags, get_item_tags, remove_tag_from_item,
+};
 
-fn detail_panel(
-    label: &'static str,
-    tone_class: &'static str,
-    body: impl IntoView,
-) -> impl IntoView {
-    view! {
-        <div class=format!("rounded-[1.35rem] border bg-base-100/90 p-4 shadow-[0_16px_40px_-28px_rgba(0,0,0,0.9)] {tone_class}")>
-            <div class="mb-3 flex items-center gap-2 text-sm font-semibold text-base-content/78">
-                <span class="inline-flex h-2.5 w-2.5 rounded-full bg-current opacity-70"></span>
-                <span>{label}</span>
-            </div>
-            {body.into_view()}
-        </div>
-    }
-}
-
-/// Helper: spawn an update_item call with toast feedback.
-fn spawn_save(
-    client: GlooClient,
-    list_id: String,
+fn toggle_item_tag(
     item_id: String,
-    toast: ToastContext,
-    req: UpdateItemRequest,
+    tag_id: String,
+    is_assigned: bool,
+    set_tag_refresh: WriteSignal<u32>,
 ) {
     leptos::task::spawn_local(async move {
-        match api::update_item(&client, &list_id, &item_id, &req).await {
-            Ok(_) => toast.push("Zapisano".into(), ToastKind::Success),
-            Err(e) => toast.push(format!("Błąd: {e}"), ToastKind::Error),
+        let result = if is_assigned {
+            remove_tag_from_item(item_id, tag_id).await
+        } else {
+            assign_tag_to_item(item_id, tag_id).await
+        };
+        if let Err(e) = result {
+            leptos::logging::warn!("tag toggle error: {e}");
         }
+        set_tag_refresh.update(|n| *n += 1);
     });
 }
 
 #[component]
 pub fn ItemDetailPage() -> impl IntoView {
     let params = use_params_map();
-    let toast = expect_context::<ToastContext>();
-    let client = use_context::<GlooClient>().expect("GlooClient not provided");
-    let navigate = use_navigate();
+    let list_id = move || params.read().get("list_id").unwrap_or_default();
+    let item_id = move || params.read().get("id").unwrap_or_default();
 
-    let list_id = move || params.with(|p| p.get("list_id").unwrap_or_default().to_string());
-    let item_id = move || params.with(|p| p.get("id").unwrap_or_default().to_string());
+    let toast = use_context::<ToastContext>().expect("ToastContext missing");
 
-    let detail_resource = {
-        let client = client.clone();
-        LocalResource::new(move || {
-            let lid = list_id();
-            let iid = item_id();
-            let client = client.clone();
-            async move { api::fetch_item_detail(&client, &lid, &iid).await }
-        })
+    let (refresh, set_refresh) = signal(0u32);
+    let (tag_refresh, set_tag_refresh) = signal(0u32);
+
+    let item_res = Resource::new(move || (item_id(), refresh.get()), |(id, _)| get_item(id));
+    let item_tags_res = Resource::new(
+        move || (item_id(), tag_refresh.get()),
+        |(id, _)| get_item_tags(id),
+    );
+    let all_tags_res = Resource::new(move || tag_refresh.get(), |_| get_all_tags());
+    let list_features_res = Resource::new(list_id, get_list_feature_names);
+
+    let title_input: RwSignal<String> = RwSignal::new(String::new());
+    let description_input: RwSignal<String> = RwSignal::new(String::new());
+    let quantity_input: RwSignal<String> = RwSignal::new(String::new());
+    let actual_quantity_input: RwSignal<String> = RwSignal::new(String::new());
+    let unit_input: RwSignal<String> = RwSignal::new(String::new());
+    let start_date_input: RwSignal<String> = RwSignal::new(String::new());
+    let start_time_input: RwSignal<String> = RwSignal::new(String::new());
+    let deadline_input: RwSignal<String> = RwSignal::new(String::new());
+    let deadline_time_input: RwSignal<String> = RwSignal::new(String::new());
+    let hard_deadline_input: RwSignal<String> = RwSignal::new(String::new());
+
+    let on_save = move |_: leptos::ev::MouseEvent| {
+        let id = item_id();
+        let title = title_input.get();
+        let description = description_input.get();
+        leptos::task::spawn_local(async move {
+            match update_item(id, title, description).await {
+                Ok(_) => set_refresh.update(|n| *n += 1),
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+        });
     };
 
+    let on_save_dates = move |_: leptos::ev::MouseEvent| {
+        let id = item_id();
+        let sd = Some(start_date_input.get());
+        let st = Some(start_time_input.get());
+        let dl = Some(deadline_input.get());
+        let dt = Some(deadline_time_input.get());
+        let hd = Some(hard_deadline_input.get());
+        leptos::task::spawn_local(async move {
+            match update_item_dates(id, sd, st, dl, dt, hd).await {
+                Ok(_) => set_refresh.update(|n| *n += 1),
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+        });
+    };
+
+    let on_save_quantity = move |_: leptos::ev::MouseEvent| {
+        let id = item_id();
+        let qty = quantity_input.get().trim().parse::<i32>().ok();
+        let actual_qty = actual_quantity_input.get().trim().parse::<i32>().ok();
+        let unit = unit_input.get();
+        leptos::task::spawn_local(async move {
+            match update_item_quantity(id, qty, actual_qty, unit).await {
+                Ok(_) => set_refresh.update(|n| *n += 1),
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+        });
+    };
+
+    let on_toggle = move |_: leptos::ev::Event| {
+        let id = item_id();
+        leptos::task::spawn_local(async move {
+            match toggle_item(id).await {
+                Ok(_) => set_refresh.update(|n| *n += 1),
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+        });
+    };
+
+    let back_href = move || format!("/lists/{}", list_id());
+
+    Effect::new(move |_| {
+        if let Some(Ok(item)) = item_res.get() {
+            title_input.set(item.title.clone());
+            description_input.set(item.description.clone().unwrap_or_default());
+            quantity_input.set(item.quantity.map(|q| q.to_string()).unwrap_or_default());
+            actual_quantity_input.set(
+                item.actual_quantity
+                    .map(|q| q.to_string())
+                    .unwrap_or_default(),
+            );
+            unit_input.set(item.unit.clone().unwrap_or_default());
+            start_date_input.set(
+                item.start_date
+                    .as_ref()
+                    .map(|d| d.to_string())
+                    .unwrap_or_default(),
+            );
+            start_time_input.set(item.start_time.clone().unwrap_or_default());
+            deadline_input.set(
+                item.deadline
+                    .as_ref()
+                    .map(|d| d.to_string())
+                    .unwrap_or_default(),
+            );
+            deadline_time_input.set(item.deadline_time.clone().unwrap_or_default());
+            hard_deadline_input.set(
+                item.hard_deadline
+                    .as_ref()
+                    .map(|d| d.to_string())
+                    .unwrap_or_default(),
+            );
+        }
+    });
+
     view! {
-        <div class="mx-auto w-full max-w-4xl px-5 py-6 sm:px-8 lg:px-10">
-            <Suspense fallback=move || {
-                view! {
-                    <div class="flex min-h-64 items-center justify-center px-2">
-                        <LoadingSpinner />
-                    </div>
-                }
-            }>
-                {move || {
-                    let result = detail_resource.get();
+        <div class="container mx-auto max-w-2xl p-4">
+            <div class="mb-4">
+                <A href=back_href attr:class="btn btn-ghost btn-sm gap-1">
+                    {"← Back to list"}
+                </A>
+            </div>
 
-                    match result {
-                        Some(Ok(detail)) => {
-                            let item = detail.item;
-                            let lid = list_id();
-                            let list_name = detail.list_name;
-                            let features = detail.list_features;
+            <Suspense fallback=|| view! { <LoadingSpinner/> }>
+                {move || item_res.get().map(|result| match result {
+                    Err(e) => view! {
+                        <p class="text-error">"Error: " {e.to_string()}</p>
+                    }.into_any(),
+                    Ok(item) => {
+                        let completed = item.completed;
+                        let created_at = item.created_at.clone();
+                        let updated_at = item.updated_at.clone();
 
-                            let deadlines_config = features
-                                .iter()
-                                .find(|f| f.name == FEATURE_DEADLINES)
-                                .map(|f| f.config.clone())
-                                .unwrap_or(serde_json::Value::Null);
-                            let has_quantity = features.iter().any(|f| f.name == FEATURE_QUANTITY);
+                        view! {
+                            <div class="flex flex-col gap-4">
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        class="checkbox checkbox-primary"
+                                        data-testid="item-detail-toggle"
+                                        checked=completed
+                                        on:change=on_toggle
+                                    />
+                                    <span class="text-base-content/70" data-testid="item-detail-status">
+                                        {if completed { "Completed" } else { "Mark as done" }}
+                                    </span>
+                                </label>
 
-                            let cfg_start = deadlines_config
-                                .get("has_start_date")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false);
-                            let cfg_deadline = deadlines_config
-                                .get("has_deadline")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false);
-                            let cfg_hard = deadlines_config
-                                .get("has_hard_deadline")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false);
-
-                            let crumbs: Vec<BreadcrumbCrumb> =
-                                vec![(list_name.clone(), format!("/lists/{lid}"))];
-
-                            let completed = RwSignal::new(item.completed);
-
-                            let lid_for_delete = list_id();
-                            let iid_for_delete = item_id();
-                            let toast_del = toast.clone();
-                            let nav = navigate.clone();
-                            let client_del = client.clone();
-
-                            let client_toggle = client.clone();
-                            let client_title = client.clone();
-                            let client_desc = client.clone();
-                            let client_start = client.clone();
-                            let client_deadline = client.clone();
-                            let client_hard = client.clone();
-                            let client_qty = client.clone();
-
-                            let title_value = item.title.clone();
-                            let description_value = item.description.clone();
-                            let start_date = item.start_date.clone();
-                            let start_time = item.start_time.clone();
-                            let deadline_date = item.deadline.clone();
-                            let deadline_time = item.deadline_time.clone();
-                            let hard_deadline = item.hard_deadline.clone();
-                            let quantity_target = item.quantity.unwrap_or(0);
-                            let quantity_actual = item.actual_quantity.unwrap_or(0);
-                            let quantity_unit = item.unit.clone().unwrap_or_default();
-
-                            view! {
-                                <div class="space-y-6 pb-8">
-                                    <Breadcrumbs crumbs=crumbs />
-
-                                    <section class="relative overflow-hidden rounded-[2rem] border border-primary/18 bg-linear-to-br from-base-200 via-base-200/96 to-primary/10 shadow-[0_34px_100px_-48px_rgba(0,0,0,0.95)]">
-                                        <div class="pointer-events-none absolute inset-y-0 right-0 w-48 bg-linear-to-l from-primary/12 to-transparent blur-2xl"></div>
-                                        <div class="relative p-6 sm:p-8">
-                                            <div class="flex flex-col gap-5">
-                                                <div class="min-w-0 flex-1">
-                                                    <div class="mb-4 flex flex-wrap items-center gap-2">
-                                                        <a
-                                                            href=format!("/lists/{lid}")
-                                                            class="badge badge-outline h-8 border-primary/35 px-3 font-medium text-primary hover:border-primary hover:bg-primary/10"
-                                                        >
-                                                            {list_name}
-                                                        </a>
-                                                        <span
-                                                            class=move || {
-                                                                if completed.get() {
-                                                                    "badge badge-success h-8 px-3 font-medium"
-                                                                } else {
-                                                                    "badge h-8 border border-base-300 bg-base-100/70 px-3 font-medium text-base-content/72"
-                                                                }
-                                                            }
-                                                        >
-                                                            {move || if completed.get() { "Zrobione" } else { "W toku" }}
-                                                        </span>
-                                                    </div>
-
-                                                    <div class="flex items-start gap-4">
-                                                        <div class="rounded-[1.35rem] border border-primary/45 bg-primary/8 p-3 shadow-inner shadow-primary/10">
-                                                            <input
-                                                                type="checkbox"
-                                                                class="checkbox checkbox-secondary checkbox-lg"
-                                                                checked=item.completed
-                                                                on:change=move |_| {
-                                                                    let new_val = !completed.get();
-                                                                    completed.set(new_val);
-                                                                    spawn_save(
-                                                                        client_toggle.clone(),
-                                                                        list_id(),
-                                                                        item_id(),
-                                                                        toast.clone(),
-                                                                        UpdateItemRequest {
-                                                                            completed: Some(new_val),
-                                                                            ..Default::default()
-                                                                        },
-                                                                    );
-                                                                }
-                                                            />
-                                                        </div>
-                                                        <div class="min-w-0 flex-1 pt-1">
-                                                            <div class="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-base-content/45">
-                                                                "Element"
-                                                            </div>
-                                                            <div
-                                                                class=move || {
-                                                                    if completed.get() {
-                                                                        "line-through opacity-45".to_string()
-                                                                    } else {
-                                                                        String::new()
-                                                                    }
-                                                                }
-                                                            >
-                                                                <EditableTitle
-                                                                    value=title_value
-                                                                    class="block text-4xl leading-tight font-bold break-words".to_string()
-                                                                    on_save=Callback::new(move |new_title: String| {
-                                                                        spawn_save(
-                                                                            client_title.clone(),
-                                                                            list_id(),
-                                                                            item_id(),
-                                                                            toast.clone(),
-                                                                            UpdateItemRequest {
-                                                                                title: Some(new_title),
-                                                                                ..Default::default()
-                                                                            },
-                                                                        );
-                                                                    })
-                                                                />
-                                                            </div>
-                                                            <p class="mt-3 max-w-2xl text-sm leading-6 text-base-content/62">
-                                                                "Edytuj tytuł, status i szczegóły elementu w jednym miejscu."
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </section>
-
-                                    {section_card(
-                                        "Opis",
-                                        view! {
-                                            <div class="rounded-[1.35rem] border border-dashed border-base-300/80 bg-base-100/72 p-5">
-                                                <EditableDescription
-                                                    value=description_value
-                                                    on_save=Callback::new(move |new_desc: Option<String>| {
-                                                        spawn_save(
-                                                            client_desc.clone(),
-                                                            list_id(),
-                                                            item_id(),
-                                                            toast.clone(),
-                                                            UpdateItemRequest {
-                                                                description: Some(new_desc),
-                                                                ..Default::default()
-                                                            },
-                                                        );
-                                                    })
-                                                />
-                                            </div>
-                                        },
-                                    )}
-
-                                    {section_card(
-                                        "Daty",
-                                        view! {
-                                            <div class="grid gap-4 lg:grid-cols-2">
-                                                {if cfg_start {
-                                                    detail_panel(
-                                                        "Data rozpoczęcia",
-                                                        "border-info/45",
-                                                        view! {
-                                                            <DateEditor
-                                                                border_color="border-info"
-                                                                initial_date=start_date
-                                                                initial_time=start_time
-                                                                has_time=true
-                                                                on_change=Callback::new(
-                                                                    move |(date, time): (String, Option<String>)| {
-                                                                        let (d, t) = if date.is_empty() {
-                                                                            (Some(None), Some(None))
-                                                                        } else {
-                                                                            (Some(Some(date)), time.map(Some))
-                                                                        };
-                                                                        spawn_save(
-                                                                            client_start.clone(),
-                                                                            list_id(),
-                                                                            item_id(),
-                                                                            toast.clone(),
-                                                                            UpdateItemRequest {
-                                                                                start_date: d,
-                                                                                start_time: t,
-                                                                                ..Default::default()
-                                                                            },
-                                                                        );
-                                                                    },
-                                                                )
-                                                            />
-                                                        },
-                                                    ).into_any()
-                                                } else {
-                                                    view! {}.into_any()
-                                                }}
-
-                                                {if cfg_deadline {
-                                                    detail_panel(
-                                                        "Termin",
-                                                        "border-warning/45",
-                                                        view! {
-                                                            <DateEditor
-                                                                border_color="border-warning"
-                                                                initial_date=deadline_date
-                                                                initial_time=deadline_time
-                                                                has_time=true
-                                                                on_change=Callback::new(
-                                                                    move |(date, time): (String, Option<String>)| {
-                                                                        let (d, t) = if date.is_empty() {
-                                                                            (Some(None), Some(None))
-                                                                        } else {
-                                                                            (Some(Some(date)), time.map(Some))
-                                                                        };
-                                                                        spawn_save(
-                                                                            client_deadline.clone(),
-                                                                            list_id(),
-                                                                            item_id(),
-                                                                            toast.clone(),
-                                                                            UpdateItemRequest {
-                                                                                deadline: d,
-                                                                                deadline_time: t,
-                                                                                ..Default::default()
-                                                                            },
-                                                                        );
-                                                                    },
-                                                                )
-                                                            />
-                                                        },
-                                                    ).into_any()
-                                                } else {
-                                                    view! {}.into_any()
-                                                }}
-
-                                                {if cfg_hard {
-                                                    let no_time: Option<String> = None;
-                                                    detail_panel(
-                                                        "Twardy termin",
-                                                        "border-error/45",
-                                                        view! {
-                                                            <DateEditor
-                                                                border_color="border-error"
-                                                                initial_date=hard_deadline
-                                                                initial_time=no_time
-                                                                has_time=false
-                                                                on_change=Callback::new(
-                                                                    move |(date, _time): (String, Option<String>)| {
-                                                                        let d = if date.is_empty() {
-                                                                            Some(None)
-                                                                        } else {
-                                                                            Some(Some(date))
-                                                                        };
-                                                                        spawn_save(
-                                                                            client_hard.clone(),
-                                                                            list_id(),
-                                                                            item_id(),
-                                                                            toast.clone(),
-                                                                            UpdateItemRequest {
-                                                                                hard_deadline: d,
-                                                                                ..Default::default()
-                                                                            },
-                                                                        );
-                                                                    },
-                                                                )
-                                                            />
-                                                        },
-                                                    ).into_any()
-                                                } else {
-                                                    view! {}.into_any()
-                                                }}
-                                            </div>
-                                        },
-                                    )}
-
-                                    {if has_quantity {
-                                        section_card(
-                                            "Ilość",
-                                            view! {
-                                                <div class="rounded-[1.35rem] border border-base-300/80 bg-base-100/86 p-5 shadow-[0_16px_40px_-28px_rgba(0,0,0,0.9)]">
-                                                    <div class="mb-3 text-sm text-base-content/60">
-                                                        "Postęp względem celu elementu"
-                                                    </div>
-                                                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                                        <div>
-                                                            <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-base-content/42">
-                                                                "Cel"
-                                                            </div>
-                                                            <div class="mt-1 text-2xl font-semibold">
-                                                                {quantity_target}
-                                                                {if quantity_unit.is_empty() { "".to_string() } else { format!(" {quantity_unit}") }}
-                                                            </div>
-                                                        </div>
-                                                        <QuantityStepper
-                                                            target=quantity_target
-                                                            initial_actual=quantity_actual
-                                                            unit=quantity_unit
-                                                            on_change=Callback::new(move |new_val: i32| {
-                                                                spawn_save(
-                                                                    client_qty.clone(),
-                                                                    list_id(),
-                                                                    item_id(),
-                                                                    toast.clone(),
-                                                                    UpdateItemRequest {
-                                                                        actual_quantity: Some(new_val),
-                                                                        ..Default::default()
-                                                                    },
-                                                                );
-                                                            })
-                                                        />
-                                                    </div>
-                                                </div>
-                                            },
-                                        ).into_any()
-                                    } else {
-                                        view! {}.into_any()
-                                    }}
-
-                                    {section_card(
-                                        "Usuń element",
-                                        view! {
-                                            <div class="flex flex-col gap-4 rounded-[1.35rem] border border-error/30 bg-linear-to-r from-error/12 to-transparent p-5 sm:flex-row sm:items-center sm:justify-between">
-                                                <div class="space-y-1">
-                                                    <p class="text-lg font-semibold text-error">
-                                                        "Ta operacja jest nieodwracalna"
-                                                    </p>
-                                                    <p class="max-w-xl text-sm leading-6 text-base-content/62">
-                                                        "Element zostanie usunięty z listy i nie będzie można go przywrócić."
-                                                    </p>
-                                                </div>
-                                                <InlineConfirmButton
-                                                    on_confirm=Callback::new(move |()| {
-                                                        let lid = lid_for_delete.clone();
-                                                        let iid = iid_for_delete.clone();
-                                                        let toast = toast_del.clone();
-                                                        let nav = nav.clone();
-                                                        let client = client_del.clone();
-                                                        leptos::task::spawn_local(async move {
-                                                            match api::delete_item(&client, &lid, &iid).await {
-                                                                Ok(_) => {
-                                                                    toast.push("Usunięto".into(), ToastKind::Success);
-                                                                    nav(&format!("/lists/{lid}"), Default::default());
-                                                                }
-                                                                Err(e) => {
-                                                                    toast.push(
-                                                                        format!("Błąd: {e}"),
-                                                                        ToastKind::Error,
-                                                                    )
-                                                                }
-                                                            }
-                                                        });
-                                                    })
-                                                    label="Usuń element".to_string()
-                                                    confirm_label="Na pewno usunąć?".to_string()
-                                                    class="btn btn-error btn-outline btn-sm".to_string()
-                                                    confirm_class="btn btn-error btn-sm".to_string()
-                                                />
-                                            </div>
-                                        },
-                                    )}
+                                <div class="form-control">
+                                    <label class="label">
+                                        <span class="label-text font-semibold">"Title"</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        class="input input-bordered w-full"
+                                        data-testid="item-detail-title"
+                                        prop:value=move || title_input.get()
+                                        on:input=move |ev| title_input.set(event_target_value(&ev))
+                                    />
                                 </div>
-                            }
-                            .into_any()
-                        }
-                        Some(Err(e)) => {
-                            view! {
-                                <div class="space-y-4 px-2">
-                                    <div class="rounded-[1.75rem] border border-error/30 bg-error/10 p-6 shadow-[0_24px_70px_-42px_rgba(0,0,0,0.9)]">
-                                        <div>
-                                            <h2 class="text-lg font-semibold text-error">
-                                                "Nie udało się załadować elementu"
-                                            </h2>
-                                            <p class="mt-2 text-sm text-base-content/70">{format!("Błąd: {e}")}</p>
-                                        </div>
+
+                                <div class="form-control">
+                                    <label class="label">
+                                        <span class="label-text font-semibold">"Description"</span>
+                                    </label>
+                                    <textarea
+                                        class="textarea textarea-bordered w-full h-32"
+                                        data-testid="item-detail-description"
+                                        prop:value=move || description_input.get()
+                                        on:input=move |ev| description_input.set(event_target_value(&ev))
+                                    />
+                                </div>
+
+                                // Save button
+                                <button
+                                    type="button"
+                                    class="btn btn-primary w-full"
+                                    data-testid="item-detail-save"
+                                    on:click=on_save
+                                >
+                                    "Save"
+                                </button>
+
+                                <div class="divider text-sm">"Ilość"</div>
+                                <div class="flex gap-2 items-end">
+                                    <div class="form-control flex-1">
+                                        <label class="label">
+                                            <span class="label-text">"Ilość"</span>
+                                        </label>
+                                        <input
+                                            type="number"
+                                            class="input input-bordered w-full"
+                                            data-testid="item-detail-quantity"
+                                            prop:value=move || quantity_input.get()
+                                            on:input=move |ev| quantity_input.set(event_target_value(&ev))
+                                        />
+                                    </div>
+                                    <div class="form-control flex-1">
+                                        <label class="label">
+                                            <span class="label-text">"Mam"</span>
+                                        </label>
+                                        <input
+                                            type="number"
+                                            class="input input-bordered w-full"
+                                            data-testid="item-detail-actual-quantity"
+                                            prop:value=move || actual_quantity_input.get()
+                                            on:input=move |ev| actual_quantity_input.set(event_target_value(&ev))
+                                        />
+                                    </div>
+                                    <div class="form-control flex-1">
+                                        <label class="label">
+                                            <span class="label-text">"Jednostka"</span>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            class="input input-bordered w-full"
+                                            placeholder="szt"
+                                            data-testid="item-detail-unit"
+                                            prop:value=move || unit_input.get()
+                                            on:input=move |ev| unit_input.set(event_target_value(&ev))
+                                        />
                                     </div>
                                 </div>
-                            }
-                            .into_any()
-                        }
-                        None => {
-                            view! {
-                                <div class="flex min-h-64 items-center justify-center px-2">
-                                    <LoadingSpinner />
+                                <button
+                                    type="button"
+                                    class="btn btn-secondary w-full"
+                                    data-testid="item-detail-save-quantity"
+                                    on:click=on_save_quantity
+                                >
+                                    "Zapisz ilość"
+                                </button>
+
+                                <div class="divider text-sm">"Terminy"</div>
+                                <div class="flex flex-col gap-2">
+                                    <DateFieldInput
+                                        label="📅 Rozpoczęcie"
+                                        value=start_date_input
+                                        time_value=start_time_input
+                                        data_testid="item-detail-start-date"
+                                        show_clear=true
+                                        show_quick=true
+                                        large=true
+                                    />
+                                    <DateFieldInput
+                                        label="⏰ Termin"
+                                        value=deadline_input
+                                        time_value=deadline_time_input
+                                        data_testid="item-detail-deadline"
+                                        show_clear=true
+                                        show_quick=true
+                                        large=true
+                                    />
+                                    <DateFieldInput
+                                        label="🚨 Ostateczny"
+                                        value=hard_deadline_input
+                                        data_testid="item-detail-hard-deadline"
+                                        show_clear=true
+                                        show_quick=true
+                                        large=true
+                                    />
+                                    <button
+                                        type="button"
+                                        class="btn btn-secondary w-full"
+                                        data-testid="item-detail-save-dates"
+                                        on:click=on_save_dates
+                                    >
+                                        "Zapisz terminy"
+                                    </button>
                                 </div>
-                            }
-                            .into_any()
-                        }
+
+                                // Tags section
+                                <div class="divider text-sm">"Tagi"</div>
+                                {move || {
+                                    let item_tags = item_tags_res.get()
+                                        .and_then(|r| r.ok())
+                                        .unwrap_or_default();
+                                    let all_tags = all_tags_res.get()
+                                        .and_then(|r| r.ok())
+                                        .unwrap_or_default();
+                                    let tag_ids: Vec<String> = item_tags.iter().map(|t| t.id.clone()).collect();
+                                    let iid = item_id();
+
+                                    // Filter out location-typed tags — shown separately below
+                                    let location_types = ["country", "city", "address"];
+                                    let general_tag_ids: Vec<String> = item_tags
+                                        .iter()
+                                        .filter(|t| !location_types.contains(&t.tag_type.as_str()))
+                                        .map(|t| t.id.clone())
+                                        .collect();
+                                    let general_all_tags: Vec<kartoteka_shared::types::Tag> = all_tags
+                                        .iter()
+                                        .filter(|t| !location_types.contains(&t.tag_type.as_str()))
+                                        .cloned()
+                                        .collect();
+
+                                    let on_tag_toggle = Callback::new(move |tid: String| {
+                                        let is_assigned = tag_ids.contains(&tid);
+                                        toggle_item_tag(iid.clone(), tid, is_assigned, set_tag_refresh);
+                                    });
+
+                                    view! {
+                                        <TagList
+                                            all_tags=general_all_tags
+                                            selected_tag_ids=general_tag_ids
+                                            on_toggle=on_tag_toggle
+                                        />
+                                    }
+                                }}
+
+                                // Location section (only when list has "location" feature)
+                                {move || {
+                                    let features = list_features_res.get()
+                                        .and_then(|r| r.ok())
+                                        .unwrap_or_default();
+                                    if !features.iter().any(|f| f == kartoteka_shared::FEATURE_LOCATION) {
+                                        return view! {}.into_any();
+                                    }
+
+                                    let item_tags = item_tags_res.get()
+                                        .and_then(|r| r.ok())
+                                        .unwrap_or_default();
+                                    let all_tags = all_tags_res.get()
+                                        .and_then(|r| r.ok())
+                                        .unwrap_or_default();
+                                    let iid = item_id();
+
+                                    let location_types = ["country", "city", "address"];
+                                    let location_tag_ids: Vec<String> = item_tags
+                                        .iter()
+                                        .filter(|t| location_types.contains(&t.tag_type.as_str()))
+                                        .map(|t| t.id.clone())
+                                        .collect();
+                                    let location_all_tags: Vec<kartoteka_shared::types::Tag> = all_tags
+                                        .into_iter()
+                                        .filter(|t| location_types.contains(&t.tag_type.as_str()))
+                                        .collect();
+                                    let tag_ids_for_cb = item_tags.iter().map(|t| t.id.clone()).collect::<Vec<_>>();
+
+                                    let on_location_toggle = Callback::new(move |tid: String| {
+                                        let is_assigned = tag_ids_for_cb.contains(&tid);
+                                        toggle_item_tag(iid.clone(), tid, is_assigned, set_tag_refresh);
+                                    });
+
+                                    view! {
+                                        <div class="divider text-sm">"📍 Lokalizacja"</div>
+                                        <TagList
+                                            all_tags=location_all_tags
+                                            selected_tag_ids=location_tag_ids
+                                            on_toggle=on_location_toggle
+                                        />
+                                    }.into_any()
+                                }}
+
+                                <div class="text-xs text-base-content/40 mt-2 flex flex-col gap-1">
+                                    <span>"Created: " {created_at}</span>
+                                    <span>"Updated: " {updated_at}</span>
+                                </div>
+
+                                <CommentSection
+                                    entity_type="item"
+                                    entity_id=Signal::derive(item_id)
+                                />
+
+                                <RelatedEntities
+                                    entity_id=Signal::derive(item_id)
+                                />
+
+                                <ItemTimerWidget
+                                    item_id=Signal::derive(item_id)
+                                />
+                            </div>
+                        }.into_any()
                     }
-                }}
+                })}
             </Suspense>
         </div>
     }

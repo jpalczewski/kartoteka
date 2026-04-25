@@ -1,0 +1,57 @@
+[package]
+name = "kartoteka-server"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "kartoteka"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+kartoteka-shared = { path = "../shared", version = "0.1.1" }
+kartoteka-db = { path = "../db", version = "0.1.1" }
+kartoteka-domain = { path = "../domain", version = "0.1.1" }
+kartoteka-auth = { path = "../auth", version = "0.1.1" }
+kartoteka-mcp = { path = "../mcp", version = "0.1.1" }
+kartoteka-oauth = { path = "../oauth", version = "0.1.1" }
+rmcp = { version = "0.3", features = ["server", "transport-streamable-http-server"] }
+tower.workspace = true
+kartoteka-jobs = { path = "../jobs", version = "0.1.1" }
+kartoteka-frontend = { path = "../frontend", version = "0.1.1", features = ["ssr"] }
+leptos = { workspace = true, features = ["ssr"] }
+leptos_axum = { workspace = true }
+axum-macros = { workspace = true }
+axum.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+thiserror.workspace = true
+axum-login.workspace = true
+tower-sessions.workspace = true
+tower-sessions-sqlx-store.workspace = true
+tower-http.workspace = true
+time.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+tower.workspace = true
+tower-sessions.workspace = true
+tower-sessions-sqlx-store.workspace = true
+axum-login.workspace = true
+kartoteka-db = { path = "../db", version = "0.1.1", features = ["test-helpers"] }
+kartoteka-domain = { path = "../domain", version = "0.1.1" }
+kartoteka-auth = { path = "../auth", version = "0.1.1" }
+serde_json.workspace = true
+totp-rs.workspace = true
+sha2 = "0.10"
+base64 = "0.22"
+chrono.workspace = true
+kartoteka-mcp = { path = "../mcp", version = "0.1.1" }

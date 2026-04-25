@@ -1,0 +1,40 @@
+[package]
+name = "kartoteka-oauth"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+kartoteka-shared = { path = "../shared", version = "0.1.1" }
+kartoteka-domain = { path = "../domain", version = "0.1.1" }
+kartoteka-auth = { path = "../auth", version = "0.1.1" }
+kartoteka-db = { path = "../db", version = "0.1.1" }
+
+axum = { workspace = true }
+axum-login = { workspace = true }
+tower = { workspace = true }
+tower-sessions = { workspace = true }
+http = "1"
+jsonwebtoken = { workspace = true }
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.8"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_urlencoded = "0.7"
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+url = "2"
+uuid = { workspace = true }
+chrono = { workspace = true }
+subtle = "2.6"
+urlencoding = "2"
+
+[dev-dependencies]
+hmac = "0.12"
+tower = { version = "0.5", features = ["util"] }
+kartoteka-db = { path = "../db", version = "0.1.1", features = ["test-helpers"] }

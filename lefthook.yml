@@ -6,6 +6,3 @@ pre-commit:
       fail_text: "Run `just fmt` to fix formatting"
     clippy:
       run: cargo clippy --workspace -- -D warnings
-    tsc:
-      root: gateway/
-      run: npx tsc --noEmit

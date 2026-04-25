@@ -1,551 +1,324 @@
-use kartoteka_shared::{
-    Container, ContainerDetail, ContainerStatus, CreateContainerRequest, CreateListRequest, List,
-    ReorderContainersRequest, SetListPlacementRequest, UpdateContainerRequest,
-};
 use leptos::prelude::*;
-use leptos_fluent::{move_tr, tr};
 use leptos_router::hooks::use_params_map;
 
-use crate::api;
-use crate::api::client::GlooClient;
 use crate::app::{ToastContext, ToastKind};
-use crate::components::common::breadcrumbs::{
-    BreadcrumbCrumb, Breadcrumbs, build_container_breadcrumbs,
-};
-use crate::components::common::dnd::{
-    DragHandleButton, DragHandleLabel, DragShell, DragSurface, ReorderDropTarget,
-};
-use crate::components::common::editable_description::EditableDescription;
-use crate::components::common::editable_title::EditableTitle;
+use crate::components::comments::CommentSection;
+use crate::components::common::breadcrumbs::Breadcrumbs;
+use crate::components::common::dnd::{DetachDropZone, ReorderDropTarget};
+use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
-use crate::components::confirm_delete_modal::ConfirmDeleteModal;
-use crate::components::container_card::ContainerCard;
-use crate::components::create_entity_input::CreateEntityInput;
-use crate::components::list_card::ListCard;
-use crate::state::dnd::{DndState, DropTarget, reorder_ids_for_target};
-use crate::state::item_mutations::run_optimistic_mutation;
-use crate::state::reorder::apply_reorder;
+use crate::components::lists::{container_card::ContainerCard, list_card::ListCard};
+use crate::context::GlobalRefresh;
+use crate::server_fns::containers::{
+    get_container_data, move_container, rename_container, reorder_containers,
+};
+use crate::server_fns::lists::{move_list, reorder_lists};
+use crate::state::dnd::{DndState, DropTarget, EntityKind};
+
+fn container_status_icon(status: Option<&str>) -> &'static str {
+    match status {
+        None => "📁",
+        Some("active") => "🚀",
+        Some("done") => "✅",
+        Some("paused") => "⏸️",
+        _ => "📁",
+    }
+}
 
 #[component]
 pub fn ContainerPage() -> impl IntoView {
     let params = use_params_map();
-    let params_for_current_id = params.clone();
-    let params_for_current_id_untracked = params.clone();
-    let params_for_container_reorder = params.clone();
-    let params_for_list_reorder = params.clone();
-    let container_id = move || params_for_current_id.read().get("id").unwrap_or_default();
-    let container_id_untracked = move || {
-        params_for_current_id_untracked
-            .get_untracked()
-            .get("id")
-            .unwrap_or_default()
-    };
-    let reorder_container_parent_id = move || {
-        params_for_container_reorder
-            .get_untracked()
-            .get("id")
-            .unwrap_or_default()
-    };
-    let reorder_list_container_id = move || {
-        params_for_list_reorder
-            .get_untracked()
-            .get("id")
-            .unwrap_or_default()
-    };
-
-    let client = use_context::<GlooClient>().expect("GlooClient not provided");
+    let container_id = Signal::derive(move || params.read().get("id").unwrap_or_default());
+    let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
-
     let (refresh, set_refresh) = signal(0u32);
-    let detail = RwSignal::new(Option::<ContainerDetail>::None);
-    let sub_containers = RwSignal::new(Vec::<Container>::new());
-    let sub_lists = RwSignal::new(Vec::<List>::new());
-    let breadcrumbs = RwSignal::new(Vec::<BreadcrumbCrumb>::new());
-    let (loading, set_loading) = signal(true);
-    let pending_delete_list = RwSignal::new(Option::<(String, String)>::None);
-    let container_dnd_state = RwSignal::new(DndState::default());
-    let list_dnd_state = RwSignal::new(DndState::default());
 
-    // Reactive effect: re-runs whenever container_id or refresh changes.
-    // This ensures navigating folder→folder (same route, different :id) re-fetches data.
-    Effect::new({
-        let client = client.clone();
-        move |_| {
-            let cid = container_id();
-            let _r = refresh.get(); // track refresh signal too
+    let data_res = Resource::new(
+        move || (container_id.get(), global_refresh.get(), refresh.get()),
+        |(id, _, _)| get_container_data(id),
+    );
 
-            detail.set(None);
-            sub_containers.set(vec![]);
-            sub_lists.set(vec![]);
-            breadcrumbs.set(vec![]);
-            set_loading.set(true);
-
-            let client = client.clone();
-            leptos::task::spawn_local(async move {
-                if let Ok(det) = api::fetch_container(&client, &cid).await {
-                    detail.set(Some(det));
-                }
-                if let Ok(children) = api::fetch_container_children(&client, &cid).await {
-                    sub_containers.set(children.containers);
-                    sub_lists.set(children.lists);
-                }
-                if let Ok(all) = api::fetch_containers(&client).await {
-                    breadcrumbs.set(build_container_breadcrumbs(&cid, &all, false));
-                }
-                set_loading.set(false);
-            });
-        }
-    });
-
-    let is_project = move || {
-        detail
-            .get()
-            .map(|d| d.container.status.is_some())
-            .unwrap_or(false)
-    };
-
-    let on_create_list = {
-        let client = client.clone();
-        Callback::new(move |req: CreateListRequest| {
-            let cid = container_id_untracked();
-            let client = client.clone();
-            leptos::task::spawn_local(async move {
-                match api::create_list(&client, &req).await {
-                    Ok(mut list) => {
-                        // Move new list into this container
-                        let _ = api::move_list_to_container(&client, &list.id, Some(&cid)).await;
-                        list.container_id = Some(cid);
-                        sub_lists.update(|ls| ls.push(list));
-                    }
-                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                }
-            });
-        })
-    };
-
-    let on_create_container = {
-        let client = client.clone();
-        Callback::new(move |req: CreateContainerRequest| {
-            let client = client.clone();
-            leptos::task::spawn_local(async move {
-                match api::create_container(&client, &req).await {
-                    Ok(c) => sub_containers.update(|cs| cs.push(c)),
-                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                }
-            });
-        })
-    };
-
-    let on_subcontainer_drop = {
-        let client = client.clone();
-        Callback::new(move |target: DropTarget| {
-            let Some(dragged_id) = container_dnd_state.get_untracked().dragged_id.clone() else {
-                return;
-            };
-            let current_ids: Vec<String> = sub_containers
-                .get_untracked()
-                .into_iter()
-                .map(|container| container.id)
-                .collect();
-            let Some(next_ids) = reorder_ids_for_target(&current_ids, &dragged_id, &target) else {
-                return;
-            };
-
-            let request = ReorderContainersRequest {
-                container_ids: next_ids.clone(),
-                parent_container_id: Some(reorder_container_parent_id()),
-            };
-            let dragged_id_for_mutation = dragged_id.clone();
-            let target_for_mutation = target.clone();
-            let client = client.clone();
-            run_optimistic_mutation(
-                sub_containers,
-                move |containers| {
-                    let current_ids: Vec<String> = containers
-                        .iter()
-                        .map(|container| container.id.clone())
-                        .collect();
-                    let Some(next_ids) = reorder_ids_for_target(
-                        &current_ids,
-                        &dragged_id_for_mutation,
-                        &target_for_mutation,
-                    ) else {
-                        return false;
-                    };
-                    apply_reorder(containers, &next_ids, |container| container.id.as_str())
-                },
-                move || async move { api::reorder_containers(&client, &request).await },
-                move |error| toast.push(error.to_string(), ToastKind::Error),
-            );
-        })
-    };
-
-    let on_sublist_drop = {
-        let client = client.clone();
-        Callback::new(move |target: DropTarget| {
-            let Some(dragged_id) = list_dnd_state.get_untracked().dragged_id.clone() else {
-                return;
-            };
-            let current_ids: Vec<String> = sub_lists
-                .get_untracked()
-                .into_iter()
-                .map(|list| list.id)
-                .collect();
-            let Some(next_ids) = reorder_ids_for_target(&current_ids, &dragged_id, &target) else {
-                return;
-            };
-
-            let request = SetListPlacementRequest {
-                list_ids: next_ids.clone(),
-                parent_list_id: None,
-                container_id: Some(reorder_list_container_id()),
-            };
-            let dragged_id_for_mutation = dragged_id.clone();
-            let target_for_mutation = target.clone();
-            let client = client.clone();
-            run_optimistic_mutation(
-                sub_lists,
-                move |lists| {
-                    let current_ids: Vec<String> =
-                        lists.iter().map(|list| list.id.clone()).collect();
-                    let Some(next_ids) = reorder_ids_for_target(
-                        &current_ids,
-                        &dragged_id_for_mutation,
-                        &target_for_mutation,
-                    ) else {
-                        return false;
-                    };
-                    apply_reorder(lists, &next_ids, |list| list.id.as_str())
-                },
-                move || async move { api::reorder_lists(&client, &request).await },
-                move |error| toast.push(error.to_string(), ToastKind::Error),
-            );
-        })
-    };
+    // Single state — lists and containers share it; handlers branch on kind.
+    let dnd_state: RwSignal<DndState> = RwSignal::new(DndState::default());
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            {move || {
-                let crumbs = breadcrumbs.get();
-                if !crumbs.is_empty() {
-                    view! { <Breadcrumbs crumbs=crumbs /> }.into_any()
-                } else {
-                    view! {}.into_any()
-                }
-            }}
+            <Transition fallback=|| view! { <LoadingSpinner/> }>
+                {move || data_res.get().map(|result| match result {
+                    Err(e) => view! {
+                        <p class="text-error">"Błąd: " {e.to_string()}</p>
+                    }.into_any(),
+                    Ok(data) => {
+                        let icon = container_status_icon(data.container.status.as_deref());
+                        let name = data.container.name.clone();
+                        let desc = data.container.description.clone();
+                        let ancestors = data.ancestors.clone();
+                        let lists = data.lists.clone();
+                        let children = data.children.clone();
+                        let parent_id = data.container.parent_container_id.clone();
+                        let current_id = data.container.id.clone();
+                        let container_id_for_rename = data.container.id.clone();
+                        let container_id_for_desc = data.container.id.clone();
+                        let desc_for_rename = data.container.description.clone();
+                        let name_for_desc = name.clone();
+                        let child_ids: Vec<String> = children.iter().map(|c| c.id.clone())
+                            .chain(lists.iter().map(|l| l.id.clone()))
+                            .collect();
+                        let child_container_ids: Vec<String> = children.iter().map(|c| c.id.clone()).collect();
+                        let child_list_ids: Vec<String> = lists.iter().map(|l| l.id.clone()).collect();
 
-            {move || {
-                if loading.get() {
-                    return view! { <LoadingSpinner/> }.into_any();
-                }
+                        // Detach visible when dragged entity is a direct child of this container.
+                        let detach_visible = {
+                            let child_ids = child_ids.clone();
+                            Signal::derive(move || dnd_state.with(|s| {
+                                s.dragged_id().map(|id| child_ids.iter().any(|c| c == id)).unwrap_or(false)
+                            }))
+                        };
+                        let parent_for_detach = parent_id.clone();
+                        let on_detach = Callback::new(move |_| {
+                            let Some((kind, id)) = dnd_state.with_untracked(|s| {
+                                s.dragged.as_ref().map(|d| (d.kind, d.id.clone()))
+                            }) else { return };
+                            let ctr = parent_for_detach.clone();
+                            leptos::task::spawn_local(async move {
+                                let result = match kind {
+                                    EntityKind::Container => move_container(id, ctr).await.map(|_| ()),
+                                    EntityKind::List => move_list(id, ctr, None).await.map(|_| ()),
+                                };
+                                match result {
+                                    Ok(()) => global_refresh.bump(),
+                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                }
+                            });
+                        });
 
-                let det = detail.get();
-                let Some(det) = det else {
-                    return view! { <p class="text-error">{move_tr!("error-container-not-found")}</p> }.into_any();
-                };
+                        // Drop on container card: Container → reparent, List → attach.
+                        let current_for_container_drop = current_id.clone();
+                        let child_container_ids_drop = child_container_ids.clone();
+                        let on_container_nest = Callback::new(move |target: DropTarget| {
+                            let Some(nest_id) = target.nest_id().map(str::to_string) else { return };
+                            let Some((kind, id)) = dnd_state.with_untracked(|s| {
+                                s.dragged.as_ref().map(|d| (d.kind, d.id.clone()))
+                            }) else { return };
+                            if id == nest_id { return; }
+                            leptos::task::spawn_local(async move {
+                                let result = match kind {
+                                    EntityKind::Container => move_container(id, Some(nest_id)).await.map(|_| ()),
+                                    EntityKind::List => move_list(id, Some(nest_id), None).await.map(|_| ()),
+                                };
+                                match result {
+                                    Ok(()) => global_refresh.bump(),
+                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                }
+                            });
+                            let _ = (&current_for_container_drop, &child_container_ids_drop);
+                        });
 
-                let container = det.container.clone();
-                let cid = container.id.clone();
-                let cid_name = cid.clone();
-                let cid_desc = cid.clone();
-                let cid_status = cid.clone();
-                let is_proj = container.status.is_some();
-                let completed_items = det.completed_items;
-                let total_items = det.total_items;
-                let completed_lists = det.completed_lists;
-                let total_lists_count = det.total_lists;
+                        // Drop on list card: List → make sublist. Container → ignore.
+                        let on_list_nest = Callback::new(move |target: DropTarget| {
+                            let Some(nest_id) = target.nest_id().map(str::to_string) else { return };
+                            let Some((kind, id)) = dnd_state.with_untracked(|s| {
+                                s.dragged.as_ref().map(|d| (d.kind, d.id.clone()))
+                            }) else { return };
+                            if kind != EntityKind::List || id == nest_id { return; }
+                            leptos::task::spawn_local(async move {
+                                match move_list(id, None, Some(nest_id)).await {
+                                    Ok(_) => global_refresh.bump(),
+                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                }
+                            });
+                        });
 
-                let client_inner = use_context::<GlooClient>().expect("GlooClient not provided");
-
-                view! {
-                    <div>
-                        // Header
-                        <div class="mb-4">
-                            <div class="flex items-center gap-2 mb-1">
-                                <span class="text-2xl">
-                                    {if is_proj { "🚀" } else { "📁" }}
-                                </span>
-                                <EditableTitle
-                                    value=container.name.clone()
-                                    on_save=Callback::new(move |name: String| {
-                                        let cid = cid_name.clone();
-                                        let client = use_context::<GlooClient>().expect("GlooClient not provided");
-                                        leptos::task::spawn_local(async move {
-                                            let req = UpdateContainerRequest {
-                                                name: Some(name),
-                                                description: None,
-                                                status: None,
-                                            };
-                                            match api::update_container(&client, &cid, &req).await {
-                                                Ok(c) => detail.update(|d| {
-                                                    if let Some(det) = d {
-                                                        det.container.name = c.name;
-                                                    }
-                                                }),
-                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                            }
-                                        });
-                                    })
-                                />
-                            </div>
-
-                            <EditableDescription
-                                value=container.description.clone()
-                                on_save=Callback::new(move |desc: Option<String>| {
-                                    let cid = cid_desc.clone();
-                                    let client = use_context::<GlooClient>().expect("GlooClient not provided");
-                                    leptos::task::spawn_local(async move {
-                                        let req = UpdateContainerRequest {
-                                            name: None,
-                                            description: Some(desc),
-                                            status: None,
-                                        };
-                                        let _ = api::update_container(&client, &cid, &req).await;
-                                    });
-                                })
-                            />
-                        </div>
-
-                        // Project status + progress
-                        {if is_proj {
-                            let status_str = match &container.status {
-                                Some(ContainerStatus::Active) => "active",
-                                Some(ContainerStatus::Done) => "done",
-                                Some(ContainerStatus::Paused) => "paused",
-                                None => "active",
+                        // Reorder drop for containers (children at same level as `current`).
+                        let child_container_ids_for_reorder = child_container_ids.clone();
+                        let current_for_reorder = current_id.clone();
+                        let on_container_reorder = Callback::new(move |target: DropTarget| {
+                            let Some((kind, dragged_id)) = dnd_state.with_untracked(|s| {
+                                s.dragged.as_ref().map(|d| (d.kind, d.id.clone()))
+                            }) else { return };
+                            if kind != EntityKind::Container { return; }
+                            let mut ids = child_container_ids_for_reorder.clone();
+                            ids.retain(|x| x != &dragged_id);
+                            let insert_at = match &target {
+                                DropTarget::Before(b) => ids.iter().position(|x| x == b).unwrap_or(ids.len()),
+                                DropTarget::End => ids.len(),
+                                _ => return,
                             };
-                            let pct = if total_items > 0 {
-                                (completed_items as f32 / total_items as f32 * 100.0) as u32
-                            } else { 0 };
+                            ids.insert(insert_at, dragged_id);
+                            let parent = Some(current_for_reorder.clone());
+                            leptos::task::spawn_local(async move {
+                                match reorder_containers(parent, ids).await {
+                                    Ok(()) => global_refresh.bump(),
+                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                }
+                            });
+                        });
 
-                            view! {
-                                <div class="mb-4 p-4 bg-base-200 rounded-lg">
-                                    // Status selector
-                                    <div class="flex items-center gap-2 mb-3">
-                                        <span class="text-sm font-medium">{move_tr!("common-status")}":"</span>
-                                        <select
-                                            class="select select-sm select-bordered"
-                                            on:change=move |ev| {
-                                                let val = event_target_value(&ev);
-                                                let new_status = match val.as_str() {
-                                                    "active" => Some(ContainerStatus::Active),
-                                                    "done" => Some(ContainerStatus::Done),
-                                                    "paused" => Some(ContainerStatus::Paused),
-                                                    _ => None,
-                                                };
-                                                let cid = cid_status.clone();
-                                                let client = use_context::<GlooClient>().expect("GlooClient not provided");
+                        // Reorder drop for lists at this container level.
+                        let child_list_ids_for_reorder = child_list_ids.clone();
+                        let current_for_list_reorder = current_id.clone();
+                        let on_list_reorder = Callback::new(move |target: DropTarget| {
+                            let Some((kind, dragged_id)) = dnd_state.with_untracked(|s| {
+                                s.dragged.as_ref().map(|d| (d.kind, d.id.clone()))
+                            }) else { return };
+                            if kind != EntityKind::List { return; }
+                            let mut ids = child_list_ids_for_reorder.clone();
+                            ids.retain(|x| x != &dragged_id);
+                            let insert_at = match &target {
+                                DropTarget::Before(b) => ids.iter().position(|x| x == b).unwrap_or(ids.len()),
+                                DropTarget::End => ids.len(),
+                                _ => return,
+                            };
+                            ids.insert(insert_at, dragged_id);
+                            let ctr = Some(current_for_list_reorder.clone());
+                            leptos::task::spawn_local(async move {
+                                match reorder_lists(ctr, None, ids).await {
+                                    Ok(()) => global_refresh.bump(),
+                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                }
+                            });
+                        });
+
+                        view! {
+                            <div class="flex flex-col gap-6">
+                                <DetachDropZone
+                                    dnd_state=dnd_state
+                                    visible=detach_visible
+                                    on_drop=on_detach
+                                    label="Upuść tutaj, aby wyjąć do rodzica"
+                                />
+
+                                <Breadcrumbs crumbs=ancestors current=name.clone() />
+
+                                // Header
+                                <div class="flex items-center gap-3">
+                                    <span class="text-3xl">{icon}</span>
+                                    <div class="flex flex-col gap-1">
+                                        <EditableText
+                                            value=name.clone()
+                                            on_save=Callback::new(move |new_name: String| {
+                                                let lid = container_id_for_rename.clone();
+                                                let current_desc = desc_for_rename.clone();
                                                 leptos::task::spawn_local(async move {
-                                                    let req = UpdateContainerRequest {
-                                                        name: None,
-                                                        description: None,
-                                                        status: Some(new_status),
-                                                    };
-                                                    match api::update_container(&client, &cid, &req).await {
-                                                        Ok(c) => detail.update(|d| {
-                                                            if let Some(det) = d {
-                                                                det.container.status = c.status;
-                                                            }
-                                                        }),
+                                                    match rename_container(lid, new_name, current_desc).await {
+                                                        Ok(_) => set_refresh.update(|n| *n += 1),
                                                         Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                                     }
                                                 });
-                                            }
-                                        >
-                                            <option value="active" selected=move || status_str == "active">{move_tr!("lists-container-status-option-active")}</option>
-                                            <option value="done" selected=move || status_str == "done">{move_tr!("lists-container-status-option-done")}</option>
-                                            <option value="paused" selected=move || status_str == "paused">{move_tr!("lists-container-status-option-paused")}</option>
-                                        </select>
-                                    </div>
-
-                                    // Item-level progress
-                                    <div class="mb-2">
-                                        <div class="flex justify-between text-xs text-base-content/60 mb-1">
-                                            <span>{tr!("lists-tasks-progress", { "completed" => completed_items, "total" => total_items })}</span>
-                                            <span>{pct}"%"</span>
-                                        </div>
-                                        <progress class="progress progress-primary w-full" value=completed_items max=total_items.max(1)></progress>
-                                    </div>
-
-                                    // List-level progress
-                                    <div class="text-xs text-base-content/60">
-                                        {tr!("lists-completed-lists-progress", { "completed" => completed_lists, "total" => total_lists_count })}
+                                            })
+                                            class="text-2xl font-bold cursor-pointer hover:underline decoration-dotted"
+                                        />
+                                        <EditableText
+                                            value=desc.clone().unwrap_or_default()
+                                            on_save=Callback::new(move |new_desc: String| {
+                                                let lid = container_id_for_desc.clone();
+                                                let current_name = name_for_desc.clone();
+                                                let desc_opt = if new_desc.trim().is_empty() { None } else { Some(new_desc) };
+                                                leptos::task::spawn_local(async move {
+                                                    match rename_container(lid, current_name, desc_opt).await {
+                                                        Ok(_) => set_refresh.update(|n| *n += 1),
+                                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                    }
+                                                });
+                                            })
+                                            multiline=true
+                                            placeholder="Dodaj opis..."
+                                            class="text-base-content/60 text-sm cursor-pointer hover:underline decoration-dotted"
+                                        />
                                     </div>
                                 </div>
-                            }.into_any()
-                        } else {
-                            view! {}.into_any()
-                        }}
 
-                        // Create entity input
-                        <CreateEntityInput
-                            parent_container_id=container.id.clone()
-                            show_container_options=!is_project()
-                            on_create_list=on_create_list
-                            on_create_container=on_create_container
-                        />
-
-                        // Sub-containers
-                        {move || {
-                            let scs = sub_containers.get();
-                            if scs.is_empty() {
-                                view! {}.into_any()
-                            } else {
-                                let client_sc = client_inner.clone();
-                                view! {
-                                    <div class="mb-4">
-                                        <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">{move_tr!("lists-containers-heading")}</h3>
-                                        <div class="flex flex-col gap-3">
-                                            {scs.into_iter().map(|c| {
-                                                let drop_target = DropTarget::before(c.id.clone());
-                                                let drop_target_for_marker = drop_target.clone();
-                                                let drop_target_for_surface = drop_target.clone();
-                                                let drag_id = c.id.clone();
-                                                let drag_id_for_handle = drag_id.clone();
-                                                let drag_id_for_shell = drag_id.clone();
-                                                let drag_id_for_surface = drag_id.clone();
-                                                let cid_del = c.id.clone();
-                                                let client_del = client_sc.clone();
-                                                view! {
-                                                    <div class="flex flex-col gap-2">
+                                // Child containers
+                                {if !children.is_empty() {
+                                    view! {
+                                        <div>
+                                            <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">
+                                                "Subkontenerów (" {children.len()} ")"
+                                            </h3>
+                                            <div class="flex flex-col gap-1">
+                                                {children.into_iter().map(|child| {
+                                                    let cid = child.id.clone();
+                                                    view! {
                                                         <ReorderDropTarget
-                                                            dnd_state=container_dnd_state
-                                                            target=drop_target_for_marker
-                                                            on_drop=on_subcontainer_drop.clone()
+                                                            dnd_state=dnd_state
+                                                            target=DropTarget::Before(cid)
+                                                            on_drop=on_container_reorder
                                                         />
-                                                        <DragShell dnd_state=container_dnd_state dragged_id=drag_id_for_shell>
-                                                            <DragHandleButton
-                                                                dnd_state=container_dnd_state
-                                                                dragged_id=drag_id_for_handle
-                                                                label=DragHandleLabel::Reorder
-                                                            />
-                                                            <DragSurface
-                                                                dnd_state=container_dnd_state
-                                                                dragged_id=drag_id_for_surface
-                                                                hover_target=drop_target_for_surface
-                                                            >
-                                                                <ContainerCard
-                                                                    container=c
-                                                                    on_delete=Callback::new(move |_: String| {
-                                                                        let cid = cid_del.clone();
-                                                                        let client_d = client_del.clone();
-                                                                        leptos::task::spawn_local(async move {
-                                                                            match api::delete_container(&client_d, &cid).await {
-                                                                                Ok(()) => {
-                                                                                    sub_containers.update(|cs| cs.retain(|c| c.id != cid));
-                                                                                    toast.push(move_tr!("lists-toast-container-deleted").get(), ToastKind::Success);
-                                                                                }
-                                                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                                            }
-                                                                        });
-                                                                    })
-                                                                />
-                                                            </DragSurface>
-                                                        </DragShell>
-                                                    </div>
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                            <ReorderDropTarget
-                                                dnd_state=container_dnd_state
-                                                target=DropTarget::end()
-                                                on_drop=on_subcontainer_drop
-                                            />
+                                                        <ContainerCard
+                                                            container=child
+                                                            dnd_state=dnd_state
+                                                            on_nest_drop=on_container_nest
+                                                        />
+                                                    }
+                                                }).collect::<Vec<_>>()}
+                                                <ReorderDropTarget
+                                                    dnd_state=dnd_state
+                                                    target=DropTarget::End
+                                                    on_drop=on_container_reorder
+                                                    label="Upuść na koniec"
+                                                />
+                                            </div>
                                         </div>
-                                    </div>
-                                }.into_any()
-                            }
-                        }}
+                                    }.into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }}
 
-                        // Lists in container
-                        {move || {
-                            let lists = sub_lists.get();
-                            if lists.is_empty() {
-                                view! { <div class="text-center text-base-content/50 py-8">{move_tr!("lists-container-empty")}</div> }.into_any()
-                            } else {
-                                view! {
-                                    <div class="mb-4">
-                                        <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">{move_tr!("lists-lists-heading")}</h3>
-                                        <div class="flex flex-col gap-3">
-                                            {lists.into_iter().map(|list| {
-                                                let drag_id = list.id.clone();
-                                                let drop_target = DropTarget::before(list.id.clone());
-                                                let drop_target_for_marker = drop_target.clone();
-                                                let drop_target_for_surface = drop_target.clone();
-                                                let drag_id_for_handle = drag_id.clone();
-                                                let drag_id_for_shell = drag_id.clone();
-                                                let drag_id_for_surface = drag_id.clone();
-                                                let lid_del = list.id.clone();
-                                                let lname_del = list.name.clone();
-                                                view! {
-                                                    <div class="flex flex-col gap-2">
+                                // Lists in this container
+                                {if lists.is_empty() {
+                                    view! {
+                                        <div class="text-center text-base-content/50 py-4">
+                                            "Brak list w tym kontenerze."
+                                        </div>
+                                    }.into_any()
+                                } else {
+                                    view! {
+                                        <div>
+                                            <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">
+                                                "Listy (" {lists.len()} ")"
+                                            </h3>
+                                            <div class="flex flex-col gap-1">
+                                                {lists.into_iter().map(|list| {
+                                                    let lid = list.id.clone();
+                                                    view! {
                                                         <ReorderDropTarget
-                                                            dnd_state=list_dnd_state
-                                                            target=drop_target_for_marker
-                                                            on_drop=on_sublist_drop.clone()
+                                                            dnd_state=dnd_state
+                                                            target=DropTarget::Before(lid)
+                                                            on_drop=on_list_reorder
                                                         />
-                                                        <DragShell dnd_state=list_dnd_state dragged_id=drag_id_for_shell>
-                                                            <DragHandleButton
-                                                                dnd_state=list_dnd_state
-                                                                dragged_id=drag_id_for_handle
-                                                                label=DragHandleLabel::Reorder
-                                                            />
-                                                            <DragSurface
-                                                                dnd_state=list_dnd_state
-                                                                dragged_id=drag_id_for_surface
-                                                                hover_target=drop_target_for_surface
-                                                            >
-                                                                <ListCard
-                                                                    list
-                                                                    on_delete=Callback::new(move |_: String| {
-                                                                        pending_delete_list.set(Some((lid_del.clone(), lname_del.clone())));
-                                                                    })
-                                                                />
-                                                            </DragSurface>
-                                                        </DragShell>
-                                                    </div>
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                            <ReorderDropTarget
-                                                dnd_state=list_dnd_state
-                                                target=DropTarget::end()
-                                                on_drop=on_sublist_drop
-                                            />
+                                                        <ListCard
+                                                            list=list
+                                                            dnd_state=dnd_state
+                                                            on_nest_drop=on_list_nest
+                                                        />
+                                                    }
+                                                }).collect::<Vec<_>>()}
+                                                <ReorderDropTarget
+                                                    dnd_state=dnd_state
+                                                    target=DropTarget::End
+                                                    on_drop=on_list_reorder
+                                                    label="Upuść na koniec"
+                                                />
+                                            </div>
                                         </div>
-                                    </div>
-                                }.into_any()
-                            }
-                        }}
+                                    }.into_any()
+                                }}
 
-                        // Delete list modal
-                        {move || pending_delete_list.get().map(|(lid, lname)| {
-                            let lid_confirm = lid.clone();
-                            let client_modal = use_context::<GlooClient>().expect("GlooClient not provided");
-                            view! {
-                                <ConfirmDeleteModal
-                                    list_id=lid
-                                    list_name=lname
-                                    on_confirm=Callback::new(move |_| {
-                                        let lid = lid_confirm.clone();
-                                        let client_m = client_modal.clone();
-                                        leptos::task::spawn_local(async move {
-                                            sub_lists.update(|ls| ls.retain(|l| l.id != lid));
-                                            pending_delete_list.set(None);
-                                            match api::delete_list(&client_m, &lid).await {
-                                                Ok(()) => toast.push(move_tr!("lists-toast-list-deleted").get(), ToastKind::Success),
-                                                Err(e) => {
-                                                    set_refresh.update(|n| *n += 1);
-                                                    toast.push(e.to_string(), ToastKind::Error);
-                                                }
-                                            }
-                                        });
-                                    })
-                                    on_cancel=Callback::new(move |_| pending_delete_list.set(None))
-                                />
-                            }
-                        })}
-                    </div>
-                }.into_any()
-            }}
+                                // Comments
+                                <div>
+                                    <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">
+                                        "Komentarze"
+                                    </h3>
+                                    <CommentSection
+                                        entity_type="container"
+                                        entity_id=container_id
+                                    />
+                                </div>
+                            </div>
+                        }.into_any()
+                    }
+                })}
+            </Transition>
         </div>
     }
 }

@@ -1,11 +1,6 @@
 pub mod breadcrumbs;
-pub mod confirm_delete_modal;
-pub mod date_utils;
+pub mod confirm_modal;
 pub mod dnd;
-pub mod editable_color;
-pub mod editable_description;
-pub mod editable_title;
-pub mod error_display;
-pub mod inline_confirm_button;
+pub mod editable_text;
+pub mod list_filter_chips;
 pub mod loading;
-pub mod toast_container;

@@ -1,0 +1,42 @@
+name: Docker Prod
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag to deploy (e.g. v0.4.1 or latest)
+        required: true
+        type: string
+        default: latest
+
+concurrency:
+  group: docker-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      image_tag: latest
+      cargo_profile: release
+      extra_tags: |
+        ${{ github.ref_name }}
+    secrets: inherit
+
+  deploy:
+    permissions: {}
+    needs: [build]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || needs.build.result == 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via Coolify
+        run: |
+          curl -fsSL -X GET "${{ secrets.COOLIFY_WEBHOOK_PROD }}" \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}"

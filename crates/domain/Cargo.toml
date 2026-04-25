@@ -1,0 +1,30 @@
+[package]
+name = "kartoteka-domain"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+kartoteka-shared = { path = "../shared", version = "0.1.1" }
+kartoteka-db = { path = "../db", version = "0.1.1" }
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+argon2.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+rand_core = { version = "0.6", features = ["getrandom"] }
+totp-rs.workspace = true
+jsonwebtoken.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+kartoteka-db = { path = "../db", version = "0.1.1", features = ["test-helpers"] }

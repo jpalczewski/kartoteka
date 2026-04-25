@@ -1,20 +1,22 @@
+#![allow(dead_code)]
+
 use chrono::{Datelike, NaiveDate, NaiveTime};
 
-pub const BUSINESS_DATE_MIN_YEAR: i32 = 2000;
-pub const BUSINESS_DATE_MAX_YEAR: i32 = 2100;
+pub(crate) const BUSINESS_DATE_MIN_YEAR: i32 = 2000;
+pub(crate) const BUSINESS_DATE_MAX_YEAR: i32 = 2100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DateValidationError {
+pub(crate) enum DateValidationError {
     Invalid,
     OutOfRange,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TimeValidationError {
+pub(crate) enum TimeValidationError {
     Invalid,
 }
 
-pub fn validate_business_date(date_str: &str) -> Result<NaiveDate, DateValidationError> {
+pub(crate) fn validate_business_date(date_str: &str) -> Result<NaiveDate, DateValidationError> {
     let date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
         .map_err(|_| DateValidationError::Invalid)?;
     if !(BUSINESS_DATE_MIN_YEAR..=BUSINESS_DATE_MAX_YEAR).contains(&date.year()) {
@@ -23,7 +25,7 @@ pub fn validate_business_date(date_str: &str) -> Result<NaiveDate, DateValidatio
     Ok(date)
 }
 
-pub fn validate_hhmm_time(time_str: &str) -> Result<NaiveTime, TimeValidationError> {
+pub(crate) fn validate_hhmm_time(time_str: &str) -> Result<NaiveTime, TimeValidationError> {
     let bytes = time_str.as_bytes();
     if bytes.len() != 5
         || bytes[2] != b':'

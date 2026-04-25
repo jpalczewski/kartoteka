@@ -1,236 +1,334 @@
-use kartoteka_shared::Item;
-use kartoteka_shared::Tag;
+use kartoteka_shared::types::{Item, Tag};
 use leptos::prelude::*;
+use leptos_router::components::A;
+use web_sys::DragEvent;
 
-use crate::components::common::date_utils::item_date_badges;
-use crate::components::common::editable_description::EditableDescription;
-use crate::components::items::date_badge_chips::DateBadgeChips;
-use crate::components::items::inline_date_editor_section::InlineDateEditorSection;
-use crate::components::items::quantity_stepper::QuantityStepper;
-use crate::components::tags::tag_list::TagList;
+use super::date_field::DateFieldInput;
+use super::quantity_stepper::QuantityStepper;
+use crate::components::common::dnd::ItemDragHandleButton;
+use crate::components::tags::tag_badge::TagBadge;
+use crate::components::tags::tag_selector_dropdown::TagSelectorDropdown;
+use crate::state::dnd::{DraggedItem, ItemDndState, begin_item_drag, clear_item_dnd_state};
+
+/// `(item_id, start_date, start_time, deadline, deadline_time, hard_deadline)` — times are
+/// independent of their dates so the caller can clear/update either half separately.
+pub type DateSavePayload = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+fn date_chips(item: &Item) -> Vec<(&'static str, String, bool)> {
+    // (icon, date_string, is_danger) — hard_deadline first, then deadline, then start
+    let mut chips = Vec::new();
+    if let Some(ref d) = item.hard_deadline {
+        chips.push(("🚨", d.to_string(), true));
+    }
+    if let Some(ref d) = item.deadline {
+        chips.push(("⏰", d.to_string(), false));
+    }
+    if let Some(ref d) = item.start_date {
+        chips.push(("📅", d.to_string(), false));
+    }
+    chips
+}
 
 #[component]
 pub fn ItemRow(
     item: Item,
     on_toggle: Callback<String>,
     on_delete: Callback<String>,
-    #[prop(default = vec![])] all_tags: Vec<Tag>,
-    #[prop(default = vec![])] item_tag_ids: Vec<String>,
-    #[prop(optional)] on_tag_toggle: Option<Callback<String>>,
-    #[prop(optional)] on_description_save: Option<Callback<(String, String)>>,
     #[prop(default = false)] has_quantity: bool,
-    #[prop(optional)] on_quantity_change: Option<Callback<(String, i32)>>,
+    #[prop(default = vec![])] item_tags: Vec<Tag>,
     #[prop(default = vec![])] move_targets: Vec<(String, String)>,
     #[prop(optional)] on_move: Option<Callback<(String, String)>>,
-    /// (item_id, date_type, date_value, time_value)
+    #[prop(optional)] on_quantity_change: Option<Callback<(String, i32)>>,
+    #[prop(optional)] on_description_save: Option<Callback<(String, String)>>,
+    #[prop(optional)] on_date_save: Option<Callback<DateSavePayload>>,
+    /// When provided, the row gains a drag handle and participates in DnD.
     #[prop(optional)]
-    on_date_save: Option<Callback<(String, String, String, Option<String>)>>,
-    /// Deadlines feature config for ghost chips
-    #[prop(default = serde_json::Value::Null)]
-    deadlines_config: serde_json::Value,
+    dnd_state: Option<RwSignal<ItemDndState>>,
+    /// When provided together with `all_tags_for_selector`, renders a tag assignment dropdown.
+    #[prop(optional)]
+    on_tag_toggle: Option<Callback<String>>,
+    /// Full tag catalog — used to populate the tag selector dropdown.
+    #[prop(optional)]
+    all_tags_for_selector: Option<Vec<Tag>>,
 ) -> impl IntoView {
-    let item_for_editor = item.clone();
-    let id = item.id.clone();
-    let item_list_id = item.list_id.clone();
-    let item_title = item.title.clone();
-    let id_toggle = id.clone();
-    let id_delete = id.clone();
-    let id_move = id.clone();
-    let id_for_editor = id.clone();
-    let id_for_desc = id.clone();
+    let item_id_toggle = item.id.clone();
+    let item_id_delete = item.id.clone();
+    let item_id_qty = item.id.clone();
+    let item_id_desc = item.id.clone();
+    let item_id_dates = item.id.clone();
+    let item_id_move = item.id.clone();
     let completed = item.completed;
-
-    let row_class = if completed {
-        "flex items-center gap-3 py-2 opacity-50"
+    let item_href = format!("/lists/{}/items/{}", item.list_id, item.id);
+    let link_class = if completed {
+        "flex-1 text-base-content/50 line-through hover:text-base-content/80"
     } else {
-        "flex items-center gap-3 py-2"
-    };
-
-    let title_class = if completed {
-        "flex-1 line-through text-base-content/50"
-    } else {
-        "flex-1"
+        "flex-1 text-base-content hover:text-primary"
     };
 
     let expanded = RwSignal::new(false);
-    let description_text = RwSignal::new(item.description.clone().unwrap_or_default());
+    let desc_text = RwSignal::new(item.description.clone().unwrap_or_default());
 
-    // Quantity stepper state
+    let start_input = RwSignal::new(
+        item.start_date
+            .as_ref()
+            .map(|d| d.to_string())
+            .unwrap_or_default(),
+    );
+    let start_time_input = RwSignal::new(item.start_time.clone().unwrap_or_default());
+    let deadline_input = RwSignal::new(
+        item.deadline
+            .as_ref()
+            .map(|d| d.to_string())
+            .unwrap_or_default(),
+    );
+    let deadline_time_input = RwSignal::new(item.deadline_time.clone().unwrap_or_default());
+    let hard_deadline_input = RwSignal::new(
+        item.hard_deadline
+            .as_ref()
+            .map(|d| d.to_string())
+            .unwrap_or_default(),
+    );
+
+    let chips = date_chips(&item);
+    let has_date_save = on_date_save.is_some();
+
     let show_stepper = has_quantity && item.quantity.is_some();
-    let target_qty = item.quantity.unwrap_or(0);
-    let unit_label = item.unit.clone().unwrap_or_default();
-    let id_for_stepper = id.clone();
+    let stepper = show_stepper.then(|| {
+        let qty_cb = Callback::new(move |new_actual: i32| {
+            if let Some(cb) = on_quantity_change {
+                cb.run((item_id_qty.clone(), new_actual));
+            }
+        });
+        view! {
+            <QuantityStepper
+                actual=item.actual_quantity.unwrap_or(0)
+                target=item.quantity
+                unit=item.unit.clone()
+                on_change=qty_cb
+            />
+        }
+    });
 
-    let has_tags = !item_tag_ids.is_empty() || on_tag_toggle.is_some();
-
-    // Date editing state
-    let editing_date = RwSignal::new(Option::<String>::None);
-    let date_badges = item_date_badges(&item, None);
-
-    // Ghost chips: date types enabled in config but not set on this item
-    let cfg_start = deadlines_config
-        .get("has_start_date")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let cfg_deadline = deadlines_config
-        .get("has_deadline")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let cfg_hard = deadlines_config
-        .get("has_hard_deadline")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    let ghost_start = cfg_start && item.start_date.is_none();
-    let ghost_deadline = cfg_deadline && item.deadline.is_none();
-    let ghost_hard = cfg_hard && item.hard_deadline.is_none();
+    let dragged_item = dnd_state.map(|_| DraggedItem {
+        item_id: item.id.clone(),
+        source_list_id: item.list_id.clone(),
+    });
+    let dragged_item_for_start = dragged_item.clone();
 
     view! {
-        <div class="border-b border-base-300 py-1">
-            // Row 1: checkbox, expand, title, date badges, quantity, actions
-            <div class=row_class>
+        <div
+            class="p-3 bg-base-200 rounded-lg"
+            draggable=if dnd_state.is_some() { "true" } else { "false" }
+            on:dragstart=move |ev: DragEvent| {
+                if let Some((state, di)) = dnd_state.zip(dragged_item_for_start.clone()) {
+                    if let Some(dt) = ev.data_transfer() {
+                        let _ = dt.set_data("text/plain", &di.item_id);
+                        dt.set_effect_allowed("move");
+                    }
+                    state.update(|s| begin_item_drag(s, di));
+                }
+            }
+            on:dragend=move |_| {
+                if let Some(state) = dnd_state {
+                    state.update(clear_item_dnd_state);
+                }
+            }
+        >
+                <div class="flex items-center gap-3">
+                {dnd_state.zip(dragged_item.clone()).map(|(state, di)| view! {
+                    <ItemDragHandleButton dnd_state=state dragged_item=di aria_label="Przeciągnij element" />
+                })}
                 <input
                     type="checkbox"
-                    class="checkbox checkbox-secondary checkbox-sm"
-                    checked=item.completed
-                    on:change=move |_| on_toggle.run(id_toggle.clone())
+                    class="checkbox checkbox-primary"
+                    data-testid="item-toggle"
+                    checked=completed
+                    on:change=move |_| on_toggle.run(item_id_toggle.clone())
                 />
                 <button
                     type="button"
-                    aria-label="Rozwiń opis"
                     class="btn btn-ghost btn-xs btn-square"
+                    title="Rozwiń"
                     on:click=move |_| expanded.update(|e| *e = !*e)
                 >
-                    {move || if expanded.get() { "\u{25B2}" } else { "\u{25BC}" }}
+                    {move || if expanded.get() { "▲" } else { "▼" }}
                 </button>
-                <a href=format!("/lists/{}/items/{}", item_list_id, id) class=format!("{title_class} hover:text-primary transition-colors no-underline")>
-                    {item_title.clone()}
-                </a>
-
-                // Date badges (clickable)
-                <DateBadgeChips
-                    badges=date_badges
-                    editing_date=editing_date
-                    ghost_start=ghost_start
-                    ghost_deadline=ghost_deadline
-                    ghost_hard=ghost_hard
-                />
-
-                // Quantity stepper
-                {if show_stepper {
-                    let id_for_stepper_clone = id_for_stepper.clone();
-                    view! {
-                        <QuantityStepper
-                            target=target_qty
-                            initial_actual=item.actual_quantity.unwrap_or(0)
-                            on_change=Callback::new(move |new_val: i32| {
-                                if let Some(cb) = on_quantity_change {
-                                    cb.run((id_for_stepper_clone.clone(), new_val));
-                                }
-                            })
-                            unit=unit_label.clone()
-                        />
-                    }.into_any()
-                } else {
-                    view! {}.into_any()
-                }}
-
-                // Move to dropdown
-                {if let Some(on_move_cb) = on_move.filter(|_| !move_targets.is_empty()) {
-                    let move_open = RwSignal::new(false);
-                    view! {
-                        <div class="relative">
-                            <button type="button" class="btn btn-ghost btn-xs btn-square" title="Przenie\u{015B} do..."
-                                on:click=move |_| move_open.update(|v| *v = !*v)
-                            >"\u{2197}"</button>
-                            <div
-                                class="absolute right-0 top-full mt-1 bg-base-200 border border-base-300 rounded-box min-w-44 max-h-60 overflow-y-auto z-50 p-2 shadow-lg"
-                                style:display=move || if move_open.get() { "block" } else { "none" }
-                            >
-                                {move_targets.iter().map(|(tid, tname)| {
-                                    let tid = tid.clone();
-                                    let tname = tname.clone();
-                                    let iid = id_move.clone();
-                                    view! {
-                                        <button type="button"
-                                            class="flex items-center gap-2 px-2 py-1.5 text-sm rounded cursor-pointer hover:bg-base-300 w-full text-left"
-                                            on:click=move |_| {
-                                                move_open.set(false);
-                                                on_move_cb.run((iid.clone(), tid.clone()));
-                                            }
-                                        >{tname.clone()}</button>
-                                    }
-                                }).collect::<Vec<_>>()}
+                <A href=item_href attr:class=link_class>
+                    {item.title.clone()}
+                </A>
+                {(!item_tags.is_empty()).then(|| view! {
+                    <div class="flex gap-1 shrink-0">
+                        {item_tags.clone().into_iter().map(|tag| view! {
+                            <TagBadge tag=tag />
+                        }).collect::<Vec<_>>()}
+                    </div>
+                })}
+                {(!chips.is_empty()).then(move || {
+                    let views: Vec<_> = chips.into_iter().map(|(icon, date_str, is_danger)| {
+                        let chip_class = if completed {
+                            "badge badge-ghost badge-sm opacity-40 shrink-0"
+                        } else if is_danger {
+                            "badge badge-error badge-sm shrink-0 cursor-pointer"
+                        } else {
+                            "badge badge-ghost badge-sm shrink-0 cursor-pointer hover:badge-primary"
+                        };
+                        if has_date_save && !completed {
+                            view! {
+                                <button
+                                    type="button"
+                                    class=chip_class
+                                    on:click=move |_| expanded.set(true)
+                                >
+                                    {icon} " " {date_str}
+                                </button>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <span class=chip_class>{icon} " " {date_str}</span>
+                            }.into_any()
+                        }
+                    }).collect();
+                    view! { <div class="flex gap-1 flex-wrap shrink-0">{views}</div> }
+                })}
+                {stepper}
+                {on_move
+                    .filter(|_| !move_targets.is_empty())
+                    .map(|cb| {
+                        let open = RwSignal::new(false);
+                        let targets = StoredValue::new(move_targets.clone());
+                        let iid = item_id_move.clone();
+                        view! {
+                            <div class="relative">
+                                <button
+                                    type="button"
+                                    class="btn btn-ghost btn-xs btn-square"
+                                    title="Przenieś do…"
+                                    data-testid="item-move-btn"
+                                    on:click=move |_| open.update(|v| *v = !*v)
+                                >{"↗"}</button>
+                                <div
+                                    class="absolute right-0 top-full mt-1 bg-base-200 border border-base-300 rounded-box min-w-44 max-h-60 overflow-y-auto z-50 p-2 shadow-lg"
+                                    style:display=move || if open.get() { "block" } else { "none" }
+                                    data-testid="item-move-menu"
+                                >
+                                    {move || targets.get_value().into_iter().map(|(tid, tname)| {
+                                        let iid = iid.clone();
+                                        view! {
+                                            <button type="button"
+                                                class="flex items-center gap-2 px-2 py-1.5 text-sm rounded cursor-pointer hover:bg-base-300 w-full text-left"
+                                                on:click=move |_| {
+                                                    open.set(false);
+                                                    cb.run((iid.clone(), tid.clone()));
+                                                }
+                                            >{tname.clone()}</button>
+                                        }
+                                    }).collect::<Vec<_>>()}
+                                </div>
                             </div>
-                        </div>
-                    }.into_any()
-                } else {
-                    view! {}.into_any()
-                }}
-
-                <button type="button" class="btn btn-ghost btn-xs btn-square opacity-60 hover:opacity-100"
-                    on:click=move |_| on_delete.run(id_delete.clone())
-                >"\u{2715}"</button>
+                        }
+                    })
+                }
+                {on_tag_toggle.zip(all_tags_for_selector).map(|(cb, all_tags)| {
+                    view! {
+                        <TagSelectorDropdown
+                            all_tags=all_tags
+                            item_tags=item_tags.clone()
+                            on_toggle=cb
+                        />
+                    }
+                })}
+                <button
+                    type="button"
+                    class="btn btn-ghost btn-xs btn-circle text-error"
+                    on:click=move |_| on_delete.run(item_id_delete.clone())
+                >
+                    {"✕"}
+                </button>
             </div>
 
-            // Row 2: Tags
-            {if has_tags {
-                view! {
-                    <div class="pl-14 pb-1">
-                        <TagList
-                            all_tags=all_tags.clone()
-                            selected_tag_ids=item_tag_ids.clone()
-                            on_toggle=on_tag_toggle
-                        />
-                    </div>
-                }.into_any()
-            } else {
-                view! {}.into_any()
-            }}
-
-            // Inline date editor (when a badge is clicked)
-            {move || {
-                let dt = editing_date.get();
-                if let (Some(dt), Some(on_save)) = (dt, on_date_save) {
-                    view! {
-                        <InlineDateEditorSection
-                            date_type=dt
-                            item=item_for_editor.clone()
-                            item_id=id_for_editor.clone()
-                            on_save=on_save
-                            on_close=Callback::new(move |()| editing_date.set(None))
-                        />
-                    }.into_any()
-                } else {
-                    view! {}.into_any()
-                }
-            }}
-
-            // Description (expandable)
             {move || {
                 if expanded.get() {
-                    let id_desc = id_for_desc.clone();
+                    let id_desc = item_id_desc.clone();
+                    let id_dates = item_id_dates.clone();
                     view! {
-                        <div class="pl-14 pb-2">
-                            <EditableDescription
-                                value=Some(description_text.get())
-                                on_save=Callback::new(move |new_val: Option<String>| {
-                                    let text = new_val.clone().unwrap_or_default();
-                                    description_text.set(text);
-                                    if let Some(cb) = on_description_save {
-                                        cb.run((id_desc.clone(), new_val.unwrap_or_default()));
-                                    }
-                                })
+                        <div class="pl-16 pt-2 flex flex-col gap-2">
+                            <textarea
+                                class="textarea textarea-bordered w-full text-sm h-20"
+                                placeholder="Opis..."
+                                prop:value=move || desc_text.get()
+                                on:input=move |ev| desc_text.set(event_target_value(&ev))
                             />
+                            <button
+                                type="button"
+                                class="btn btn-xs btn-primary self-start"
+                                on:click=move |_| {
+                                    if let Some(cb) = on_description_save {
+                                        cb.run((id_desc.clone(), desc_text.get_untracked()));
+                                    }
+                                }
+                            >
+                                "Zapisz opis"
+                            </button>
+
+                            {on_date_save.map(|save_cb| {
+                                let id = id_dates.clone();
+                                view! {
+                                    <div class="flex flex-col gap-2 text-sm">
+                                        <DateFieldInput
+                                            label="📅 Rozpoczęcie"
+                                            value=start_input
+                                            time_value=start_time_input
+                                            show_clear=true
+                                            show_quick=true
+                                        />
+                                        <DateFieldInput
+                                            label="⏰ Termin"
+                                            value=deadline_input
+                                            time_value=deadline_time_input
+                                            show_clear=true
+                                            show_quick=true
+                                        />
+                                        <DateFieldInput
+                                            label="🚨 Ostateczny"
+                                            value=hard_deadline_input
+                                            show_clear=true
+                                            show_quick=true
+                                        />
+                                        <button
+                                            type="button"
+                                            class="btn btn-xs btn-primary self-start mt-1"
+                                            on:click=move |_| {
+                                                save_cb.run((
+                                                    id.clone(),
+                                                    Some(start_input.get_untracked()),
+                                                    Some(start_time_input.get_untracked()),
+                                                    Some(deadline_input.get_untracked()),
+                                                    Some(deadline_time_input.get_untracked()),
+                                                    Some(hard_deadline_input.get_untracked()),
+                                                ));
+                                            }
+                                        >
+                                            "Zapisz daty"
+                                        </button>
+                                    </div>
+                                }
+                            })}
                         </div>
                     }.into_any()
                 } else {
-                    let desc = description_text.get();
+                    let desc = desc_text.get();
                     if desc.is_empty() {
                         view! {}.into_any()
                     } else {
                         view! {
-                            <p class="pl-14 pb-1 text-sm text-base-content/60">{desc}</p>
+                            <p class="pl-16 pt-1 text-sm text-base-content/60">{desc}</p>
                         }.into_any()
                     }
                 }

@@ -1,26 +1,29 @@
 use leptos::prelude::*;
 use leptos_fluent::leptos_fluent;
-use leptos_router::components::{Route, Router, Routes};
-use leptos_router::path;
+use leptos_router::{
+    components::{Route, Router, Routes},
+    path,
+};
 
-#[cfg(target_arch = "wasm32")]
-use crate::api::client::GlooClient;
-
-use crate::api::SessionInfo;
 use crate::components::nav::Nav;
-use crate::components::pwa_runtime::PwaRuntime;
-use crate::components::sync_locale::SyncLocale;
 use crate::components::toast_container::ToastContainer;
 use crate::pages::{
-    admin::AdminPage, calendar::CalendarPage, calendar::CalendarRootRedirect,
-    calendar::day::CalendarLegacyDayRedirect, container::ContainerPage, home::HomePage,
-    item_detail::ItemDetailPage, list::ListPage, login::LoginPage, oauth_consent::OAuthConsentPage,
-    search::SearchPage, settings::McpRedirect, settings::SettingsPage, signup::SignupPage,
-    tags::TagsPage, tags::detail::TagDetailPage, today::TodayPage,
+    all::AllPage,
+    calendar::{CalendarPage, day::CalendarDayPage},
+    container::ContainerPage,
+    home::HomePage,
+    item_detail::ItemDetailPage,
+    list::ListPage,
+    login::LoginPage,
+    oauth_consent::OAuthConsentPage,
+    settings::SettingsPage,
+    signup::SignupPage,
+    tags::{TagsPage, detail::TagDetailPage},
+    time::TimePage,
+    today::TodayPage,
 };
-use crate::state::AdminContext;
 
-pub type SessionResource = LocalResource<Option<SessionInfo>>;
+// ── Toast context ──────────────────────────────────────────────────────────────
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToastKind {
@@ -73,76 +76,67 @@ impl Default for ToastContext {
     }
 }
 
+// ── i18n ───────────────────────────────────────────────────────────────────────
+
 #[component]
 fn I18nProvider(children: Children) -> impl IntoView {
     leptos_fluent! {
         children: children(),
         locales: "../../locales",
         default_language: "en",
-        initial_language_from_local_storage: true,
+        set_language_to_cookie: true,
+        initial_language_from_cookie: true,
         initial_language_from_navigator: true,
-        initial_language_from_navigator_to_local_storage: true,
-        set_language_to_local_storage: true,
-        local_storage_key: "lang",
+        initial_language_from_accept_language_header: true,
+        cookie_name: "lang",
     }
 }
 
+// ── App ────────────────────────────────────────────────────────────────────────
+
 #[component]
 pub fn App() -> impl IntoView {
-    let toast_ctx = ToastContext::new();
-    provide_context(toast_ctx);
+    provide_context(ToastContext::new());
+    provide_context(crate::context::GlobalRefresh::new());
 
-    let admin_ctx = AdminContext::new();
-    provide_context(admin_ctx);
-
+    // Signal to e2e tests that WASM hydration is complete.
+    // Deferred so the Router and route components finish attaching event handlers.
     #[cfg(target_arch = "wasm32")]
-    provide_context(GlooClient);
-
-    let session_res: SessionResource = LocalResource::new(crate::api::get_session);
-    provide_context(session_res);
-
-    // Fetch /api/me after session resolves to populate is_admin signal
-    #[cfg(target_arch = "wasm32")]
-    {
-        let client = GlooClient;
-        Effect::new(move |_| {
-            if let Some(Some(_)) = session_res.get() {
-                let client = client.clone();
-                leptos::task::spawn_local(async move {
-                    if let Ok(me) = crate::api::admin::get_me(&client, None).await {
-                        admin_ctx.is_admin.set(me.is_admin);
+    set_timeout(
+        || {
+            if let Some(win) = web_sys::window() {
+                if let Some(doc) = win.document() {
+                    if let Some(body) = doc.body() {
+                        body.set_attribute("data-hydrated", "true").ok();
                     }
-                });
+                }
             }
-        });
-    }
+        },
+        std::time::Duration::ZERO,
+    );
 
     view! {
         <I18nProvider>
-            <PwaRuntime/>
-            <SyncLocale/>
             <Router>
                 <Nav/>
                 <ToastContainer/>
-                <main class="container app-main">
-                    <Routes fallback=|| view! { <p>"Nie znaleziono strony"</p> }>
+                <main class="container mx-auto px-4">
+                    <Routes fallback=|| view! { <p class="p-4">"404 — Nie znaleziono strony"</p> }>
                         <Route path=path!("/") view=HomePage/>
+                        <Route path=path!("/all") view=AllPage/>
                         <Route path=path!("/today") view=TodayPage/>
-                        <Route path=path!("/search") view=SearchPage/>
+                        <Route path=path!("/time") view=TimePage/>
                         <Route path=path!("/login") view=LoginPage/>
                         <Route path=path!("/signup") view=SignupPage/>
                         <Route path=path!("/settings") view=SettingsPage/>
-                        <Route path=path!("/mcp") view=McpRedirect/>
-                        <Route path=path!("/oauth/consent") view=OAuthConsentPage/>
-                        <Route path=path!("/calendar") view=CalendarRootRedirect/>
-                        <Route path=path!("/calendar/:date") view=CalendarLegacyDayRedirect/>
-                        <Route path=path!("/calendar/:year/:month/:day") view=CalendarPage/>
+                        <Route path=path!("/consent") view=OAuthConsentPage/>
+                        <Route path=path!("/calendar") view=CalendarPage/>
+                        <Route path=path!("/calendar/:date") view=CalendarDayPage/>
                         <Route path=path!("/tags") view=TagsPage/>
                         <Route path=path!("/tags/:id") view=TagDetailPage/>
                         <Route path=path!("/lists/:list_id/items/:id") view=ItemDetailPage/>
                         <Route path=path!("/lists/:id") view=ListPage/>
                         <Route path=path!("/containers/:id") view=ContainerPage/>
-                        <Route path=path!("/admin") view=AdminPage/>
                     </Routes>
                 </main>
             </Router>

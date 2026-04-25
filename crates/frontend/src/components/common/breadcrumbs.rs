@@ -1,20 +1,25 @@
-pub use crate::state::view_helpers::{
-    BreadcrumbCrumb, build_container_breadcrumbs, build_list_ancestor_breadcrumbs,
-};
 use leptos::prelude::*;
+use leptos_router::components::A;
 
+/// DaisyUI breadcrumb trail. `crumbs` are all ancestor links; `current` is the current page (no link).
 #[component]
-pub fn Breadcrumbs(crumbs: Vec<BreadcrumbCrumb>) -> impl IntoView {
+pub fn Breadcrumbs(crumbs: Vec<(String, String)>, current: String) -> impl IntoView {
+    if crumbs.is_empty() {
+        return view! {}.into_any();
+    }
+
     view! {
-        <div class="breadcrumbs text-sm mb-4">
+        <div class="text-sm breadcrumbs mb-2">
             <ul>
-                <li><a href="/">"Home"</a></li>
-                {crumbs.into_iter().map(|(label, href)| {
+                <li><A href="/">"Strona główna"</A></li>
+                {crumbs.into_iter().map(|(href, label)| {
                     view! {
-                        <li><a href=href>{label}</a></li>
+                        <li><A href=href>{label}</A></li>
                     }
-                }).collect::<Vec<_>>()}
+                }).collect_view()}
+                <li>{current}</li>
             </ul>
         </div>
     }
+    .into_any()
 }

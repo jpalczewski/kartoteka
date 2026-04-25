@@ -1,305 +1,188 @@
-use kartoteka_shared::{
-    Container, CreateContainerRequest, CreateListRequest, List, ListTagLink,
-    ReorderContainersRequest, SetListPlacementRequest, Tag,
-};
+use kartoteka_shared::types::{CreateContainerRequest, CreateListRequest};
 use leptos::prelude::*;
-use leptos_fluent::move_tr;
 
-use crate::api;
-use crate::api::client::GlooClient;
-use crate::app::{SessionResource, ToastContext, ToastKind};
-use crate::components::common::dnd::{
-    DragHandleButton, DragHandleLabel, DragShell, DragSurface, ReorderDropTarget,
+use crate::app::{ToastContext, ToastKind};
+use crate::components::common::{
+    confirm_modal::{ConfirmModal, ConfirmVariant},
+    loading::LoadingSpinner,
 };
-use crate::components::common::loading::LoadingSpinner;
-use crate::components::confirm_delete_modal::ConfirmDeleteModal;
-use crate::components::container_card::ContainerCard;
-use crate::components::create_entity_input::CreateEntityInput;
-use crate::components::list_card::{ListCard, list_type_icon};
-use crate::components::tags::tag_filter_bar::TagFilterBar;
-use crate::components::tags::tag_tree::build_tag_filter_options;
-use crate::state::dnd::{DndState, DropTarget, reorder_ids_for_target};
-use crate::state::item_mutations::run_optimistic_mutation;
-use crate::state::reorder::apply_reorder;
-
-#[component]
-fn LandingPage() -> impl IntoView {
-    view! {
-        <div class="flex flex-col items-center justify-center min-h-[60vh] p-4">
-            <div class="card bg-base-200 border border-base-300 w-full max-w-sm text-center">
-                <div class="card-body items-center gap-4">
-                    <h1 class="text-3xl font-bold text-primary">{move_tr!("app-title")}</h1>
-                    <p class="text-base-content/70">{move_tr!("landing-tagline")}</p>
-                    <div class="flex gap-3 mt-2">
-                        <a href="/login" class="btn btn-primary">{move_tr!("auth-login-button")}</a>
-                        <a href="/signup" class="btn btn-outline">{move_tr!("auth-signup-button")}</a>
-                    </div>
-                </div>
-            </div>
-        </div>
-    }
-}
+use crate::components::home::{
+    pinned_section::PinnedSection, recent_section::RecentSection, root_section::RootSection,
+};
+use crate::components::lists::create_entity_input::CreateEntityInput;
+use crate::components::tags::tag_badge::TagBadge;
+use crate::context::GlobalRefresh;
+use crate::server_fns::{
+    containers::{create_container, delete_container, toggle_container_pin},
+    home::{get_archived_lists, get_home_data},
+    lists::{archive_list, create_list, delete_list},
+    tags::{assign_tag_to_list, get_all_tags, get_list_tag_links, remove_tag_from_list},
+};
 
 #[component]
 pub fn HomePage() -> impl IntoView {
-    let session_res = use_context::<SessionResource>().expect("SessionResource missing");
-
-    view! {
-        {move || match session_res.get() {
-            None => view! { <LoadingSpinner/> }.into_any(),
-            Some(None) => view! { <LandingPage/> }.into_any(),
-            Some(Some(_)) => view! { <HomePageInner/> }.into_any(),
-        }}
-    }
-}
-
-#[component]
-fn HomePageInner() -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let client = use_context::<GlooClient>().expect("GlooClient not provided");
 
+    // Refresh trigger — incrementing causes all Resources to refetch
     let (refresh, set_refresh) = signal(0u32);
+    let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
+
+    // Tag filter — which tag_id is active (None = no filter)
     let (active_tag_filter, set_active_tag_filter) = signal(Option::<String>::None);
-    let pending_delete = RwSignal::new(Option::<(String, String)>::None);
 
-    // Home data: pinned + recent + root
-    let home_res = {
-        let client = client.clone();
-        LocalResource::new(move || {
-            let _ = refresh.get();
-            let client = client.clone();
-            async move { api::fetch_home(&client).await }
-        })
-    };
+    // Pending delete state — (list_id, list_name)
+    let pending_delete: RwSignal<Option<(String, String)>> = RwSignal::new(None);
 
-    let pinned_lists = RwSignal::new(Vec::<List>::new());
-    let pinned_containers = RwSignal::new(Vec::<Container>::new());
-    let recent_lists = RwSignal::new(Vec::<List>::new());
-    let recent_containers = RwSignal::new(Vec::<Container>::new());
-    let root_containers = RwSignal::new(Vec::<Container>::new());
-    let root_lists = RwSignal::new(Vec::<List>::new());
-    let root_container_dnd_state = RwSignal::new(DndState::default());
-    let root_list_dnd_state = RwSignal::new(DndState::default());
+    // Resources — fetched server-side at initial render, refetched on refresh signal
+    let home_res = Resource::new(
+        move || (refresh.get(), global_refresh.get()),
+        |_| get_home_data(),
+    );
+    let archived_res = Resource::new(
+        move || (refresh.get(), global_refresh.get()),
+        |_| get_archived_lists(),
+    );
+    let tags_res = Resource::new(|| (), |_| get_all_tags());
+    let tag_links_res = Resource::new(
+        move || (refresh.get(), global_refresh.get()),
+        |_| get_list_tag_links(),
+    );
 
-    Effect::new(move |_| {
-        if let Some(Ok(data)) = home_res.get() {
-            pinned_lists.set(data.pinned_lists);
-            pinned_containers.set(data.pinned_containers);
-            recent_lists.set(data.recent_lists);
-            recent_containers.set(data.recent_containers);
-            root_containers.set(data.root_containers);
-            root_lists.set(data.root_lists);
-        }
+    // ── Mutation callbacks ─────────────────────────────────────────────
+
+    let on_create_list = Callback::new(move |req: CreateListRequest| {
+        leptos::task::spawn_local(async move {
+            match create_list(req).await {
+                Ok(_) => set_refresh.update(|n| *n += 1),
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+        });
     });
 
-    // Archived lists
-    let archived_res = {
-        let client = client.clone();
-        LocalResource::new(move || {
-            let _ = refresh.get();
-            let client = client.clone();
-            async move { api::fetch_archived_lists(&client).await }
-        })
-    };
-    let archived_data = RwSignal::new(Vec::<List>::new());
-    Effect::new(move |_| {
-        if let Some(Ok(lists)) = archived_res.get() {
-            archived_data.set(lists);
-        }
+    let on_create_container = Callback::new(move |req: CreateContainerRequest| {
+        leptos::task::spawn_local(async move {
+            match create_container(req).await {
+                Ok(_) => set_refresh.update(|n| *n += 1),
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+        });
     });
 
-    let tags_res = {
-        let client = client.clone();
-        LocalResource::new(move || {
-            let client = client.clone();
-            async move { api::fetch_tags(&client).await }
-        })
-    };
-
-    let links_res = {
-        let client = client.clone();
-        LocalResource::new(move || {
-            let _ = refresh.get();
-            let client = client.clone();
-            async move { api::fetch_list_tag_links(&client).await }
-        })
-    };
-
-    let list_tag_links = RwSignal::new(Vec::<ListTagLink>::new());
-    Effect::new(move |_| {
-        if let Some(Ok(links)) = links_res.get() {
-            list_tag_links.set(links);
-        }
+    let on_delete_list_confirmed = Callback::new(move |list_id: String| {
+        leptos::task::spawn_local(async move {
+            match delete_list(list_id).await {
+                Ok(_) => {
+                    pending_delete.set(None);
+                    set_refresh.update(|n| *n += 1);
+                    toast.push("Lista usunięta.".to_string(), ToastKind::Success);
+                }
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+        });
     });
 
-    let on_list_tag_toggle = {
-        let client = client.clone();
-        Callback::new(move |(list_id, tag_id): (String, String)| {
-            let has_tag = list_tag_links
-                .read()
+    let on_delete_container = Callback::new(move |container_id: String| {
+        leptos::task::spawn_local(async move {
+            match delete_container(container_id).await {
+                Ok(_) => {
+                    set_refresh.update(|n| *n += 1);
+                    toast.push("Folder usunięty.".to_string(), ToastKind::Success);
+                }
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+        });
+    });
+
+    let on_pin_container = Callback::new(move |container_id: String| {
+        leptos::task::spawn_local(async move {
+            match toggle_container_pin(container_id).await {
+                Ok(_) => set_refresh.update(|n| *n += 1),
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+        });
+    });
+
+    let on_tag_toggle = Callback::new(move |(list_id, tag_id): (String, String)| {
+        leptos::task::spawn_local(async move {
+            let has_tag = tag_links_res
+                .get()
+                .and_then(|r| r.ok())
+                .unwrap_or_default()
                 .iter()
                 .any(|l| l.list_id == list_id && l.tag_id == tag_id);
-            if has_tag {
-                list_tag_links.update(|links| {
-                    links.retain(|l| !(l.list_id == list_id && l.tag_id == tag_id))
-                });
-                let client = client.clone();
-                leptos::task::spawn_local(async move {
-                    let _ = api::remove_tag_from_list(&client, &list_id, &tag_id).await;
-                });
+            let result = if has_tag {
+                remove_tag_from_list(list_id, tag_id).await
             } else {
-                list_tag_links.update(|links| {
-                    links.push(ListTagLink {
-                        list_id: list_id.clone(),
-                        tag_id: tag_id.clone(),
-                    })
-                });
-                let client = client.clone();
-                leptos::task::spawn_local(async move {
-                    let _ = api::assign_tag_to_list(&client, &list_id, &tag_id).await;
-                });
+                assign_tag_to_list(list_id, tag_id).await
+            };
+            if let Err(e) = result {
+                toast.push(e.to_string(), ToastKind::Error);
             }
-        })
-    };
+            set_refresh.update(|n| *n += 1);
+        });
+    });
 
-    let on_create_list = {
-        let client = client.clone();
-        Callback::new(move |req: CreateListRequest| {
-            let client = client.clone();
-            leptos::task::spawn_local(async move {
-                match api::create_list(&client, &req).await {
-                    Ok(_) => set_refresh.update(|n| *n += 1),
-                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+    let on_restore_list = Callback::new(move |list_id: String| {
+        leptos::task::spawn_local(async move {
+            match archive_list(list_id).await {
+                Ok(_) => {
+                    set_refresh.update(|n| *n += 1);
+                    toast.push("Lista przywrócona.".to_string(), ToastKind::Success);
                 }
-            });
-        })
-    };
-
-    let on_create_container = {
-        let client = client.clone();
-        Callback::new(move |req: CreateContainerRequest| {
-            let client = client.clone();
-            leptos::task::spawn_local(async move {
-                match api::create_container(&client, &req).await {
-                    Ok(_) => set_refresh.update(|n| *n += 1),
-                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                }
-            });
-        })
-    };
-
-    let on_root_container_drop = {
-        let client = client.clone();
-        Callback::new(move |target: DropTarget| {
-            let Some(dragged_id) = root_container_dnd_state.get_untracked().dragged_id.clone()
-            else {
-                return;
-            };
-            let current_ids: Vec<String> = root_containers
-                .get_untracked()
-                .into_iter()
-                .map(|container| container.id)
-                .collect();
-            let Some(next_ids) = reorder_ids_for_target(&current_ids, &dragged_id, &target) else {
-                return;
-            };
-
-            let request = ReorderContainersRequest {
-                container_ids: next_ids.clone(),
-                parent_container_id: None,
-            };
-            let dragged_id_for_mutation = dragged_id.clone();
-            let target_for_mutation = target.clone();
-            let client = client.clone();
-            run_optimistic_mutation(
-                root_containers,
-                move |containers| {
-                    let current_ids: Vec<String> = containers
-                        .iter()
-                        .map(|container| container.id.clone())
-                        .collect();
-                    let Some(next_ids) = reorder_ids_for_target(
-                        &current_ids,
-                        &dragged_id_for_mutation,
-                        &target_for_mutation,
-                    ) else {
-                        return false;
-                    };
-                    apply_reorder(containers, &next_ids, |container| container.id.as_str())
-                },
-                move || async move { api::reorder_containers(&client, &request).await },
-                move |error| toast.push(error.to_string(), ToastKind::Error),
-            );
-        })
-    };
-
-    let on_root_list_drop = {
-        let client = client.clone();
-        Callback::new(move |target: DropTarget| {
-            let Some(dragged_id) = root_list_dnd_state.get_untracked().dragged_id.clone() else {
-                return;
-            };
-            let current_ids: Vec<String> = root_lists
-                .get_untracked()
-                .into_iter()
-                .map(|list| list.id)
-                .collect();
-            let Some(next_ids) = reorder_ids_for_target(&current_ids, &dragged_id, &target) else {
-                return;
-            };
-
-            let request = SetListPlacementRequest {
-                list_ids: next_ids.clone(),
-                parent_list_id: None,
-                container_id: None,
-            };
-            let dragged_id_for_mutation = dragged_id.clone();
-            let target_for_mutation = target.clone();
-            let client = client.clone();
-            run_optimistic_mutation(
-                root_lists,
-                move |lists| {
-                    let current_ids: Vec<String> =
-                        lists.iter().map(|list| list.id.clone()).collect();
-                    let Some(next_ids) = reorder_ids_for_target(
-                        &current_ids,
-                        &dragged_id_for_mutation,
-                        &target_for_mutation,
-                    ) else {
-                        return false;
-                    };
-                    apply_reorder(lists, &next_ids, |list| list.id.as_str())
-                },
-                move || async move { api::reorder_lists(&client, &request).await },
-                move |error| toast.push(error.to_string(), ToastKind::Error),
-            );
-        })
-    };
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+        });
+    });
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            <h2 class="text-2xl font-bold mb-4">{move_tr!("home-title")}</h2>
+            <h2 class="text-2xl font-bold mb-4">"Strona główna"</h2>
+
+            {move || pending_delete.get().map(|(lid, lname)| {
+                let lid_confirm = lid.clone();
+                view! {
+                    <ConfirmModal
+                        open=Signal::derive(move || pending_delete.get().is_some())
+                        title="Usuń listę".to_string()
+                        message=format!("Czy na pewno chcesz usunąć listę \"{}\"?", lname)
+                        confirm_label="Usuń".to_string()
+                        variant=ConfirmVariant::Danger
+                        on_close=Callback::new(move |_| pending_delete.set(None))
+                        on_confirm=Callback::new(move |_| {
+                            pending_delete.set(None);
+                            on_delete_list_confirmed.run(lid_confirm.clone());
+                        })
+                    />
+                }
+            })}
 
             // Tag filter bar
-            <Suspense fallback=|| view! {}>
-                {move || if let Some(Ok(tags)) = tags_res.get() {
-                    if !tags.is_empty() {
-                        let tag_ids: Vec<String> = tags.iter().map(|tag| tag.id.clone()).collect();
-                        let filter_options = build_tag_filter_options(&tags, &tag_ids);
+            <Transition fallback=|| view! {}>
+                {move || tags_res.get().map(|result| match result {
+                    Ok(tags) if !tags.is_empty() => {
                         view! {
-                            <TagFilterBar
-                                tags=filter_options
-                                active_tag_id=active_tag_filter
-                                on_select=set_active_tag_filter
-                            />
+                            <div class="flex flex-wrap gap-1 mb-3">
+                                {tags.into_iter().map(|tag| {
+                                    let tid = tag.id.clone();
+                                    let is_active = active_tag_filter.get().as_deref() == Some(&tid);
+                                    view! {
+                                        <TagBadge
+                                            tag=tag
+                                            active=is_active
+                                            on_click=Callback::new(move |id: String| {
+                                                set_active_tag_filter.update(|f| {
+                                                    *f = if f.as_deref() == Some(&id) { None } else { Some(id) };
+                                                });
+                                            })
+                                        />
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </div>
                         }.into_any()
-                    } else {
-                        view! {}.into_any()
                     }
-                } else {
-                    view! {}.into_any()
-                }}
-            </Suspense>
+                    _ => view! {}.into_any(),
+                })}
+            </Transition>
 
             // Create form
             <CreateEntityInput
@@ -308,424 +191,111 @@ fn HomePageInner() -> impl IntoView {
                 on_create_container=on_create_container
             />
 
-            // Delete confirmation modal
-            {move || pending_delete.get().map(|(lid, lname)| {
-                let lid_confirm = lid.clone();
-                let client = use_context::<GlooClient>().expect("GlooClient not provided");
-                view! {
-                    <ConfirmDeleteModal
-                        list_id=lid
-                        list_name=lname
-                        on_confirm=Callback::new(move |_| {
-                            let lid = lid_confirm.clone();
-                            let client = client.clone();
-                            leptos::task::spawn_local(async move {
-                                let removed_idx = root_lists.read().iter().position(|l| l.id == lid);
-                                let removed = root_lists.read().iter().find(|l| l.id == lid).cloned();
-                                root_lists.update(|ls| ls.retain(|l| l.id != lid));
-                                pinned_lists.update(|ls| ls.retain(|l| l.id != lid));
-                                recent_lists.update(|ls| ls.retain(|l| l.id != lid));
-                                pending_delete.set(None);
+            // Main content: sections
+            <Transition fallback=|| view! { <LoadingSpinner/> }>
+                {move || {
+                    let home = home_res.get();
+                    let links = tag_links_res.get();
+                    let all_tags = tags_res.get();
 
-                                match api::delete_list(&client, &lid).await {
-                                    Ok(()) => toast.push(move_tr!("home-list-deleted").get(), ToastKind::Success),
-                                    Err(e) => {
-                                        if let (Some(list), Some(idx)) = (removed, removed_idx) {
-                                            root_lists.update(|ls| {
-                                                let idx = idx.min(ls.len());
-                                                ls.insert(idx, list);
-                                            });
-                                        }
-                                        toast.push(e.to_string(), ToastKind::Error);
-                                    }
-                                }
+                    match (home, links, all_tags) {
+                        (Some(Ok(data)), Some(Ok(all_links)), Some(Ok(tags))) => {
+                            // Pre-extract list names for delete modal
+                            let all_lists_for_name: Vec<(String, String)> = data.pinned_lists.iter()
+                                .chain(data.recent_lists.iter())
+                                .chain(data.root_lists.iter())
+                                .map(|l| (l.id.clone(), l.name.clone()))
+                                .collect();
+
+                            let del_cb = Callback::new(move |list_id: String| {
+                                let name = all_lists_for_name.iter()
+                                    .find(|(id, _)| id == &list_id)
+                                    .map(|(_, n)| n.clone())
+                                    .unwrap_or_default();
+                                pending_delete.set(Some((list_id, name)));
                             });
-                        })
-                        on_cancel=Callback::new(move |_| pending_delete.set(None))
-                    />
-                }
-            })}
 
-            {move || {
-                if home_res.get().is_none() {
-                    return view! { <LoadingSpinner/> }.into_any();
-                }
-
-                let all_tags: Vec<Tag> = tags_res
-                    .get()
-                    .and_then(|r| r.ok())
-                    .unwrap_or_default();
-                let all_links = list_tag_links.get();
-                let filter = active_tag_filter.get();
-
-                let pl = pinned_lists.get();
-                let pc = pinned_containers.get();
-                let rl = recent_lists.get();
-                let rc = recent_containers.get();
-                let rc_list = root_containers.get();
-                let rll = root_lists.get();
-
-                let filter_list = |list: &List| match &filter {
-                    None => true,
-                    Some(tag_id) => all_links
-                        .iter()
-                        .any(|link| link.list_id == list.id && &link.tag_id == tag_id),
-                };
-
-                let client_inner = use_context::<GlooClient>().expect("GlooClient not provided");
-
-                view! {
-                    <div>
-                        // === Pinned section ===
-                        {if !pl.is_empty() || !pc.is_empty() {
-                            let pl = pl.clone();
-                            let pc = pc.clone();
-                            let all_tags = all_tags.clone();
-                            let all_links = all_links.clone();
-                            let client_p = client_inner.clone();
                             view! {
-                                <div class="collapse collapse-arrow bg-base-200 mb-4">
-                                    <input type="checkbox" checked />
-                                    <div class="collapse-title font-semibold">"📌 " {move_tr!("home-pinned")}</div>
-                                    <div class="collapse-content">
-                                        <div class="flex flex-col gap-3 pt-2">
-                                            {pc.into_iter().map(|c| {
-                                                let cid = c.id.clone();
-                                                let client_pp = client_p.clone();
-                                                view! {
-                                                    <ContainerCard
-                                                        container=c
-                                                        on_pin=Callback::new(move |_| {
-                                                            let cid = cid.clone();
-                                                            let client_pp = client_pp.clone();
-                                                            leptos::task::spawn_local(async move {
-                                                                let _ = api::toggle_container_pin(&client_pp, &cid).await;
-                                                                set_refresh.update(|n| *n += 1);
-                                                            });
-                                                        })
-                                                    />
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                            {pl.into_iter().filter(|l| filter_list(l)).map(|list| {
-                                                let list_id = list.id.clone();
-                                                let list_name = list.name.clone();
-                                                let lid_del = list.id.clone();
-                                                let list_tag_ids: Vec<String> = all_links
-                                                    .iter()
-                                                    .filter(|l| l.list_id == list.id)
-                                                    .map(|l| l.tag_id.clone())
-                                                    .collect();
-                                                let tog = on_list_tag_toggle.clone();
-                                                let tag_cb = Callback::new(move |tag_id: String| tog.run((list_id.clone(), tag_id)));
-                                                view! {
-                                                    <ListCard
-                                                        list
-                                                        all_tags=all_tags.clone()
-                                                        list_tag_ids
-                                                        on_tag_toggle=tag_cb
-                                                        on_delete=Callback::new(move |_: String| {
-                                                            pending_delete.set(Some((lid_del.clone(), list_name.clone())));
-                                                        })
-                                                    />
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                        </div>
-                                    </div>
+                                <div>
+                                    <PinnedSection
+                                        pinned_lists=data.pinned_lists.clone()
+                                        pinned_containers=data.pinned_containers.clone()
+                                        all_tags=tags.clone()
+                                        all_links=all_links.clone()
+                                        _active_tag_filter=active_tag_filter
+                                        on_tag_toggle=on_tag_toggle
+                                        on_delete_list=del_cb
+                                        on_pin_container=on_pin_container
+                                    />
+                                    <RecentSection
+                                        recent_lists=data.recent_lists.clone()
+                                        recent_containers=data.recent_containers.clone()
+                                        all_tags=tags.clone()
+                                        all_links=all_links.clone()
+                                        active_tag_filter=active_tag_filter
+                                        on_tag_toggle=on_tag_toggle
+                                        on_delete_list=del_cb
+                                    />
+                                    <RootSection
+                                        root_containers=data.root_containers.clone()
+                                        root_lists=data.root_lists.clone()
+                                        all_tags=tags.clone()
+                                        all_links=all_links.clone()
+                                        active_tag_filter=active_tag_filter
+                                        on_tag_toggle=on_tag_toggle
+                                        on_delete_list=del_cb
+                                        on_delete_container=on_delete_container
+                                        on_pin_container=on_pin_container
+                                    />
                                 </div>
                             }.into_any()
-                        } else {
-                            view! {}.into_any()
-                        }}
+                        }
+                        (Some(Err(e)), _, _) => view! {
+                            <p class="text-error">"Error: " {e.to_string()}</p>
+                        }.into_any(),
+                        _ => view! { <LoadingSpinner/> }.into_any(),
+                    }
+                }}
+            </Transition>
 
-                        // === Recent section ===
-                        {if !rl.is_empty() || !rc.is_empty() {
-                            let rl = rl.clone();
-                            let rc = rc.clone();
-                            let all_tags = all_tags.clone();
-                            let all_links = all_links.clone();
-                            view! {
-                                <div class="collapse collapse-arrow bg-base-200 mb-4">
-                                    <input type="checkbox" checked />
-                                    <div class="collapse-title font-semibold">"🕐 " {move_tr!("home-recent")}</div>
-                                    <div class="collapse-content">
-                                        <div class="flex flex-col gap-3 pt-2">
-                                            {rc.into_iter().map(|c| {
-                                                view! {
-                                                    <ContainerCard container=c />
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                            {rl.into_iter().filter(|l| filter_list(l)).map(|list| {
-                                                let list_id = list.id.clone();
-                                                let list_name = list.name.clone();
-                                                let lid_del = list.id.clone();
-                                                let list_tag_ids: Vec<String> = all_links
-                                                    .iter()
-                                                    .filter(|l| l.list_id == list.id)
-                                                    .map(|l| l.tag_id.clone())
-                                                    .collect();
-                                                let tog = on_list_tag_toggle.clone();
-                                                let tag_cb = Callback::new(move |tag_id: String| tog.run((list_id.clone(), tag_id)));
-                                                view! {
-                                                    <ListCard
-                                                        list
-                                                        all_tags=all_tags.clone()
-                                                        list_tag_ids
-                                                        on_tag_toggle=tag_cb
-                                                        on_delete=Callback::new(move |_: String| {
-                                                            pending_delete.set(Some((lid_del.clone(), list_name.clone())));
-                                                        })
-                                                    />
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                        </div>
-                                    </div>
+            // Archived section
+            <Transition fallback=|| view! {}>
+                {move || archived_res.get().map(|result| match result {
+                    Ok(archived) if !archived.is_empty() => {
+                        let count = archived.len();
+                        view! {
+                            <div class="collapse collapse-arrow bg-base-200 mt-6">
+                                <input type="checkbox" />
+                                <div class="collapse-title font-semibold">
+                                    "📦 Zarchiwizowane (" {count} ")"
                                 </div>
-                            }.into_any()
-                        } else {
-                            view! {}.into_any()
-                        }}
-
-                        // === Root containers ===
-                        {if !rc_list.is_empty() {
-                            let rc_list = rc_list.clone();
-                            let client_rc = client_inner.clone();
-                            view! {
-                                <div class="mb-4">
-                                    <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">{move_tr!("home-folders-and-projects")}</h3>
-                                    <div class="flex flex-col gap-3">
-                                        {rc_list.into_iter().map(|c| {
-                                            let drop_target = DropTarget::before(c.id.clone());
-                                            let drop_target_for_marker = drop_target.clone();
-                                            let drop_target_for_surface = drop_target.clone();
-                                            let drag_id = c.id.clone();
-                                            let drag_id_for_handle = drag_id.clone();
-                                            let drag_id_for_shell = drag_id.clone();
-                                            let drag_id_for_surface = drag_id.clone();
-                                            let cid = c.id.clone();
-                                            let cid_del = c.id.clone();
-                                            let client_del = client_rc.clone();
-                                            let client_pn = client_rc.clone();
+                                <div class="collapse-content">
+                                    <div class="flex flex-col gap-2 pt-2">
+                                        {archived.into_iter().map(|list| {
+                                            let lid = list.id.clone();
                                             view! {
-                                                <div class="flex flex-col gap-2">
-                                                    <ReorderDropTarget
-                                                        dnd_state=root_container_dnd_state
-                                                        target=drop_target_for_marker
-                                                        on_drop=on_root_container_drop.clone()
-                                                    />
-                                                    <DragShell dnd_state=root_container_dnd_state dragged_id=drag_id_for_shell>
-                                                        <DragHandleButton
-                                                            dnd_state=root_container_dnd_state
-                                                            dragged_id=drag_id_for_handle
-                                                            label=DragHandleLabel::Reorder
-                                                        />
-                                                        <DragSurface
-                                                            dnd_state=root_container_dnd_state
-                                                            dragged_id=drag_id_for_surface
-                                                            hover_target=drop_target_for_surface
-                                                        >
-                                                            <ContainerCard
-                                                                container=c
-                                                                on_delete=Callback::new(move |_: String| {
-                                                                    let cid = cid_del.clone();
-                                                                    let client_del = client_del.clone();
-                                                                    leptos::task::spawn_local(async move {
-                                                                        match api::delete_container(&client_del, &cid).await {
-                                                                            Ok(()) => {
-                                                                                root_containers.update(|cs| cs.retain(|c| c.id != cid));
-                                                                                toast.push(move_tr!("home-container-deleted").get(), ToastKind::Success);
-                                                                            }
-                                                                            Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                                        }
-                                                                    });
-                                                                })
-                                                                on_pin=Callback::new(move |_| {
-                                                                    let cid = cid.clone();
-                                                                    let client_pn = client_pn.clone();
-                                                                    leptos::task::spawn_local(async move {
-                                                                        let _ = api::toggle_container_pin(&client_pn, &cid).await;
-                                                                        set_refresh.update(|n| *n += 1);
-                                                                    });
-                                                                })
-                                                            />
-                                                        </DragSurface>
-                                                    </DragShell>
+                                                <div class="flex items-center justify-between p-3 bg-base-100 rounded-lg">
+                                                    <span class="text-base-content/70">
+                                                        {list.name.clone()}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        class="btn btn-ghost btn-sm"
+                                                        on:click=move |_| on_restore_list.run(lid.clone())
+                                                    >
+                                                        "Przywróć"
+                                                    </button>
                                                 </div>
                                             }
                                         }).collect::<Vec<_>>()}
-                                        <ReorderDropTarget
-                                            dnd_state=root_container_dnd_state
-                                            target=DropTarget::end()
-                                            on_drop=on_root_container_drop
-                                        />
                                     </div>
                                 </div>
-                            }.into_any()
-                        } else {
-                            view! {}.into_any()
-                        }}
-
-                        // === Root lists ===
-                        {
-                            let filtered: Vec<List> = rll.iter()
-                                .filter(|l| filter_list(l))
-                                .cloned()
-                                .collect();
-
-                            if filtered.is_empty() && rc_list.is_empty() && pl.is_empty() && pc.is_empty() {
-                                view! {
-                                    <div class="text-center text-base-content/50 py-12">{move_tr!("home-empty")}</div>
-                                }.into_any()
-                            } else if filtered.is_empty() {
-                                view! {}.into_any()
-                            } else {
-                                let all_tags = all_tags.clone();
-                                let all_links = all_links.clone();
-                                let can_reorder_root_lists = filter.is_none();
-                                view! {
-                                    <div>
-                                        {if !rc_list.is_empty() {
-                                            view! {
-                                                <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">{move_tr!("home-lists")}</h3>
-                                            }.into_any()
-                                        } else { view! {}.into_any() }}
-                                        <div class="flex flex-col gap-3">
-                                            {filtered.into_iter().map(|list| {
-                                                let drag_id = list.id.clone();
-                                                let drop_target = DropTarget::before(list.id.clone());
-                                                let drop_target_for_marker = drop_target.clone();
-                                                let drop_target_for_surface = drop_target.clone();
-                                                let drag_id_for_handle = drag_id.clone();
-                                                let drag_id_for_shell = drag_id.clone();
-                                                let drag_id_for_surface = drag_id.clone();
-                                                let list_id = list.id.clone();
-                                                let list_name = list.name.clone();
-                                                let lid_del = list.id.clone();
-                                                let list_tag_ids: Vec<String> = all_links
-                                                    .iter()
-                                                    .filter(|l| l.list_id == list.id)
-                                                    .map(|l| l.tag_id.clone())
-                                                    .collect();
-                                                let tags_for_card = all_tags.clone();
-                                                let tog = on_list_tag_toggle.clone();
-                                                let tag_cb = Callback::new(move |tag_id: String| tog.run((list_id.clone(), tag_id)));
-                                                view! {
-                                                    <div class="flex flex-col gap-2">
-                                                        {if can_reorder_root_lists {
-                                                            view! {
-                                                                <ReorderDropTarget
-                                                                    dnd_state=root_list_dnd_state
-                                                                    target=drop_target_for_marker
-                                                                    on_drop=on_root_list_drop.clone()
-                                                                />
-                                                            }.into_any()
-                                                        } else {
-                                                            view! {}.into_any()
-                                                        }}
-                                                        <DragShell dnd_state=root_list_dnd_state dragged_id=drag_id_for_shell>
-                                                            {if can_reorder_root_lists {
-                                                                view! {
-                                                                    <DragHandleButton
-                                                                        dnd_state=root_list_dnd_state
-                                                                        dragged_id=drag_id_for_handle
-                                                                        label=DragHandleLabel::Reorder
-                                                                    />
-                                                                }.into_any()
-                                                            } else {
-                                                                view! {}.into_any()
-                                                            }}
-                                                            <DragSurface
-                                                                dnd_state=root_list_dnd_state
-                                                                dragged_id=drag_id_for_surface
-                                                                hover_target=drop_target_for_surface
-                                                            >
-                                                                <ListCard
-                                                                    list
-                                                                    all_tags=tags_for_card
-                                                                    list_tag_ids
-                                                                    on_tag_toggle=tag_cb
-                                                                    on_delete=Callback::new(move |_: String| {
-                                                                        pending_delete.set(Some((lid_del.clone(), list_name.clone())));
-                                                                    })
-                                                                />
-                                                            </DragSurface>
-                                                        </DragShell>
-                                                    </div>
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                            {if can_reorder_root_lists {
-                                                view! {
-                                                    <ReorderDropTarget
-                                                        dnd_state=root_list_dnd_state
-                                                        target=DropTarget::end()
-                                                        on_drop=on_root_list_drop
-                                                    />
-                                                }.into_any()
-                                            } else {
-                                                view! {}.into_any()
-                                            }}
-                                        </div>
-                                    </div>
-                                }.into_any()
-                            }
-                        }
-                    </div>
-                }.into_any()
-            }}
-
-            // Archived lists section
-            {move || {
-                let archived = archived_data.get();
-                if archived.is_empty() {
-                    view! {}.into_any()
-                } else {
-                    let archived_count = archived.len();
-                    let client_arch = use_context::<GlooClient>().expect("GlooClient not provided");
-                    view! {
-                        <div class="collapse collapse-arrow bg-base-200 mt-6">
-                            <input type="checkbox" />
-                            <div class="collapse-title font-semibold">
-                                "📦 " {move_tr!("home-archive", { "count" => archived_count })}
                             </div>
-                            <div class="collapse-content">
-                                <div class="flex flex-col gap-2 pt-2">
-                                    {archived.into_iter().map(|list| {
-                                        let lid = list.id.clone();
-                                        let icon = list_type_icon(&list.list_type);
-                                        let client_a = client_arch.clone();
-                                        view! {
-                                            <div class="flex items-center justify-between p-3 bg-base-100 rounded-lg">
-                                                <span class="text-base-content/70">
-                                                    {icon} " " {list.name.clone()}
-                                                </span>
-                                                <button
-                                                    type="button"
-                                                    class="btn btn-ghost btn-sm"
-                                                    on:click=move |_| {
-                                                        let lid = lid.clone();
-                                                        let client_a = client_a.clone();
-                                                        leptos::task::spawn_local(async move {
-                                                            match api::archive_list(&client_a, &lid).await {
-                                                                Ok(_) => {
-                                                                    archived_data.update(|ls| ls.retain(|l| l.id != lid));
-                                                                    set_refresh.update(|n| *n += 1);
-                                                                    toast.push(move_tr!("home-list-restored").get(), ToastKind::Success);
-                                                                }
-                                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                            }
-                                                        });
-                                                    }
-                                                >
-                                                    {move_tr!("home-restore-button")}
-                                                </button>
-                                            </div>
-                                        }
-                                    }).collect::<Vec<_>>()}
-                                </div>
-                            </div>
-                        </div>
-                    }.into_any()
-                }
-            }}
+                        }.into_any()
+                    }
+                    _ => view! {}.into_any(),
+                })}
+            </Transition>
         </div>
     }
 }

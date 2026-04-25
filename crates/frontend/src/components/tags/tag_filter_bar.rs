@@ -1,41 +1,63 @@
+use kartoteka_shared::types::{ItemTagLink, Tag};
 use leptos::prelude::*;
+use std::collections::HashSet;
 
-use crate::components::tags::tag_tree::TagFilterOption;
-
-/// A bar of tag filter chips. One "Wszystkie" button + one per tag.
+/// Filter bar shown above the item list. Displays only tags that are actually used in the list.
+/// Clicking a tag filters to items with that tag; clicking "Wszystkie" clears the filter.
 #[component]
 pub fn TagFilterBar(
-    tags: Vec<TagFilterOption>,
-    active_tag_id: ReadSignal<Option<String>>,
-    on_select: WriteSignal<Option<String>>,
+    all_tags: Vec<Tag>,
+    item_tag_links: Vec<ItemTagLink>,
+    active_tag: RwSignal<Option<String>>,
 ) -> impl IntoView {
-    if tags.is_empty() {
-        return ().into_any();
+    let used_tag_ids: HashSet<String> = item_tag_links.iter().map(|l| l.tag_id.clone()).collect();
+    let used_tags: Vec<Tag> = all_tags
+        .into_iter()
+        .filter(|t| used_tag_ids.contains(&t.id))
+        .collect();
+
+    if used_tags.is_empty() {
+        return view! {}.into_any();
     }
 
     view! {
-        <div class="flex flex-wrap gap-1 mb-3">
+        <div class="flex flex-wrap items-center gap-1 mb-3">
             <button
-                class=move || if active_tag_id.get().is_none() { "btn btn-xs btn-primary" } else { "btn btn-xs btn-ghost" }
-                on:click=move |_| on_select.set(None)
-            >"Wszystkie"</button>
-            {tags.into_iter().map(|t| {
-                let tid_class = t.id.clone();
-                let tid_style = t.id.clone();
-                let tid_click = t.id.clone();
-                let tname = t.label.clone();
-                let tcolor_class = t.color.clone();
-                let tcolor_style = t.color.clone();
+                type="button"
+                class=move || {
+                    if active_tag.get().is_none() { "btn btn-xs btn-primary" }
+                    else { "btn btn-xs btn-ghost" }
+                }
+                on:click=move |_| active_tag.set(None)
+            >
+                "Wszystkie"
+            </button>
+            {used_tags.into_iter().map(|tag| {
+                let tid_class = tag.id.clone();
+                let tid_click = tag.id.clone();
+                let color = tag.color.clone().unwrap_or_else(|| "#6b7280".to_string());
+                let name = tag.name.clone();
                 view! {
                     <button
-                        class=move || if active_tag_id.get().as_deref() == Some(&tid_class) {
-                            "btn btn-xs btn-primary h-auto whitespace-normal text-left leading-tight py-1"
-                        } else {
-                            "btn btn-xs btn-outline h-auto whitespace-normal text-left leading-tight py-1"
+                        type="button"
+                        class=move || {
+                            if active_tag.get().as_deref() == Some(tid_class.as_str()) {
+                                "btn btn-xs ring-2 ring-offset-1 text-white"
+                            } else {
+                                "btn btn-xs text-white opacity-80 hover:opacity-100"
+                            }
                         }
-                        style=move || format!("border-color: {}; color: {}", tcolor_style, if active_tag_id.get().as_deref() == Some(&tid_style) { "#fff" } else { &tcolor_class })
-                        on:click=move |_| on_select.set(Some(tid_click.clone()))
-                    >{tname}</button>
+                        style=format!("background:{color};border-color:{color};")
+                        on:click=move |_| {
+                            let id = tid_click.clone();
+                            active_tag.update(|cur| {
+                                if cur.as_deref() == Some(id.as_str()) { *cur = None; }
+                                else { *cur = Some(id); }
+                            });
+                        }
+                    >
+                        {name}
+                    </button>
                 }
             }).collect::<Vec<_>>()}
         </div>

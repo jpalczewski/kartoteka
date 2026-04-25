@@ -1,4 +1,4 @@
-pub mod admin;
+pub mod all;
 pub mod calendar;
 pub mod container;
 pub mod home;
@@ -6,8 +6,8 @@ pub mod item_detail;
 pub mod list;
 pub mod login;
 pub mod oauth_consent;
-pub mod search;
 pub mod settings;
 pub mod signup;
 pub mod tags;
+pub mod time;
 pub mod today;

@@ -1,10 +1,4 @@
-pub mod admin;
-pub mod calendar_route;
-pub mod dnd;
-pub mod item_mutations;
-pub mod reorder;
-pub mod search_route;
-pub mod transforms;
-pub mod view_helpers;
+//! Pure state modules — no Leptos, no web-sys. Native-testable.
 
-pub use admin::AdminContext;
+pub mod dnd;
+pub mod reorder;

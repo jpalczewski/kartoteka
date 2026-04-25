@@ -2,15 +2,70 @@
 resolver = "2"
 members = [
     "crates/shared",
-    "crates/api",
-    "crates/frontend",
     "crates/i18n",
-    "crates/logging",
+    "crates/db",
+    "crates/domain",
+    "crates/auth",
+    "crates/mcp",
+    "crates/oauth",
+    "crates/jobs",
+    "crates/frontend",
+    "crates/server",
 ]
 
 [workspace.package]
-version = "0.4.1"
+version = "0.1.1"
 edition = "2024"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+axum = { version = "0.8", features = ["json", "macros"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+axum-login = "0.17"
+tower-sessions = "0.14"
+tower-sessions-sqlx-store = { version = "0.15", features = ["sqlite"] }
+argon2 = "0.5"
+time = "0.3"
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+async-trait = "0.1"
+tower = { version = "0.5", features = ["util"] }
+totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
+jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"] }
+leptos = { version = "0.8", default-features = false }
+leptos_router = { version = "0.8", default-features = false }
+leptos_meta = { version = "0.8" }
+leptos_axum = { version = "0.8" }
+leptos-fluent = { version = "0.2" }
+wasm-bindgen = { version = "0.2" }
+js-sys = { version = "0.3" }
+web-sys = { version = "0.3" }
+console_error_panic_hook = { version = "0.1" }
+axum-macros = { version = "0.5" }
+
+[[workspace.metadata.leptos]]
+name = "kartoteka"
+bin-package = "kartoteka-server"
+bin-exe-name = "kartoteka"
+lib-package = "kartoteka-frontend"
+site-root = "target/site"
+site-pkg-dir = "pkg"
+site-addr = "127.0.0.1:3000"
+reload-port = 3001
+bin-features = []
+lib-features = ["hydrate"]
+assets-dir = "crates/frontend/public"
+style-file = "crates/frontend/style/main.css"
+tailwind-input-file = "crates/frontend/style/input.css"
+hash-files = false
+wasm-opt-features = ["-Oz", "--enable-bulk-memory"]
 
 [workspace.lints.clippy]
 correctness = { level = "deny", priority = -1 }

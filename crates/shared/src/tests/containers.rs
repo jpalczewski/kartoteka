@@ -1,4 +1,5 @@
-use crate::*;
+use crate::dto::requests::UpdateContainerRequest;
+use crate::models::ContainerStatus;
 
 #[test]
 fn container_status_serde() {

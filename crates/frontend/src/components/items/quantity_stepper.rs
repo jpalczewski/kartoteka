@@ -1,41 +1,56 @@
 use leptos::prelude::*;
 
-/// Quantity stepper: -/+ buttons, actual/target display, progress bar.
-/// Used by ItemRow and ItemDetailPage.
+/// Inline stepper: [−] actual / target unit [+] with optional progress bar.
+/// Fires `on_change` with the new actual value on each click.
 #[component]
 pub fn QuantityStepper(
-    target: i32,
-    initial_actual: i32,
-    unit: String,
+    actual: i32,
+    target: Option<i32>,
+    unit: Option<String>,
     on_change: Callback<i32>,
 ) -> impl IntoView {
-    let actual = RwSignal::new(initial_actual);
+    let local_actual = RwSignal::new(actual);
+    let unit_str = unit.unwrap_or_else(|| "szt.".to_string());
+    let target_str = target.map(|t| format!(" / {t}"));
 
     view! {
         <div class="flex flex-col items-center gap-0.5">
             <div class="flex items-center gap-1">
-                <button type="button" class="btn btn-xs btn-circle btn-ghost"
+                <button
+                    type="button"
+                    class="btn btn-xs btn-circle btn-ghost"
                     on:click=move |_| {
-                        let new_val = (actual.get() - 1).max(0);
-                        actual.set(new_val);
+                        let new_val = (local_actual.get() - 1).max(0);
+                        local_actual.set(new_val);
                         on_change.run(new_val);
                     }
-                >"\u{2212}"</button>
+                >
+                    "\u{2212}"
+                </button>
                 <span class="text-sm font-mono">
-                    {move || actual.get()} " / " {target} " " {unit.clone()}
+                    {move || local_actual.get()}
+                    {target_str.clone()}
+                    {format!(" {unit_str}")}
                 </span>
-                <button type="button" class="btn btn-xs btn-circle btn-ghost"
+                <button
+                    type="button"
+                    class="btn btn-xs btn-circle btn-ghost"
                     on:click=move |_| {
-                        let new_val = actual.get() + 1;
-                        actual.set(new_val);
+                        let new_val = local_actual.get() + 1;
+                        local_actual.set(new_val);
                         on_change.run(new_val);
                     }
-                >"+"</button>
+                >
+                    "+"
+                </button>
             </div>
-            <progress class="progress progress-primary w-20 h-1"
-                value=move || actual.get().to_string()
-                max=target.to_string()
-            />
+            {target.map(|t| view! {
+                <progress
+                    class="progress progress-primary w-20 h-1"
+                    value=move || local_actual.get().to_string()
+                    max=t.to_string()
+                />
+            })}
         </div>
     }
 }

@@ -1,110 +1,180 @@
 use leptos::prelude::*;
-use leptos_fluent::move_tr;
+use leptos_router::hooks::use_query_map;
+
+use crate::server_fns::auth::{LoginOutcome, do_login, do_verify_2fa};
+
+#[derive(Clone, PartialEq)]
+enum LoginStage {
+    Credentials,
+    TwoFa,
+}
 
 #[component]
 pub fn LoginPage() -> impl IntoView {
-    let email = RwSignal::new(String::new());
-    let password = RwSignal::new(String::new());
-    let error = RwSignal::new(Option::<String>::None);
-    let loading = RwSignal::new(false);
+    let query = use_query_map();
+    let return_to = move || query.with(|q| q.get("return_to").map(|s| s.to_string()));
 
-    let on_submit = move |ev: web_sys::SubmitEvent| {
+    let (email, set_email) = signal(String::new());
+    let (password, set_password) = signal(String::new());
+    let (totp_code, set_totp_code) = signal(String::new());
+    let (stage, set_stage) = signal(LoginStage::Credentials);
+    let (error, set_error) = signal(Option::<String>::None);
+    let (loading, set_loading) = signal(false);
+
+    let on_submit_credentials = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
-        loading.set(true);
-        error.set(None);
-
+        let e = email.get();
+        let p = password.get();
+        let rt = return_to();
+        if e.trim().is_empty() || p.is_empty() {
+            set_error.set(Some("Podaj email i hasło.".to_string()));
+            return;
+        }
+        set_loading.set(true);
+        set_error.set(None);
         leptos::task::spawn_local(async move {
-            let body = serde_json::json!({
-                "email": email.get_untracked(),
-                "password": password.get_untracked(),
-            });
-            let url = format!("{}/auth/api/sign-in/email", crate::api::auth_base());
-            let json = match serde_json::to_string(&body) {
-                Ok(s) => s,
-                Err(e) => {
-                    loading.set(false);
-                    error.set(Some(format!("Błąd: {e}")));
-                    return;
-                }
-            };
-            let request = match gloo_net::http::Request::post(&url)
-                .header("Content-Type", "application/json")
-                .credentials(web_sys::RequestCredentials::Include)
-                .body(json)
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    loading.set(false);
-                    error.set(Some(format!("Błąd: {e}")));
-                    return;
-                }
-            };
-            let result = request.send().await;
-
-            loading.set(false);
-            match result {
-                Ok(resp) if resp.ok() => {
-                    if let Some(window) = web_sys::window() {
-                        let _ = window.location().set_href("/");
-                    }
-                }
-                Ok(resp) => {
-                    error.set(Some(format!("Błąd logowania ({})", resp.status())));
+            match do_login(e, p, rt).await {
+                Ok(LoginOutcome::Ok) => {}
+                Ok(LoginOutcome::TwoFaRequired) => {
+                    set_loading.set(false);
+                    set_stage.set(LoginStage::TwoFa);
                 }
                 Err(e) => {
-                    error.set(Some(format!("Błąd sieci: {e}")));
+                    set_error.set(Some(e.to_string()));
+                    set_loading.set(false);
                 }
             }
         });
     };
 
+    let on_submit_totp = move |ev: leptos::ev::SubmitEvent| {
+        ev.prevent_default();
+        let code = totp_code.get();
+        if code.trim().is_empty() {
+            set_error.set(Some("Wprowadź kod weryfikacyjny.".to_string()));
+            return;
+        }
+        set_loading.set(true);
+        set_error.set(None);
+        leptos::task::spawn_local(async move {
+            match do_verify_2fa(code).await {
+                Ok(_) => {}
+                Err(e) => {
+                    let msg = match e.to_string().as_str() {
+                        s if s.contains("invalid_code") => "Nieprawidłowy kod.".to_string(),
+                        s if s.contains("too_many_attempts") => {
+                            "Za dużo prób. Zaloguj się ponownie hasłem.".to_string()
+                        }
+                        other => other.to_string(),
+                    };
+                    set_error.set(Some(msg));
+                    set_loading.set(false);
+                }
+            }
+        });
+    };
+
+    let on_back = move |_| {
+        set_stage.set(LoginStage::Credentials);
+        set_totp_code.set(String::new());
+        set_error.set(None);
+    };
+
     view! {
-        <div class="flex flex-col items-center justify-center min-h-[60vh] p-4">
-            <div class="card bg-base-200 border border-base-300 w-full max-w-sm">
-                <div class="card-body items-center">
-                    <h2 class="card-title text-2xl mb-4">{move_tr!("auth-login-title")}</h2>
-
-                    {move || error.get().map(|e| view! {
-                        <div class="alert alert-error mb-4">
-                            <span>{e}</span>
+        <div class="flex min-h-[70vh] items-center justify-center">
+            <div class="card bg-base-200 w-full max-w-sm p-6">
+                {move || match stage.get() {
+                    LoginStage::Credentials => view! {
+                        <h2 class="text-2xl font-bold mb-6 text-center">"Logowanie"</h2>
+                        <form on:submit=on_submit_credentials class="flex flex-col gap-4">
+                            <div class="form-control">
+                                <label class="label">
+                                    <span class="label-text">"Email"</span>
+                                </label>
+                                <input
+                                    type="email"
+                                    class="input input-bordered"
+                                    placeholder="adres@email.pl"
+                                    prop:value=move || email.get()
+                                    on:input=move |ev| set_email.set(event_target_value(&ev))
+                                    required=true
+                                />
+                            </div>
+                            <div class="form-control">
+                                <label class="label">
+                                    <span class="label-text">"Hasło"</span>
+                                </label>
+                                <input
+                                    type="password"
+                                    class="input input-bordered"
+                                    placeholder="••••••••"
+                                    prop:value=move || password.get()
+                                    on:input=move |ev| set_password.set(event_target_value(&ev))
+                                    required=true
+                                />
+                            </div>
+                            {move || error.get().map(|e| view! {
+                                <div class="alert alert-error text-sm">{e}</div>
+                            })}
+                            <button
+                                type="submit"
+                                class="btn btn-primary w-full"
+                                disabled=move || loading.get()
+                            >
+                                {move || if loading.get() {
+                                    view! { <span class="loading loading-spinner loading-sm"/> }.into_any()
+                                } else {
+                                    view! { "Zaloguj" }.into_any()
+                                }}
+                            </button>
+                        </form>
+                        <div class="text-center mt-4 text-sm text-base-content/60">
+                            "Nie masz konta? "
+                            <a href="/signup" class="link link-primary">"Zarejestruj się"</a>
                         </div>
-                    })}
-
-                    <form on:submit=on_submit class="w-full space-y-4">
-                        <label class="input input-bordered flex items-center gap-2 w-full">
-                            <input
-                                type="email"
-                                placeholder=move_tr!("auth-email-placeholder")
-                                class="grow"
-                                required=true
-                                on:input=move |ev| email.set(event_target_value(&ev))
-                            />
-                        </label>
-                        <label class="input input-bordered flex items-center gap-2 w-full">
-                            <input
-                                type="password"
-                                placeholder=move_tr!("auth-password-placeholder")
-                                class="grow"
-                                required=true
-                                on:input=move |ev| password.set(event_target_value(&ev))
-                            />
-                        </label>
-                        <button
-                            type="submit"
-                            class="btn btn-primary w-full"
-                            disabled=move || loading.get()
-                        >
-                            {move || if loading.get() {
-                                move_tr!("auth-login-loading").get()
-                            } else {
-                                move_tr!("auth-login-button").get()
-                            }}
-                        </button>
-                    </form>
-
-                    <div class="divider">{move_tr!("common-or")}</div>
-                    <a href="/signup" class="link link-primary">{move_tr!("auth-login-create-account")}</a>
-                </div>
+                    }.into_any(),
+                    LoginStage::TwoFa => view! {
+                        <h2 class="text-2xl font-bold mb-2 text-center">"Weryfikacja dwuetapowa"</h2>
+                        <p class="text-sm text-base-content/60 text-center mb-4">
+                            "Wprowadź 6-cyfrowy kod z aplikacji uwierzytelniającej."
+                        </p>
+                        <form on:submit=on_submit_totp class="flex flex-col gap-4">
+                            <div class="form-control">
+                                <label class="label">
+                                    <span class="label-text">"Kod weryfikacyjny"</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    inputmode="numeric"
+                                    autocomplete="one-time-code"
+                                    class="input input-bordered text-center tracking-widest text-lg"
+                                    placeholder="000000"
+                                    maxlength="6"
+                                    prop:value=move || totp_code.get()
+                                    on:input=move |ev| set_totp_code.set(event_target_value(&ev))
+                                    required=true
+                                />
+                            </div>
+                            {move || error.get().map(|e| view! {
+                                <div class="alert alert-error text-sm">{e}</div>
+                            })}
+                            <button
+                                type="submit"
+                                class="btn btn-primary w-full"
+                                disabled=move || loading.get()
+                            >
+                                {move || if loading.get() {
+                                    view! { <span class="loading loading-spinner loading-sm"/> }.into_any()
+                                } else {
+                                    view! { "Weryfikuj" }.into_any()
+                                }}
+                            </button>
+                            <button type="button" class="btn btn-ghost btn-sm" on:click=on_back>
+                                "← Wróć"
+                            </button>
+                        </form>
+                    }.into_any(),
+                }}
             </div>
         </div>
     }

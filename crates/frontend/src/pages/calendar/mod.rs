@@ -1,538 +1,342 @@
 pub mod day;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use chrono::Datelike;
 use leptos::prelude::*;
-use leptos_fluent::move_tr;
-use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
+use leptos_router::components::A;
 
-use crate::api;
-use crate::api::client::GlooClient;
-use crate::app::{ToastContext, ToastKind};
-use crate::components::calendar::ViewMode;
-use crate::components::calendar::calendar_nav::CalendarNav;
-use crate::components::calendar::month_grid::MonthGrid;
+use kartoteka_shared::types::{CalendarWeekDay, DateItem, Tag};
+
 use crate::components::calendar::week_view::WeekView;
-use crate::components::common::date_utils::{
-    add_days, get_today_string, month_grid_range, parse_date, week_range,
-};
+use crate::components::common::list_filter_chips::ListFilterChips;
 use crate::components::common::loading::LoadingSpinner;
-use crate::components::filters::filter_chips::FilterChips;
-use crate::components::tags::tag_tree::build_tag_filter_options;
-use crate::state::calendar_route::{
-    CalendarRouteState, calendar_href, calendar_state_from_maps, calendar_state_toggle_hidden_list,
-    calendar_state_toggle_hidden_tag, calendar_state_toggle_show_completed,
-    calendar_state_with_selected_date, calendar_state_with_view_mode, shift_month_clamped,
-};
-use crate::state::view_helpers::TagFilterOption;
-use kartoteka_shared::*;
+use crate::server_fns::items::{get_calendar_month, get_calendar_week};
+use crate::server_fns::tags::{get_all_item_tag_links, get_all_tags};
 
-use self::day::CalendarDayPanel;
+pub(super) fn add_days(date: &str, days: i64) -> String {
+    use chrono::{Duration, NaiveDate};
+    use std::str::FromStr;
+    NaiveDate::from_str(date)
+        .ok()
+        .and_then(|d| {
+            d.checked_add_signed(Duration::days(days))
+                .map(|nd| nd.format("%Y-%m-%d").to_string())
+        })
+        .unwrap_or_else(|| date.to_string())
+}
 
-fn collect_unique_lists(items: &[DateItem]) -> Vec<(String, String)> {
-    let mut unique_lists = Vec::new();
-    let mut seen = HashSet::new();
-    for item in items {
-        if seen.insert(item.list_id.clone()) {
-            unique_lists.push((item.list_id.clone(), item.list_name.clone()));
+fn prev_month_str(ym: &str) -> String {
+    let year: i32 = ym.get(..4).and_then(|s| s.parse().ok()).unwrap_or(2026);
+    let month: u32 = ym
+        .get(5..7)
+        .and_then(|s| s.parse().ok())
+        .filter(|&m| (1..=12).contains(&m))
+        .unwrap_or(1);
+    if month == 1 {
+        format!("{:04}-12", year - 1)
+    } else {
+        format!("{year:04}-{:02}", month - 1)
+    }
+}
+
+fn next_month_str(ym: &str) -> String {
+    let year: i32 = ym.get(..4).and_then(|s| s.parse().ok()).unwrap_or(2026);
+    let month: u32 = ym
+        .get(5..7)
+        .and_then(|s| s.parse().ok())
+        .filter(|&m| (1..=12).contains(&m))
+        .unwrap_or(12);
+    if month == 12 {
+        format!("{:04}-01", year + 1)
+    } else {
+        format!("{year:04}-{:02}", month + 1)
+    }
+}
+
+fn format_month_title(year: i32, month: u32) -> String {
+    const NAMES: [&str; 12] = [
+        "Styczeń",
+        "Luty",
+        "Marzec",
+        "Kwiecień",
+        "Maj",
+        "Czerwiec",
+        "Lipiec",
+        "Sierpień",
+        "Wrzesień",
+        "Październik",
+        "Listopad",
+        "Grudzień",
+    ];
+    format!(
+        "{} {year}",
+        NAMES
+            .get((month as usize).saturating_sub(1))
+            .copied()
+            .unwrap_or("?")
+    )
+}
+
+fn format_week_range_label(monday: &str) -> String {
+    use chrono::{Datelike, Duration, NaiveDate};
+    use std::str::FromStr;
+    let Ok(mon) = NaiveDate::from_str(monday) else {
+        return monday.to_string();
+    };
+    let sun = mon + Duration::days(6);
+    format!(
+        "{}.{:02} – {}.{:02}.{}",
+        mon.day(),
+        mon.month(),
+        sun.day(),
+        sun.month(),
+        sun.year()
+    )
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum ViewMode {
+    Month,
+    Week,
+}
+
+/// Apply list/tag/completed filters to a week's data and return:
+/// - the unique (list_id, list_name) pairs present in the unfiltered week (stable filter-chip order)
+/// - the tags actually referenced by items in the unfiltered week
+/// - the filtered days, preserving the original day sequence
+fn filter_week(
+    days: Vec<CalendarWeekDay>,
+    all_tags: &[Tag],
+    links: &[kartoteka_shared::types::ItemTagLink],
+    hidden_lists: &HashSet<String>,
+    hidden_tags: &HashSet<String>,
+    show_completed: bool,
+) -> (Vec<(String, String)>, Vec<Tag>, Vec<CalendarWeekDay>) {
+    let mut unique_lists: Vec<(String, String)> = Vec::new();
+    let mut seen_list_ids: HashSet<String> = HashSet::new();
+    let mut item_ids: HashSet<String> = HashSet::new();
+    for day in &days {
+        for di in &day.items {
+            if seen_list_ids.insert(di.item.list_id.clone()) {
+                unique_lists.push((di.item.list_id.clone(), di.list_name.clone()));
+            }
+            item_ids.insert(di.item.id.clone());
         }
     }
-    unique_lists
-}
 
-fn collect_relevant_tags(
-    items: &[DateItem],
-    tags: &[Tag],
-    links: &[ItemTagLink],
-) -> Vec<TagFilterOption> {
-    let item_ids: HashSet<String> = items.iter().map(|item| item.id.clone()).collect();
     let relevant_tag_ids: HashSet<String> = links
         .iter()
-        .filter(|link| item_ids.contains(&link.item_id))
-        .map(|link| link.tag_id.clone())
+        .filter(|l| item_ids.contains(&l.item_id))
+        .map(|l| l.tag_id.clone())
+        .collect();
+    let relevant_tags: Vec<Tag> = all_tags
+        .iter()
+        .filter(|t| relevant_tag_ids.contains(&t.id))
+        .cloned()
         .collect();
 
-    let relevant_tag_ids: Vec<String> = relevant_tag_ids.into_iter().collect();
-    build_tag_filter_options(tags, &relevant_tag_ids)
-}
-
-fn filter_day_items(
-    items: &[DateItem],
-    links: &[ItemTagLink],
-    hidden_lists: &HashSet<String>,
-    hidden_tags: &HashSet<String>,
-    show_completed: bool,
-) -> Vec<DateItem> {
-    items
-        .iter()
-        .filter(|item| {
-            if hidden_lists.contains(&item.list_id) {
-                return false;
+    let filtered_days: Vec<CalendarWeekDay> = days
+        .into_iter()
+        .map(|day| {
+            let filtered_items: Vec<DateItem> = day
+                .items
+                .into_iter()
+                .filter(|di| !hidden_lists.contains(&di.item.list_id))
+                .filter(|di| show_completed || !di.item.completed)
+                .filter(|di| {
+                    if hidden_tags.is_empty() {
+                        return true;
+                    }
+                    // Hide items carrying any hidden tag.
+                    !links
+                        .iter()
+                        .filter(|l| l.item_id == di.item.id)
+                        .any(|l| hidden_tags.contains(&l.tag_id))
+                })
+                .collect();
+            CalendarWeekDay {
+                date: day.date,
+                items: filtered_items,
             }
-            if !show_completed && item.completed {
-                return false;
-            }
-            if !hidden_tags.is_empty() {
-                let item_tags: HashSet<String> = links
-                    .iter()
-                    .filter(|link| link.item_id == item.id)
-                    .map(|link| link.tag_id.clone())
-                    .collect();
-                if hidden_tags.iter().any(|tag_id| item_tags.contains(tag_id)) {
-                    return false;
-                }
-            }
-            true
         })
-        .cloned()
-        .collect()
-}
+        .collect();
 
-fn filter_week_items(
-    days: &[DayItems],
-    links: &[ItemTagLink],
-    hidden_lists: &HashSet<String>,
-    hidden_tags: &HashSet<String>,
-    show_completed: bool,
-) -> Vec<DayItems> {
-    days.iter()
-        .map(|day| DayItems {
-            date: day.date.clone(),
-            items: filter_day_items(&day.items, links, hidden_lists, hidden_tags, show_completed),
-        })
-        .collect()
-}
-
-fn same_month(left: &str, right: &str) -> bool {
-    left.get(..7) == right.get(..7)
-}
-
-fn same_week(left: &str, right: &str) -> bool {
-    week_range(left) == week_range(right)
-}
-
-#[component]
-pub fn CalendarRootRedirect() -> impl IntoView {
-    let navigate = use_navigate();
-    let today = get_today_string();
-
-    Effect::new(move |_| {
-        let state = CalendarRouteState::new(today.clone());
-        navigate(&calendar_href(&state), Default::default());
-    });
-
-    view! { <LoadingSpinner/> }
+    (unique_lists, relevant_tags, filtered_days)
 }
 
 #[component]
 pub fn CalendarPage() -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let client = use_context::<GlooClient>().expect("GlooClient not provided");
-    let navigate = use_navigate();
-    let params = use_params_map();
-    let query = use_query_map();
-    let today = get_today_string();
+    let (view_mode, set_view_mode) = signal(ViewMode::Month);
+    let (current_ym, set_current_ym) = signal(String::new());
+    let (week_start, set_week_start) = signal(String::new());
 
-    let selected_date = RwSignal::new(today.clone());
-    let anchor_date = RwSignal::new(today.clone());
-    let view_mode = RwSignal::new(ViewMode::Month);
-    let hidden_lists = RwSignal::new(HashSet::<String>::new());
-    let hidden_tags = RwSignal::new(HashSet::<String>::new());
+    let cal_res = Resource::new(move || current_ym.get(), get_calendar_month);
+    let week_res = Resource::new(move || week_start.get(), get_calendar_week);
+    let all_tags_res = Resource::new(|| (), |_| get_all_tags());
+    let item_tag_links_res = Resource::new(|| (), |_| get_all_item_tag_links());
+
+    // Filter state for the week view. Kept at the page level so toggling the view mode preserves
+    // the user's filter choices.
+    let hidden_lists: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
+    let hidden_tags: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
     let show_completed = RwSignal::new(true);
 
-    let month_counts = RwSignal::new(Vec::<DaySummary>::new());
-    let week_data = RwSignal::new(Vec::<DayItems>::new());
-    let day_items = RwSignal::new(Vec::<DateItem>::new());
-    let month_counts_cache = RwSignal::new(HashMap::<String, Vec<DaySummary>>::new());
-    let week_data_cache = RwSignal::new(HashMap::<String, Vec<DayItems>>::new());
-    let day_items_cache = RwSignal::new(HashMap::<String, Vec<DateItem>>::new());
-    let all_tags = RwSignal::new(Vec::<Tag>::new());
-    let item_tag_links = RwSignal::new(Vec::<ItemTagLink>::new());
-
-    let (calendar_loading, set_calendar_loading) = signal(true);
-    let (day_loading, set_day_loading) = signal(true);
-
-    let today_for_route = today.clone();
-    let route_state = Memo::new(move |_| {
-        let params = params.read();
-        let query = query.read();
-        calendar_state_from_maps(&params, &query, &today_for_route)
+    Effect::new(move |_| {
+        if let Some(Ok(ref cal)) = cal_res.get() {
+            let resolved = cal.year_month.clone();
+            if current_ym.get_untracked() != resolved {
+                set_current_ym.set(resolved);
+            }
+        }
     });
 
     Effect::new(move |_| {
-        let state = route_state.get();
-        let current_mode = view_mode.get_untracked();
-        let current_anchor = anchor_date.get_untracked();
-
-        if selected_date.get_untracked() != state.selected_date {
-            selected_date.set(state.selected_date.clone());
-        }
-        let should_sync_anchor = current_mode != state.view_mode
-            || current_anchor.is_empty()
-            || match state.view_mode {
-                ViewMode::Month => !same_month(&current_anchor, &state.selected_date),
-                ViewMode::Week => !same_week(&current_anchor, &state.selected_date),
-            };
-        if should_sync_anchor {
-            anchor_date.set(state.selected_date.clone());
-        }
-        if view_mode.get_untracked() != state.view_mode {
-            view_mode.set(state.view_mode);
-        }
-        if hidden_lists.get_untracked() != state.hidden_lists {
-            hidden_lists.set(state.hidden_lists.clone());
-        }
-        if hidden_tags.get_untracked() != state.hidden_tags {
-            hidden_tags.set(state.hidden_tags.clone());
-        }
-        if show_completed.get_untracked() != state.show_completed {
-            show_completed.set(state.show_completed);
-        }
-    });
-
-    let _metadata_resource = {
-        let client = client.clone();
-        LocalResource::new(move || {
-            let client = client.clone();
-            async move {
-                if let Ok(tags) = api::fetch_tags(&client).await {
-                    all_tags.set(tags);
-                }
-                if let Ok(links) = api::fetch_item_tag_links(&client).await {
-                    item_tag_links.set(links);
+        if let Some(Ok(ref days)) = week_res.get() {
+            if let Some(first) = days.first() {
+                let monday = first.date.clone();
+                if week_start.get_untracked() != monday {
+                    set_week_start.set(monday);
                 }
             }
-        })
-    };
-
-    let _calendar_resource = {
-        let client = client.clone();
-        LocalResource::new(move || {
-            let date = anchor_date.get();
-            let mode = view_mode.get();
-            let calendar_key = match mode {
-                ViewMode::Month => parse_date(&date)
-                    .map(|date| format!("month-{:04}-{:02}", date.year(), date.month()))
-                    .unwrap_or_else(|| "month-invalid".to_string()),
-                ViewMode::Week => {
-                    let (from, to) = week_range(&date);
-                    format!("week-{from}-{to}")
-                }
-            };
-            let client = client.clone();
-            let month_counts_cache = month_counts_cache;
-            let week_data_cache = week_data_cache;
-            async move {
-                match mode {
-                    ViewMode::Month => {
-                        if let Some(cached) = month_counts_cache
-                            .get_untracked()
-                            .get(&calendar_key)
-                            .cloned()
-                        {
-                            month_counts.set(cached);
-                            set_calendar_loading.set(false);
-                            return;
-                        }
-                    }
-                    ViewMode::Week => {
-                        if let Some(cached) =
-                            week_data_cache.get_untracked().get(&calendar_key).cloned()
-                        {
-                            week_data.set(cached);
-                            set_calendar_loading.set(false);
-                            return;
-                        }
-                    }
-                }
-
-                set_calendar_loading.set(true);
-
-                match mode {
-                    ViewMode::Month => {
-                        if let Some(d) = parse_date(&date) {
-                            let (from, to) = month_grid_range(d.year(), d.month());
-                            match api::fetch_calendar_counts(&client, &from, &to, "all").await {
-                                Ok(counts) => {
-                                    month_counts_cache.update(|cache| {
-                                        cache.insert(calendar_key.clone(), counts.clone());
-                                    });
-                                    month_counts.set(counts);
-                                }
-                                Err(e) => toast.push(format!("Błąd: {e}"), ToastKind::Error),
-                            }
-                        }
-                    }
-                    ViewMode::Week => {
-                        let (from, to) = week_range(&date);
-                        match api::fetch_calendar_full(&client, &from, &to, "all").await {
-                            Ok(days) => {
-                                week_data_cache.update(|cache| {
-                                    cache.insert(calendar_key.clone(), days.clone());
-                                });
-                                week_data.set(days);
-                            }
-                            Err(e) => toast.push(format!("Błąd: {e}"), ToastKind::Error),
-                        }
-                    }
-                }
-
-                set_calendar_loading.set(false);
-            }
-        })
-    };
-
-    let _day_resource = {
-        let client = client.clone();
-        LocalResource::new(move || {
-            let date = selected_date.get();
-            let mode = view_mode.get();
-            let anchor = anchor_date.get();
-            let current_week = week_data.get();
-            let client = client.clone();
-            let day_items_cache = day_items_cache;
-            async move {
-                if mode == ViewMode::Week && same_week(&anchor, &date) {
-                    let week_items_for_day = current_week
-                        .iter()
-                        .find(|day| day.date == date)
-                        .map(|day| day.items.clone())
-                        .unwrap_or_default();
-                    day_items_cache.update(|cache| {
-                        cache.insert(date.clone(), week_items_for_day.clone());
-                    });
-                    day_items.set(week_items_for_day);
-                    set_day_loading.set(false);
-                    return;
-                }
-
-                if let Some(cached) = day_items_cache.get_untracked().get(&date).cloned() {
-                    day_items.set(cached);
-                    set_day_loading.set(false);
-                    return;
-                }
-
-                set_day_loading.set(true);
-                match api::fetch_items_by_date(&client, &date, false, "all").await {
-                    Ok(items) => {
-                        day_items_cache.update(|cache| {
-                            cache.insert(date.clone(), items.clone());
-                        });
-                        day_items.set(items);
-                    }
-                    Err(e) => toast.push(format!("Błąd: {e}"), ToastKind::Error),
-                }
-                set_day_loading.set(false);
-            }
-        })
-    };
-
-    let navigate_prev = navigate.clone();
-    let on_prev = Callback::new(move |_: ()| {
-        let route = route_state.get_untracked();
-        let next_anchor = match route.view_mode {
-            ViewMode::Month => shift_month_clamped(&anchor_date.get_untracked(), -1),
-            ViewMode::Week => add_days(&anchor_date.get_untracked(), -7),
-        };
-        anchor_date.set(next_anchor.clone());
-        selected_date.set(next_anchor.clone());
-        let next_state = calendar_state_with_selected_date(&route, next_anchor);
-        navigate_prev(&calendar_href(&next_state), Default::default());
-    });
-
-    let navigate_next = navigate.clone();
-    let on_next = Callback::new(move |_: ()| {
-        let route = route_state.get_untracked();
-        let next_anchor = match route.view_mode {
-            ViewMode::Month => shift_month_clamped(&anchor_date.get_untracked(), 1),
-            ViewMode::Week => add_days(&anchor_date.get_untracked(), 7),
-        };
-        anchor_date.set(next_anchor.clone());
-        selected_date.set(next_anchor.clone());
-        let next_state = calendar_state_with_selected_date(&route, next_anchor);
-        navigate_next(&calendar_href(&next_state), Default::default());
-    });
-
-    let navigate_select_date = navigate.clone();
-    let on_select_date = Callback::new(move |date: String| {
-        let route = route_state.get_untracked();
-        let current_anchor = anchor_date.get_untracked();
-        let should_update_anchor = match route.view_mode {
-            ViewMode::Month => !same_month(&current_anchor, &date),
-            ViewMode::Week => !same_week(&current_anchor, &date),
-        };
-        selected_date.set(date.clone());
-        if should_update_anchor {
-            anchor_date.set(date.clone());
         }
-        let next_state = calendar_state_with_selected_date(&route, date);
-        navigate_select_date(&calendar_href(&next_state), Default::default());
     });
 
-    let navigate_view_mode = navigate.clone();
-    let on_view_mode_change = Callback::new(move |mode: ViewMode| {
-        let route = route_state.get_untracked();
-        view_mode.set(mode);
-        anchor_date.set(route.selected_date.clone());
-        let next_state = calendar_state_with_view_mode(&route, mode);
-        navigate_view_mode(&calendar_href(&next_state), Default::default());
-    });
-
-    let navigate_today = navigate.clone();
-    let on_today = Callback::new(move |_: ()| {
-        let route = route_state.get_untracked();
-        let today = get_today_string();
-        anchor_date.set(today.clone());
-        selected_date.set(today.clone());
-        let next_state = calendar_state_with_selected_date(&route, today);
-        navigate_today(&calendar_href(&next_state), Default::default());
-    });
-
-    let navigate_toggle_list = navigate.clone();
-    let on_toggle_list = Callback::new(move |list_id: String| {
-        let route = route_state.get_untracked();
-        let next_state = calendar_state_toggle_hidden_list(&route, &list_id);
-        navigate_toggle_list(&calendar_href(&next_state), Default::default());
-    });
-
-    let navigate_toggle_tag = navigate.clone();
-    let on_toggle_tag = Callback::new(move |tag_id: String| {
-        let route = route_state.get_untracked();
-        let next_state = calendar_state_toggle_hidden_tag(&route, &tag_id);
-        navigate_toggle_tag(&calendar_href(&next_state), Default::default());
-    });
-
-    let navigate_toggle_show_completed = navigate.clone();
-    let on_toggle_show_completed = Callback::new(move |_: ()| {
-        let route = route_state.get_untracked();
-        let next_state = calendar_state_toggle_show_completed(&route);
-        navigate_toggle_show_completed(&calendar_href(&next_state), Default::default());
-    });
-
-    let today_for_view = today.clone();
+    let on_prev = move |_: leptos::ev::MouseEvent| match view_mode.get() {
+        ViewMode::Month => {
+            let ym = current_ym.get();
+            if !ym.is_empty() {
+                set_current_ym.set(prev_month_str(&ym));
+            }
+        }
+        ViewMode::Week => {
+            let ws = week_start.get();
+            if !ws.is_empty() {
+                set_week_start.set(add_days(&ws, -7));
+            }
+        }
+    };
+    let on_next = move |_: leptos::ev::MouseEvent| match view_mode.get() {
+        ViewMode::Month => {
+            let ym = current_ym.get();
+            if !ym.is_empty() {
+                set_current_ym.set(next_month_str(&ym));
+            }
+        }
+        ViewMode::Week => {
+            let ws = week_start.get();
+            if !ws.is_empty() {
+                set_week_start.set(add_days(&ws, 7));
+            }
+        }
+    };
 
     view! {
         <div class="container mx-auto max-w-5xl p-4">
-            <CalendarNav
-                anchor_date=anchor_date
-                view_mode=view_mode
-                on_prev=on_prev
-                on_next=on_next
-                on_view_mode_change=on_view_mode_change
-                on_today=on_today
-            />
+            <div class="flex items-center justify-between mb-4">
+                <div class="join">
+                    <button
+                        class=move || format!("join-item btn btn-sm {}", if view_mode.get() == ViewMode::Month { "btn-primary" } else { "btn-ghost" })
+                        on:click=move |_| set_view_mode.set(ViewMode::Month)
+                    >"Miesiąc"</button>
+                    <button
+                        class=move || format!("join-item btn btn-sm {}", if view_mode.get() == ViewMode::Week { "btn-primary" } else { "btn-ghost" })
+                        on:click=move |_| set_view_mode.set(ViewMode::Week)
+                    >"Tydzień"</button>
+                </div>
+            </div>
 
-            {move || {
-                match view_mode.get() {
-                    ViewMode::Month => {
-                        let date = anchor_date.get();
-                        if let Some(d) = parse_date(&date) {
-                            view! {
-                                <div class="relative">
-                                    <MonthGrid
-                                        counts=month_counts.get()
-                                        year=d.year()
-                                        month=d.month()
-                                        today=today_for_view.clone()
-                                        selected_date=selected_date.get()
-                                        on_select=on_select_date
-                                    />
-                                    {move || {
-                                        if calendar_loading.get() {
-                                            view! {
-                                                <div class="pointer-events-none absolute inset-0 rounded-xl bg-base-100/50"></div>
-                                            }.into_any()
-                                        } else {
-                                            view! { <></> }.into_any()
-                                        }
-                                    }}
-                                </div>
+            {move || match view_mode.get() {
+                ViewMode::Month => view! {
+                    <Suspense fallback=|| view! { <LoadingSpinner/> }>
+                        {move || cal_res.get().map(|result| match result {
+                            Err(e) => view! { <p class="text-error">"Błąd: " {e.to_string()}</p> }.into_any(),
+                            Ok(cal) => {
+                                let count_map: std::collections::HashMap<String, u32> = cal.items_by_day.iter()
+                                    .map(|d| (d.date.clone(), d.count)).collect();
+                                let title = format_month_title(cal.year, cal.month);
+                                let year = cal.year;
+                                let month = cal.month;
+                                let first_weekday = cal.first_weekday;
+                                let days_in_month = cal.days_in_month;
+
+                                view! {
+                                    <div>
+                                        <div class="flex items-center justify-between mb-4">
+                                            <button class="btn btn-ghost btn-sm" on:click=on_prev>"‹"</button>
+                                            <h1 class="text-xl font-bold">{title}</h1>
+                                            <button class="btn btn-ghost btn-sm" on:click=on_next>"›"</button>
+                                        </div>
+                                        <div class="grid grid-cols-7 mb-1">
+                                            {["Pon", "Wt", "Śr", "Czw", "Pt", "Sob", "Nd"].iter().map(|d| view! {
+                                                <div class="text-center text-xs text-base-content/50 font-semibold py-1">{*d}</div>
+                                            }).collect_view()}
+                                        </div>
+                                        <div class="grid grid-cols-7 gap-1">
+                                            {(0..first_weekday).map(|_| view! { <div></div> }).collect_view()}
+                                            {(1..=days_in_month as u32).map(|day| {
+                                                let date_str = format!("{year:04}-{month:02}-{day:02}");
+                                                let count = count_map.get(&date_str).copied().unwrap_or(0);
+                                                view! {
+                                                    <A
+                                                        href=format!("/calendar/{date_str}")
+                                                        attr:class="flex flex-col items-center justify-start p-1 rounded-lg hover:bg-base-200 min-h-12 cursor-pointer"
+                                                    >
+                                                        <span class="text-sm">{day.to_string()}</span>
+                                                        {(count > 0).then(|| view! {
+                                                            <span class="badge badge-primary badge-xs mt-1">{count.to_string()}</span>
+                                                        })}
+                                                    </A>
+                                                }
+                                            }).collect_view()}
+                                        </div>
+                                    </div>
+                                }.into_any()
                             }
-                            .into_any()
-                        } else {
-                            view! { <p>{move_tr!("calendar-parse-error")}</p> }.into_any()
-                        }
-                    }
-                    ViewMode::Week => {
-                        let links = item_tag_links.get();
-                        let filtered_days = filter_week_items(
-                            &week_data.get(),
-                            &links,
-                            &hidden_lists.get(),
-                            &hidden_tags.get(),
-                            show_completed.get(),
-                        );
+                        })}
+                    </Suspense>
+                }.into_any(),
 
-                        view! {
-                            <div class="relative">
-                                <WeekView
-                                    days=filtered_days
-                                    today=today_for_view.clone()
-                                    all_tags=all_tags.get()
-                                    item_tag_links=links
-                                    items_signal=week_data
-                                    start_date=anchor_date.get()
-                                    selected_date=selected_date.get()
-                                    on_select=on_select_date
-                                />
-                                {move || {
-                                    if calendar_loading.get() {
-                                        view! {
-                                            <div class="pointer-events-none absolute inset-0 rounded-xl bg-base-100/50"></div>
-                                        }.into_any()
-                                    } else {
-                                        view! { <></> }.into_any()
-                                    }
-                                }}
-                            </div>
-                        }
-                        .into_any()
-                    }
-                }
+                ViewMode::Week => view! {
+                    <Suspense fallback=|| view! { <LoadingSpinner/> }>
+                        {move || {
+                            let Some(days_result) = week_res.get() else { return view! {}.into_any(); };
+                            let days = match days_result {
+                                Err(e) => return view! { <p class="text-error">"Błąd: " {e.to_string()}</p> }.into_any(),
+                                Ok(d) => d,
+                            };
+                            let all_tags = all_tags_res.get()
+                                .and_then(|r| r.ok())
+                                .unwrap_or_default();
+                            let links = item_tag_links_res.get()
+                                .and_then(|r| r.ok())
+                                .unwrap_or_default();
+
+                            let monday = days.first().map(|d| d.date.clone()).unwrap_or_default();
+                            let label = format_week_range_label(&monday);
+                            let (unique_lists, relevant_tags, filtered_days) =
+                                filter_week(days, &all_tags, &links, &hidden_lists.get(), &hidden_tags.get(), show_completed.get());
+
+                            view! {
+                                <div>
+                                    <div class="flex items-center justify-between mb-4">
+                                        <button class="btn btn-ghost btn-sm" on:click=on_prev>"‹"</button>
+                                        <span class="text-base font-semibold">{label}</span>
+                                        <button class="btn btn-ghost btn-sm" on:click=on_next>"›"</button>
+                                    </div>
+                                    <ListFilterChips
+                                        lists=unique_lists
+                                        hidden_lists=hidden_lists
+                                        tags=relevant_tags
+                                        hidden_tags=hidden_tags
+                                        show_completed=show_completed
+                                    />
+                                    <WeekView days=filtered_days/>
+                                </div>
+                            }.into_any()
+                        }}
+                    </Suspense>
+                }.into_any(),
             }}
-
-            {move || {
-                let base_items = match view_mode.get() {
-                    ViewMode::Month => day_items.get(),
-                    ViewMode::Week => week_data
-                        .get()
-                        .into_iter()
-                        .flat_map(|day| day.items)
-                        .collect(),
-                };
-
-                let tags = all_tags.get();
-                let links = item_tag_links.get();
-
-                view! {
-                    <FilterChips
-                        unique_lists=collect_unique_lists(&base_items)
-                        relevant_tags=collect_relevant_tags(&base_items, &tags, &links)
-                        hidden_lists=hidden_lists.get()
-                        hidden_tags=hidden_tags.get()
-                        show_completed=show_completed.get()
-                        on_toggle_list=on_toggle_list
-                        on_toggle_tag=on_toggle_tag
-                        on_toggle_show_completed=on_toggle_show_completed
-                    />
-                }
-            }}
-
-            <CalendarDayPanel
-                selected_date=selected_date
-                items=day_items
-                loading=day_loading
-                all_tags=all_tags
-                item_tag_links=item_tag_links
-                hidden_lists=hidden_lists
-                hidden_tags=hidden_tags
-                show_completed=show_completed
-                on_select_date=on_select_date
-                week_items=week_data
-                sync_week=Signal::derive(move || view_mode.get() == ViewMode::Week)
-            />
         </div>
     }
-    .into_any()
 }

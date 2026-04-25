@@ -2,130 +2,95 @@
 
 ## Projekt
 
-Kartoteka — aplikacja todo/listy na Cloudflare Workers (Rust API + TypeScript Gateway) + Leptos CSR frontend + Better Auth.
+Kartoteka — aplikacja todo/listy. Leptos 0.8 SSR (Axum) + SQLite + Better Auth.
 
 ## Architektura
 
-- **Monorepo**: Cargo workspace (`crates/shared`, `crates/api`, `crates/frontend`) + `gateway/` (TypeScript)
-- **API**: CF Worker z `worker` crate (0.7+), D1 database, `sqlx-d1` (0.3+)
-- **Frontend**: Leptos 0.8 CSR, kompilowany do WASM przez Trunk, serwowany z CF Pages
+- **Monorepo**: Cargo workspace — `crates/shared`, `crates/db`, `crates/domain`, `crates/auth`, `crates/mcp`, `crates/oauth`, `crates/jobs`, `crates/i18n`, `crates/frontend-v2`, `crates/server`
+- **Server**: Axum (`crates/server`) — obsługuje SSR, `/api/*`, auth middleware
+- **Frontend**: Leptos 0.8 SSR w `crates/frontend-v2`, kompilowany przez `cargo leptos`
 - **Auth**: Better Auth — cookie-based sessions, email+password, GitHub OAuth optional
-- **Gateway**: TypeScript Worker w `gateway/` — Hono + Better Auth + MCP server (5 tools), serwuje `/auth/*`, `/mcp/*`, proxy do API Worker via CF service binding
+- **DB**: SQLite przez `sqlx`, migracje w `crates/db/migrations/`
 
 ## Kluczowe konwencje
 
 ### Env vars (compile-time / .env)
-- `GATEWAY_URL` — prod gateway URL (https://kartoteka-gateway.jpalczewski.workers.dev)
-- `GATEWAY_DEV_URL` — dev gateway URL (https://kartoteka-gateway-dev.jpalczewski.workers.dev)
-- `CLOUDFLARE_ACCOUNT_ID` — CF account ID
-- Gateway sekrety (wrangler secrets, nie w .env): `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `MIGRATE_SECRET`
+- `OAUTH_SIGNING_SECRET` — wymagany do dev (min 32 znaków)
 - Zarządzane przez `.env` + `set dotenv-load` w justfile
 
-### Better Auth / Cookie auth
-- Frontend wysyła żądania z `credentials: "include"` — sesja via cookie (HttpOnly, set przez Gateway)
-- `API_BASE_URL` — opcjonalny compile-time env var, domyślnie `/api` (wystarczy do dev + testów)
-- Lokalnie: default `/api` — Trunk proxy → Gateway (8788) → API Worker (8787)
-- Prod/dev deploy: `API_BASE_URL="${GATEWAY_URL}/api"` — frontend → Gateway → API Worker via service binding
-- Gateway Worker waliduje sesję i dodaje `X-User-Id` header do żądań do API Worker
-- `DEV_AUTH_USER_ID` env var (w `[env.local]` wrangler.toml) — bypass auth w dev lokalnym
-- `/auth/api/get-session` zwraca fake sesję gdy `DEV_AUTH_USER_ID` jest ustawiony
+### Auth / Cookie auth
+- Sesja via HttpOnly cookie
+- Server middleware (`crates/server/src/`) waliduje sesję i udostępnia `UserId` extractor
 
-### D1 / SQLite
-- D1 zwraca boolean jako float (`0.0`/`1.0`) — `Item.completed` ma custom deserializer `bool_from_number` w `shared/src/deserializers.rs`
+### SQLite / sqlx
 - IDs jako UUID v4 (TEXT), timestampy jako TEXT (`datetime('now')`)
-- Migracje w `crates/api/migrations/`, zarządzane przez `wrangler d1 migrations`
+- Migracje w `crates/db/migrations/`, wykonywane przy starcie serwera
+- Boolean jako `bool` (sqlx obsługuje natywnie dla SQLite)
 
-### Frontend
-- `LocalResource` zamiast `Resource` — futures z `gloo-net` nie są `Send` (WASM)
-- Leptos 0.8: `LocalResource::get()` zwraca `Option<T>` bezpośrednio — pattern: `if let Some(Ok(data)) = resource.get()`
-- Brak `SendWrapper` — usunięty w Leptos 0.8, `LocalResource` nie wymaga wrappowania
-- HTTP: `HttpClient` trait w `crates/frontend/src/api/client.rs` — `GlooClient` (WASM) podawany przez `provide_context(GlooClient)` w `app.rs`, pobierany przez `use_context::<GlooClient>()`
-- Optymistyczne update'y ze snapshot+rollback: `let previous = signal.get_untracked()` → optymistyczna zmiana → `signal.set(previous)` przy błędzie
-- State transforms w `crates/frontend/src/state/transforms.rs` — `with_item_toggled`, `without_item` (pure functions, testowalne natywnie)
+### Frontend (Leptos 0.8 SSR)
+- Używaj `Resource::new`, nie `LocalResource` — SSR futures muszą być `Send`
+- `Resource::get()` zwraca `Option<T>` — pattern: `if let Some(Ok(data)) = resource.get()`
+- Server functions przez `#[server]` makro w `crates/frontend-v2/src/server_fns/`
+- `use_context` tylko w ciele komponentu — nie w closures
+- Non-Copy typy w `Fn` closure → `StoredValue::new()` lub `.clone()` przed wejściem
 
 ### Shared crate (`crates/shared/`)
 - Struktura modułów: `models/` (Container, List, Item, Tag, Settings), `dto/` (requests.rs, responses.rs), `deserializers.rs` (pub(crate)), `constants.rs`, `date_utils.rs`
-- `lib.rs` reeksportuje wszystko flat (`pub use models::*; pub use dto::*; pub use date_utils::*`) — importy w `crates/api` działają bez zmian
+- `lib.rs` reeksportuje wszystko flat (`pub use models::*; pub use dto::*; pub use date_utils::*`)
 - `date_utils.rs` — 14 pub funkcji oparte na `chrono` (parse_date, add_days, week_range, month_grid_range, is_overdue, sort_by_deadline, itd.)
 - `chrono = { version = "0.4.44", default-features = false, features = ["alloc"] }` — WASM-safe, bez std::time clock
-- `HomeData`, `ContainerChildrenResponse`, `ErrorResponse` itp. w `dto/responses.rs`
-
-### Workers API
-- `worker` crate 0.7+ wymagany przez `worker-build`
-- `sqlx-d1` musi być w tej samej major wersji `worker` co API crate (inaczej dwa `worker` w drzewie → build error)
-- D1 bind: `ctx.env.d1("DB")?`, parametry jako `JsValue` (nie custom `D1Type`)
-- `Headers::new()` — nie wymaga `mut`
-- `Response::empty()?.with_status(204)` — zwraca `Response`, nie `Result`, trzeba `Ok()`
-
-### Deploy
-- CF Pages wymaga `--branch=main` (production branch)
-- `CLOUDFLARE_ACCOUNT_ID` env var wymagany (wrangler bierze z env, nie z wrangler.toml)
-
-### API helpers (`crates/api/src/helpers.rs`)
-- `check_ownership(d1, table, id, user_id)` — weryfikacja własności zasobu
-- `check_item_ownership(d1, item_id, user_id)` — weryfikacja przez JOIN z lists
-- `toggle_bool_field(d1, table, column, id, user_id)` — toggle boolean (D1 0/1)
-- `next_position(d1, table, filter, params)` — MAX(position) + 1
-- `opt_str_to_js(opt)` — Option<String> → JsValue (Some → string, None → NULL)
-- `require_param(ctx, name)` — wyciągnij param z RouteContext lub Error
-- `get_list_features(d1, list_id)` — lista feature names dla listy
 
 ### Tracing / Logging
 
-Każdy handler w `crates/api/src/handlers/` **musi** mieć `#[instrument]`. Wzorzec:
+Każdy handler w `crates/server/src/` **musi** mieć `#[instrument]`. W Axum użyj `fields(action = "verb_noun", <entity_id> = %id)` — extractor `Path` daje `id` już na wejściu:
 
 ```rust
-#[instrument(skip_all, fields(action = "create_list", list_id = tracing::field::Empty))]
-pub async fn create(mut req: Request, ctx: RouteContext<String>) -> Result<Response> {
-    let id = Uuid::new_v4().to_string();
-    Span::current().record("list_id", tracing::field::display(&id));
+#[instrument(fields(action = "create_list", list_id = %id))]
+pub async fn create(Path(id): Path<String>, ...) -> impl IntoResponse {
     // ...
 }
 ```
 
-- `skip_all` — pomija `req`/`ctx` (nie są `Debug`)
 - `action` — nazwa operacji w formacie `verb_noun` (`create_list`, `delete_item`, `toggle_item`)
-- Entity ID jako `tracing::field::Empty` w atrybucie, uzupełniane przez `Span::current().record(...)` po poznaniu wartości
 - **Bez `&` przed `tracing::field::display`** — clippy `needless_borrows_for_generic_args` blokuje CI
-- Inicjalizacja tracingu: `kartoteka_logging::init_cf(level)` wywoływane na początku `#[event(fetch)]`; level z `env.var("LOG_LEVEL")` (default `"info"`); dev ma `LOG_LEVEL = "debug"` w `wrangler.toml`
-- Gateway: `log()` z `gateway/src/logger.ts` — ten sam schemat JSON, korelacja przez `X-Request-Id`
 
 ## Komendy
 
 ```bash
-just dev          # API + Gateway + frontend + tunnel lokalnie
-just dev-api      # Tylko API worker
-just dev-gateway  # Tylko Gateway worker
-just dev-frontend # Tylko frontend (Trunk)
+just dev          # SSR server + Tailwind watch
 just check        # Kompilacja workspace
-just build        # Build all (API + frontend + gateway)
+just build        # Build server + gateway
 just test         # cargo test --workspace
 just test-e2e     # Playwright e2e (wymaga just dev)
 just lint         # Clippy + fmt check
 just fmt          # cargo fmt
 just ci           # fmt + lint + audit + machete + test
-just deploy       # Deploy prod (migrate + API + gateway + frontend)
+just deploy       # Deploy gateway + auth migrations
 just deploy-dev   # Deploy dev environment
 ```
 
+### Build frontend+server (Leptos SSR)
+
+- **ZAWSZE** `cargo leptos build` — buduje WASM (hydrate) i serwer w spójnych feature'ach.
+- **NIGDY** `cargo build -p kartoteka-server` do testów/uruchomienia — default features rozjeżdżają się z WASM i hydration pęka.
+- **Do testów**: `cargo leptos build` (debug). `just test-e2e` już to robi.
+- **Produkcja**: `cargo leptos build --release`.
+
 ## Dokumentacja i aktualne wersje bibliotek
 
-Projekt używa szybko ewoluujących bibliotek (Leptos 0.8, gloo-net 0.7, worker 0.7+,
-sqlx-d1 0.3+, DaisyUI 5). Przed pisaniem kodu sprawdzaj aktualne API przez context7 MCP:
+Projekt używa szybko ewoluujących bibliotek (Leptos 0.8, DaisyUI 5). Przed pisaniem kodu sprawdzaj aktualne API przez context7 MCP:
 
-- `mcp__context7__resolve-library-id` — znajdź ID biblioteki (np. "leptos", "gloo-net")
+- `mcp__context7__resolve-library-id` — znajdź ID biblioteki (np. "leptos")
 - `mcp__context7__query-docs` — pobierz aktualną dokumentację
 
 Używaj tego proaktywnie, nie czekaj na błędy kompilacji.
 
 ## Testy
 
-- **Unit testy** (`crates/shared/src/tests/`, `crates/shared/src/date_utils.rs`): deserializery D1, typy, serde, date_utils — `cargo test -p kartoteka-shared`
-- **Frontend testy** (`crates/frontend/src/`): API helpers (MockClient + tokio::test), state transforms — `cargo test -p kartoteka-frontend --lib`; `[[bin]] test = false` w Cargo.toml (zapobiega kompilacji WASM binary na native target)
+- **Unit testy** (`crates/shared/src/tests/`, `crates/shared/src/date_utils.rs`): deserializery, typy, serde, date_utils — `cargo test -p kartoteka-shared`
 - **i18n testy** (`crates/i18n/tests/`): kompletność tłumaczeń PL/EN, parsowanie FTL, pokrycie MCP
 - **E2E** (`tests/e2e/`): Playwright, auth flow — `just test-e2e` (wymaga `just dev`)
-- **Brak testów**: `crates/api` (wymaga D1/Worker runtime)
-- CI: `cargo test --workspace` (shared + frontend + i18n)
+- CI: `cargo test --workspace`
 
 ## CI/CD
 
@@ -138,5 +103,5 @@ Używaj tego proaktywnie, nie czekaj na błędy kompilacji.
 ## Pliki do NIE commitowania
 
 - `.env` — sekrety i konfiguracja
-- `crates/frontend/dist/` — build output
+- `target/` — build output
 - `.wrangler/`, `build/` — wrangler cache

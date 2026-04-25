@@ -1,4 +1,6 @@
-use crate::*;
+use crate::dto::requests::{
+    UpdateContainerRequest, UpdateItemRequest, UpdateListRequest, UpdateTagRequest,
+};
 
 #[test]
 fn update_container_request_omits_missing_optional_fields() {

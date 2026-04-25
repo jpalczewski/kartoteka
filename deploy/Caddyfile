@@ -1,0 +1,18 @@
+# Replace domain vars by setting KARTOTEKA_DOMAIN in /srv/kartoteka/.env
+# (Caddy reads environment vars from the container's env, not a .env file —
+# set them via the caddy service's `env_file:` or `environment:` in compose.yml)
+
+{$KARTOTEKA_DOMAIN} {
+    reverse_proxy prod:3000
+    encode gzip
+}
+
+dev.{$KARTOTEKA_DOMAIN} {
+    reverse_proxy dev:3000
+    encode gzip
+}
+
+pr.{$KARTOTEKA_DOMAIN} {
+    reverse_proxy preview:3000
+    encode gzip
+}
