@@ -39,11 +39,6 @@ pub struct ConfigEntry {
 }
 
 #[derive(Deserialize)]
-pub struct TwoFaRequest {
-    pub code: String,
-}
-
-#[derive(Deserialize)]
 pub struct TotpCodeRequest {
     pub code: String,
 }
@@ -77,10 +72,6 @@ use kartoteka_shared::constants::{
     SESSION_MAX_2FA_ATTEMPTS, SESSION_PENDING_2FA_ATTEMPTS_KEY, SESSION_PENDING_USER_KEY,
     SESSION_RETURN_TO_KEY,
 };
-const PENDING_USER_KEY: &str = SESSION_PENDING_USER_KEY;
-const PENDING_2FA_ATTEMPTS_KEY: &str = SESSION_PENDING_2FA_ATTEMPTS_KEY;
-const MAX_2FA_ATTEMPTS: u32 = SESSION_MAX_2FA_ATTEMPTS;
-const RETURN_TO_KEY: &str = SESSION_RETURN_TO_KEY;
 
 /// Extract a bearer token from the Authorization header.
 fn extract_bearer_token(headers: &axum::http::HeaderMap) -> Option<&str> {
@@ -207,7 +198,7 @@ pub async fn login(
 
     match kartoteka_domain::auth::is_totp_enabled(&state.pool, &user.id).await {
         Ok(true) => {
-            if let Err(e) = session.insert(PENDING_USER_KEY, &user.id).await {
+            if let Err(e) = session.insert(SESSION_PENDING_USER_KEY, &user.id).await {
                 tracing::error!("session insert failed: {e}");
                 return StatusCode::INTERNAL_SERVER_ERROR.into_response();
             }
@@ -254,9 +245,9 @@ pub async fn verify_2fa(
     mut auth_session: AuthSession,
     session: Session,
     State(state): State<AppState>,
-    Json(req): Json<TwoFaRequest>,
+    Json(req): Json<TotpCodeRequest>,
 ) -> impl IntoResponse {
-    let user_id: String = match session.get(PENDING_USER_KEY).await {
+    let user_id: String = match session.get(SESSION_PENDING_USER_KEY).await {
         Ok(Some(id)) => id,
         Ok(None) => {
             return (
@@ -274,21 +265,24 @@ pub async fn verify_2fa(
     match kartoteka_domain::auth::check_totp_code(&state.pool, &user_id, &req.code).await {
         Ok(true) => {}
         Ok(false) => {
-            // Track attempts in the session; after MAX_2FA_ATTEMPTS clear the
+            // Track attempts in the session; after SESSION_MAX_2FA_ATTEMPTS clear the
             // pending login so the attacker must re-authenticate with password.
             let attempts: u32 = session
-                .get(PENDING_2FA_ATTEMPTS_KEY)
+                .get(SESSION_PENDING_2FA_ATTEMPTS_KEY)
                 .await
                 .ok()
                 .flatten()
                 .unwrap_or(0)
                 + 1;
-            if attempts >= MAX_2FA_ATTEMPTS {
-                if let Err(e) = session.remove::<String>(PENDING_USER_KEY).await {
-                    tracing::warn!("failed to clear {PENDING_USER_KEY} after lockout: {e}");
+            if attempts >= SESSION_MAX_2FA_ATTEMPTS {
+                if let Err(e) = session.remove::<String>(SESSION_PENDING_USER_KEY).await {
+                    tracing::warn!("failed to clear {SESSION_PENDING_USER_KEY} after lockout: {e}");
                 }
-                if let Err(e) = session.remove::<u32>(PENDING_2FA_ATTEMPTS_KEY).await {
-                    tracing::warn!("failed to clear {PENDING_2FA_ATTEMPTS_KEY}: {e}");
+                if let Err(e) = session
+                    .remove::<u32>(SESSION_PENDING_2FA_ATTEMPTS_KEY)
+                    .await
+                {
+                    tracing::warn!("failed to clear {SESSION_PENDING_2FA_ATTEMPTS_KEY}: {e}");
                 }
                 return (
                     StatusCode::UNAUTHORIZED,
@@ -296,8 +290,11 @@ pub async fn verify_2fa(
                 )
                     .into_response();
             }
-            if let Err(e) = session.insert(PENDING_2FA_ATTEMPTS_KEY, attempts).await {
-                tracing::warn!("failed to persist {PENDING_2FA_ATTEMPTS_KEY}: {e}");
+            if let Err(e) = session
+                .insert(SESSION_PENDING_2FA_ATTEMPTS_KEY, attempts)
+                .await
+            {
+                tracing::warn!("failed to persist {SESSION_PENDING_2FA_ATTEMPTS_KEY}: {e}");
             }
             return (
                 StatusCode::UNAUTHORIZED,
@@ -326,13 +323,16 @@ pub async fn verify_2fa(
         }
     };
 
-    if let Err(e) = session.remove::<String>(PENDING_USER_KEY).await {
-        tracing::warn!("failed to remove {PENDING_USER_KEY} from session: {e}");
+    if let Err(e) = session.remove::<String>(SESSION_PENDING_USER_KEY).await {
+        tracing::warn!("failed to remove {SESSION_PENDING_USER_KEY} from session: {e}");
     }
-    if let Err(e) = session.remove::<u32>(PENDING_2FA_ATTEMPTS_KEY).await {
-        tracing::warn!("failed to remove {PENDING_2FA_ATTEMPTS_KEY} from session: {e}");
+    if let Err(e) = session
+        .remove::<u32>(SESSION_PENDING_2FA_ATTEMPTS_KEY)
+        .await
+    {
+        tracing::warn!("failed to remove {SESSION_PENDING_2FA_ATTEMPTS_KEY} from session: {e}");
     }
-    let return_to: Option<String> = session.remove(RETURN_TO_KEY).await.unwrap_or(None);
+    let return_to: Option<String> = session.remove(SESSION_RETURN_TO_KEY).await.unwrap_or(None);
 
     if let Err(e) = auth_session.login(&user).await {
         tracing::error!("session write failed during 2fa login: {e}");

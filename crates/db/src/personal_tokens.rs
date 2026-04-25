@@ -71,13 +71,17 @@ pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<PersonalTo
     .map_err(DbError::Sqlx)
 }
 
-/// Update last_used_at to current time.
+/// Update last_used_at to current time, throttled to once per 5 minutes to avoid a
+/// write on every authenticated request hitting SQLite's write lock.
 pub async fn touch_last_used(pool: &SqlitePool, id: &str) -> Result<(), DbError> {
-    sqlx::query("UPDATE personal_tokens SET last_used_at = datetime('now') WHERE id = ?")
-        .bind(id)
-        .execute(pool)
-        .await
-        .map_err(DbError::Sqlx)?;
+    sqlx::query(
+        "UPDATE personal_tokens SET last_used_at = datetime('now') \
+         WHERE id = ? AND (last_used_at IS NULL OR last_used_at < datetime('now', '-5 minutes'))",
+    )
+    .bind(id)
+    .execute(pool)
+    .await
+    .map_err(DbError::Sqlx)?;
     Ok(())
 }
 

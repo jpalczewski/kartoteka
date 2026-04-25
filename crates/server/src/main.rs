@@ -39,10 +39,10 @@ async fn main() {
         .await
         .expect("session store migrate");
 
+    let public_base_url =
+        std::env::var("PUBLIC_BASE_URL").unwrap_or_else(|_| "http://localhost:3000".into());
     let secure_cookies = std::env::var("APP_ENV").as_deref() == Ok("production")
-        || std::env::var("PUBLIC_BASE_URL")
-            .map(|u| u.starts_with("https://"))
-            .unwrap_or(false);
+        || public_base_url.starts_with("https://");
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(secure_cookies)
         .with_same_site(tower_sessions::cookie::SameSite::Lax)
@@ -57,9 +57,6 @@ async fn main() {
         signing_secret.len() >= 32,
         "OAUTH_SIGNING_SECRET must be at least 32 characters"
     );
-
-    let public_base_url =
-        std::env::var("PUBLIC_BASE_URL").unwrap_or_else(|_| "http://localhost:3000".into());
     let mcp_i18n = Arc::new(McpI18n::load());
 
     let conf = leptos::config::get_configuration(None).expect("leptos config");
