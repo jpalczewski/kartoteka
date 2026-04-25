@@ -21,14 +21,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            set -eu
-            cd /srv/kartoteka
-            docker compose pull preview
-            docker compose up -d --no-deps preview
-            docker image prune -f
+      - name: Deploy via Coolify
+        run: |
+          curl -fsSL -X GET "${{ secrets.COOLIFY_WEBHOOK }}" \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN_PREVIEW }}"
