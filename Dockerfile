@@ -31,10 +31,10 @@ COPY . .
 COPY --from=css-builder /app/crates/frontend-v2/style/main.css crates/frontend-v2/style/main.css
 
 # BuildKit cache mounts — persist crate registry, git checkouts, and target/
-# between builds. `sharing=locked` prevents concurrent-build cache corruption.
-RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,target=/app/target,sharing=locked \
+# between builds. IDs match cache-map in workflow (buildkit-cache-dance).
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,id=cargo-git,sharing=locked \
+    --mount=type=cache,target=/app/target,id=cargo-target,sharing=locked \
     set -eu; \
     if [ "$CARGO_PROFILE" = "release" ]; then \
         cargo leptos build --release; \
