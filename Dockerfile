@@ -1,6 +1,15 @@
 # syntax=docker/dockerfile:1.7
 ARG CARGO_PROFILE=release
 
+FROM node:22-slim AS css-builder
+WORKDIR /app
+COPY crates/frontend-v2/package.json crates/frontend-v2/
+COPY crates/frontend-v2/style/ crates/frontend-v2/style/
+COPY crates/frontend-v2/src/ crates/frontend-v2/src/
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    cd crates/frontend-v2 && npm install && \
+    npx @tailwindcss/cli -i style/input.css -o style/main.css --minify
+
 FROM rustlang/rust:nightly-trixie AS builder
 ARG CARGO_PROFILE
 
@@ -19,6 +28,7 @@ RUN cargo binstall -y cargo-leptos@0.3.5
 
 WORKDIR /app
 COPY . .
+COPY --from=css-builder /app/crates/frontend-v2/style/main.css crates/frontend-v2/style/main.css
 
 # BuildKit cache mounts — persist crate registry, git checkouts, and target/
 # between builds. `sharing=locked` prevents concurrent-build cache corruption.
