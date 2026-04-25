@@ -8,6 +8,10 @@ concurrency:
   group: docker-preview
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build:
     uses: ./.github/workflows/docker-build.yml
