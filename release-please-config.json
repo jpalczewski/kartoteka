@@ -12,17 +12,17 @@
     { "type": "chore", "section": "Miscellaneous", "hidden": true },
     { "type": "ci", "section": "Miscellaneous", "hidden": true }
   ],
-  "extra-files": [
-    {
-      "type": "toml",
-      "path": "Cargo.toml",
-      "jsonpath": "$.workspace.package.version"
-    }
-  ],
   "packages": {
     ".": {
       "release-type": "simple",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.package.version"
+        }
+      ]
     }
   }
 }

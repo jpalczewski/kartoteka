@@ -8,9 +8,9 @@ publish = false
 workspace = true
 
 [dependencies]
-kartoteka-shared = { path = "../shared", version = "0.1.1" }
-kartoteka-domain = { path = "../domain", version = "0.1.1" }
-kartoteka-db = { path = "../db", version = "0.1.1" }
+kartoteka-shared = { path = "../shared" }
+kartoteka-domain = { path = "../domain" }
+kartoteka-db = { path = "../db" }
 axum-login.workspace = true
 tower-sessions.workspace = true
 argon2.workspace = true
@@ -23,4 +23,4 @@ async-trait.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
-kartoteka-db = { path = "../db", version = "0.1.1", features = ["test-helpers"] }
+kartoteka-db = { path = "../db", features = ["test-helpers"] }

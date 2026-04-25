@@ -8,10 +8,10 @@ publish = false
 workspace = true
 
 [dependencies]
-kartoteka-shared = { path = "../shared", version = "0.1.1" }
-kartoteka-domain = { path = "../domain", version = "0.1.1" }
-kartoteka-auth = { path = "../auth", version = "0.1.1" }
-kartoteka-db = { path = "../db", version = "0.1.1" }
+kartoteka-shared = { path = "../shared" }
+kartoteka-domain = { path = "../domain" }
+kartoteka-auth = { path = "../auth" }
+kartoteka-db = { path = "../db" }
 
 axum = { workspace = true }
 axum-login = { workspace = true }
@@ -37,4 +37,4 @@ urlencoding = "2"
 [dev-dependencies]
 hmac = "0.12"
 tower = { version = "0.5", features = ["util"] }
-kartoteka-db = { path = "../db", version = "0.1.1", features = ["test-helpers"] }
+kartoteka-db = { path = "../db", features = ["test-helpers"] }

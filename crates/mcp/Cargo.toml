@@ -8,9 +8,9 @@ publish = false
 workspace = true
 
 [dependencies]
-kartoteka-shared = { path = "../shared", version = "0.1.1" }
-kartoteka-domain = { path = "../domain", version = "0.1.1" }
-kartoteka-db     = { path = "../db", version = "0.1.1" }
+kartoteka-shared = { path = "../shared" }
+kartoteka-domain = { path = "../domain" }
+kartoteka-db     = { path = "../db" }
 
 rmcp = { version = "0.3", features = ["server", "transport-streamable-http-server", "transport-worker", "macros"] }
 schemars = "1"

@@ -11,7 +11,7 @@ workspace = true
 test-helpers = []
 
 [dependencies]
-kartoteka-shared = { path = "../shared", version = "0.1.1", features = ["sqlx"] }
+kartoteka-shared = { path = "../shared", features = ["sqlx"] }
 sqlx.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
