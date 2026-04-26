@@ -72,7 +72,7 @@ pub fn TagList(
                             {badge}
                             <button
                                 type="button"
-                                class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-base-300 hover:bg-error hover:text-error-content text-xs flex items-center justify-center invisible group-hover:visible z-10 leading-none"
+                                class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-base-300 hover:bg-error hover:text-error-content text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 z-10 leading-none"
                                 on:click=move |ev| {
                                     ev.stop_propagation();
                                     pending_remove.set(Some(tid_remove.clone()));
