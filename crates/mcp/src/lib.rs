@@ -21,7 +21,7 @@ pub enum McpError {
     #[error(transparent)]
     Serde(#[from] serde_json::Error),
     #[error("bad request: {0}")]
-    BadRequest(&'static str),
+    BadRequest(String),
 }
 
 #[allow(dead_code)]

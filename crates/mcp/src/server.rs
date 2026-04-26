@@ -77,7 +77,7 @@ impl KartotekaServer {
                 ("mcp-err-feature-required", vec![("feature", f)])
             }
             McpError::Domain(domain::DomainError::Forbidden) => ("mcp-err-forbidden", vec![]),
-            McpError::BadRequest(r) => ("mcp-err-validation", vec![("reason", r)]),
+            McpError::BadRequest(r) => ("mcp-err-validation", vec![("reason", r.as_str())]),
             _ => ("mcp-err-internal", vec![]),
         };
         let msg = self.i18n.translate_args(locale, key, &args);
@@ -634,9 +634,6 @@ impl KartotekaServer {
             })
             .collect();
 
-        let ids: Vec<String> = inputs.iter().map(|i| i.id.clone()).collect();
-        let titles: Vec<String> = p.items.iter().map(|i| i.title.clone()).collect();
-
         let mut tx =
             self.pool.begin().await.map_err(|e| {
                 self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), &locale)
@@ -648,10 +645,9 @@ impl KartotekaServer {
             .await
             .map_err(|e| self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), &locale))?;
 
-        let result: Vec<_> = ids
-            .into_iter()
-            .zip(titles)
-            .map(|(id, title)| serde_json::json!({"id": id, "title": title}))
+        let result: Vec<_> = inputs
+            .iter()
+            .map(|i| serde_json::json!({"id": i.id, "title": i.title}))
             .collect();
         self.json_result(result, &locale)
     }
@@ -671,11 +667,13 @@ impl KartotekaServer {
         }
 
         // Validate real container_ids / parent_list_ids referenced by UUID (not ref)
-        let container_ids: Vec<&str> = p
+        let mut container_ids: Vec<&str> = p
             .lists
             .iter()
             .filter_map(|l| l.container_id.as_deref())
             .collect();
+        container_ids.sort_unstable();
+        container_ids.dedup();
         if !container_ids.is_empty() {
             let owned = db::containers::find_owned_ids(&self.pool, &uid, &container_ids)
                 .await
@@ -686,15 +684,32 @@ impl KartotekaServer {
                 .collect();
             if !missing.is_empty() {
                 return Err(self.map_err(
-                    McpError::BadRequest("one or more container_id values not found"),
+                    McpError::BadRequest("one or more container_id values not found".into()),
                     &locale,
                 ));
             }
         }
 
-        let start_pos = db::lists::next_position(&self.pool, &uid, None, None)
-            .await
-            .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+        // Pre-fetch next_position per unique (container_id, parent_list_id) scope so that
+        // batch-created lists don't collide with existing positions within each scope.
+        // Items using *_ref fields resolve to brand-new parents (position 0) and are
+        // handled via the fallback in scope_offsets below.
+        let mut scope_pos: std::collections::HashMap<(Option<String>, Option<String>), i64> =
+            std::collections::HashMap::new();
+        for l in &p.lists {
+            if l.container_ref.is_none() && l.parent_list_ref.is_none() {
+                scope_pos
+                    .entry((l.container_id.clone(), l.parent_list_id.clone()))
+                    .or_insert(0);
+            }
+        }
+        for (key, pos) in &mut scope_pos {
+            *pos = db::lists::next_position(&self.pool, &uid, key.0.as_deref(), key.1.as_deref())
+                .await
+                .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+        }
+        let mut scope_offsets: std::collections::HashMap<(Option<String>, Option<String>), i64> =
+            std::collections::HashMap::new();
 
         let mut tx =
             self.pool.begin().await.map_err(|e| {
@@ -704,31 +719,30 @@ impl KartotekaServer {
         let mut resolver = RefResolver::new();
         let mut result = Vec::with_capacity(p.lists.len());
 
-        for (i, list) in p.lists.iter().enumerate() {
+        for list in &p.lists {
             let container_id = resolver
                 .pick(
                     list.container_id.as_deref(),
                     list.container_ref.as_deref(),
                     false,
                 )
-                .map_err(|e| {
-                    self.map_err(
-                        McpError::BadRequest(Box::leak(e.to_string().into_boxed_str())),
-                        &locale,
-                    )
-                })?;
+                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
             let parent_list_id = resolver
                 .pick(
                     list.parent_list_id.as_deref(),
                     list.parent_list_ref.as_deref(),
                     false,
                 )
-                .map_err(|e| {
-                    self.map_err(
-                        McpError::BadRequest(Box::leak(e.to_string().into_boxed_str())),
-                        &locale,
-                    )
-                })?;
+                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+
+            let scope_key = (
+                container_id.map(str::to_owned),
+                parent_list_id.map(str::to_owned),
+            );
+            let base = scope_pos.get(&scope_key).copied().unwrap_or(0);
+            let offset = scope_offsets.entry(scope_key).or_insert(0);
+            let position = base + *offset;
+            *offset += 1;
 
             let list_type = list.list_type.as_deref().unwrap_or("custom");
             let new_id = Uuid::new_v4().to_string();
@@ -738,7 +752,7 @@ impl KartotekaServer {
                 &InsertListInput {
                     id: new_id.clone(),
                     user_id: uid.clone(),
-                    position: start_pos + i as i64,
+                    position,
                     name: list.name.clone(),
                     icon: list.icon.clone(),
                     description: list.description.clone(),
@@ -761,12 +775,7 @@ impl KartotekaServer {
 
             resolver
                 .register(list.client_ref.as_deref(), &new_id)
-                .map_err(|e| {
-                    self.map_err(
-                        McpError::BadRequest(Box::leak(e.to_string().into_boxed_str())),
-                        &locale,
-                    )
-                })?;
+                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
 
             result.push(serde_json::json!({"id": new_id, "name": list.name}));
         }
@@ -795,11 +804,13 @@ impl KartotekaServer {
         }
 
         // Validate real parent_container_ids referenced by UUID (not ref)
-        let parent_ids: Vec<&str> = p
+        let mut parent_ids: Vec<&str> = p
             .containers
             .iter()
             .filter_map(|c| c.parent_container_id.as_deref())
             .collect();
+        parent_ids.sort_unstable();
+        parent_ids.dedup();
         if !parent_ids.is_empty() {
             let owned = db::containers::find_owned_ids(&self.pool, &uid, &parent_ids)
                 .await
@@ -810,15 +821,27 @@ impl KartotekaServer {
                 .collect();
             if !missing.is_empty() {
                 return Err(self.map_err(
-                    McpError::BadRequest("one or more parent_container_id values not found"),
+                    McpError::BadRequest("one or more parent_container_id values not found".into()),
                     &locale,
                 ));
             }
         }
 
-        let start_pos = db::containers::next_position(&self.pool, &uid, None)
-            .await
-            .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+        // Pre-fetch next_position per unique parent scope.
+        let mut scope_pos: std::collections::HashMap<Option<String>, i32> =
+            std::collections::HashMap::new();
+        for c in &p.containers {
+            if c.parent_container_ref.is_none() {
+                scope_pos.entry(c.parent_container_id.clone()).or_insert(0);
+            }
+        }
+        for (key, pos) in &mut scope_pos {
+            *pos = db::containers::next_position(&self.pool, &uid, key.as_deref())
+                .await
+                .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+        }
+        let mut scope_offsets: std::collections::HashMap<Option<String>, i32> =
+            std::collections::HashMap::new();
 
         let mut tx =
             self.pool.begin().await.map_err(|e| {
@@ -828,19 +851,20 @@ impl KartotekaServer {
         let mut resolver = RefResolver::new();
         let mut result = Vec::with_capacity(p.containers.len());
 
-        for (i, container) in p.containers.iter().enumerate() {
+        for container in &p.containers {
             let parent_id = resolver
                 .pick(
                     container.parent_container_id.as_deref(),
                     container.parent_container_ref.as_deref(),
                     false,
                 )
-                .map_err(|e| {
-                    self.map_err(
-                        McpError::BadRequest(Box::leak(e.to_string().into_boxed_str())),
-                        &locale,
-                    )
-                })?;
+                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+
+            let scope_key = parent_id.map(str::to_owned);
+            let base = scope_pos.get(&scope_key).copied().unwrap_or(0);
+            let offset = scope_offsets.entry(scope_key).or_insert(0);
+            let position = base + *offset;
+            *offset += 1;
 
             let new_id = Uuid::new_v4().to_string();
             let req = CreateContainerRequest {
@@ -851,18 +875,13 @@ impl KartotekaServer {
                 parent_container_id: parent_id.map(str::to_owned),
             };
 
-            db::containers::insert_in_tx(&mut tx, &new_id, &uid, &req, start_pos + i as i32)
+            db::containers::insert_in_tx(&mut tx, &new_id, &uid, &req, position)
                 .await
                 .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
 
             resolver
                 .register(container.client_ref.as_deref(), &new_id)
-                .map_err(|e| {
-                    self.map_err(
-                        McpError::BadRequest(Box::leak(e.to_string().into_boxed_str())),
-                        &locale,
-                    )
-                })?;
+                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
 
             result.push(serde_json::json!({"id": new_id, "name": container.name}));
         }

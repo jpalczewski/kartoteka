@@ -1,7 +1,7 @@
 use crate::types::ContainerRow;
 use crate::{DbError, SqlitePool};
 use kartoteka_shared::types::{CreateContainerRequest, UpdateContainerRequest};
-use sqlx::{QueryBuilder, Sqlite, SqliteConnection};
+use sqlx::SqliteConnection;
 use std::collections::HashSet;
 use uuid::Uuid;
 
@@ -81,27 +81,12 @@ pub async fn insert(
     Ok(row)
 }
 
-/// Returns the subset of `ids` that exist and are owned by `user_id`.
-/// Used for bulk parent-ownership validation before a batch insert.
-#[tracing::instrument(skip(pool, ids))]
 pub async fn find_owned_ids(
     pool: &SqlitePool,
     user_id: &str,
     ids: &[&str],
 ) -> Result<HashSet<String>, DbError> {
-    if ids.is_empty() {
-        return Ok(HashSet::new());
-    }
-    let mut qb: QueryBuilder<Sqlite> =
-        QueryBuilder::new("SELECT id FROM containers WHERE user_id = ");
-    qb.push_bind(user_id).push(" AND id IN (");
-    let mut sep = qb.separated(", ");
-    for id in ids {
-        sep.push_bind(*id);
-    }
-    qb.push(")");
-    let rows: Vec<(String,)> = qb.build_query_as().fetch_all(pool).await?;
-    Ok(rows.into_iter().map(|(id,)| id).collect())
+    crate::find_owned_ids_in(pool, "containers", user_id, ids).await
 }
 
 /// Insert a new container within a caller-owned transaction.

@@ -46,67 +46,39 @@ impl UpdateItemParams {
             .is_some_and(|v| v.iter().any(|s| s == name))
     }
 
-    pub fn nullable<T>(val: Option<T>, _name: &str, cleared: bool) -> Option<Option<T>> {
+    pub fn nullable<T>(val: Option<T>, cleared: bool) -> Option<Option<T>> {
         if cleared { Some(None) } else { val.map(Some) }
     }
 
     pub fn description_field(&self) -> Option<Option<String>> {
-        Self::nullable(
-            self.description.clone(),
-            "description",
-            self.cleared("description"),
-        )
+        Self::nullable(self.description.clone(), self.cleared("description"))
     }
     pub fn start_date_field(&self) -> Option<Option<String>> {
-        Self::nullable(
-            self.start_date.clone(),
-            "start_date",
-            self.cleared("start_date"),
-        )
+        Self::nullable(self.start_date.clone(), self.cleared("start_date"))
     }
     pub fn deadline_field(&self) -> Option<Option<String>> {
-        Self::nullable(self.deadline.clone(), "deadline", self.cleared("deadline"))
+        Self::nullable(self.deadline.clone(), self.cleared("deadline"))
     }
     pub fn hard_deadline_field(&self) -> Option<Option<String>> {
-        Self::nullable(
-            self.hard_deadline.clone(),
-            "hard_deadline",
-            self.cleared("hard_deadline"),
-        )
+        Self::nullable(self.hard_deadline.clone(), self.cleared("hard_deadline"))
     }
     pub fn start_time_field(&self) -> Option<Option<String>> {
-        Self::nullable(
-            self.start_time.clone(),
-            "start_time",
-            self.cleared("start_time"),
-        )
+        Self::nullable(self.start_time.clone(), self.cleared("start_time"))
     }
     pub fn deadline_time_field(&self) -> Option<Option<String>> {
-        Self::nullable(
-            self.deadline_time.clone(),
-            "deadline_time",
-            self.cleared("deadline_time"),
-        )
+        Self::nullable(self.deadline_time.clone(), self.cleared("deadline_time"))
     }
     pub fn quantity_field(&self) -> Option<Option<i32>> {
-        Self::nullable(self.quantity, "quantity", self.cleared("quantity"))
+        Self::nullable(self.quantity, self.cleared("quantity"))
     }
     pub fn actual_quantity_field(&self) -> Option<Option<i32>> {
-        Self::nullable(
-            self.actual_quantity,
-            "actual_quantity",
-            self.cleared("actual_quantity"),
-        )
+        Self::nullable(self.actual_quantity, self.cleared("actual_quantity"))
     }
     pub fn unit_field(&self) -> Option<Option<String>> {
-        Self::nullable(self.unit.clone(), "unit", self.cleared("unit"))
+        Self::nullable(self.unit.clone(), self.cleared("unit"))
     }
     pub fn estimated_duration_field(&self) -> Option<Option<i32>> {
-        Self::nullable(
-            self.estimated_duration,
-            "estimated_duration",
-            self.cleared("estimated_duration"),
-        )
+        Self::nullable(self.estimated_duration, self.cleared("estimated_duration"))
     }
 }
 

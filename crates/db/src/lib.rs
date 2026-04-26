@@ -1,7 +1,31 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
+use sqlx::{QueryBuilder, Sqlite};
+use std::collections::HashSet;
 use std::str::FromStr;
 
 pub use sqlx::sqlite::SqlitePool;
+
+/// Bulk ownership check: returns the subset of `ids` that exist in `table` and are owned by `user_id`.
+pub(crate) async fn find_owned_ids_in(
+    pool: &SqlitePool,
+    table: &str,
+    user_id: &str,
+    ids: &[&str],
+) -> Result<HashSet<String>, DbError> {
+    if ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let mut qb: QueryBuilder<Sqlite> =
+        QueryBuilder::new(format!("SELECT id FROM {table} WHERE user_id = "));
+    qb.push_bind(user_id).push(" AND id IN (");
+    let mut sep = qb.separated(", ");
+    for id in ids {
+        sep.push_bind(*id);
+    }
+    qb.push(")");
+    let rows: Vec<(String,)> = qb.build_query_as().fetch_all(pool).await?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
+}
 
 pub mod auth_methods;
 pub mod comments;
