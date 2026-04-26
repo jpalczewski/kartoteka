@@ -1,6 +1,7 @@
 use crate::types::ContainerRow;
 use crate::{DbError, SqlitePool};
 use kartoteka_shared::types::{CreateContainerRequest, UpdateContainerRequest};
+use sqlx::SqliteConnection;
 use uuid::Uuid;
 
 #[derive(Debug, sqlx::FromRow)]
@@ -77,6 +78,33 @@ pub async fn insert(
     .fetch_one(pool)
     .await?;
     Ok(row)
+}
+
+/// Insert a new container within a caller-owned transaction.
+/// The caller is responsible for generating `id` and for commit/rollback.
+#[tracing::instrument(skip(conn, req), fields(id = %id))]
+pub async fn insert_in_tx(
+    conn: &mut SqliteConnection,
+    id: &str,
+    user_id: &str,
+    req: &CreateContainerRequest,
+    position: i32,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO containers (id, user_id, name, icon, description, status, parent_container_id, position) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(&req.name)
+    .bind(&req.icon)
+    .bind(&req.description)
+    .bind(&req.status)
+    .bind(&req.parent_container_id)
+    .bind(position)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
 }
 
 /// Update a container using read-modify-write. Returns None if not found.
