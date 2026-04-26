@@ -86,6 +86,10 @@ deploy-gateway-dev:
 
 deploy-dev: deploy-gateway-dev migrate-gateway-dev
 
+# Zbuduj obraz AMD64 lokalnie (Colima) i zdeployuj na preview
+deploy-preview:
+    bash scripts/deploy-preview.sh
+
 deploy-gateway:
     cp -r locales gateway/locales
     cp locales/en/mcp.ftl gateway/locales/en/mcp.txt

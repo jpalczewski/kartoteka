@@ -105,7 +105,7 @@ pub fn HomePage() -> impl IntoView {
     let on_tag_toggle = Callback::new(move |(list_id, tag_id): (String, String)| {
         leptos::task::spawn_local(async move {
             let has_tag = tag_links_res
-                .get()
+                .get_untracked()
                 .and_then(|r| r.ok())
                 .unwrap_or_default()
                 .iter()
