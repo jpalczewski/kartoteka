@@ -1,11 +1,15 @@
 use kartoteka_shared::types::Tag;
 use leptos::prelude::*;
+use leptos_router::hooks::use_navigate;
 
-use super::tag_badge::TagBadge;
+use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
+use crate::components::tags::tag_badge::TagBadge;
+use crate::components::tags::tag_tree::build_breadcrumb;
 
-/// Renders a row of tag badges for a list.
-/// If `on_toggle` is provided, badges are clickable (removes tag) and a "+" dropdown
-/// lets the user assign any unassigned tag.
+/// Renders a row of tag badges for a list or item.
+/// If `on_toggle` is provided, each badge shows an X button on hover that removes the tag
+/// (with a confirmation modal). The badge itself navigates to the tag detail page.
+/// A "+" dropdown lets the user assign any unassigned tag.
 #[component]
 pub fn TagList(
     all_tags: Vec<Tag>,
@@ -19,23 +23,70 @@ pub fn TagList(
         .collect();
 
     let unassigned_tags: Vec<Tag> = all_tags
-        .into_iter()
+        .iter()
         .filter(|t| !selected_tag_ids.contains(&t.id))
+        .cloned()
         .collect();
 
     if selected_tags.is_empty() && on_toggle.is_none() {
         return view! {}.into_any();
     }
 
+    let pending_remove: RwSignal<Option<String>> = RwSignal::new(None);
+    let navigate = use_navigate();
+    let removable = on_toggle.is_some();
+
+    let tag_labels: std::collections::HashMap<String, String> = selected_tags
+        .iter()
+        .map(|tag| {
+            let label = build_breadcrumb(&all_tags, &tag.id)
+                .iter()
+                .map(|t| t.name.as_str())
+                .collect::<Vec<_>>()
+                .join(" / ");
+            (tag.id.clone(), label)
+        })
+        .collect();
+
     view! {
         <div class="flex flex-wrap items-center gap-1">
             {selected_tags.into_iter().map(|tag| {
-                if let Some(cb) = on_toggle {
-                    view! { <TagBadge tag=tag on_click=cb /> }.into_any()
+                let tag_id = tag.id.clone();
+                let label = tag_labels.get(&tag.id).cloned().unwrap_or_default();
+                let nav = navigate.clone();
+                let tid_nav = tag_id.clone();
+                let badge = view! {
+                    <TagBadge
+                        tag=tag
+                        label=label
+                        on_click=Callback::new(move |_: String| {
+                            nav(&format!("/tags/{}", tid_nav), Default::default());
+                        })
+                    />
+                };
+
+                if removable {
+                    let tid_remove = tag_id.clone();
+                    view! {
+                        <div class="relative group inline-flex items-center">
+                            {badge}
+                            <button
+                                type="button"
+                                class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-base-300 hover:bg-error hover:text-error-content text-xs flex items-center justify-center invisible group-hover:visible z-10 leading-none"
+                                on:click=move |ev| {
+                                    ev.stop_propagation();
+                                    pending_remove.set(Some(tid_remove.clone()));
+                                }
+                            >
+                                "×"
+                            </button>
+                        </div>
+                    }.into_any()
                 } else {
-                    view! { <TagBadge tag=tag /> }.into_any()
+                    badge.into_any()
                 }
             }).collect::<Vec<_>>()}
+
             {on_toggle.map(|cb| {
                 if unassigned_tags.is_empty() {
                     return view! {}.into_any();
@@ -79,6 +130,21 @@ pub fn TagList(
                 }.into_any()
             })}
         </div>
+
+        <ConfirmModal
+            open=Signal::derive(move || pending_remove.get().is_some())
+            title="Odepnij tag".to_string()
+            message="Czy na pewno chcesz odpiąć ten tag?".to_string()
+            confirm_label="Odepnij".to_string()
+            variant=ConfirmVariant::Warning
+            on_close=Callback::new(move |_| pending_remove.set(None))
+            on_confirm=Callback::new(move |_| {
+                if let Some((tid, cb)) = pending_remove.get().zip(on_toggle) {
+                    pending_remove.set(None);
+                    cb.run(tid);
+                }
+            })
+        />
     }
     .into_any()
 }

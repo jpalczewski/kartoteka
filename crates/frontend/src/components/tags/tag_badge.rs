@@ -6,11 +6,14 @@ pub fn TagBadge(
     tag: Tag,
     #[prop(optional)] on_click: Option<Callback<String>>,
     #[prop(default = false)] active: bool,
+    /// Override display text (e.g. full hierarchical path "Parent / Child").
+    #[prop(optional)]
+    label: Option<String>,
 ) -> impl IntoView {
     let color = tag.color.clone().unwrap_or_else(|| "#6b7280".to_string());
     let style = format!("background: {color}; color: white;");
     let tag_id = tag.id.clone();
-    let name = tag.name.clone();
+    let display = label.unwrap_or(tag.name.clone());
 
     view! {
         <span
@@ -26,7 +29,7 @@ pub fn TagBadge(
                 }
             }
         >
-            {name}
+            {display}
         </span>
     }
 }
