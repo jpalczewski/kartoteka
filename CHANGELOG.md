@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1](https://github.com/jpalczewski/kartoteka/compare/v1.1.0...v1.1.1) (2026-04-26)
+
+
+### Bug Fixes
+
+* **ci:** replace ff-only merge with force push to sync main from develop ([#142](https://github.com/jpalczewski/kartoteka/issues/142)) ([09024d8](https://github.com/jpalczewski/kartoteka/commit/09024d80ad62f06e1ef570c035294b36d593d540))
+
 ## [1.1.0](https://github.com/jpalczewski/kartoteka/compare/v1.0.0...v1.1.0) (2026-04-26)
 
 
