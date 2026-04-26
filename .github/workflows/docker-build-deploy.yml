@@ -1,0 +1,46 @@
+name: Docker Build & Deploy
+
+on:
+  workflow_call:
+    inputs:
+      image_tag:
+        description: Primary tag for the pushed image
+        required: true
+        type: string
+      cargo_profile:
+        description: debug or release
+        required: true
+        type: string
+      extra_tags:
+        description: Newline-separated additional tags
+        required: false
+        type: string
+        default: ""
+    secrets:
+      coolify_webhook:
+        description: Coolify deploy webhook URL for the target environment
+        required: true
+      coolify_token:
+        description: Coolify API token
+        required: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      image_tag: ${{ inputs.image_tag }}
+      cargo_profile: ${{ inputs.cargo_profile }}
+      extra_tags: ${{ inputs.extra_tags }}
+    secrets: inherit
+
+  deploy:
+    permissions: {}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via Coolify
+        env:
+          WEBHOOK: ${{ secrets.coolify_webhook }}
+          TOKEN: ${{ secrets.coolify_token }}
+        run: |
+          curl -fsSL -X GET "$WEBHOOK" -H "Authorization: Bearer $TOKEN"
