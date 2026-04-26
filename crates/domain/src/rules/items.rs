@@ -1,5 +1,5 @@
 use crate::DomainError;
-use kartoteka_shared::date_utils::parse_date;
+use kartoteka_shared::types::FlexDate;
 
 pub fn validate_title(title: &str) -> Result<(), DomainError> {
     if title.trim().is_empty() {
@@ -22,24 +22,27 @@ pub fn validate_item_dates(
         return Err(DomainError::Validation("deadline_time_without_date"));
     }
 
-    let parse = |s: &str| parse_date(s).ok_or(DomainError::Validation("invalid_date"));
+    let parse = |s: &str| {
+        s.parse::<FlexDate>()
+            .map_err(|_| DomainError::Validation("invalid_date"))
+    };
 
-    let start = start_date.map(parse).transpose()?;
-    let dl = deadline.map(parse).transpose()?;
-    let hard = hard_deadline.map(parse).transpose()?;
+    let start: Option<FlexDate> = start_date.map(parse).transpose()?;
+    let dl: Option<FlexDate> = deadline.map(parse).transpose()?;
+    let hard: Option<FlexDate> = hard_deadline.map(parse).transpose()?;
 
-    if let (Some(s), Some(d)) = (start, dl) {
-        if s > d {
+    if let (Some(s), Some(d)) = (&start, &dl) {
+        if s.start() > d.start() {
             return Err(DomainError::Validation("start_date_after_deadline"));
         }
     }
-    if let (Some(d), Some(h)) = (dl, hard) {
-        if d > h {
+    if let (Some(d), Some(h)) = (&dl, &hard) {
+        if d.start() > h.start() {
             return Err(DomainError::Validation("deadline_after_hard_deadline"));
         }
     }
-    if let (Some(s), None, Some(h)) = (start, dl, hard) {
-        if s > h {
+    if let (Some(s), None, Some(h)) = (&start, &dl, &hard) {
+        if s.start() > h.start() {
             return Err(DomainError::Validation("start_date_after_hard_deadline"));
         }
     }
@@ -226,6 +229,27 @@ mod tests {
         assert!(matches!(
             err,
             DomainError::Validation("start_date_after_hard_deadline")
+        ));
+    }
+
+    #[test]
+    fn week_and_month_formats_accepted() {
+        // Week deadline after day start — both formats must parse without error
+        assert!(
+            validate_item_dates(Some("2026-05-01"), None, Some("2026-W20"), None, None).is_ok()
+        );
+        // Month hard_deadline after week deadline
+        assert!(validate_item_dates(None, None, Some("2026-W20"), None, Some("2026-06")).is_ok());
+    }
+
+    #[test]
+    fn week_format_order_violation_rejected() {
+        // W18 starts 2026-04-27, W17 starts 2026-04-20 — so start > deadline
+        let err =
+            validate_item_dates(Some("2026-W18"), None, Some("2026-W17"), None, None).unwrap_err();
+        assert!(matches!(
+            err,
+            DomainError::Validation("start_date_after_deadline")
         ));
     }
 }
