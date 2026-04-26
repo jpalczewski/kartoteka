@@ -251,6 +251,22 @@ pub async fn insert(tx: &mut SqliteConnection, input: &InsertListInput) -> Resul
     Ok(())
 }
 
+/// Returns the list of enabled feature names for a list (no user ownership check).
+/// Used internally by domain to validate feature gates.
+pub async fn get_feature_names(pool: &SqlitePool, list_id: &str) -> Result<Vec<String>, DbError> {
+    let row: Option<(String,)> = sqlx::query_as("SELECT features FROM lists WHERE id = ?")
+        .bind(list_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(DbError::Sqlx)?;
+    let Some((json,)) = row else {
+        return Ok(vec![]);
+    };
+    let map: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(&json).unwrap_or_default();
+    Ok(map.into_iter().map(|(k, _)| k).collect())
+}
+
 /// Replace the full features JSON for a list. Caller must be in a transaction.
 #[tracing::instrument(skip(tx, features))]
 pub async fn set_features(
@@ -593,5 +609,32 @@ mod tests {
 
         let rows = root(&pool, &uid).await.unwrap();
         assert!(rows.is_empty(), "pinned list should not appear in root()");
+    }
+
+    #[tokio::test]
+    async fn get_feature_names_returns_keys() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let id = insert_test_list(&pool, &uid, "checklist").await;
+
+        let features_json = serde_json::json!({"deadlines": {}, "quantity": {}});
+        let mut tx = pool.begin().await.unwrap();
+        set_features(&mut tx, &id, &features_json).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let names = get_feature_names(&pool, &id).await.unwrap();
+        assert!(names.contains(&"deadlines".to_string()));
+        assert!(names.contains(&"quantity".to_string()));
+        assert_eq!(names.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn get_feature_names_empty_for_new_list() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let id = insert_test_list(&pool, &uid, "checklist").await;
+
+        let names = get_feature_names(&pool, &id).await.unwrap();
+        assert!(names.is_empty());
     }
 }
