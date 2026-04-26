@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0](https://github.com/jpalczewski/kartoteka/compare/v1.0.0...v1.1.0) (2026-04-26)
+
+
+### Features
+
+* **domain:** validate item title and dates on create/update ([#137](https://github.com/jpalczewski/kartoteka/issues/137)) ([c6d3bde](https://github.com/jpalczewski/kartoteka/commit/c6d3bdecdd126200b7e1a0022ca03519ae545fad))
+
+
+### Bug Fixes
+
+* **ci:** allow wildcard path deps for internal workspace crates ([#138](https://github.com/jpalczewski/kartoteka/issues/138)) ([d813a80](https://github.com/jpalczewski/kartoteka/commit/d813a8055a1fa24e1fa1ffdea603396f6d14c315))
+
 ## [1.0.0](https://github.com/jpalczewski/kartoteka/compare/v0.4.1...v1.0.0) (2026-04-25)
 
 
