@@ -68,7 +68,7 @@ pub fn TagList(
                 if removable {
                     let tid_remove = tag_id.clone();
                     view! {
-                        <div class="relative group inline-flex items-center">
+                        <div class="relative group">
                             {badge}
                             <button
                                 type="button"
