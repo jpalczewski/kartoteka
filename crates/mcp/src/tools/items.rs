@@ -122,3 +122,88 @@ pub struct CreateListParams {
     /// Feature names to enable, e.g. ["quantity", "deadline"]
     pub features: Option<Vec<String>>,
 }
+
+// ── create_container ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CreateContainerParams {
+    pub name: String,
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    /// null/omit = folder; "active" | "done" | "paused" = project
+    pub status: Option<String>,
+    pub parent_container_id: Option<String>,
+}
+
+// ── create_items (batch) ──────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CreateItemsInput {
+    pub title: String,
+    pub description: Option<String>,
+    pub start_date: Option<String>,
+    pub deadline: Option<String>,
+    pub hard_deadline: Option<String>,
+    pub start_time: Option<String>,
+    pub deadline_time: Option<String>,
+    pub quantity: Option<i32>,
+    pub actual_quantity: Option<i32>,
+    pub unit: Option<String>,
+    pub estimated_duration: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CreateItemsParams {
+    /// Target list ID — all items are appended to this list in order.
+    pub list_id: String,
+    pub items: Vec<CreateItemsInput>,
+}
+
+// ── create_lists (batch) ──────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CreateListsInput {
+    pub name: String,
+    pub list_type: Option<String>,
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    pub features: Option<Vec<String>>,
+    /// Real UUID of an existing container. Use `container_ref` instead to
+    /// reference a container created earlier in this batch.
+    pub container_id: Option<String>,
+    /// `client_ref` of a container created earlier in this same batch.
+    pub container_ref: Option<String>,
+    /// Real UUID of an existing parent list.
+    pub parent_list_id: Option<String>,
+    /// `client_ref` of a list created earlier in this same batch.
+    pub parent_list_ref: Option<String>,
+    /// Label that other entries in this batch can reference via `*_ref` fields.
+    pub client_ref: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CreateListsParams {
+    pub lists: Vec<CreateListsInput>,
+}
+
+// ── create_containers (batch) ─────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CreateContainersInput {
+    pub name: String,
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    /// null/omit = folder; "active" | "done" | "paused" = project
+    pub status: Option<String>,
+    /// Real UUID of an existing parent container.
+    pub parent_container_id: Option<String>,
+    /// `client_ref` of a container created earlier in this same batch.
+    pub parent_container_ref: Option<String>,
+    /// Label that other entries in this batch can reference via `parent_container_ref`.
+    pub client_ref: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CreateContainersParams {
+    pub containers: Vec<CreateContainersInput>,
+}

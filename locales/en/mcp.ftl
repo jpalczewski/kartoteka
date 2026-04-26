@@ -93,3 +93,7 @@ mcp-tool-get_item-desc = Get details of a specific item by ID.
 mcp-tool-list_templates-desc = List all saved list templates.
 mcp-tool-list_overdue-desc = Get all items past their deadline that are not yet completed.
 mcp-tool-get_active_timer-desc = Get the currently running timer, if any.
+mcp-tool-create_container-desc = Create a single folder (omit status) or project (status: "active", "done", or "paused"). To build a workspace, call create_containers (batch) + create_lists + create_items in sequence.
+mcp-tool-create_items-desc = Append multiple items to one list atomically. Provide list_id once at the top level; all items go into that list in the given order.
+mcp-tool-create_lists-desc = Create multiple lists atomically. Use container_ref to reference a container created in a prior create_containers call (set client_ref on it first). Use parent_list_ref to nest under a list created earlier in this same batch. Forward-only references within a batch.
+mcp-tool-create_containers-desc = Create multiple folders/projects atomically. Use parent_container_ref to nest under a container created earlier in this same batch (set client_ref on the parent first). Forward-only: cannot reference an item later in the array.

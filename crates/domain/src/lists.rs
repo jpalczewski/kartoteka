@@ -111,7 +111,7 @@ pub(crate) fn parse_features(json: &str) -> Result<Vec<ListFeature>, DomainError
 }
 
 /// Build a features JSON object from a list of names (each gets an empty config).
-fn features_from_names(names: &[String]) -> serde_json::Value {
+pub fn features_from_names(names: &[String]) -> serde_json::Value {
     let obj: serde_json::Map<String, serde_json::Value> = names
         .iter()
         .map(|n| (n.clone(), serde_json::json!({})))
