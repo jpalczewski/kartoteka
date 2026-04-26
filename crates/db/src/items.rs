@@ -1,5 +1,5 @@
 use crate::{DbError, types::ItemRow};
-use sqlx::{SqliteConnection, SqlitePool};
+use sqlx::{QueryBuilder, Sqlite, SqliteConnection, SqlitePool};
 
 // ── Input types ───────────────────────────────────────────────────────────────
 
@@ -196,6 +196,45 @@ pub async fn insert(pool: &SqlitePool, input: &InsertItemInput) -> Result<ItemRo
     .fetch_one(pool)
     .await
     .map_err(DbError::Sqlx)
+}
+
+/// Batch-insert multiple items in a single multi-row VALUES statement.
+/// SQLite limits bound parameters to 999; with 14 columns per item that's 71 rows.
+/// Inputs are chunked automatically so callers don't need to worry about the limit.
+#[tracing::instrument(skip(conn, inputs), fields(count = inputs.len()))]
+pub async fn insert_many_in_tx(
+    conn: &mut SqliteConnection,
+    inputs: &[InsertItemInput],
+) -> Result<(), DbError> {
+    const CHUNK: usize = 64; // 64 × 14 = 896 params, safely under 999
+    for chunk in inputs.chunks(CHUNK) {
+        let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new(
+            "INSERT INTO items (id, list_id, position, title, description, quantity, \
+             actual_quantity, unit, start_date, start_time, deadline, deadline_time, \
+             hard_deadline, estimated_duration) ",
+        );
+        qb.push_values(chunk, |mut b, i| {
+            b.push_bind(&i.id)
+                .push_bind(&i.list_id)
+                .push_bind(i.position)
+                .push_bind(&i.title)
+                .push_bind(&i.description)
+                .push_bind(i.quantity)
+                .push_bind(i.actual_quantity)
+                .push_bind(&i.unit)
+                .push_bind(&i.start_date)
+                .push_bind(&i.start_time)
+                .push_bind(&i.deadline)
+                .push_bind(&i.deadline_time)
+                .push_bind(&i.hard_deadline)
+                .push_bind(i.estimated_duration);
+        });
+        qb.build()
+            .execute(&mut *conn)
+            .await
+            .map_err(DbError::Sqlx)?;
+    }
+    Ok(())
 }
 
 /// Same INSERT as `insert` but operates on an existing transaction connection.
@@ -797,5 +836,47 @@ mod tests {
 
         let items = list_all_for_user(&pool, &uid2).await.unwrap();
         assert!(items.is_empty(), "should not see other user's items");
+    }
+
+    #[tokio::test]
+    async fn insert_many_in_tx_inserts_all_in_order() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = setup_list(&pool, &uid).await;
+
+        let inputs: Vec<InsertItemInput> = (0..5)
+            .map(|i| InsertItemInput {
+                id: uuid::Uuid::new_v4().to_string(),
+                list_id: list_id.clone(),
+                position: i,
+                title: format!("Item {i}"),
+                ..Default::default()
+            })
+            .collect();
+
+        let mut tx = pool.begin().await.unwrap();
+        insert_many_in_tx(&mut tx, &inputs).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let rows = list_for_list(&pool, &list_id, &uid).await.unwrap();
+        assert_eq!(rows.len(), 5);
+        for (i, row) in rows.iter().enumerate() {
+            assert_eq!(row.title, format!("Item {i}"));
+            assert_eq!(row.position, i as i32);
+        }
+    }
+
+    #[tokio::test]
+    async fn insert_many_in_tx_empty_is_noop() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = setup_list(&pool, &uid).await;
+
+        let mut tx = pool.begin().await.unwrap();
+        insert_many_in_tx(&mut tx, &[]).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let rows = list_for_list(&pool, &list_id, &uid).await.unwrap();
+        assert!(rows.is_empty());
     }
 }
