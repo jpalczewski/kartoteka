@@ -16,6 +16,9 @@ jobs:
     concurrency:
       group: release-please
       cancel-in-progress: false
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -36,3 +39,18 @@ jobs:
         if: ${{ steps.release.outputs.release_created }}
         run: |
           git push origin refs/remotes/origin/develop:refs/heads/main --force
+
+  docker-prod:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker-build-deploy.yml
+    with:
+      image_tag: latest
+      cargo_profile: release
+      extra_tags: ${{ needs.release-please.outputs.tag_name }}
+    secrets:
+      coolify_webhook: ${{ secrets.COOLIFY_WEBHOOK_PROD }}
+      coolify_token: ${{ secrets.COOLIFY_TOKEN }}
