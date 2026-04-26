@@ -827,6 +827,11 @@ impl KartotekaServer {
             }
         }
 
+        for c in &p.containers {
+            domain::rules::containers::validate_status(c.status.as_deref())
+                .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        }
+
         // Pre-fetch next_position per unique parent scope.
         let mut scope_pos: std::collections::HashMap<Option<String>, i32> =
             std::collections::HashMap::new();
