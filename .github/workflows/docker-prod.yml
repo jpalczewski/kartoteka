@@ -22,7 +22,6 @@ permissions:
 
 jobs:
   build:
-    if: github.event_name == 'push'
     uses: ./.github/workflows/docker-build.yml
     with:
       image_tag: latest
