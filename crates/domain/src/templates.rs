@@ -169,7 +169,15 @@ pub async fn create_list_from_template(
     let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
 
     db::lists::insert(
-        &mut tx, &list_id, user_id, position, list_name, None, None, list_type, None, None,
+        &mut tx,
+        &db::lists::InsertListInput {
+            id: list_id.clone(),
+            user_id: user_id.to_owned(),
+            position,
+            name: list_name.to_owned(),
+            list_type: list_type.to_owned(),
+            ..Default::default()
+        },
     )
     .await?;
 

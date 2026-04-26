@@ -705,29 +705,27 @@ mod tests {
             let mut conn = pool.acquire().await.unwrap();
             crate::lists::insert(
                 &mut conn,
-                &lid1,
-                &uid,
-                0,
-                "L1",
-                None,
-                None,
-                "checklist",
-                None,
-                None,
+                &crate::lists::InsertListInput {
+                    id: lid1.clone(),
+                    user_id: uid.clone(),
+                    position: 0,
+                    name: "L1".to_owned(),
+                    list_type: "checklist".to_owned(),
+                    ..Default::default()
+                },
             )
             .await
             .unwrap();
             crate::lists::insert(
                 &mut conn,
-                &lid2,
-                &uid,
-                1,
-                "L2",
-                None,
-                None,
-                "checklist",
-                None,
-                None,
+                &crate::lists::InsertListInput {
+                    id: lid2.clone(),
+                    user_id: uid.clone(),
+                    position: 1,
+                    name: "L2".to_owned(),
+                    list_type: "checklist".to_owned(),
+                    ..Default::default()
+                },
             )
             .await
             .unwrap();
@@ -772,15 +770,14 @@ mod tests {
             let mut conn = pool.acquire().await.unwrap();
             crate::lists::insert(
                 &mut conn,
-                &lid,
-                &uid1,
-                0,
-                "L",
-                None,
-                None,
-                "checklist",
-                None,
-                None,
+                &crate::lists::InsertListInput {
+                    id: lid.clone(),
+                    user_id: uid1.clone(),
+                    position: 0,
+                    name: "L".to_owned(),
+                    list_type: "checklist".to_owned(),
+                    ..Default::default()
+                },
             )
             .await
             .unwrap();

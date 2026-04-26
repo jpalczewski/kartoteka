@@ -22,6 +22,19 @@ pub struct ListRow {
     pub features: String,
 }
 
+#[derive(Debug, Default)]
+pub struct InsertListInput {
+    pub id: String,
+    pub user_id: String,
+    pub position: i64,
+    pub name: String,
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    pub list_type: String,
+    pub container_id: Option<String>,
+    pub parent_list_id: Option<String>,
+}
+
 // Used by domain::items::create (B3)
 #[derive(Debug)]
 pub struct CreateItemContext {
@@ -207,34 +220,22 @@ pub async fn get_create_item_context(
 
 // ── Write queries (called in transaction) ────────────────────────────────────
 
-#[allow(clippy::too_many_arguments)]
-#[tracing::instrument(skip(tx))]
-pub async fn insert(
-    tx: &mut SqliteConnection,
-    id: &str,
-    user_id: &str,
-    position: i64,
-    name: &str,
-    icon: Option<&str>,
-    description: Option<&str>,
-    list_type: &str,
-    container_id: Option<&str>,
-    parent_list_id: Option<&str>,
-) -> Result<(), DbError> {
+#[tracing::instrument(skip(tx, input), fields(id = %input.id))]
+pub async fn insert(tx: &mut SqliteConnection, input: &InsertListInput) -> Result<(), DbError> {
     sqlx::query(
         "INSERT INTO lists (id, user_id, name, icon, description, list_type, \
                             container_id, parent_list_id, position) \
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(id)
-    .bind(user_id)
-    .bind(name)
-    .bind(icon)
-    .bind(description)
-    .bind(list_type)
-    .bind(container_id)
-    .bind(parent_list_id)
-    .bind(position)
+    .bind(&input.id)
+    .bind(&input.user_id)
+    .bind(&input.name)
+    .bind(&input.icon)
+    .bind(&input.description)
+    .bind(&input.list_type)
+    .bind(&input.container_id)
+    .bind(&input.parent_list_id)
+    .bind(input.position)
     .execute(&mut *tx)
     .await
     .map_err(DbError::Sqlx)?;
@@ -382,15 +383,14 @@ mod tests {
         let mut tx = pool.begin().await.unwrap();
         insert(
             &mut tx,
-            &id,
-            user_id,
-            0,
-            name,
-            None,
-            None,
-            "checklist",
-            None,
-            None,
+            &InsertListInput {
+                id: id.clone(),
+                user_id: user_id.to_owned(),
+                position: 0,
+                name: name.to_owned(),
+                list_type: "checklist".to_owned(),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();

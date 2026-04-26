@@ -66,15 +66,14 @@ mod tests {
         let mut conn = pool.acquire().await.unwrap();
         crate::lists::insert(
             &mut conn,
-            &id,
-            user_id,
-            0,
-            name,
-            None,
-            None,
-            "checklist",
-            None,
-            None,
+            &crate::lists::InsertListInput {
+                id: id.clone(),
+                user_id: user_id.to_owned(),
+                position: 0,
+                name: name.to_owned(),
+                list_type: "checklist".to_owned(),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
