@@ -67,12 +67,20 @@ pub fn TagList(
 
                 if removable {
                     let tid_remove = tag_id.clone();
+                    let hovered = RwSignal::new(false);
                     view! {
-                        <div class="relative group">
+                        <div
+                            class="relative"
+                            on:mouseenter=move |_| hovered.set(true)
+                            on:mouseleave=move |_| hovered.set(false)
+                        >
                             {badge}
                             <button
                                 type="button"
-                                class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-base-300 hover:bg-error hover:text-error-content text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 z-10 leading-none"
+                                class=move || format!(
+                                    "absolute -top-1 -right-1 w-4 h-4 rounded-full bg-base-300 hover:bg-error hover:text-error-content text-xs flex items-center justify-center z-10 leading-none transition-opacity {}",
+                                    if hovered.get() { "opacity-100" } else { "opacity-0 pointer-events-none" }
+                                )
                                 on:click=move |ev| {
                                     ev.stop_propagation();
                                     pending_remove.set(Some(tid_remove.clone()));
