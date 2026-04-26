@@ -1685,7 +1685,7 @@ dependencies = [
 
 [[package]]
 name = "kartoteka-auth"
-version = "0.1.1"
+version = "0.4.1"
 dependencies = [
  "argon2",
  "async-trait",
@@ -1703,7 +1703,7 @@ dependencies = [
 
 [[package]]
 name = "kartoteka-db"
-version = "0.1.1"
+version = "0.4.1"
 dependencies = [
  "chrono",
  "kartoteka-shared",
@@ -1718,7 +1718,7 @@ dependencies = [
 
 [[package]]
 name = "kartoteka-domain"
-version = "0.1.1"
+version = "0.4.1"
 dependencies = [
  "argon2",
  "async-trait",
@@ -1740,7 +1740,7 @@ dependencies = [
 
 [[package]]
 name = "kartoteka-frontend"
-version = "0.1.1"
+version = "0.4.1"
 dependencies = [
  "axum",
  "axum-login",
@@ -1770,7 +1770,7 @@ dependencies = [
 
 [[package]]
 name = "kartoteka-i18n"
-version = "0.1.1"
+version = "0.4.1"
 dependencies = [
  "fluent-syntax 0.12.0",
  "serde",
@@ -1779,7 +1779,7 @@ dependencies = [
 
 [[package]]
 name = "kartoteka-jobs"
-version = "0.1.1"
+version = "0.4.1"
 dependencies = [
  "kartoteka-domain",
  "kartoteka-shared",
@@ -1787,7 +1787,7 @@ dependencies = [
 
 [[package]]
 name = "kartoteka-mcp"
-version = "0.1.1"
+version = "0.4.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1808,11 +1808,12 @@ dependencies = [
  "tracing",
  "unic-langid",
  "urlencoding",
+ "uuid",
 ]
 
 [[package]]
 name = "kartoteka-oauth"
-version = "0.1.1"
+version = "0.4.1"
 dependencies = [
  "axum",
  "axum-login",
@@ -1843,7 +1844,7 @@ dependencies = [
 
 [[package]]
 name = "kartoteka-server"
-version = "0.1.1"
+version = "0.4.1"
 dependencies = [
  "axum",
  "axum-login",
@@ -1879,7 +1880,7 @@ dependencies = [
 
 [[package]]
 name = "kartoteka-shared"
-version = "0.1.1"
+version = "0.4.1"
 dependencies = [
  "chrono",
  "chrono-tz 0.10.4",
