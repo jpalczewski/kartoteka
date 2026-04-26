@@ -165,8 +165,13 @@ pub fn ItemRow(
                 </A>
                 {(!item_tags.is_empty()).then(|| view! {
                     <div class="flex gap-1 shrink-0">
-                        {item_tags.clone().into_iter().map(|tag| view! {
-                            <TagBadge tag=tag />
+                        {item_tags.clone().into_iter().map(|tag| {
+                            let href = format!("/tags/{}", tag.id);
+                            view! {
+                                <A href=href attr:class="no-underline">
+                                    <TagBadge tag=tag />
+                                </A>
+                            }
                         }).collect::<Vec<_>>()}
                     </div>
                 })}
