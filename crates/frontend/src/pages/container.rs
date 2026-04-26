@@ -7,12 +7,14 @@ use crate::components::common::breadcrumbs::Breadcrumbs;
 use crate::components::common::dnd::{DetachDropZone, ReorderDropTarget};
 use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
-use crate::components::lists::{container_card::ContainerCard, list_card::ListCard};
+use crate::components::lists::{
+    container_card::ContainerCard, create_entity_input::CreateEntityInput, list_card::ListCard,
+};
 use crate::context::GlobalRefresh;
 use crate::server_fns::containers::{
-    get_container_data, move_container, rename_container, reorder_containers,
+    create_container, get_container_data, move_container, rename_container, reorder_containers,
 };
-use crate::server_fns::lists::{move_list, reorder_lists};
+use crate::server_fns::lists::{create_list, move_list, reorder_lists};
 use crate::state::dnd::{DndState, DropTarget, EntityKind};
 
 fn container_status_icon(status: Option<&str>) -> &'static str {
@@ -179,6 +181,23 @@ pub fn ContainerPage() -> impl IntoView {
                             });
                         });
 
+                        let on_create_list = Callback::new(move |req| {
+                            leptos::task::spawn_local(async move {
+                                match create_list(req).await {
+                                    Ok(_) => global_refresh.bump(),
+                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                }
+                            });
+                        });
+                        let on_create_container = Callback::new(move |req| {
+                            leptos::task::spawn_local(async move {
+                                match create_container(req).await {
+                                    Ok(_) => global_refresh.bump(),
+                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                }
+                            });
+                        });
+
                         view! {
                             <div class="flex flex-col gap-6">
                                 <DetachDropZone
@@ -227,6 +246,12 @@ pub fn ContainerPage() -> impl IntoView {
                                         />
                                     </div>
                                 </div>
+
+                                <CreateEntityInput
+                                    parent_container_id=current_id.clone()
+                                    on_create_list=on_create_list
+                                    on_create_container=on_create_container
+                                />
 
                                 // Child containers
                                 {if !children.is_empty() {
