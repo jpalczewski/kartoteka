@@ -14,7 +14,7 @@ use rmcp::{
     model::{
         CallToolRequestParam, CallToolResult, Content, ListResourceTemplatesResult,
         ListResourcesResult, ListToolsResult, PaginatedRequestParam, ReadResourceRequestParam,
-        ReadResourceResult, ResourceContents, ServerCapabilities, ServerInfo, ToolAnnotations,
+        ReadResourceResult, ResourceContents, ServerCapabilities, ServerInfo,
     },
     service::RequestContext,
     tool_router,
@@ -23,6 +23,9 @@ use serde_json::json;
 use sqlx::SqlitePool;
 use std::sync::Arc;
 use uuid::Uuid;
+
+mod annotations;
+mod batch;
 
 use crate::client_ref::RefResolver;
 use crate::tools::{
@@ -38,6 +41,7 @@ use crate::tools::{
     time::{LogTimeParams, StartTimerParams},
 };
 use crate::{McpError, McpI18n};
+use batch::PositionAllocator;
 
 pub struct KartotekaServer {
     pub(crate) pool: SqlitePool,
@@ -98,6 +102,29 @@ impl KartotekaServer {
         Ok((user_id, locale))
     }
 
+    /// Pull `(user_id, locale)` out of request extensions, mapping any failure
+    /// straight to a localized `ErrorData` so handlers can `?` it directly.
+    fn auth(&self, parts: &Parts) -> Result<(String, String), ErrorData> {
+        Self::extract_user_id_and_locale(parts).map_err(|e| self.map_err(e, "en"))
+    }
+
+    /// Closure factory that maps a `DomainError` to localized `ErrorData`.
+    /// Pass directly to `.map_err(...)` to avoid the noisy
+    /// `|e| self.map_err(McpError::Domain(e), &locale)` boilerplate.
+    fn domain_err<'a>(&'a self, locale: &'a str) -> impl Fn(domain::DomainError) -> ErrorData + 'a {
+        move |e| self.map_err(McpError::Domain(e), locale)
+    }
+
+    /// Same idea for `db::DbError` — wraps via `Into<DomainError>`.
+    fn db_err<'a>(&'a self, locale: &'a str) -> impl Fn(db::DbError) -> ErrorData + 'a {
+        move |e| self.map_err(McpError::Domain(e.into()), locale)
+    }
+
+    /// Same idea for sqlx errors that occur outside `db::*` (begin/commit).
+    fn sqlx_err<'a>(&'a self, locale: &'a str) -> impl Fn(sqlx::Error) -> ErrorData + 'a {
+        move |e| self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), locale)
+    }
+
     fn json_result<T: serde::Serialize>(
         &self,
         value: T,
@@ -109,6 +136,34 @@ impl KartotekaServer {
             |e| ErrorData::invalid_request(e.to_string(), None),
         )?]))
     }
+
+    /// Verify every id in `ids` belongs to `uid`. `kind_label` appears in the
+    /// error message so callers can distinguish container vs parent-container
+    /// references.
+    async fn ensure_containers_owned(
+        &self,
+        uid: &str,
+        ids: &[&str],
+        kind_label: &str,
+        locale: &str,
+    ) -> Result<(), ErrorData> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let mut unique: Vec<&str> = ids.to_vec();
+        unique.sort_unstable();
+        unique.dedup();
+        let owned = db::containers::find_owned_ids(&self.pool, uid, &unique)
+            .await
+            .map_err(self.db_err(locale))?;
+        if unique.iter().any(|id| !owned.contains(*id)) {
+            return Err(self.map_err(
+                McpError::BadRequest(format!("one or more {kind_label} values not found")),
+                locale,
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[tool_router]
@@ -119,8 +174,7 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<CreateItemParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let req = domain::items::CreateItemRequest {
             title: p.title,
             description: p.description,
@@ -136,7 +190,7 @@ impl KartotekaServer {
         };
         let item = domain::items::create(&self.pool, &uid, &p.list_id, &req)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(item, &locale)
     }
 
@@ -146,8 +200,7 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<UpdateItemParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let req = domain::items::UpdateItemRequest {
             title: p.title.clone(),
             description: p.description_field(),
@@ -164,7 +217,7 @@ impl KartotekaServer {
         };
         let item = domain::items::update(&self.pool, &uid, &p.item_id, &req)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(item, &locale)
     }
 
@@ -174,8 +227,7 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<CreateListParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let req = domain::lists::CreateListRequest {
             name: p.name,
             list_type: p.list_type,
@@ -187,7 +239,7 @@ impl KartotekaServer {
         };
         let list = domain::lists::create(&self.pool, &uid, &req)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(list, &locale)
     }
 
@@ -197,11 +249,10 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<SearchItemsParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let results = domain::search::search(&self.pool, &uid, &p.query)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(results, &locale)
     }
 
@@ -211,8 +262,7 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<AddCommentParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let comment = domain::comments::create(
             &self.pool,
             &uid,
@@ -223,7 +273,7 @@ impl KartotekaServer {
             p.author_name.as_deref(),
         )
         .await
-        .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        .map_err(self.domain_err(&locale))?;
         self.json_result(comment, &locale)
     }
 
@@ -233,8 +283,7 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<AddRelationParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let rel = domain::relations::create(
             &self.pool,
             &uid,
@@ -245,7 +294,7 @@ impl KartotekaServer {
             &p.relation_type,
         )
         .await
-        .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        .map_err(self.domain_err(&locale))?;
         self.json_result(rel, &locale)
     }
 
@@ -258,14 +307,11 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<RemoveRelationParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         domain::relations::delete(&self.pool, &uid, &p.relation_id)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
-        Ok(CallToolResult::success(vec![
-            Content::json(json!({"deleted": true})).expect("json"),
-        ]))
+            .map_err(self.domain_err(&locale))?;
+        self.json_result(json!({"deleted": true}), &locale)
     }
 
     #[rmcp::tool(name = "start_timer", description = "mcp-tool-start_timer-desc")]
@@ -274,11 +320,10 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<StartTimerParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let entry = domain::time_entries::start(&self.pool, &uid, p.item_id.as_deref())
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(entry, &locale)
     }
 
@@ -287,11 +332,10 @@ impl KartotekaServer {
         &self,
         Extension(parts): Extension<Parts>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let entry = domain::time_entries::stop(&self.pool, &uid)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(entry, &locale)
     }
 
@@ -301,8 +345,7 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<LogTimeParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let entry = domain::time_entries::log_manual(
             &self.pool,
             &uid,
@@ -312,7 +355,7 @@ impl KartotekaServer {
             p.description.as_deref(),
         )
         .await
-        .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        .map_err(self.domain_err(&locale))?;
         self.json_result(entry, &locale)
     }
 
@@ -325,8 +368,7 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<CreateListFromTemplateParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let list_type = p.list_type.as_deref().unwrap_or("custom");
         let list = domain::templates::create_list_from_template(
             &self.pool,
@@ -336,7 +378,7 @@ impl KartotekaServer {
             list_type,
         )
         .await
-        .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        .map_err(self.domain_err(&locale))?;
         self.json_result(list, &locale)
     }
 
@@ -349,12 +391,11 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<SaveAsTemplateParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let tmpl =
             domain::templates::create_from_list(&self.pool, &uid, &p.list_id, &p.template_name)
                 .await
-                .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+                .map_err(self.domain_err(&locale))?;
         self.json_result(tmpl, &locale)
     }
 
@@ -365,11 +406,10 @@ impl KartotekaServer {
         &self,
         Extension(parts): Extension<Parts>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let data = domain::lists::list_all(&self.pool, &uid)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(data, &locale)
     }
 
@@ -379,11 +419,10 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<GetListParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let data = domain::lists::get_one(&self.pool, &p.list_id, &uid)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(data, &locale)
     }
 
@@ -393,11 +432,10 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<ListItemsParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let all = domain::items::list_for_list(&self.pool, &p.list_id, &uid)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         let limit = domain::paging::clamp_limit(p.limit);
         let offset: usize = p
             .cursor
@@ -433,11 +471,10 @@ impl KartotekaServer {
         &self,
         Extension(parts): Extension<Parts>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let data = domain::containers::list_all(&self.pool, &uid)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(data, &locale)
     }
 
@@ -447,11 +484,10 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<GetContainerParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let data = domain::containers::get_one(&self.pool, &p.container_id, &uid)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(data, &locale)
     }
 
@@ -460,11 +496,10 @@ impl KartotekaServer {
         &self,
         Extension(parts): Extension<Parts>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let data = domain::tags::list_all(&self.pool, &uid)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(data, &locale)
     }
 
@@ -473,11 +508,10 @@ impl KartotekaServer {
         &self,
         Extension(parts): Extension<Parts>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let data = domain::items::by_date(&self.pool, &uid, "today")
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(data, &locale)
     }
 
@@ -489,11 +523,10 @@ impl KartotekaServer {
         &self,
         Extension(parts): Extension<Parts>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let data = domain::time_entries::list_all_for_user(&self.pool, &uid)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(data, &locale)
     }
 
@@ -503,11 +536,10 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<GetItemParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let data = domain::items::get_one(&self.pool, &p.item_id, &uid)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?
+            .map_err(self.domain_err(&locale))?
             .ok_or_else(|| {
                 self.map_err(
                     McpError::Domain(domain::DomainError::NotFound("item")),
@@ -522,11 +554,10 @@ impl KartotekaServer {
         &self,
         Extension(parts): Extension<Parts>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let data = domain::templates::list(&self.pool, &uid)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(data, &locale)
     }
 
@@ -535,11 +566,10 @@ impl KartotekaServer {
         &self,
         Extension(parts): Extension<Parts>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let data = domain::items::overdue(&self.pool, &uid)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(data, &locale)
     }
 
@@ -551,11 +581,10 @@ impl KartotekaServer {
         &self,
         Extension(parts): Extension<Parts>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let data = domain::time_entries::get_active(&self.pool, &uid)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(data, &locale)
     }
 
@@ -571,8 +600,7 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<CreateContainerParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
         let req = CreateContainerRequest {
             name: p.name,
             icon: p.icon,
@@ -582,7 +610,7 @@ impl KartotekaServer {
         };
         let container = domain::containers::create(&self.pool, &uid, &req)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(self.domain_err(&locale))?;
         self.json_result(container, &locale)
     }
 
@@ -593,8 +621,7 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<CreateItemsParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
 
         if p.items.is_empty() {
             return self.json_result(Vec::<serde_json::Value>::new(), &locale);
@@ -603,7 +630,7 @@ impl KartotekaServer {
         // Validate list ownership + get starting position in one query
         let ctx = db::lists::get_create_item_context(&self.pool, &p.list_id, &uid)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?
+            .map_err(self.db_err(&locale))?
             .ok_or_else(|| {
                 self.map_err(
                     McpError::Domain(domain::DomainError::NotFound("list")),
@@ -634,16 +661,11 @@ impl KartotekaServer {
             })
             .collect();
 
-        let mut tx =
-            self.pool.begin().await.map_err(|e| {
-                self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), &locale)
-            })?;
+        let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
         db::items::insert_many_in_tx(&mut tx, &inputs)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
-        tx.commit()
-            .await
-            .map_err(|e| self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), &locale))?;
+            .map_err(self.db_err(&locale))?;
+        tx.commit().await.map_err(self.sqlx_err(&locale))?;
 
         let result: Vec<_> = inputs
             .iter()
@@ -659,63 +681,44 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<CreateListsParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
 
         if p.lists.is_empty() {
             return self.json_result(Vec::<serde_json::Value>::new(), &locale);
         }
 
-        // Validate real container_ids / parent_list_ids referenced by UUID (not ref)
-        let mut container_ids: Vec<&str> = p
+        let container_ids: Vec<&str> = p
             .lists
             .iter()
             .filter_map(|l| l.container_id.as_deref())
             .collect();
-        container_ids.sort_unstable();
-        container_ids.dedup();
-        if !container_ids.is_empty() {
-            let owned = db::containers::find_owned_ids(&self.pool, &uid, &container_ids)
-                .await
-                .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
-            let missing: Vec<_> = container_ids
-                .iter()
-                .filter(|id| !owned.contains(**id))
-                .collect();
-            if !missing.is_empty() {
-                return Err(self.map_err(
-                    McpError::BadRequest("one or more container_id values not found".into()),
-                    &locale,
-                ));
-            }
-        }
+        self.ensure_containers_owned(&uid, &container_ids, "container_id", &locale)
+            .await?;
 
-        // Pre-fetch next_position per unique (container_id, parent_list_id) scope so that
-        // batch-created lists don't collide with existing positions within each scope.
-        // Items using *_ref fields resolve to brand-new parents (position 0) and are
-        // handled via the fallback in scope_offsets below.
-        let mut scope_pos: std::collections::HashMap<(Option<String>, Option<String>), i64> =
-            std::collections::HashMap::new();
+        // Pre-fetch next_position per (container_id, parent_list_id) scope so
+        // batch creates don't collide with existing rows. Entries that resolve
+        // their parent via *_ref point at brand-new rows whose default base 0
+        // is correct.
+        let mut positions: PositionAllocator<(Option<String>, Option<String>)> =
+            PositionAllocator::new();
+        let mut needed_scopes: Vec<(Option<String>, Option<String>)> = Vec::new();
         for l in &p.lists {
             if l.container_ref.is_none() && l.parent_list_ref.is_none() {
-                scope_pos
-                    .entry((l.container_id.clone(), l.parent_list_id.clone()))
-                    .or_insert(0);
+                let key = (l.container_id.clone(), l.parent_list_id.clone());
+                if !needed_scopes.contains(&key) {
+                    needed_scopes.push(key);
+                }
             }
         }
-        for (key, pos) in &mut scope_pos {
-            *pos = db::lists::next_position(&self.pool, &uid, key.0.as_deref(), key.1.as_deref())
-                .await
-                .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+        for key in &needed_scopes {
+            let base =
+                db::lists::next_position(&self.pool, &uid, key.0.as_deref(), key.1.as_deref())
+                    .await
+                    .map_err(self.db_err(&locale))?;
+            positions.set_base(key.clone(), base);
         }
-        let mut scope_offsets: std::collections::HashMap<(Option<String>, Option<String>), i64> =
-            std::collections::HashMap::new();
 
-        let mut tx =
-            self.pool.begin().await.map_err(|e| {
-                self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), &locale)
-            })?;
-
+        let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
         let mut resolver = RefResolver::new();
         let mut result = Vec::with_capacity(p.lists.len());
 
@@ -735,14 +738,10 @@ impl KartotekaServer {
                 )
                 .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
 
-            let scope_key = (
+            let position = positions.allocate((
                 container_id.map(str::to_owned),
                 parent_list_id.map(str::to_owned),
-            );
-            let base = scope_pos.get(&scope_key).copied().unwrap_or(0);
-            let offset = scope_offsets.entry(scope_key).or_insert(0);
-            let position = base + *offset;
-            *offset += 1;
+            ));
 
             let list_type = list.list_type.as_deref().unwrap_or("custom");
             let new_id = Uuid::new_v4().to_string();
@@ -762,14 +761,14 @@ impl KartotekaServer {
                 },
             )
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+            .map_err(self.db_err(&locale))?;
 
             if let Some(features) = &list.features {
                 if !features.is_empty() {
                     let features_json = domain::lists::features_from_names(features);
                     db::lists::set_features(&mut tx, &new_id, &features_json)
                         .await
-                        .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+                        .map_err(self.db_err(&locale))?;
                 }
             }
 
@@ -780,9 +779,7 @@ impl KartotekaServer {
             result.push(serde_json::json!({"id": new_id, "name": list.name}));
         }
 
-        tx.commit()
-            .await
-            .map_err(|e| self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), &locale))?;
+        tx.commit().await.map_err(self.sqlx_err(&locale))?;
         self.json_result(result, &locale)
     }
 
@@ -796,63 +793,41 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
         Parameters(p): Parameters<CreateContainersParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let (uid, locale) =
-            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let (uid, locale) = self.auth(&parts)?;
 
         if p.containers.is_empty() {
             return self.json_result(Vec::<serde_json::Value>::new(), &locale);
         }
 
-        // Validate real parent_container_ids referenced by UUID (not ref)
-        let mut parent_ids: Vec<&str> = p
+        let parent_ids: Vec<&str> = p
             .containers
             .iter()
             .filter_map(|c| c.parent_container_id.as_deref())
             .collect();
-        parent_ids.sort_unstable();
-        parent_ids.dedup();
-        if !parent_ids.is_empty() {
-            let owned = db::containers::find_owned_ids(&self.pool, &uid, &parent_ids)
-                .await
-                .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
-            let missing: Vec<_> = parent_ids
-                .iter()
-                .filter(|id| !owned.contains(**id))
-                .collect();
-            if !missing.is_empty() {
-                return Err(self.map_err(
-                    McpError::BadRequest("one or more parent_container_id values not found".into()),
-                    &locale,
-                ));
-            }
-        }
+        self.ensure_containers_owned(&uid, &parent_ids, "parent_container_id", &locale)
+            .await?;
 
         for c in &p.containers {
             domain::rules::containers::validate_status(c.status.as_deref())
-                .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+                .map_err(self.domain_err(&locale))?;
         }
 
-        // Pre-fetch next_position per unique parent scope.
-        let mut scope_pos: std::collections::HashMap<Option<String>, i32> =
-            std::collections::HashMap::new();
+        // Pre-fetch next_position per parent scope.
+        let mut positions: PositionAllocator<Option<String>> = PositionAllocator::new();
+        let mut needed_scopes: Vec<Option<String>> = Vec::new();
         for c in &p.containers {
-            if c.parent_container_ref.is_none() {
-                scope_pos.entry(c.parent_container_id.clone()).or_insert(0);
+            if c.parent_container_ref.is_none() && !needed_scopes.contains(&c.parent_container_id) {
+                needed_scopes.push(c.parent_container_id.clone());
             }
         }
-        for (key, pos) in &mut scope_pos {
-            *pos = db::containers::next_position(&self.pool, &uid, key.as_deref())
+        for key in &needed_scopes {
+            let base = db::containers::next_position(&self.pool, &uid, key.as_deref())
                 .await
-                .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+                .map_err(self.db_err(&locale))?;
+            positions.set_base(key.clone(), base as i64);
         }
-        let mut scope_offsets: std::collections::HashMap<Option<String>, i32> =
-            std::collections::HashMap::new();
 
-        let mut tx =
-            self.pool.begin().await.map_err(|e| {
-                self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), &locale)
-            })?;
-
+        let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
         let mut resolver = RefResolver::new();
         let mut result = Vec::with_capacity(p.containers.len());
 
@@ -865,11 +840,7 @@ impl KartotekaServer {
                 )
                 .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
 
-            let scope_key = parent_id.map(str::to_owned);
-            let base = scope_pos.get(&scope_key).copied().unwrap_or(0);
-            let offset = scope_offsets.entry(scope_key).or_insert(0);
-            let position = base + *offset;
-            *offset += 1;
+            let position = positions.allocate(parent_id.map(str::to_owned)) as i32;
 
             let new_id = Uuid::new_v4().to_string();
             let req = CreateContainerRequest {
@@ -882,7 +853,7 @@ impl KartotekaServer {
 
             db::containers::insert_in_tx(&mut tx, &new_id, &uid, &req, position)
                 .await
-                .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+                .map_err(self.db_err(&locale))?;
 
             resolver
                 .register(container.client_ref.as_deref(), &new_id)
@@ -891,61 +862,8 @@ impl KartotekaServer {
             result.push(serde_json::json!({"id": new_id, "name": container.name}));
         }
 
-        tx.commit()
-            .await
-            .map_err(|e| self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), &locale))?;
+        tx.commit().await.map_err(self.sqlx_err(&locale))?;
         self.json_result(result, &locale)
-    }
-}
-
-// ── Tool annotations ─────────────────────────────────────────────────────────
-
-fn tool_annotations(name: &str) -> ToolAnnotations {
-    match name {
-        // Pure reads — no side effects
-        "list_lists" | "get_list" | "list_items" | "list_containers" | "get_container"
-        | "list_tags" | "get_today" | "get_time_summary" | "search_items" | "get_item"
-        | "list_templates" | "list_overdue" | "get_active_timer" => ToolAnnotations {
-            read_only_hint: Some(true),
-            destructive_hint: Some(false),
-            idempotent_hint: Some(true),
-            open_world_hint: Some(false),
-            title: None,
-        },
-        // Additive writes — create new data, non-destructive
-        "create_list"
-        | "create_item"
-        | "create_container"
-        | "create_items"
-        | "create_lists"
-        | "create_containers"
-        | "add_comment"
-        | "add_relation"
-        | "log_time"
-        | "start_timer"
-        | "create_list_from_template"
-        | "save_as_template" => ToolAnnotations {
-            read_only_hint: Some(false),
-            destructive_hint: Some(false),
-            idempotent_hint: Some(false),
-            open_world_hint: Some(false),
-            title: None,
-        },
-        // Mutating / removing — potentially destructive
-        "update_item" | "remove_relation" | "stop_timer" => ToolAnnotations {
-            read_only_hint: Some(false),
-            destructive_hint: Some(true),
-            idempotent_hint: Some(false),
-            open_world_hint: Some(false),
-            title: None,
-        },
-        _ => ToolAnnotations {
-            read_only_hint: None,
-            destructive_hint: None,
-            idempotent_hint: None,
-            open_world_hint: None,
-            title: None,
-        },
     }
 }
 
@@ -992,7 +910,7 @@ impl ServerHandler for KartotekaServer {
                 let translated = self.i18n.translate(&locale, key);
                 t.description = Some(translated.into());
             }
-            t.annotations = Some(tool_annotations(t.name.as_ref()));
+            t.annotations = Some(annotations::for_tool(t.name.as_ref()));
         }
         Ok(ListToolsResult::with_all_items(tools))
     }
@@ -1044,7 +962,6 @@ impl ServerHandler for KartotekaServer {
         context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, ErrorData> {
         use crate::resources::{ResourceUri, parse as parse_uri};
-        use kartoteka_shared::auth_ctx::UserId;
 
         let user_id = context
             .extensions
@@ -1065,72 +982,62 @@ impl ServerHandler for KartotekaServer {
             )
         })?;
 
+        let to_internal = |e: serde_json::Error| ErrorData::internal_error(e.to_string(), None);
+
         let json = match parsed {
             ResourceUri::Lists => {
-                let data = kartoteka_domain::lists::list_all(&self.pool, &user_id)
+                let data = domain::lists::list_all(&self.pool, &user_id)
                     .await
-                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
-                serde_json::to_value(data)
-                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+                    .map_err(self.domain_err(&locale))?;
+                serde_json::to_value(data).map_err(to_internal)?
             }
             ResourceUri::ListDetail(id) => {
-                let data = kartoteka_domain::lists::get_one(&self.pool, &id, &user_id)
+                let data = domain::lists::get_one(&self.pool, &id, &user_id)
                     .await
-                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?
+                    .map_err(self.domain_err(&locale))?
                     .ok_or_else(|| {
-                        ErrorData::invalid_params(
-                            self.i18n.translate_args(
-                                &locale,
-                                "mcp-err-not-found",
-                                &[("entity", "list")],
-                            ),
-                            None,
+                        self.map_err(
+                            McpError::Domain(domain::DomainError::NotFound("list")),
+                            &locale,
                         )
                     })?;
-                serde_json::to_value(data)
-                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+                serde_json::to_value(data).map_err(to_internal)?
             }
             ResourceUri::ListItems { list_id, .. } => {
-                let data = kartoteka_domain::items::list_for_list(&self.pool, &list_id, &user_id)
+                let data = domain::items::list_for_list(&self.pool, &list_id, &user_id)
                     .await
-                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
-                serde_json::to_value(data)
-                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+                    .map_err(self.domain_err(&locale))?;
+                serde_json::to_value(data).map_err(to_internal)?
             }
             ResourceUri::Containers => {
-                let data = kartoteka_domain::containers::list_all(&self.pool, &user_id)
+                let data = domain::containers::list_all(&self.pool, &user_id)
                     .await
-                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
-                serde_json::to_value(data)
-                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+                    .map_err(self.domain_err(&locale))?;
+                serde_json::to_value(data).map_err(to_internal)?
             }
             ResourceUri::ContainerDetail(id) => {
-                let data = kartoteka_domain::containers::get_one(&self.pool, &id, &user_id)
+                let data = domain::containers::get_one(&self.pool, &id, &user_id)
                     .await
-                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
-                serde_json::to_value(data)
-                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+                    .map_err(self.domain_err(&locale))?;
+                serde_json::to_value(data).map_err(to_internal)?
             }
             ResourceUri::Tags { .. } => {
-                let data = kartoteka_domain::tags::list_all(&self.pool, &user_id)
+                let data = domain::tags::list_all(&self.pool, &user_id)
                     .await
-                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
-                serde_json::to_value(data)
-                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+                    .map_err(self.domain_err(&locale))?;
+                serde_json::to_value(data).map_err(to_internal)?
             }
             ResourceUri::Today => {
-                let data = kartoteka_domain::items::by_date(&self.pool, &user_id, "today")
+                let data = domain::items::by_date(&self.pool, &user_id, "today")
                     .await
-                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
-                serde_json::to_value(data)
-                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+                    .map_err(self.domain_err(&locale))?;
+                serde_json::to_value(data).map_err(to_internal)?
             }
             ResourceUri::TimeSummary => {
-                let data = kartoteka_domain::time_entries::list_all_for_user(&self.pool, &user_id)
+                let data = domain::time_entries::list_all_for_user(&self.pool, &user_id)
                     .await
-                    .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
-                serde_json::to_value(data)
-                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+                    .map_err(self.domain_err(&locale))?;
+                serde_json::to_value(data).map_err(to_internal)?
             }
         };
 
@@ -1140,5 +1047,47 @@ impl ServerHandler for KartotekaServer {
                 request.uri,
             )],
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parts_with_extensions(extensions: http::Extensions) -> Parts {
+        let mut req = http::Request::new(());
+        *req.extensions_mut() = extensions;
+        let (parts, _) = req.into_parts();
+        parts
+    }
+
+    #[test]
+    fn extract_returns_user_and_locale_when_present() {
+        let mut ext = http::Extensions::new();
+        ext.insert(UserId("alice".into()));
+        ext.insert(UserLocale("pl".into()));
+        let parts = parts_with_extensions(ext);
+
+        let (uid, locale) = KartotekaServer::extract_user_id_and_locale(&parts).unwrap();
+        assert_eq!(uid, "alice");
+        assert_eq!(locale, "pl");
+    }
+
+    #[test]
+    fn extract_falls_back_to_en_when_locale_missing() {
+        let mut ext = http::Extensions::new();
+        ext.insert(UserId("bob".into()));
+        let parts = parts_with_extensions(ext);
+
+        let (uid, locale) = KartotekaServer::extract_user_id_and_locale(&parts).unwrap();
+        assert_eq!(uid, "bob");
+        assert_eq!(locale, "en");
+    }
+
+    #[test]
+    fn extract_errors_when_user_id_missing() {
+        let parts = parts_with_extensions(http::Extensions::new());
+        let err = KartotekaServer::extract_user_id_and_locale(&parts).unwrap_err();
+        assert!(matches!(err, McpError::Unauthorized));
     }
 }
