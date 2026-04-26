@@ -1,5 +1,5 @@
 use crate::deserializers::{default_config, double_option};
-use crate::models::{ContainerStatus, ListFeature, ListType};
+use crate::models::{ContainerStatus, ListFeature};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,7 +74,7 @@ impl ReorderContainersRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateListRequest {
     pub name: String,
-    pub list_type: ListType,
+    pub list_type: String,
     pub features: Option<Vec<ListFeature>>,
     pub parent_list_id: Option<String>,
     pub container_id: Option<String>,
@@ -100,7 +100,7 @@ pub struct UpdateListRequest {
     )]
     pub description: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub list_type: Option<ListType>,
+    pub list_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived: Option<bool>,
 }

@@ -1,4 +1,3 @@
-use crate::constants::{FEATURE_DEADLINES, FEATURE_QUANTITY};
 use crate::deserializers::{bool_from_number, features_from_json};
 use serde::{Deserialize, Serialize};
 
@@ -7,32 +6,6 @@ pub struct ListFeature {
     pub name: String,
     #[serde(default)]
     pub config: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum ListType {
-    Checklist,
-    Zakupy,
-    Pakowanie,
-    Terminarz,
-    Custom,
-}
-
-impl ListType {
-    pub fn default_features(&self) -> Vec<ListFeature> {
-        match self {
-            Self::Zakupy | Self::Pakowanie => vec![ListFeature {
-                name: FEATURE_QUANTITY.into(),
-                config: serde_json::json!({"unit_default": "szt"}),
-            }],
-            Self::Terminarz => vec![ListFeature {
-                name: FEATURE_DEADLINES.into(),
-                config: serde_json::json!({"has_start_date": false, "has_deadline": true, "has_hard_deadline": false}),
-            }],
-            _ => vec![],
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -75,7 +48,7 @@ pub struct List {
     pub user_id: String,
     pub name: String,
     pub description: Option<String>,
-    pub list_type: ListType,
+    pub list_type: String,
     pub parent_list_id: Option<String>,
     pub position: i32,
     #[serde(deserialize_with = "bool_from_number")]

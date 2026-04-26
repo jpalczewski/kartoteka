@@ -113,6 +113,8 @@ pub struct HomeData {
 pub const FEATURE_QUANTITY: &str = "quantity";
 pub const FEATURE_DEADLINES: &str = "deadlines";
 pub const FEATURE_LOCATION: &str = "location";
+pub const FEATURE_CHECKLIST: &str = "checklist";
+pub const FEATURE_TIME_TRACKING: &str = "time_tracking";
 
 /// Date type identifiers used in date badge/editor components
 pub const DATE_TYPE_START: &str = "start";
@@ -146,32 +148,6 @@ fn features_from_json<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<ListFeature
         serde_json::Value::Array(_) => serde_json::from_value(v).map_err(serde::de::Error::custom),
         serde_json::Value::Null => Ok(vec![]),
         _ => Ok(vec![]),
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum ListType {
-    Checklist,
-    Zakupy,
-    Pakowanie,
-    Terminarz,
-    Custom,
-}
-
-impl ListType {
-    pub fn default_features(&self) -> Vec<ListFeature> {
-        match self {
-            Self::Zakupy | Self::Pakowanie => vec![ListFeature {
-                name: FEATURE_QUANTITY.into(),
-                config: serde_json::json!({"unit_default": "szt"}),
-            }],
-            Self::Terminarz => vec![ListFeature {
-                name: FEATURE_DEADLINES.into(),
-                config: serde_json::json!({"has_start_date": false, "has_deadline": true, "has_hard_deadline": false}),
-            }],
-            _ => vec![],
-        }
     }
 }
 
@@ -216,7 +192,7 @@ pub struct List {
     pub user_id: String,
     pub name: String,
     pub description: Option<String>,
-    pub list_type: ListType,
+    pub list_type: String,
     pub parent_list_id: Option<String>,
     pub position: i32,
     #[serde(deserialize_with = "bool_from_number")]
@@ -265,7 +241,7 @@ pub struct Item {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateListRequest {
     pub name: String,
-    pub list_type: ListType,
+    pub list_type: String,
     pub features: Option<Vec<ListFeature>>,
 }
 
@@ -273,7 +249,7 @@ pub struct CreateListRequest {
 pub struct UpdateListRequest {
     pub name: Option<String>,
     pub description: Option<String>,
-    pub list_type: Option<ListType>,
+    pub list_type: Option<String>,
     pub archived: Option<bool>,
 }
 
@@ -393,7 +369,7 @@ pub struct DateItem {
     pub created_at: String,
     pub updated_at: String,
     pub list_name: String,
-    pub list_type: ListType,
+    pub list_type: String,
     #[serde(default)]
     pub date_type: Option<String>,
 }

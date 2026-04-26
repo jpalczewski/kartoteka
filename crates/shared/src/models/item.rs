@@ -1,4 +1,3 @@
-use super::list::ListType;
 use crate::deserializers::{bool_from_number, u32_from_number};
 use serde::{Deserialize, Serialize};
 
@@ -43,7 +42,7 @@ pub struct DateItem {
     pub created_at: String,
     pub updated_at: String,
     pub list_name: String,
-    pub list_type: ListType,
+    pub list_type: String,
     #[serde(default)]
     pub date_type: Option<String>,
 }
@@ -106,7 +105,7 @@ pub struct SearchItemResult {
     pub created_at: String,
     pub updated_at: String,
     pub list_name: String,
-    pub list_type: ListType,
+    pub list_type: String,
     #[serde(deserialize_with = "bool_from_number")]
     pub list_archived: bool,
     #[serde(default)]
