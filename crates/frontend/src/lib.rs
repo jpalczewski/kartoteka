@@ -25,6 +25,12 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl leptos::IntoView {
                 <AutoReload options=options.clone() />
                 <HydrationScripts options/>
                 <link rel="stylesheet" href="/pkg/kartoteka.css"/>
+                {match (std::env::var("ANALYTICS_URL"), std::env::var("ANALYTICS_SITE_ID")) {
+                    (Ok(url), Ok(site_id)) => view! {
+                        <script defer src=url data-website-id=site_id></script>
+                    }.into_any(),
+                    _ => view! {}.into_any(),
+                }}
             </head>
             <body>
                 <App/>
