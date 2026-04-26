@@ -498,7 +498,13 @@ impl KartotekaServer {
             Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
         let data = domain::items::get_one(&self.pool, &p.item_id, &uid)
             .await
-            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?
+            .ok_or_else(|| {
+                self.map_err(
+                    McpError::Domain(domain::DomainError::NotFound("item")),
+                    &locale,
+                )
+            })?;
         self.json_result(data, &locale)
     }
 
