@@ -92,6 +92,30 @@ fn row_to_item(row: db::types::ItemRow) -> Item {
     }
 }
 
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+fn effective_date_field(
+    current: &Option<FlexDate>,
+    req: Option<&Option<String>>,
+) -> Option<String> {
+    match req {
+        None => current.as_ref().map(|f| f.to_string()),
+        Some(None) => None,
+        Some(Some(s)) => Some(s.clone()),
+    }
+}
+
+fn effective_str_field<'a>(
+    current: Option<&'a str>,
+    req: Option<&'a Option<String>>,
+) -> Option<&'a str> {
+    match req {
+        None => current,
+        Some(None) => None,
+        Some(Some(s)) => Some(s.as_str()),
+    }
+}
+
 // ── Orchestration ─────────────────────────────────────────────────────────────
 
 #[tracing::instrument(skip(pool))]
@@ -128,6 +152,14 @@ pub async fn create(
         .ok_or(DomainError::NotFound("list"))?;
 
     // Phase 2: THINK
+    rules::items::validate_title(&req.title)?;
+    rules::items::validate_item_dates(
+        req.start_date.as_deref(),
+        req.start_time.as_deref(),
+        req.deadline.as_deref(),
+        req.deadline_time.as_deref(),
+        req.hard_deadline.as_deref(),
+    )?;
     let has_dates =
         req.start_date.is_some() || req.deadline.is_some() || req.hard_deadline.is_some();
     let has_quantity = req.quantity.is_some() || req.unit.is_some();
@@ -165,6 +197,36 @@ pub async fn update(
     id: &str,
     req: &UpdateItemRequest,
 ) -> Result<Option<Item>, DomainError> {
+    // Phase 1: READ
+    let current = match db::items::get_one(pool, id, user_id)
+        .await?
+        .map(row_to_item)
+    {
+        Some(i) => i,
+        None => return Ok(None),
+    };
+
+    // Phase 2: THINK
+    if let Some(title) = &req.title {
+        rules::items::validate_title(title)?;
+    }
+    let eff_start_date = effective_date_field(&current.start_date, req.start_date.as_ref());
+    let eff_start_time =
+        effective_str_field(current.start_time.as_deref(), req.start_time.as_ref());
+    let eff_deadline = effective_date_field(&current.deadline, req.deadline.as_ref());
+    let eff_deadline_time =
+        effective_str_field(current.deadline_time.as_deref(), req.deadline_time.as_ref());
+    let eff_hard_deadline =
+        effective_date_field(&current.hard_deadline, req.hard_deadline.as_ref());
+    rules::items::validate_item_dates(
+        eff_start_date.as_deref(),
+        eff_start_time,
+        eff_deadline.as_deref(),
+        eff_deadline_time,
+        eff_hard_deadline.as_deref(),
+    )?;
+
+    // Phase 3: WRITE
     let input = db::items::UpdateItemInput {
         title: req.title.clone(),
         description: req.description.clone(),
@@ -841,5 +903,136 @@ mod tests {
         let result = overdue(&pool, &user_id).await.unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, past.id);
+    }
+
+    #[tokio::test]
+    async fn create_item_empty_title_rejected() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &[]).await;
+
+        let err = create(&pool, &user_id, &list_id, &basic_req(""))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::Validation("title_empty")));
+    }
+
+    #[tokio::test]
+    async fn create_item_start_after_deadline_rejected() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &["deadlines"]).await;
+
+        let req = CreateItemRequest {
+            start_date: Some("2026-05-10".to_string()),
+            deadline: Some("2026-05-01".to_string()),
+            ..basic_req("Bad dates")
+        };
+        let err = create(&pool, &user_id, &list_id, &req).await.unwrap_err();
+        assert!(matches!(
+            err,
+            DomainError::Validation("start_date_after_deadline")
+        ));
+    }
+
+    #[tokio::test]
+    async fn create_item_deadline_after_hard_deadline_rejected() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &["deadlines"]).await;
+
+        let req = CreateItemRequest {
+            deadline: Some("2026-05-30".to_string()),
+            hard_deadline: Some("2026-05-20".to_string()),
+            ..basic_req("Bad hard deadline")
+        };
+        let err = create(&pool, &user_id, &list_id, &req).await.unwrap_err();
+        assert!(matches!(
+            err,
+            DomainError::Validation("deadline_after_hard_deadline")
+        ));
+    }
+
+    #[tokio::test]
+    async fn create_item_deadline_time_without_date_rejected() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &["deadlines"]).await;
+
+        let req = CreateItemRequest {
+            deadline_time: Some("18:00".to_string()),
+            ..basic_req("Time no date")
+        };
+        let err = create(&pool, &user_id, &list_id, &req).await.unwrap_err();
+        assert!(matches!(
+            err,
+            DomainError::Validation("deadline_time_without_date")
+        ));
+    }
+
+    #[tokio::test]
+    async fn update_item_empty_title_rejected() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &[]).await;
+        let item = create(&pool, &user_id, &list_id, &basic_req("Valid"))
+            .await
+            .unwrap();
+
+        let req = UpdateItemRequest {
+            title: Some("".to_string()),
+            description: None,
+            completed: None,
+            quantity: None,
+            actual_quantity: None,
+            unit: None,
+            start_date: None,
+            start_time: None,
+            deadline: None,
+            deadline_time: None,
+            hard_deadline: None,
+            estimated_duration: None,
+        };
+        let err = update(&pool, &user_id, &item.id, &req).await.unwrap_err();
+        assert!(matches!(err, DomainError::Validation("title_empty")));
+    }
+
+    #[tokio::test]
+    async fn update_item_date_order_violation_rejected() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &["deadlines"]).await;
+        let item = create(
+            &pool,
+            &user_id,
+            &list_id,
+            &CreateItemRequest {
+                deadline: Some("2026-05-10".to_string()),
+                ..basic_req("Has deadline")
+            },
+        )
+        .await
+        .unwrap();
+
+        // Setting start_date after the existing deadline should fail
+        let req = UpdateItemRequest {
+            start_date: Some(Some("2026-05-20".to_string())),
+            title: None,
+            description: None,
+            completed: None,
+            quantity: None,
+            actual_quantity: None,
+            unit: None,
+            start_time: None,
+            deadline: None,
+            deadline_time: None,
+            hard_deadline: None,
+            estimated_duration: None,
+        };
+        let err = update(&pool, &user_id, &item.id, &req).await.unwrap_err();
+        assert!(matches!(
+            err,
+            DomainError::Validation("start_date_after_deadline")
+        ));
     }
 }
