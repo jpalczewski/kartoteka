@@ -3,7 +3,7 @@ name: Docker Prod
 on:
   push:
     tags: ['v*']
-    branches: [main, master]
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
