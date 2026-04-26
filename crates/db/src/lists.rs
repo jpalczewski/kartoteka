@@ -1,5 +1,6 @@
 use crate::DbError;
-use sqlx::{SqliteConnection, SqlitePool};
+use sqlx::{QueryBuilder, Sqlite, SqliteConnection, SqlitePool};
+use std::collections::HashSet;
 
 // ── Row types (internal to db crate) ────────────────────────────────────────
 
@@ -216,6 +217,28 @@ pub async fn get_create_item_context(
             }))
         }
     }
+}
+
+/// Returns the subset of `ids` that exist and are owned by `user_id`.
+/// Used for bulk parent-ownership validation before a batch insert.
+#[tracing::instrument(skip(pool, ids))]
+pub async fn find_owned_ids(
+    pool: &SqlitePool,
+    user_id: &str,
+    ids: &[&str],
+) -> Result<HashSet<String>, DbError> {
+    if ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new("SELECT id FROM lists WHERE user_id = ");
+    qb.push_bind(user_id).push(" AND id IN (");
+    let mut sep = qb.separated(", ");
+    for id in ids {
+        sep.push_bind(*id);
+    }
+    qb.push(")");
+    let rows: Vec<(String,)> = qb.build_query_as().fetch_all(pool).await?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
 }
 
 // ── Write queries (called in transaction) ────────────────────────────────────
@@ -498,6 +521,29 @@ mod tests {
 
         let ctx = get_create_item_context(&pool, &id, &other).await.unwrap();
         assert!(ctx.is_none());
+    }
+
+    #[tokio::test]
+    async fn find_owned_ids_returns_only_owned() {
+        let pool = test_pool().await;
+        let uid_a = create_test_user(&pool).await;
+        let uid_b = create_test_user(&pool).await;
+        let id_a = insert_test_list(&pool, &uid_a, "A").await;
+        let id_b = insert_test_list(&pool, &uid_b, "B").await;
+
+        let found = find_owned_ids(&pool, &uid_a, &[id_a.as_str(), id_b.as_str()])
+            .await
+            .unwrap();
+        assert!(found.contains(&id_a));
+        assert!(!found.contains(&id_b));
+    }
+
+    #[tokio::test]
+    async fn find_owned_ids_empty_input_returns_empty() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let found = find_owned_ids(&pool, &uid, &[]).await.unwrap();
+        assert!(found.is_empty());
     }
 
     #[tokio::test]
