@@ -3,13 +3,6 @@ name: Docker Prod
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Image tag to deploy (e.g. v0.4.1 or latest)
-        required: true
-        type: string
-        default: latest
 
 concurrency:
   group: docker-prod
@@ -32,7 +25,7 @@ jobs:
   deploy:
     permissions: {}
     needs: [build]
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || needs.build.result == 'success') }}
+    if: ${{ needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via Coolify
