@@ -1,6 +1,8 @@
 use crate::types::ContainerRow;
 use crate::{DbError, SqlitePool};
 use kartoteka_shared::types::{CreateContainerRequest, UpdateContainerRequest};
+use sqlx::SqliteConnection;
+use std::collections::HashSet;
 use uuid::Uuid;
 
 #[derive(Debug, sqlx::FromRow)]
@@ -77,6 +79,41 @@ pub async fn insert(
     .fetch_one(pool)
     .await?;
     Ok(row)
+}
+
+pub async fn find_owned_ids(
+    pool: &SqlitePool,
+    user_id: &str,
+    ids: &[&str],
+) -> Result<HashSet<String>, DbError> {
+    crate::find_owned_ids_in(pool, "containers", user_id, ids).await
+}
+
+/// Insert a new container within a caller-owned transaction.
+/// The caller is responsible for generating `id` and for commit/rollback.
+#[tracing::instrument(skip(conn, req), fields(id = %id))]
+pub async fn insert_in_tx(
+    conn: &mut SqliteConnection,
+    id: &str,
+    user_id: &str,
+    req: &CreateContainerRequest,
+    position: i32,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO containers (id, user_id, name, icon, description, status, parent_container_id, position) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(&req.name)
+    .bind(&req.icon)
+    .bind(&req.description)
+    .bind(&req.status)
+    .bind(&req.parent_container_id)
+    .bind(position)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
 }
 
 /// Update a container using read-modify-write. Returns None if not found.
@@ -577,6 +614,30 @@ mod tests {
         assert_eq!(prog.total_lists, 1);
         assert_eq!(prog.total_items, 2);
         assert_eq!(prog.completed_items, 1);
+    }
+
+    #[tokio::test]
+    async fn find_owned_ids_returns_only_owned() {
+        let pool = test_pool().await;
+        let uid_a = create_test_user(&pool).await;
+        let uid_b = create_test_user(&pool).await;
+
+        let a = insert(&pool, &uid_a, &make_req("A"), 0).await.unwrap();
+        let b = insert(&pool, &uid_b, &make_req("B"), 0).await.unwrap();
+
+        let found = find_owned_ids(&pool, &uid_a, &[a.id.as_str(), b.id.as_str()])
+            .await
+            .unwrap();
+        assert!(found.contains(&a.id));
+        assert!(!found.contains(&b.id));
+    }
+
+    #[tokio::test]
+    async fn find_owned_ids_empty_input_returns_empty() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let found = find_owned_ids(&pool, &uid, &[]).await.unwrap();
+        assert!(found.is_empty());
     }
 
     #[tokio::test]

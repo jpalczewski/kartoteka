@@ -111,7 +111,7 @@ pub(crate) fn parse_features(json: &str) -> Result<Vec<ListFeature>, DomainError
 }
 
 /// Build a features JSON object from a list of names (each gets an empty config).
-fn features_from_names(names: &[String]) -> serde_json::Value {
+pub fn features_from_names(names: &[String]) -> serde_json::Value {
     let obj: serde_json::Map<String, serde_json::Value> = names
         .iter()
         .map(|n| (n.clone(), serde_json::json!({})))
@@ -201,15 +201,17 @@ pub async fn create(
     let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
     db::lists::insert(
         &mut tx,
-        &list_id,
-        user_id,
-        position,
-        &req.name,
-        req.icon.as_deref(),
-        req.description.as_deref(),
-        list_type,
-        req.container_id.as_deref(),
-        req.parent_list_id.as_deref(),
+        &db::lists::InsertListInput {
+            id: list_id.clone(),
+            user_id: user_id.to_owned(),
+            position,
+            name: req.name.clone(),
+            icon: req.icon.clone(),
+            description: req.description.clone(),
+            list_type: list_type.to_owned(),
+            container_id: req.container_id.clone(),
+            parent_list_id: req.parent_list_id.clone(),
+        },
     )
     .await?;
     if !req.features.is_empty() {

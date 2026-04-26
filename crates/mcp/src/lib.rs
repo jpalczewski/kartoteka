@@ -1,5 +1,6 @@
 //! MCP server — tools, resources, i18n. Consumed by `crates/server`.
 
+pub mod client_ref;
 pub mod i18n;
 pub mod resources;
 pub mod server;
@@ -20,7 +21,7 @@ pub enum McpError {
     #[error(transparent)]
     Serde(#[from] serde_json::Error),
     #[error("bad request: {0}")]
-    BadRequest(&'static str),
+    BadRequest(String),
 }
 
 #[allow(dead_code)]

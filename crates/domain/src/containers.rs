@@ -54,6 +54,8 @@ pub async fn create(
     user_id: &str,
     req: &CreateContainerRequest,
 ) -> Result<Container, DomainError> {
+    rules::containers::validate_status(req.status.as_deref())?;
+
     // Phase 1: READ — if a parent is specified, fetch it
     if let Some(parent_id) = req.parent_container_id.as_deref() {
         let parent = db_containers::get_one(pool, parent_id, user_id)

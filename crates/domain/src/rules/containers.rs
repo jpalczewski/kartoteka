@@ -1,5 +1,13 @@
 use crate::DomainError;
 
+/// Validate that `status` is one of the accepted project states or absent (folder).
+pub fn validate_status(status: Option<&str>) -> Result<(), DomainError> {
+    match status {
+        None | Some("active") | Some("done") | Some("paused") => Ok(()),
+        Some(_) => Err(DomainError::Validation("invalid_container_status")),
+    }
+}
+
 /// Validate that a parent container is a folder (status IS NULL), not a project.
 /// Called before creating or moving a container under a parent.
 pub fn validate_hierarchy(parent_status: Option<&str>) -> Result<(), DomainError> {
@@ -21,6 +29,24 @@ pub fn validate_move(container_id: &str, new_parent_id: Option<&str>) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn valid_statuses() {
+        assert!(validate_status(None).is_ok());
+        assert!(validate_status(Some("active")).is_ok());
+        assert!(validate_status(Some("done")).is_ok());
+        assert!(validate_status(Some("paused")).is_ok());
+    }
+
+    #[test]
+    fn invalid_status_rejected() {
+        assert!(matches!(
+            validate_status(Some("invalid")),
+            Err(DomainError::Validation("invalid_container_status"))
+        ));
+        assert!(validate_status(Some("")).is_err());
+        assert!(validate_status(Some("ACTIVE")).is_err());
+    }
 
     #[test]
     fn folder_is_valid_parent() {

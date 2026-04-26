@@ -1,6 +1,10 @@
 use http::request::Parts;
+use kartoteka_db::{self as db, lists::InsertListInput};
 use kartoteka_domain as domain;
-use kartoteka_shared::auth_ctx::{UserId, UserLocale};
+use kartoteka_shared::{
+    auth_ctx::{UserId, UserLocale},
+    types::CreateContainerRequest,
+};
 use rmcp::{
     ErrorData, RoleServer, ServerHandler,
     handler::server::{
@@ -18,10 +22,15 @@ use rmcp::{
 use serde_json::json;
 use sqlx::SqlitePool;
 use std::sync::Arc;
+use uuid::Uuid;
 
+use crate::client_ref::RefResolver;
 use crate::tools::{
     comments::AddCommentParams,
-    items::{CreateItemParams, CreateListParams, UpdateItemParams},
+    items::{
+        CreateContainerParams, CreateContainersParams, CreateItemParams, CreateItemsParams,
+        CreateListParams, CreateListsParams, UpdateItemParams,
+    },
     read::{GetContainerParams, GetItemParams, GetListParams, ListItemsParams},
     relations::{AddRelationParams, RemoveRelationParams},
     search::SearchItemsParams,
@@ -68,7 +77,7 @@ impl KartotekaServer {
                 ("mcp-err-feature-required", vec![("feature", f)])
             }
             McpError::Domain(domain::DomainError::Forbidden) => ("mcp-err-forbidden", vec![]),
-            McpError::BadRequest(r) => ("mcp-err-validation", vec![("reason", r)]),
+            McpError::BadRequest(r) => ("mcp-err-validation", vec![("reason", r.as_str())]),
             _ => ("mcp-err-internal", vec![]),
         };
         let msg = self.i18n.translate_args(locale, key, &args);
@@ -549,6 +558,344 @@ impl KartotekaServer {
             .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
         self.json_result(data, &locale)
     }
+
+    // ── New tools: create_container + batch creates ───────────────────────────
+
+    #[rmcp::tool(
+        name = "create_container",
+        description = "mcp-tool-create_container-desc"
+    )]
+    #[tracing::instrument(skip(self, parts), fields(action = "mcp_create_container"))]
+    async fn create_container(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<CreateContainerParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+        let req = CreateContainerRequest {
+            name: p.name,
+            icon: p.icon,
+            description: p.description,
+            status: p.status,
+            parent_container_id: p.parent_container_id,
+        };
+        let container = domain::containers::create(&self.pool, &uid, &req)
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        self.json_result(container, &locale)
+    }
+
+    #[rmcp::tool(name = "create_items", description = "mcp-tool-create_items-desc")]
+    #[tracing::instrument(skip(self, parts), fields(action = "mcp_create_items"))]
+    async fn create_items(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<CreateItemsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+
+        if p.items.is_empty() {
+            return self.json_result(Vec::<serde_json::Value>::new(), &locale);
+        }
+
+        // Validate list ownership + get starting position in one query
+        let ctx = db::lists::get_create_item_context(&self.pool, &p.list_id, &uid)
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?
+            .ok_or_else(|| {
+                self.map_err(
+                    McpError::Domain(domain::DomainError::NotFound("list")),
+                    &locale,
+                )
+            })?;
+
+        let start_pos = ctx.next_position as i32;
+        let inputs: Vec<db::items::InsertItemInput> = p
+            .items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| db::items::InsertItemInput {
+                id: Uuid::new_v4().to_string(),
+                list_id: p.list_id.clone(),
+                position: start_pos + i as i32,
+                title: item.title.clone(),
+                description: item.description.clone(),
+                start_date: item.start_date.clone(),
+                deadline: item.deadline.clone(),
+                hard_deadline: item.hard_deadline.clone(),
+                start_time: item.start_time.clone(),
+                deadline_time: item.deadline_time.clone(),
+                quantity: item.quantity,
+                actual_quantity: item.actual_quantity,
+                unit: item.unit.clone(),
+                estimated_duration: item.estimated_duration,
+            })
+            .collect();
+
+        let mut tx =
+            self.pool.begin().await.map_err(|e| {
+                self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), &locale)
+            })?;
+        db::items::insert_many_in_tx(&mut tx, &inputs)
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+        tx.commit()
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), &locale))?;
+
+        let result: Vec<_> = inputs
+            .iter()
+            .map(|i| serde_json::json!({"id": i.id, "title": i.title}))
+            .collect();
+        self.json_result(result, &locale)
+    }
+
+    #[rmcp::tool(name = "create_lists", description = "mcp-tool-create_lists-desc")]
+    #[tracing::instrument(skip(self, parts), fields(action = "mcp_create_lists"))]
+    async fn create_lists(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<CreateListsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+
+        if p.lists.is_empty() {
+            return self.json_result(Vec::<serde_json::Value>::new(), &locale);
+        }
+
+        // Validate real container_ids / parent_list_ids referenced by UUID (not ref)
+        let mut container_ids: Vec<&str> = p
+            .lists
+            .iter()
+            .filter_map(|l| l.container_id.as_deref())
+            .collect();
+        container_ids.sort_unstable();
+        container_ids.dedup();
+        if !container_ids.is_empty() {
+            let owned = db::containers::find_owned_ids(&self.pool, &uid, &container_ids)
+                .await
+                .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+            let missing: Vec<_> = container_ids
+                .iter()
+                .filter(|id| !owned.contains(**id))
+                .collect();
+            if !missing.is_empty() {
+                return Err(self.map_err(
+                    McpError::BadRequest("one or more container_id values not found".into()),
+                    &locale,
+                ));
+            }
+        }
+
+        // Pre-fetch next_position per unique (container_id, parent_list_id) scope so that
+        // batch-created lists don't collide with existing positions within each scope.
+        // Items using *_ref fields resolve to brand-new parents (position 0) and are
+        // handled via the fallback in scope_offsets below.
+        let mut scope_pos: std::collections::HashMap<(Option<String>, Option<String>), i64> =
+            std::collections::HashMap::new();
+        for l in &p.lists {
+            if l.container_ref.is_none() && l.parent_list_ref.is_none() {
+                scope_pos
+                    .entry((l.container_id.clone(), l.parent_list_id.clone()))
+                    .or_insert(0);
+            }
+        }
+        for (key, pos) in &mut scope_pos {
+            *pos = db::lists::next_position(&self.pool, &uid, key.0.as_deref(), key.1.as_deref())
+                .await
+                .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+        }
+        let mut scope_offsets: std::collections::HashMap<(Option<String>, Option<String>), i64> =
+            std::collections::HashMap::new();
+
+        let mut tx =
+            self.pool.begin().await.map_err(|e| {
+                self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), &locale)
+            })?;
+
+        let mut resolver = RefResolver::new();
+        let mut result = Vec::with_capacity(p.lists.len());
+
+        for list in &p.lists {
+            let container_id = resolver
+                .pick(
+                    list.container_id.as_deref(),
+                    list.container_ref.as_deref(),
+                    false,
+                )
+                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+            let parent_list_id = resolver
+                .pick(
+                    list.parent_list_id.as_deref(),
+                    list.parent_list_ref.as_deref(),
+                    false,
+                )
+                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+
+            let scope_key = (
+                container_id.map(str::to_owned),
+                parent_list_id.map(str::to_owned),
+            );
+            let base = scope_pos.get(&scope_key).copied().unwrap_or(0);
+            let offset = scope_offsets.entry(scope_key).or_insert(0);
+            let position = base + *offset;
+            *offset += 1;
+
+            let list_type = list.list_type.as_deref().unwrap_or("custom");
+            let new_id = Uuid::new_v4().to_string();
+
+            db::lists::insert(
+                &mut tx,
+                &InsertListInput {
+                    id: new_id.clone(),
+                    user_id: uid.clone(),
+                    position,
+                    name: list.name.clone(),
+                    icon: list.icon.clone(),
+                    description: list.description.clone(),
+                    list_type: list_type.to_owned(),
+                    container_id: container_id.map(str::to_owned),
+                    parent_list_id: parent_list_id.map(str::to_owned),
+                },
+            )
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+
+            if let Some(features) = &list.features {
+                if !features.is_empty() {
+                    let features_json = domain::lists::features_from_names(features);
+                    db::lists::set_features(&mut tx, &new_id, &features_json)
+                        .await
+                        .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+                }
+            }
+
+            resolver
+                .register(list.client_ref.as_deref(), &new_id)
+                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+
+            result.push(serde_json::json!({"id": new_id, "name": list.name}));
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), &locale))?;
+        self.json_result(result, &locale)
+    }
+
+    #[rmcp::tool(
+        name = "create_containers",
+        description = "mcp-tool-create_containers-desc"
+    )]
+    #[tracing::instrument(skip(self, parts), fields(action = "mcp_create_containers"))]
+    async fn create_containers(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<CreateContainersParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) =
+            Self::extract_user_id_and_locale(&parts).map_err(|e| self.map_err(e, "en"))?;
+
+        if p.containers.is_empty() {
+            return self.json_result(Vec::<serde_json::Value>::new(), &locale);
+        }
+
+        // Validate real parent_container_ids referenced by UUID (not ref)
+        let mut parent_ids: Vec<&str> = p
+            .containers
+            .iter()
+            .filter_map(|c| c.parent_container_id.as_deref())
+            .collect();
+        parent_ids.sort_unstable();
+        parent_ids.dedup();
+        if !parent_ids.is_empty() {
+            let owned = db::containers::find_owned_ids(&self.pool, &uid, &parent_ids)
+                .await
+                .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+            let missing: Vec<_> = parent_ids
+                .iter()
+                .filter(|id| !owned.contains(**id))
+                .collect();
+            if !missing.is_empty() {
+                return Err(self.map_err(
+                    McpError::BadRequest("one or more parent_container_id values not found".into()),
+                    &locale,
+                ));
+            }
+        }
+
+        for c in &p.containers {
+            domain::rules::containers::validate_status(c.status.as_deref())
+                .map_err(|e| self.map_err(McpError::Domain(e), &locale))?;
+        }
+
+        // Pre-fetch next_position per unique parent scope.
+        let mut scope_pos: std::collections::HashMap<Option<String>, i32> =
+            std::collections::HashMap::new();
+        for c in &p.containers {
+            if c.parent_container_ref.is_none() {
+                scope_pos.entry(c.parent_container_id.clone()).or_insert(0);
+            }
+        }
+        for (key, pos) in &mut scope_pos {
+            *pos = db::containers::next_position(&self.pool, &uid, key.as_deref())
+                .await
+                .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+        }
+        let mut scope_offsets: std::collections::HashMap<Option<String>, i32> =
+            std::collections::HashMap::new();
+
+        let mut tx =
+            self.pool.begin().await.map_err(|e| {
+                self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), &locale)
+            })?;
+
+        let mut resolver = RefResolver::new();
+        let mut result = Vec::with_capacity(p.containers.len());
+
+        for container in &p.containers {
+            let parent_id = resolver
+                .pick(
+                    container.parent_container_id.as_deref(),
+                    container.parent_container_ref.as_deref(),
+                    false,
+                )
+                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+
+            let scope_key = parent_id.map(str::to_owned);
+            let base = scope_pos.get(&scope_key).copied().unwrap_or(0);
+            let offset = scope_offsets.entry(scope_key).or_insert(0);
+            let position = base + *offset;
+            *offset += 1;
+
+            let new_id = Uuid::new_v4().to_string();
+            let req = CreateContainerRequest {
+                name: container.name.clone(),
+                icon: container.icon.clone(),
+                description: container.description.clone(),
+                status: container.status.clone(),
+                parent_container_id: parent_id.map(str::to_owned),
+            };
+
+            db::containers::insert_in_tx(&mut tx, &new_id, &uid, &req, position)
+                .await
+                .map_err(|e| self.map_err(McpError::Domain(e.into()), &locale))?;
+
+            resolver
+                .register(container.client_ref.as_deref(), &new_id)
+                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+
+            result.push(serde_json::json!({"id": new_id, "name": container.name}));
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), &locale))?;
+        self.json_result(result, &locale)
+    }
 }
 
 // ── Tool annotations ─────────────────────────────────────────────────────────
@@ -568,6 +915,10 @@ fn tool_annotations(name: &str) -> ToolAnnotations {
         // Additive writes — create new data, non-destructive
         "create_list"
         | "create_item"
+        | "create_container"
+        | "create_items"
+        | "create_lists"
+        | "create_containers"
         | "add_comment"
         | "add_relation"
         | "log_time"

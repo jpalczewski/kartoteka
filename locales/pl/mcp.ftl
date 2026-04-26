@@ -93,3 +93,7 @@ mcp-tool-get_item-desc = Pobierz szczegóły konkretnego elementu po ID.
 mcp-tool-list_templates-desc = Pobierz wszystkie zapisane szablony list.
 mcp-tool-list_overdue-desc = Pobierz wszystkie elementy po terminie, które nie są jeszcze ukończone.
 mcp-tool-get_active_timer-desc = Pobierz aktualnie działający timer, jeśli istnieje.
+mcp-tool-create_container-desc = Utwórz pojedynczy folder (bez status) lub projekt (status: "active", "done" lub "paused"). Aby zbudować przestrzeń roboczą, wywołaj create_containers (batch) + create_lists + create_items sekwencyjnie.
+mcp-tool-create_items-desc = Dodaj wiele elementów do jednej listy atomowo. Podaj list_id raz na poziomie głównym; wszystkie elementy trafiają do tej listy w podanej kolejności.
+mcp-tool-create_lists-desc = Utwórz wiele list atomowo. Użyj container_ref aby odwołać się do kontenera z poprzedniego wywołania create_containers (ustaw na nim client_ref). Użyj parent_list_ref aby zagnieździć pod listą z tego samego batcha. Referencje tylko do wcześniejszych elementów.
+mcp-tool-create_containers-desc = Utwórz wiele folderów/projektów atomowo. Użyj parent_container_ref aby zagnieździć pod kontenerem z wcześniej w tym samym batchu (ustaw client_ref na rodzicu). Tylko referencje do wcześniejszych elementów w tablicy.
