@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0](https://github.com/jpalczewski/kartoteka/compare/v1.1.3...v1.2.0) (2026-04-27)
+
+
+### Features
+
+* **frontend:** add create list/container form to ContainerPage ([#153](https://github.com/jpalczewski/kartoteka/issues/153)) ([53a21c7](https://github.com/jpalczewski/kartoteka/commit/53a21c7124fa06d761684802612627a3d194b541))
+* **frontend:** tag chip shows full path, navigates to tag page, hover-X removes with confirm ([#152](https://github.com/jpalczewski/kartoteka/issues/152)) ([15e4acd](https://github.com/jpalczewski/kartoteka/commit/15e4acddc3e2d852557d6120a3585802105ce65f))
+* **lists:** feature flags refactor — checklist/time_tracking, schedule/notes presets ([#156](https://github.com/jpalczewski/kartoteka/issues/156)) ([6ec9f13](https://github.com/jpalczewski/kartoteka/commit/6ec9f133caaed0f28b8d01068f4d2157307471d8))
+* **mcp:** batch create tools + create_container + client_ref mechanism ([#150](https://github.com/jpalczewski/kartoteka/issues/150)) ([dad8f66](https://github.com/jpalczewski/kartoteka/commit/dad8f667037ff0fbdb838c7225dd49b7af29df7c))
+
+
+### Bug Fixes
+
+* **ci:** scope docker build cache by cargo_profile to share dev+preview ([#148](https://github.com/jpalczewski/kartoteka/issues/148)) ([a588f99](https://github.com/jpalczewski/kartoteka/commit/a588f99a204ec6c3688f2ae7aafe9ab8cd883559))
+
 ## [1.1.3](https://github.com/jpalczewski/kartoteka/compare/v1.1.2...v1.1.3) (2026-04-26)
 
 
