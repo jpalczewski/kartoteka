@@ -268,43 +268,54 @@ pub fn ItemDetailPage() -> impl IntoView {
                                     "Zapisz ilość"
                                 </button>
 
-                                <div class="divider text-sm">"Terminy"</div>
-                                <div class="flex flex-col gap-2">
-                                    <DateFieldInput
-                                        label="📅 Rozpoczęcie"
-                                        value=start_date_input
-                                        time_value=start_time_input
-                                        data_testid="item-detail-start-date"
-                                        show_clear=true
-                                        show_quick=true
-                                        large=true
-                                    />
-                                    <DateFieldInput
-                                        label="⏰ Termin"
-                                        value=deadline_input
-                                        time_value=deadline_time_input
-                                        data_testid="item-detail-deadline"
-                                        show_clear=true
-                                        show_quick=true
-                                        large=true
-                                    />
-                                    <DateFieldInput
-                                        label="🚨 Ostateczny"
-                                        value=hard_deadline_input
-                                        data_testid="item-detail-hard-deadline"
-                                        show_clear=true
-                                        show_quick=true
-                                        large=true
-                                    />
-                                    <button
-                                        type="button"
-                                        class="btn btn-secondary w-full"
-                                        data-testid="item-detail-save-dates"
-                                        on:click=on_save_dates
-                                    >
-                                        "Zapisz terminy"
-                                    </button>
-                                </div>
+                                // Dates section (only when list has "deadlines" feature)
+                                {move || {
+                                    let features = list_features_res.get()
+                                        .and_then(|r| r.ok())
+                                        .unwrap_or_default();
+                                    if !features.iter().any(|f| f == kartoteka_shared::FEATURE_DEADLINES) {
+                                        return view! {}.into_any();
+                                    }
+                                    view! {
+                                        <div class="divider text-sm">"Terminy"</div>
+                                        <div class="flex flex-col gap-2">
+                                            <DateFieldInput
+                                                label="📅 Rozpoczęcie"
+                                                value=start_date_input
+                                                time_value=start_time_input
+                                                data_testid="item-detail-start-date"
+                                                show_clear=true
+                                                show_quick=true
+                                                large=true
+                                            />
+                                            <DateFieldInput
+                                                label="⏰ Termin"
+                                                value=deadline_input
+                                                time_value=deadline_time_input
+                                                data_testid="item-detail-deadline"
+                                                show_clear=true
+                                                show_quick=true
+                                                large=true
+                                            />
+                                            <DateFieldInput
+                                                label="🚨 Ostateczny"
+                                                value=hard_deadline_input
+                                                data_testid="item-detail-hard-deadline"
+                                                show_clear=true
+                                                show_quick=true
+                                                large=true
+                                            />
+                                            <button
+                                                type="button"
+                                                class="btn btn-secondary w-full"
+                                                data-testid="item-detail-save-dates"
+                                                on:click=on_save_dates
+                                            >
+                                                "Zapisz terminy"
+                                            </button>
+                                        </div>
+                                    }.into_any()
+                                }}
 
                                 // Tags section
                                 <div class="divider text-sm">"Tagi"</div>
