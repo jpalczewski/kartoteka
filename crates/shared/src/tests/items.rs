@@ -228,7 +228,7 @@ fn date_item_to_item_conversion() {
         created_at: "2024-01-01".into(),
         updated_at: "2024-01-01".into(),
         list_name: "Shopping".into(),
-        list_type: ListType::Zakupy,
+        list_type: "zakupy".into(),
         date_type: Some("deadline".into()),
     };
     let item: Item = di.into();

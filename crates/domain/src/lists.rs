@@ -1,4 +1,4 @@
-use crate::{DomainError, rules};
+use crate::DomainError;
 use kartoteka_db as db;
 use kartoteka_shared::types::ListFeature;
 use serde::{Deserialize, Serialize};
@@ -12,8 +12,9 @@ use uuid::Uuid;
 pub enum ListType {
     Checklist,
     Shopping,
-    Habits,
+    Schedule,
     Log,
+    Notes,
 }
 
 impl ListType {
@@ -21,8 +22,19 @@ impl ListType {
         match self {
             ListType::Checklist => "checklist",
             ListType::Shopping => "shopping",
-            ListType::Habits => "habits",
+            ListType::Schedule => "schedule",
             ListType::Log => "log",
+            ListType::Notes => "notes",
+        }
+    }
+
+    pub fn default_feature_names(&self) -> Vec<&'static str> {
+        match self {
+            ListType::Checklist => vec!["checklist"],
+            ListType::Shopping => vec!["checklist", "quantity"],
+            ListType::Schedule => vec!["checklist", "deadlines"],
+            ListType::Log => vec!["time_tracking"],
+            ListType::Notes => vec![],
         }
     }
 }
@@ -33,8 +45,9 @@ impl TryFrom<&str> for ListType {
         match s {
             "checklist" => Ok(ListType::Checklist),
             "shopping" => Ok(ListType::Shopping),
-            "habits" => Ok(ListType::Habits),
+            "schedule" | "habits" => Ok(ListType::Schedule),
             "log" => Ok(ListType::Log),
+            "notes" => Ok(ListType::Notes),
             _ => Err(DomainError::Validation("unknown_list_type")),
         }
     }
@@ -182,12 +195,19 @@ pub async fn create(
     user_id: &str,
     req: &CreateListRequest,
 ) -> Result<List, DomainError> {
-    let list_type = req.list_type.as_deref().unwrap_or("checklist");
+    let list_type_str = req.list_type.as_deref().unwrap_or("checklist");
+    let list_type = ListType::try_from(list_type_str)?;
 
-    // Phase 2: THINK
-    rules::lists::validate_list_type_features(list_type, &req.features)?;
+    let feature_names: Vec<String> = if req.features.is_empty() {
+        list_type
+            .default_feature_names()
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    } else {
+        req.features.clone()
+    };
 
-    // Phase 1: READ (position — before transaction, doesn't hold write lock)
     let position = db::lists::next_position(
         pool,
         user_id,
@@ -196,7 +216,6 @@ pub async fn create(
     )
     .await?;
 
-    // Phase 3: WRITE
     let list_id = Uuid::new_v4().to_string();
     let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
     db::lists::insert(
@@ -208,14 +227,14 @@ pub async fn create(
             name: req.name.clone(),
             icon: req.icon.clone(),
             description: req.description.clone(),
-            list_type: list_type.to_owned(),
+            list_type: list_type.as_str().to_owned(),
             container_id: req.container_id.clone(),
             parent_list_id: req.parent_list_id.clone(),
         },
     )
     .await?;
-    if !req.features.is_empty() {
-        db::lists::set_features(&mut tx, &list_id, &features_from_names(&req.features)).await?;
+    if !feature_names.is_empty() {
+        db::lists::set_features(&mut tx, &list_id, &features_from_names(&feature_names)).await?;
     }
     tx.commit().await.map_err(db::DbError::Sqlx)?;
 
@@ -233,17 +252,9 @@ pub async fn update(
     user_id: &str,
     req: &UpdateListRequest,
 ) -> Result<Option<List>, DomainError> {
-    // Phase 1: READ — need current list to validate type change
-    let current = match db::lists::get_one(pool, id, user_id).await? {
-        Some(l) => l,
-        None => return Ok(None),
-    };
-
-    // Phase 2: THINK — validate new list_type against existing features
-    if let Some(new_type) = req.list_type.as_deref() {
-        let features = parse_features(&current.features)?;
-        let feature_names: Vec<String> = features.iter().map(|f| f.feature_name.clone()).collect();
-        rules::lists::validate_list_type_features(new_type, &feature_names)?;
+    // Phase 1: READ — need current list to check it exists before update
+    if db::lists::get_one(pool, id, user_id).await?.is_none() {
+        return Ok(None);
     }
 
     // Phase 3: WRITE
@@ -339,7 +350,7 @@ pub async fn move_list(
         .transpose()
 }
 
-/// Replace all features for a list (validates against current list_type).
+/// Replace all features for a list.
 #[tracing::instrument(skip(pool))]
 pub async fn set_features(
     pool: &SqlitePool,
@@ -348,13 +359,9 @@ pub async fn set_features(
     req: &SetFeaturesRequest,
 ) -> Result<Option<List>, DomainError> {
     // Phase 1: READ
-    let current = match db::lists::get_one(pool, id, user_id).await? {
-        Some(l) => l,
-        None => return Ok(None),
-    };
-
-    // Phase 2: THINK
-    rules::lists::validate_list_type_features(&current.list_type, &req.features)?;
+    if db::lists::get_one(pool, id, user_id).await?.is_none() {
+        return Ok(None);
+    }
 
     // Phase 3: WRITE
     let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
@@ -428,14 +435,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_checklist_no_features() {
+    async fn create_checklist_gets_default_checklist_feature() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
         let list = create(&pool, &uid, &checklist_req("Todo")).await.unwrap();
 
         assert_eq!(list.name, "Todo");
         assert_eq!(list.list_type, "checklist");
-        assert!(list.features.is_empty());
+        let names: Vec<&str> = list
+            .features
+            .iter()
+            .map(|f| f.feature_name.as_str())
+            .collect();
+        assert!(names.contains(&"checklist"));
         assert!(!list.archived);
         assert!(!list.pinned);
     }
@@ -465,7 +477,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_shopping_requires_quantity() {
+    async fn create_shopping_no_explicit_features_gets_checklist_and_quantity() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
         let req = CreateListRequest {
@@ -477,29 +489,73 @@ mod tests {
             container_id: None,
             parent_list_id: None,
         };
-        let err = create(&pool, &uid, &req).await.unwrap_err();
-        assert!(matches!(
-            err,
-            DomainError::Validation("shopping_lists_require_quantity")
-        ));
+        let list = create(&pool, &uid, &req).await.unwrap();
+        let names: Vec<&str> = list
+            .features
+            .iter()
+            .map(|f| f.feature_name.as_str())
+            .collect();
+        assert!(names.contains(&"checklist"));
+        assert!(names.contains(&"quantity"));
     }
 
     #[tokio::test]
-    async fn create_shopping_with_quantity_ok() {
+    async fn create_notes_has_no_features() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
         let req = CreateListRequest {
-            name: "Groceries".into(),
-            list_type: Some("shopping".into()),
-            features: vec!["quantity".into()],
+            name: "My Notes".into(),
+            list_type: Some("notes".into()),
             icon: None,
             description: None,
             container_id: None,
             parent_list_id: None,
+            features: vec![],
         };
         let list = create(&pool, &uid, &req).await.unwrap();
-        assert_eq!(list.list_type, "shopping");
-        assert_eq!(list.features.len(), 1);
+        assert_eq!(list.list_type, "notes");
+        assert!(list.features.is_empty());
+    }
+
+    #[tokio::test]
+    async fn create_schedule_gets_checklist_and_deadlines() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let req = CreateListRequest {
+            name: "My Schedule".into(),
+            list_type: Some("schedule".into()),
+            icon: None,
+            description: None,
+            container_id: None,
+            parent_list_id: None,
+            features: vec![],
+        };
+        let list = create(&pool, &uid, &req).await.unwrap();
+        assert_eq!(list.list_type, "schedule");
+        let names: Vec<&str> = list
+            .features
+            .iter()
+            .map(|f| f.feature_name.as_str())
+            .collect();
+        assert!(names.contains(&"checklist"));
+        assert!(names.contains(&"deadlines"));
+    }
+
+    #[tokio::test]
+    async fn habits_alias_resolves_to_schedule() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let req = CreateListRequest {
+            name: "Old Habits".into(),
+            list_type: Some("habits".into()),
+            icon: None,
+            description: None,
+            container_id: None,
+            parent_list_id: None,
+            features: vec![],
+        };
+        let list = create(&pool, &uid, &req).await.unwrap();
+        assert_eq!(list.list_type, "schedule");
     }
 
     #[tokio::test]
@@ -577,38 +633,6 @@ mod tests {
 
         let err = reset(&pool, &list.id, &other).await.unwrap_err();
         assert!(matches!(err, DomainError::NotFound("list")));
-    }
-
-    #[tokio::test]
-    async fn set_features_validates_against_list_type() {
-        let pool = test_pool().await;
-        let uid = create_test_user(&pool).await;
-        let req = CreateListRequest {
-            name: "Shop".into(),
-            list_type: Some("shopping".into()),
-            features: vec!["quantity".into()],
-            icon: None,
-            description: None,
-            container_id: None,
-            parent_list_id: None,
-        };
-        let list = create(&pool, &uid, &req).await.unwrap();
-
-        // Removing quantity from a shopping list → invalid
-        let err = set_features(
-            &pool,
-            &list.id,
-            &uid,
-            &SetFeaturesRequest {
-                features: vec!["deadlines".into()], // no quantity!
-            },
-        )
-        .await
-        .unwrap_err();
-        assert!(matches!(
-            err,
-            DomainError::Validation("shopping_lists_require_quantity")
-        ));
     }
 
     #[tokio::test]

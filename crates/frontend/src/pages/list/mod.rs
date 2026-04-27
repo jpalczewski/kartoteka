@@ -1,7 +1,10 @@
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::hooks::use_params_map;
 
-use kartoteka_shared::{FEATURE_DEADLINES, FEATURE_LOCATION, FEATURE_QUANTITY};
+use kartoteka_shared::{
+    FEATURE_CHECKLIST, FEATURE_DEADLINES, FEATURE_LOCATION, FEATURE_QUANTITY, FEATURE_TIME_TRACKING,
+};
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::CommentSection;
@@ -334,6 +337,9 @@ pub fn ListPage() -> impl IntoView {
                         let has_quantity = current_features.iter().any(|f| f == FEATURE_QUANTITY);
                         let has_deadlines = current_features.iter().any(|f| f == FEATURE_DEADLINES);
                         let has_location = current_features.iter().any(|f| f == FEATURE_LOCATION);
+                        let has_checklist = current_features.iter().any(|f| f == FEATURE_CHECKLIST);
+                        let has_time_tracking =
+                            current_features.iter().any(|f| f == FEATURE_TIME_TRACKING);
                         let deadlines_config = data
                             .list
                             .features
@@ -465,7 +471,29 @@ pub fn ListPage() -> impl IntoView {
                                                                 prop:checked=has_location
                                                                 on:change=make_toggle(FEATURE_LOCATION)
                                                             />
-                                                            "📍 Lokalizacja"
+                                                            "📍 " {move_tr!("lists-feature-location")}
+                                                        </label>
+                                                    </li>
+                                                    <li>
+                                                        <label class="flex items-center gap-2 cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                class="checkbox checkbox-xs"
+                                                                prop:checked=has_checklist
+                                                                on:change=make_toggle(FEATURE_CHECKLIST)
+                                                            />
+                                                            {move_tr!("lists-feature-checklist")}
+                                                        </label>
+                                                    </li>
+                                                    <li>
+                                                        <label class="flex items-center gap-2 cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                class="checkbox checkbox-xs"
+                                                                prop:checked=has_time_tracking
+                                                                on:change=make_toggle(FEATURE_TIME_TRACKING)
+                                                            />
+                                                            {move_tr!("lists-feature-time-tracking")}
                                                         </label>
                                                     </li>
                                                 }
@@ -718,6 +746,7 @@ pub fn ListPage() -> impl IntoView {
                                                                     on_toggle=on_toggle_item
                                                                     on_delete=on_delete_item
                                                                     has_quantity=has_quantity
+                                                                    list_features=current_features.clone()
                                                                     on_quantity_change=on_quantity_change
                                                                     on_description_save=on_description_save
                                                                     on_date_save=on_date_save
@@ -771,6 +800,7 @@ pub fn ListPage() -> impl IntoView {
                                                                         on_toggle=on_toggle_item
                                                                         on_delete=on_delete_item
                                                                         has_quantity=has_quantity
+                                                                        list_features=current_features.clone()
                                                                         on_quantity_change=on_quantity_change
                                                                         on_description_save=on_description_save
                                                                         on_date_save=on_date_save

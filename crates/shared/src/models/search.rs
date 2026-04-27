@@ -1,7 +1,7 @@
 use crate::deserializers::optional_bool_from_number;
 use serde::{Deserialize, Serialize};
 
-use super::{ContainerStatus, ListType};
+use super::ContainerStatus;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -23,7 +23,7 @@ pub struct SearchEntityResult {
     #[serde(default)]
     pub list_name: Option<String>,
     #[serde(default)]
-    pub list_type: Option<ListType>,
+    pub list_type: Option<String>,
     #[serde(default, deserialize_with = "optional_bool_from_number")]
     pub archived: Option<bool>,
     #[serde(default, deserialize_with = "optional_bool_from_number")]

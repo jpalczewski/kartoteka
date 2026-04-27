@@ -63,7 +63,7 @@ pub fn next_monday_str() -> String {
 /// The component only mutates the provided signals; persistence is the caller's responsibility.
 #[component]
 pub fn DateFieldInput(
-    label: &'static str,
+    #[prop(into)] label: Signal<String>,
     value: RwSignal<String>,
     #[prop(optional)] time_value: Option<RwSignal<String>>,
     #[prop(optional)] data_testid: Option<&'static str>,
@@ -91,7 +91,7 @@ pub fn DateFieldInput(
     view! {
         <div class="flex flex-col gap-1">
             <div class=gap>
-                <span class=format!("text-base-content/50 {span_w} {span_size}")>{label}</span>
+                <span class=format!("text-base-content/50 {span_w} {span_size}")>{move || label.get()}</span>
                 <input
                     type="date"
                     class=format!("input input-bordered {input_size} flex-1")

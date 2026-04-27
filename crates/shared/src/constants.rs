@@ -7,6 +7,8 @@ pub const SESSION_RETURN_TO_KEY: &str = "return_to";
 pub const FEATURE_QUANTITY: &str = "quantity";
 pub const FEATURE_DEADLINES: &str = "deadlines";
 pub const FEATURE_LOCATION: &str = "location";
+pub const FEATURE_CHECKLIST: &str = "checklist";
+pub const FEATURE_TIME_TRACKING: &str = "time_tracking";
 
 pub const DATE_TYPE_START: &str = "start";
 pub const DATE_TYPE_DEADLINE: &str = "deadline";

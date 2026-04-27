@@ -1,9 +1,9 @@
-# Typy list
+# Typy list (presety)
 lists-type-checklist = Checklist
 lists-type-shopping = Zakupy
-lists-type-packing = Pakowanie
 lists-type-schedule = Terminarz
-lists-type-custom = Custom
+lists-type-log = Dziennik
+lists-type-notes = Notatki
 
 # Statusy kontenerów
 lists-container-status-active = aktywny
@@ -21,8 +21,11 @@ lists-new-folder-placeholder = Nazwa nowego folderu...
 lists-new-project-placeholder = Nazwa nowego projektu...
 
 # Przełączniki funkcji
+lists-feature-checklist = Zadania
 lists-feature-quantities = Ilości
 lists-feature-deadlines = Terminy
+lists-feature-time-tracking = Śledzenie czasu
+lists-feature-location = Lokalizacja
 
 # Przyciski nagłówka listy
 lists-header-settings-button = Ustawienia (koło zębate)

@@ -21,6 +21,9 @@ thiserror.workspace = true
 tracing.workspace = true
 async-trait.workspace = true
 
+[package.metadata.cargo-machete]
+ignored = ["argon2", "kartoteka-shared", "tower-sessions", "tracing"]
+
 [dev-dependencies]
 tokio.workspace = true
 kartoteka-db = { path = "../db", features = ["test-helpers"] }

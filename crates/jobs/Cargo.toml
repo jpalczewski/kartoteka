@@ -7,6 +7,9 @@ publish = false
 [lints]
 workspace = true
 
+[package.metadata.cargo-machete]
+ignored = ["kartoteka-domain", "kartoteka-shared"]
+
 [dependencies]
 kartoteka-shared = { path = "../shared" }
 kartoteka-domain = { path = "../domain" }

@@ -1,9 +1,9 @@
-# List types
+# List types (presets)
 lists-type-checklist = Checklist
 lists-type-shopping = Shopping
-lists-type-packing = Packing
 lists-type-schedule = Schedule
-lists-type-custom = Custom
+lists-type-log = Log
+lists-type-notes = Notes
 
 # Container status labels
 lists-container-status-active = active
@@ -21,8 +21,11 @@ lists-new-folder-placeholder = New folder name...
 lists-new-project-placeholder = New project name...
 
 # Create entity input — feature toggles
+lists-feature-checklist = Checklist
 lists-feature-quantities = Quantities
 lists-feature-deadlines = Deadlines
+lists-feature-time-tracking = Time tracking
+lists-feature-location = Location
 
 # List header buttons
 lists-header-settings-button = Settings (gear)

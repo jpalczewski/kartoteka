@@ -1,5 +1,10 @@
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::{components::A, hooks::use_params_map};
+
+use kartoteka_shared::{
+    FEATURE_CHECKLIST, FEATURE_DEADLINES, FEATURE_LOCATION, FEATURE_QUANTITY, FEATURE_TIME_TRACKING,
+};
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::CommentSection;
@@ -53,6 +58,15 @@ pub fn ItemDetailPage() -> impl IntoView {
     );
     let all_tags_res = Resource::new(move || tag_refresh.get(), |_| get_all_tags());
     let list_features_res = Resource::new(list_id, get_list_feature_names);
+
+    // Derive a single features signal so each section doesn't repeat the lookup.
+    let features = Signal::derive(move || {
+        list_features_res
+            .get()
+            .and_then(|r| r.ok())
+            .unwrap_or_default()
+    });
+    let has = move |name: &'static str| move || features.with(|fs| fs.iter().any(|f| f == name));
 
     let title_input: RwSignal<String> = RwSignal::new(String::new());
     let description_input: RwSignal<String> = RwSignal::new(String::new());
@@ -155,7 +169,7 @@ pub fn ItemDetailPage() -> impl IntoView {
         <div class="container mx-auto max-w-2xl p-4">
             <div class="mb-4">
                 <A href=back_href attr:class="btn btn-ghost btn-sm gap-1">
-                    {"← Back to list"}
+                    {move_tr!("item-back-to-list")}
                 </A>
             </div>
 
@@ -171,22 +185,29 @@ pub fn ItemDetailPage() -> impl IntoView {
 
                         view! {
                             <div class="flex flex-col gap-4">
-                                <label class="flex items-center gap-3 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        class="checkbox checkbox-primary"
-                                        data-testid="item-detail-toggle"
-                                        checked=completed
-                                        on:change=on_toggle
-                                    />
-                                    <span class="text-base-content/70" data-testid="item-detail-status">
-                                        {if completed { "Completed" } else { "Mark as done" }}
-                                    </span>
-                                </label>
+                                // Checklist toggle — only when list has checklist feature
+                                <Show when=has(FEATURE_CHECKLIST)>
+                                    <label class="flex items-center gap-3 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            class="checkbox checkbox-primary"
+                                            data-testid="item-detail-toggle"
+                                            checked=completed
+                                            on:change=on_toggle
+                                        />
+                                        <span class="text-base-content/70" data-testid="item-detail-status">
+                                            {if completed {
+                                                move_tr!("item-status-completed")
+                                            } else {
+                                                move_tr!("item-status-open")
+                                            }}
+                                        </span>
+                                    </label>
+                                </Show>
 
                                 <div class="form-control">
                                     <label class="label">
-                                        <span class="label-text font-semibold">"Title"</span>
+                                        <span class="label-text font-semibold">{move_tr!("item-title-label")}</span>
                                     </label>
                                     <input
                                         type="text"
@@ -199,7 +220,7 @@ pub fn ItemDetailPage() -> impl IntoView {
 
                                 <div class="form-control">
                                     <label class="label">
-                                        <span class="label-text font-semibold">"Description"</span>
+                                        <span class="label-text font-semibold">{move_tr!("item-description-label")}</span>
                                     </label>
                                     <textarea
                                         class="textarea textarea-bordered w-full h-32"
@@ -209,105 +230,110 @@ pub fn ItemDetailPage() -> impl IntoView {
                                     />
                                 </div>
 
-                                // Save button
                                 <button
                                     type="button"
                                     class="btn btn-primary w-full"
                                     data-testid="item-detail-save"
                                     on:click=on_save
                                 >
-                                    "Save"
+                                    {move_tr!("common-save")}
                                 </button>
 
-                                <div class="divider text-sm">"Ilość"</div>
-                                <div class="flex gap-2 items-end">
-                                    <div class="form-control flex-1">
-                                        <label class="label">
-                                            <span class="label-text">"Ilość"</span>
-                                        </label>
-                                        <input
-                                            type="number"
-                                            class="input input-bordered w-full"
-                                            data-testid="item-detail-quantity"
-                                            prop:value=move || quantity_input.get()
-                                            on:input=move |ev| quantity_input.set(event_target_value(&ev))
-                                        />
+                                // Quantity section — only when list has quantity feature
+                                <Show when=has(FEATURE_QUANTITY)>
+                                    <div class="divider text-sm">{move_tr!("item-quantity-section")}</div>
+                                    <div class="flex gap-2 items-end">
+                                        <div class="form-control flex-1">
+                                            <label class="label">
+                                                <span class="label-text">{move_tr!("item-quantity-label")}</span>
+                                            </label>
+                                            <input
+                                                type="number"
+                                                class="input input-bordered w-full"
+                                                data-testid="item-detail-quantity"
+                                                prop:value=move || quantity_input.get()
+                                                on:input=move |ev| quantity_input.set(event_target_value(&ev))
+                                            />
+                                        </div>
+                                        <div class="form-control flex-1">
+                                            <label class="label">
+                                                <span class="label-text">{move_tr!("item-quantity-actual-label")}</span>
+                                            </label>
+                                            <input
+                                                type="number"
+                                                class="input input-bordered w-full"
+                                                data-testid="item-detail-actual-quantity"
+                                                prop:value=move || actual_quantity_input.get()
+                                                on:input=move |ev| actual_quantity_input.set(event_target_value(&ev))
+                                            />
+                                        </div>
+                                        <div class="form-control flex-1">
+                                            <label class="label">
+                                                <span class="label-text">{move_tr!("item-quantity-unit-label")}</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                class="input input-bordered w-full"
+                                                placeholder=move || move_tr!("item-quantity-unit-placeholder").get()
+                                                data-testid="item-detail-unit"
+                                                prop:value=move || unit_input.get()
+                                                on:input=move |ev| unit_input.set(event_target_value(&ev))
+                                            />
+                                        </div>
                                     </div>
-                                    <div class="form-control flex-1">
-                                        <label class="label">
-                                            <span class="label-text">"Mam"</span>
-                                        </label>
-                                        <input
-                                            type="number"
-                                            class="input input-bordered w-full"
-                                            data-testid="item-detail-actual-quantity"
-                                            prop:value=move || actual_quantity_input.get()
-                                            on:input=move |ev| actual_quantity_input.set(event_target_value(&ev))
-                                        />
-                                    </div>
-                                    <div class="form-control flex-1">
-                                        <label class="label">
-                                            <span class="label-text">"Jednostka"</span>
-                                        </label>
-                                        <input
-                                            type="text"
-                                            class="input input-bordered w-full"
-                                            placeholder="szt"
-                                            data-testid="item-detail-unit"
-                                            prop:value=move || unit_input.get()
-                                            on:input=move |ev| unit_input.set(event_target_value(&ev))
-                                        />
-                                    </div>
-                                </div>
-                                <button
-                                    type="button"
-                                    class="btn btn-secondary w-full"
-                                    data-testid="item-detail-save-quantity"
-                                    on:click=on_save_quantity
-                                >
-                                    "Zapisz ilość"
-                                </button>
-
-                                <div class="divider text-sm">"Terminy"</div>
-                                <div class="flex flex-col gap-2">
-                                    <DateFieldInput
-                                        label="📅 Rozpoczęcie"
-                                        value=start_date_input
-                                        time_value=start_time_input
-                                        data_testid="item-detail-start-date"
-                                        show_clear=true
-                                        show_quick=true
-                                        large=true
-                                    />
-                                    <DateFieldInput
-                                        label="⏰ Termin"
-                                        value=deadline_input
-                                        time_value=deadline_time_input
-                                        data_testid="item-detail-deadline"
-                                        show_clear=true
-                                        show_quick=true
-                                        large=true
-                                    />
-                                    <DateFieldInput
-                                        label="🚨 Ostateczny"
-                                        value=hard_deadline_input
-                                        data_testid="item-detail-hard-deadline"
-                                        show_clear=true
-                                        show_quick=true
-                                        large=true
-                                    />
                                     <button
                                         type="button"
                                         class="btn btn-secondary w-full"
-                                        data-testid="item-detail-save-dates"
-                                        on:click=on_save_dates
+                                        data-testid="item-detail-save-quantity"
+                                        on:click=on_save_quantity
                                     >
-                                        "Zapisz terminy"
+                                        {move_tr!("item-save-quantity")}
                                     </button>
-                                </div>
+                                </Show>
+
+                                // Dates section — only when list has deadlines feature
+                                <Show when=has(FEATURE_DEADLINES)>
+                                    <div class="divider text-sm">{move_tr!("item-dates-section")}</div>
+                                    <div class="flex flex-col gap-2">
+                                        <DateFieldInput
+                                            label=move_tr!("item-dates-start")
+                                            value=start_date_input
+                                            time_value=start_time_input
+                                            data_testid="item-detail-start-date"
+                                            show_clear=true
+                                            show_quick=true
+                                            large=true
+                                        />
+                                        <DateFieldInput
+                                            label=move_tr!("item-dates-deadline")
+                                            value=deadline_input
+                                            time_value=deadline_time_input
+                                            data_testid="item-detail-deadline"
+                                            show_clear=true
+                                            show_quick=true
+                                            large=true
+                                        />
+                                        <DateFieldInput
+                                            label=move_tr!("item-dates-hard-deadline")
+                                            value=hard_deadline_input
+                                            data_testid="item-detail-hard-deadline"
+                                            show_clear=true
+                                            show_quick=true
+                                            large=true
+                                        />
+                                        <button
+                                            type="button"
+                                            class="btn btn-secondary w-full"
+                                            data-testid="item-detail-save-dates"
+                                            on:click=on_save_dates
+                                        >
+                                            {move_tr!("item-save-dates")}
+                                        </button>
+                                    </div>
+                                </Show>
 
                                 // Tags section
-                                <div class="divider text-sm">"Tagi"</div>
+                                <div class="divider text-sm">{move_tr!("item-tags-section")}</div>
                                 {move || {
                                     let item_tags = item_tags_res.get()
                                         .and_then(|r| r.ok())
@@ -318,7 +344,6 @@ pub fn ItemDetailPage() -> impl IntoView {
                                     let tag_ids: Vec<String> = item_tags.iter().map(|t| t.id.clone()).collect();
                                     let iid = item_id();
 
-                                    // Filter out location-typed tags — shown separately below
                                     let location_types = ["country", "city", "address"];
                                     let general_tag_ids: Vec<String> = item_tags
                                         .iter()
@@ -345,53 +370,48 @@ pub fn ItemDetailPage() -> impl IntoView {
                                     }
                                 }}
 
-                                // Location section (only when list has "location" feature)
-                                {move || {
-                                    let features = list_features_res.get()
-                                        .and_then(|r| r.ok())
-                                        .unwrap_or_default();
-                                    if !features.iter().any(|f| f == kartoteka_shared::FEATURE_LOCATION) {
-                                        return view! {}.into_any();
-                                    }
+                                // Location section — only when list has location feature
+                                <Show when=has(FEATURE_LOCATION)>
+                                    {move || {
+                                        let item_tags = item_tags_res.get()
+                                            .and_then(|r| r.ok())
+                                            .unwrap_or_default();
+                                        let all_tags = all_tags_res.get()
+                                            .and_then(|r| r.ok())
+                                            .unwrap_or_default();
+                                        let iid = item_id();
 
-                                    let item_tags = item_tags_res.get()
-                                        .and_then(|r| r.ok())
-                                        .unwrap_or_default();
-                                    let all_tags = all_tags_res.get()
-                                        .and_then(|r| r.ok())
-                                        .unwrap_or_default();
-                                    let iid = item_id();
+                                        let location_types = ["country", "city", "address"];
+                                        let location_tag_ids: Vec<String> = item_tags
+                                            .iter()
+                                            .filter(|t| location_types.contains(&t.tag_type.as_str()))
+                                            .map(|t| t.id.clone())
+                                            .collect();
+                                        let location_all_tags: Vec<kartoteka_shared::types::Tag> = all_tags
+                                            .into_iter()
+                                            .filter(|t| location_types.contains(&t.tag_type.as_str()))
+                                            .collect();
+                                        let tag_ids_for_cb = item_tags.iter().map(|t| t.id.clone()).collect::<Vec<_>>();
 
-                                    let location_types = ["country", "city", "address"];
-                                    let location_tag_ids: Vec<String> = item_tags
-                                        .iter()
-                                        .filter(|t| location_types.contains(&t.tag_type.as_str()))
-                                        .map(|t| t.id.clone())
-                                        .collect();
-                                    let location_all_tags: Vec<kartoteka_shared::types::Tag> = all_tags
-                                        .into_iter()
-                                        .filter(|t| location_types.contains(&t.tag_type.as_str()))
-                                        .collect();
-                                    let tag_ids_for_cb = item_tags.iter().map(|t| t.id.clone()).collect::<Vec<_>>();
+                                        let on_location_toggle = Callback::new(move |tid: String| {
+                                            let is_assigned = tag_ids_for_cb.contains(&tid);
+                                            toggle_item_tag(iid.clone(), tid, is_assigned, set_tag_refresh);
+                                        });
 
-                                    let on_location_toggle = Callback::new(move |tid: String| {
-                                        let is_assigned = tag_ids_for_cb.contains(&tid);
-                                        toggle_item_tag(iid.clone(), tid, is_assigned, set_tag_refresh);
-                                    });
-
-                                    view! {
-                                        <div class="divider text-sm">"📍 Lokalizacja"</div>
-                                        <TagList
-                                            all_tags=location_all_tags
-                                            selected_tag_ids=location_tag_ids
-                                            on_toggle=on_location_toggle
-                                        />
-                                    }.into_any()
-                                }}
+                                        view! {
+                                            <div class="divider text-sm">"📍 " {move_tr!("lists-feature-location")}</div>
+                                            <TagList
+                                                all_tags=location_all_tags
+                                                selected_tag_ids=location_tag_ids
+                                                on_toggle=on_location_toggle
+                                            />
+                                        }
+                                    }}
+                                </Show>
 
                                 <div class="text-xs text-base-content/40 mt-2 flex flex-col gap-1">
-                                    <span>"Created: " {created_at}</span>
-                                    <span>"Updated: " {updated_at}</span>
+                                    <span>{move_tr!("item-created-label")} " " {created_at}</span>
+                                    <span>{move_tr!("item-updated-label")} " " {updated_at}</span>
                                 </div>
 
                                 <CommentSection
@@ -403,9 +423,12 @@ pub fn ItemDetailPage() -> impl IntoView {
                                     entity_id=Signal::derive(item_id)
                                 />
 
-                                <ItemTimerWidget
-                                    item_id=Signal::derive(item_id)
-                                />
+                                // Time tracking — only when list has time_tracking feature
+                                <Show when=has(FEATURE_TIME_TRACKING)>
+                                    <ItemTimerWidget
+                                        item_id=Signal::derive(item_id)
+                                    />
+                                </Show>
                             </div>
                         }.into_any()
                     }

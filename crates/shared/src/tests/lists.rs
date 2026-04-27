@@ -5,58 +5,6 @@ use crate::dto::requests::{
 };
 use crate::models::*;
 
-// --- ListType serde + default_features ---
-
-#[test]
-fn list_type_serde_snake_case() {
-    assert_eq!(
-        serde_json::to_string(&ListType::Checklist).unwrap(),
-        r#""checklist""#
-    );
-    assert_eq!(
-        serde_json::to_string(&ListType::Zakupy).unwrap(),
-        r#""zakupy""#
-    );
-    assert_eq!(
-        serde_json::to_string(&ListType::Custom).unwrap(),
-        r#""custom""#
-    );
-
-    let lt: ListType = serde_json::from_str(r#""terminarz""#).unwrap();
-    assert_eq!(lt, ListType::Terminarz);
-}
-
-#[test]
-fn default_features_zakupy() {
-    let features = ListType::Zakupy.default_features();
-    assert_eq!(features.len(), 1);
-    assert_eq!(features[0].name, FEATURE_QUANTITY);
-}
-
-#[test]
-fn default_features_pakowanie() {
-    let features = ListType::Pakowanie.default_features();
-    assert_eq!(features.len(), 1);
-    assert_eq!(features[0].name, FEATURE_QUANTITY);
-}
-
-#[test]
-fn default_features_terminarz() {
-    let features = ListType::Terminarz.default_features();
-    assert_eq!(features.len(), 1);
-    assert_eq!(features[0].name, FEATURE_DEADLINES);
-}
-
-#[test]
-fn default_features_checklist_empty() {
-    assert!(ListType::Checklist.default_features().is_empty());
-}
-
-#[test]
-fn default_features_custom_empty() {
-    assert!(ListType::Custom.default_features().is_empty());
-}
-
 // --- List::has_feature ---
 
 #[test]
@@ -66,7 +14,7 @@ fn list_has_feature() {
         user_id: "u1".into(),
         name: "test".into(),
         description: None,
-        list_type: ListType::Zakupy,
+        list_type: "shopping".into(),
         parent_list_id: None,
         position: 0,
         archived: false,
@@ -181,7 +129,7 @@ fn set_list_placement_request_allows_root_target() {
 fn create_list_request_rejects_two_targets() {
     let req = CreateListRequest {
         name: "Test".into(),
-        list_type: ListType::Checklist,
+        list_type: "checklist".into(),
         features: None,
         parent_list_id: Some("parent".into()),
         container_id: Some("container".into()),
@@ -196,7 +144,7 @@ fn create_list_request_rejects_two_targets() {
 fn create_list_request_allows_parent_list_id() {
     let req = CreateListRequest {
         name: "Sublist".into(),
-        list_type: ListType::Custom,
+        list_type: "custom".into(),
         features: None,
         parent_list_id: Some("parent".into()),
         container_id: None,
@@ -274,4 +222,23 @@ fn date_field_serde() {
         serde_json::to_string(&DateField::HardDeadline).unwrap(),
         r#""hard_deadline""#
     );
+}
+
+// --- ListFeature roundtrip ---
+
+#[cfg(test)]
+mod list_feature_tests {
+    use crate::models::list::ListFeature;
+    use serde_json::json;
+
+    #[test]
+    fn list_feature_roundtrip() {
+        let f = ListFeature {
+            name: "deadlines".into(),
+            config: json!({"has_deadline": true}),
+        };
+        let s = serde_json::to_string(&f).unwrap();
+        let back: ListFeature = serde_json::from_str(&s).unwrap();
+        assert_eq!(f, back);
+    }
 }

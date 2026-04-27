@@ -10,8 +10,9 @@ pub fn list_type_icon(lt: &str) -> &'static str {
     match lt {
         "checklist" => "✅",
         "shopping" => "🛒",
-        "habits" => "🔄",
-        "log" => "📋",
+        "schedule" | "habits" => "📅",
+        "log" => "⏱",
+        "notes" => "📓",
         _ => "📝",
     }
 }
