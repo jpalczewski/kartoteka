@@ -1,7 +1,9 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
-use kartoteka_shared::{FEATURE_DEADLINES, FEATURE_LOCATION, FEATURE_QUANTITY};
+use kartoteka_shared::{
+    FEATURE_CHECKLIST, FEATURE_DEADLINES, FEATURE_LOCATION, FEATURE_QUANTITY, FEATURE_TIME_TRACKING,
+};
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::CommentSection;
@@ -334,6 +336,9 @@ pub fn ListPage() -> impl IntoView {
                         let has_quantity = current_features.iter().any(|f| f == FEATURE_QUANTITY);
                         let has_deadlines = current_features.iter().any(|f| f == FEATURE_DEADLINES);
                         let has_location = current_features.iter().any(|f| f == FEATURE_LOCATION);
+                        let has_checklist = current_features.iter().any(|f| f == FEATURE_CHECKLIST);
+                        let has_time_tracking =
+                            current_features.iter().any(|f| f == FEATURE_TIME_TRACKING);
                         let deadlines_config = data
                             .list
                             .features
@@ -466,6 +471,28 @@ pub fn ListPage() -> impl IntoView {
                                                                 on:change=make_toggle(FEATURE_LOCATION)
                                                             />
                                                             "📍 Lokalizacja"
+                                                        </label>
+                                                    </li>
+                                                    <li>
+                                                        <label class="flex items-center gap-2 cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                class="checkbox checkbox-xs"
+                                                                prop:checked=has_checklist
+                                                                on:change=make_toggle(FEATURE_CHECKLIST)
+                                                            />
+                                                            "Checkboxy"
+                                                        </label>
+                                                    </li>
+                                                    <li>
+                                                        <label class="flex items-center gap-2 cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                class="checkbox checkbox-xs"
+                                                                prop:checked=has_time_tracking
+                                                                on:change=make_toggle(FEATURE_TIME_TRACKING)
+                                                            />
+                                                            "Śledzenie czasu"
                                                         </label>
                                                     </li>
                                                 }
