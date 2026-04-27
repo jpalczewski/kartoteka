@@ -31,3 +31,6 @@ urlencoding = "2"
 fluent-bundle = "0.15"
 fluent-syntax = "0.11"
 unic-langid = "0.9"
+
+[package.metadata.cargo-machete]
+ignored = ["async-trait", "chrono", "chrono-tz", "fluent-syntax", "tokio"]

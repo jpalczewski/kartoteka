@@ -25,6 +25,9 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 totp-rs.workspace = true
 jsonwebtoken.workspace = true
 
+[package.metadata.cargo-machete]
+ignored = ["async-trait"]
+
 [dev-dependencies]
 tokio.workspace = true
 kartoteka-db = { path = "../db", features = ["test-helpers"] }

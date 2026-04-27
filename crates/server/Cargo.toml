@@ -40,6 +40,9 @@ tower-http.workspace = true
 time.workspace = true
 chrono.workspace = true
 
+[package.metadata.cargo-machete]
+ignored = ["kartoteka-jobs", "sqlx", "thiserror", "tower-http"]
+
 [dev-dependencies]
 tokio.workspace = true
 tower.workspace = true
