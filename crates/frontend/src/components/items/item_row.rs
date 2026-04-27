@@ -1,4 +1,7 @@
-use kartoteka_shared::types::{Item, Tag};
+use kartoteka_shared::{
+    FEATURE_DEADLINES,
+    types::{Item, Tag},
+};
 use leptos::prelude::*;
 use leptos_router::components::A;
 use web_sys::DragEvent;
@@ -285,7 +288,7 @@ pub fn ItemRow(
                                 "Zapisz opis"
                             </button>
 
-                            {on_date_save.map(|save_cb| {
+                            {on_date_save.filter(|_| list_features.iter().any(|f| f == FEATURE_DEADLINES)).map(|save_cb| {
                                 let id = id_dates.clone();
                                 view! {
                                     <div class="flex flex-col gap-2 text-sm">
