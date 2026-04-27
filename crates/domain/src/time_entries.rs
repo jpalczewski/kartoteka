@@ -55,8 +55,12 @@ pub async fn start(
     item_id: Option<&str>,
 ) -> Result<TimeEntry, DomainError> {
     if let Some(iid) = item_id {
-        if db::items::get_one(pool, iid, user_id).await?.is_none() {
-            return Err(DomainError::Forbidden);
+        let row = db::items::get_one(pool, iid, user_id)
+            .await?
+            .ok_or(DomainError::Forbidden)?;
+        let features = db::lists::get_feature_names(pool, &row.list_id).await?;
+        if !features.iter().any(|f| f == "time_tracking") {
+            return Err(DomainError::FeatureRequired("time_tracking"));
         }
     }
     // Auto-stop any running timer
@@ -119,8 +123,12 @@ pub async fn log_manual(
     description: Option<&str>,
 ) -> Result<TimeEntry, DomainError> {
     if let Some(iid) = item_id {
-        if db::items::get_one(pool, iid, user_id).await?.is_none() {
-            return Err(DomainError::Forbidden);
+        let row = db::items::get_one(pool, iid, user_id)
+            .await?
+            .ok_or(DomainError::Forbidden)?;
+        let features = db::lists::get_feature_names(pool, &row.list_id).await?;
+        if !features.iter().any(|f| f == "time_tracking") {
+            return Err(DomainError::FeatureRequired("time_tracking"));
         }
     }
     let started = chrono::NaiveDateTime::parse_from_str(started_at, "%Y-%m-%d %H:%M:%S")
@@ -290,6 +298,13 @@ mod tests {
         let list_id = insert_test_list(&pool, &uid).await;
         let item_id = insert_test_item(&pool, &list_id).await;
 
+        let features = serde_json::json!({"time_tracking": {}});
+        let mut tx = pool.begin().await.unwrap();
+        kartoteka_db::lists::set_features(&mut tx, &list_id, &features)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
         let entry = start(&pool, &uid, Some(&item_id)).await.unwrap();
         assert_eq!(entry.item_id.as_deref(), Some(item_id.as_str()));
     }
@@ -431,6 +446,13 @@ mod tests {
         let list_id = insert_test_list(&pool, &uid).await;
         let item_id = insert_test_item(&pool, &list_id).await;
 
+        let features = serde_json::json!({"time_tracking": {}});
+        let mut tx = pool.begin().await.unwrap();
+        kartoteka_db::lists::set_features(&mut tx, &list_id, &features)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
         log_manual(
             &pool,
             &uid,
@@ -457,5 +479,63 @@ mod tests {
         let summary = summary_for_item(&pool, &uid, &item_id).await.unwrap();
         assert_eq!(summary.total_seconds, 180);
         assert_eq!(summary.entry_count, 2);
+    }
+
+    #[tokio::test]
+    async fn start_blocked_when_time_tracking_feature_missing() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list(&pool, &uid).await;
+        let item_id = insert_test_item(&pool, &list_id).await;
+
+        let err = start(&pool, &uid, Some(&item_id)).await.unwrap_err();
+        assert!(matches!(err, DomainError::FeatureRequired("time_tracking")));
+    }
+
+    #[tokio::test]
+    async fn start_without_item_id_always_allowed() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+
+        let entry = start(&pool, &uid, None).await.unwrap();
+        assert!(entry.item_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn log_manual_blocked_when_time_tracking_feature_missing() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list(&pool, &uid).await;
+        let item_id = insert_test_item(&pool, &list_id).await;
+
+        let err = log_manual(
+            &pool,
+            &uid,
+            Some(&item_id),
+            "2026-01-01 10:00:00",
+            "2026-01-01 11:00:00",
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, DomainError::FeatureRequired("time_tracking")));
+    }
+
+    #[tokio::test]
+    async fn start_allowed_when_time_tracking_feature_present() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list(&pool, &uid).await;
+        let item_id = insert_test_item(&pool, &list_id).await;
+
+        let features = serde_json::json!({"time_tracking": {}});
+        let mut tx = pool.begin().await.unwrap();
+        kartoteka_db::lists::set_features(&mut tx, &list_id, &features)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let entry = start(&pool, &uid, Some(&item_id)).await.unwrap();
+        assert_eq!(entry.item_id.as_deref(), Some(item_id.as_str()));
     }
 }
