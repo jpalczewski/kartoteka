@@ -283,6 +283,12 @@ pub async fn toggle_complete(
         None => return Ok(None),
     };
 
+    // Feature gate
+    let features = db::lists::get_feature_names(pool, &item.list_id).await?;
+    if !features.iter().any(|f| f == "checklist") {
+        return Err(DomainError::FeatureRequired("checklist"));
+    }
+
     // Phase 2 THINK: only check blockers when completing (false → true)
     if !item.completed {
         let blockers = db::relations::get_unresolved_blockers(pool, id).await?;
@@ -691,10 +697,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn toggle_blocked_when_checklist_feature_missing() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &uid, &[]).await;
+
+        let item = create(&pool, &uid, &list_id, &basic_req("A note"))
+            .await
+            .unwrap();
+        let err = toggle_complete(&pool, &uid, &item.id).await.unwrap_err();
+        assert!(matches!(err, DomainError::FeatureRequired("checklist")));
+    }
+
+    #[tokio::test]
+    async fn toggle_allowed_when_checklist_feature_present() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &uid, &["checklist"]).await;
+
+        let item = create(&pool, &uid, &list_id, &basic_req("Task"))
+            .await
+            .unwrap();
+        assert!(toggle_complete(&pool, &uid, &item.id).await.is_ok());
+    }
+
+    #[tokio::test]
     async fn toggle_complete_flips_completed() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = create_list(&pool, &user_id, &[]).await;
+        let list_id = create_list(&pool, &user_id, &["checklist"]).await;
 
         let item = create(&pool, &user_id, &list_id, &basic_req("Toggle me"))
             .await
@@ -718,7 +749,7 @@ mod tests {
     async fn toggle_complete_blocked_by_incomplete_item() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = create_list(&pool, &user_id, &[]).await;
+        let list_id = create_list(&pool, &user_id, &["checklist"]).await;
 
         let blocker = create(&pool, &user_id, &list_id, &basic_req("Blocker"))
             .await
@@ -856,7 +887,7 @@ mod tests {
     async fn overdue_returns_only_past_incomplete() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = create_list(&pool, &user_id, &["deadlines"]).await;
+        let list_id = create_list(&pool, &user_id, &["deadlines", "checklist"]).await;
 
         // Past deadline, incomplete → should appear
         let past = create(
