@@ -3,6 +3,7 @@ common-cancel = Anuluj
 common-delete = Usuń
 common-save = Zapisz
 common-add = Dodaj
+common-create = Utwórz
 common-edit = Edytuj
 common-close = Zamknij
 common-confirm = Potwierdź

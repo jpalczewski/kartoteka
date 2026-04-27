@@ -1,5 +1,6 @@
 use kartoteka_shared::types::{CreateContainerRequest, CreateListRequest};
 use leptos::prelude::*;
+use leptos_fluent::{I18n, move_tr};
 
 use super::add_input::AddInput;
 
@@ -17,33 +18,24 @@ pub fn CreateEntityInput(
     on_create_list: Callback<CreateListRequest>,
     on_create_container: Callback<CreateContainerRequest>,
 ) -> impl IntoView {
+    let i18n = expect_context::<I18n>();
     let (mode, set_mode) = signal(EntityMode::List);
     let (list_type, set_list_type) = signal("checklist".to_string());
 
     let parent_id = parent_container_id.clone();
 
-    // Maps UI option labels to (domain list_type, required features).
-    fn resolve_list_type(option: &str) -> (&'static str, Vec<String>) {
-        match option {
-            "zakupy" => ("shopping", vec!["quantity".into()]),
-            "terminarz" => ("habits", vec!["deadlines".into()]),
-            _ => ("checklist", vec![]),
-        }
-    }
-
     let on_submit = Callback::new(move |name: String| {
         let m = mode.get();
         match m {
             EntityMode::List => {
-                let (domain_type, features) = resolve_list_type(&list_type.get());
                 on_create_list.run(CreateListRequest {
                     name,
-                    list_type: Some(domain_type.to_string()),
+                    list_type: Some(list_type.get()),
                     icon: None,
                     description: None,
                     container_id: parent_id.clone(),
                     parent_list_id: None,
-                    features,
+                    features: vec![],
                 });
             }
             EntityMode::Folder => {
@@ -67,7 +59,7 @@ pub fn CreateEntityInput(
         }
     });
 
-    let list_type_options: &[&str] = &["checklist", "zakupy", "pakowanie", "terminarz"];
+    let list_type_options: &[&str] = &["checklist", "shopping", "schedule", "log", "notes"];
 
     view! {
         <div class="mb-4">
@@ -76,7 +68,7 @@ pub fn CreateEntityInput(
                     class=move || if mode.get() == EntityMode::List { "tab tab-active" } else { "tab" }
                     on:click=move |_| set_mode.set(EntityMode::List)
                 >
-                    "Lista"
+                    {move_tr!("lists-mode-list")}
                 </a>
                 {show_container_options.then(|| view! {
                     <div class="contents">
@@ -84,13 +76,13 @@ pub fn CreateEntityInput(
                             class=move || if mode.get() == EntityMode::Folder { "tab tab-active" } else { "tab" }
                             on:click=move |_| set_mode.set(EntityMode::Folder)
                         >
-                            "Folder"
+                            {move_tr!("lists-mode-folder")}
                         </a>
                         <a
                             class=move || if mode.get() == EntityMode::Project { "tab tab-active" } else { "tab" }
                             on:click=move |_| set_mode.set(EntityMode::Project)
                         >
-                            "Projekt"
+                            {move_tr!("lists-mode-project")}
                         </a>
                     </div>
                 })}
@@ -101,6 +93,7 @@ pub fn CreateEntityInput(
                     {list_type_options.iter().map(|lt| {
                         let lt_cmp = lt.to_string();
                         let lt_set = lt.to_string();
+                        let label = i18n.tr(&format!("lists-type-{lt}"));
                         view! {
                             <label class="flex items-center gap-1 cursor-pointer">
                                 <input
@@ -110,7 +103,7 @@ pub fn CreateEntityInput(
                                     prop:checked=move || list_type.get() == lt_cmp
                                     on:change=move |_| set_list_type.set(lt_set.clone())
                                 />
-                                {*lt}
+                                {label}
                             </label>
                         }
                     }).collect::<Vec<_>>()}
@@ -120,12 +113,12 @@ pub fn CreateEntityInput(
             <AddInput
                 placeholder=Signal::derive(move || {
                     match mode.get() {
-                        EntityMode::List => "Nazwa listy...".to_string(),
-                        EntityMode::Folder => "Nazwa folderu...".to_string(),
-                        EntityMode::Project => "Nazwa projektu...".to_string(),
+                        EntityMode::List => i18n.tr("lists-new-list-placeholder"),
+                        EntityMode::Folder => i18n.tr("lists-new-folder-placeholder"),
+                        EntityMode::Project => i18n.tr("lists-new-project-placeholder"),
                     }
                 })
-                button_label=Signal::derive(move || "Utwórz".to_string())
+                button_label=Signal::derive(move || i18n.tr("common-create"))
                 on_submit=on_submit
             />
         </div>

@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::hooks::use_params_map;
 
 use kartoteka_shared::{
@@ -470,7 +471,7 @@ pub fn ListPage() -> impl IntoView {
                                                                 prop:checked=has_location
                                                                 on:change=make_toggle(FEATURE_LOCATION)
                                                             />
-                                                            "📍 Lokalizacja"
+                                                            "📍 " {move_tr!("lists-feature-location")}
                                                         </label>
                                                     </li>
                                                     <li>
@@ -481,7 +482,7 @@ pub fn ListPage() -> impl IntoView {
                                                                 prop:checked=has_checklist
                                                                 on:change=make_toggle(FEATURE_CHECKLIST)
                                                             />
-                                                            "Checkboxy"
+                                                            {move_tr!("lists-feature-checklist")}
                                                         </label>
                                                     </li>
                                                     <li>
@@ -492,7 +493,7 @@ pub fn ListPage() -> impl IntoView {
                                                                 prop:checked=has_time_tracking
                                                                 on:change=make_toggle(FEATURE_TIME_TRACKING)
                                                             />
-                                                            "Śledzenie czasu"
+                                                            {move_tr!("lists-feature-time-tracking")}
                                                         </label>
                                                     </li>
                                                 }
