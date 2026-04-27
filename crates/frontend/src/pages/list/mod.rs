@@ -745,6 +745,7 @@ pub fn ListPage() -> impl IntoView {
                                                                     on_toggle=on_toggle_item
                                                                     on_delete=on_delete_item
                                                                     has_quantity=has_quantity
+                                                                    list_features=current_features.clone()
                                                                     on_quantity_change=on_quantity_change
                                                                     on_description_save=on_description_save
                                                                     on_date_save=on_date_save
@@ -798,6 +799,7 @@ pub fn ListPage() -> impl IntoView {
                                                                         on_toggle=on_toggle_item
                                                                         on_delete=on_delete_item
                                                                         has_quantity=has_quantity
+                                                                        list_features=current_features.clone()
                                                                         on_quantity_change=on_quantity_change
                                                                         on_description_save=on_description_save
                                                                         on_date_save=on_date_save

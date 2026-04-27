@@ -42,6 +42,7 @@ pub fn ItemRow(
     on_toggle: Callback<String>,
     on_delete: Callback<String>,
     #[prop(default = false)] has_quantity: bool,
+    #[prop(default = vec![])] list_features: Vec<String>,
     #[prop(default = vec![])] item_tags: Vec<Tag>,
     #[prop(default = vec![])] move_targets: Vec<(String, String)>,
     #[prop(optional)] on_move: Option<Callback<(String, String)>>,
@@ -145,13 +146,15 @@ pub fn ItemRow(
                 {dnd_state.zip(dragged_item.clone()).map(|(state, di)| view! {
                     <ItemDragHandleButton dnd_state=state dragged_item=di aria_label="Przeciągnij element" />
                 })}
-                <input
-                    type="checkbox"
-                    class="checkbox checkbox-primary"
-                    data-testid="item-toggle"
-                    checked=completed
-                    on:change=move |_| on_toggle.run(item_id_toggle.clone())
-                />
+                {list_features.iter().any(|f| f == "checklist").then(|| view! {
+                    <input
+                        type="checkbox"
+                        class="checkbox checkbox-primary"
+                        data-testid="item-toggle"
+                        checked=completed
+                        on:change=move |_| on_toggle.run(item_id_toggle.clone())
+                    />
+                })}
                 <button
                     type="button"
                     class="btn btn-ghost btn-xs btn-square"
