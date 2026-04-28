@@ -38,6 +38,6 @@ urlencoding = "2"
 ignored = ["kartoteka-domain", "tracing"]
 
 [dev-dependencies]
-hmac = "0.12"
+hmac = "0.13"
 tower = { version = "0.5", features = ["util"] }
 kartoteka-db = { path = "../db", features = ["test-helpers"] }
