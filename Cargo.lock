@@ -1826,7 +1826,7 @@ dependencies = [
  "kartoteka-db",
  "kartoteka-domain",
  "kartoteka-shared",
- "rand 0.8.6",
+ "rand 0.9.4",
  "serde",
  "serde_json",
  "serde_urlencoded",
