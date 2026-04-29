@@ -37,7 +37,9 @@ use crate::tools::{
     read::{GetContainerParams, GetItemParams, GetListParams, ListItemsParams},
     relations::{AddRelationParams, RemoveRelationParams},
     search::SearchItemsParams,
-    tags::{AssignTagParams, CreateTagParams, CreateTagsParams, UnassignTagParams},
+    tags::{
+        AssignTagParams, CreateTagParams, CreateTagsParams, GetTagEntitiesParams, UnassignTagParams,
+    },
     templates::{CreateListFromTemplateParams, SaveAsTemplateParams},
     time::{LogTimeParams, StartTimerParams},
 };
@@ -650,6 +652,38 @@ impl KartotekaServer {
 
         tx.commit().await.map_err(self.sqlx_err(&locale))?;
         self.json_result(result, &locale)
+    }
+
+    #[rmcp::tool(
+        name = "get_tag_entities",
+        description = "mcp-tool-get_tag_entities-desc"
+    )]
+    async fn get_tag_entities(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<GetTagEntitiesParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+
+        if let Some(ref t) = p.entity_type {
+            if t != "item" && t != "list" {
+                return Err(self.map_err(
+                    McpError::BadRequest("invalid_entity_type".to_string()),
+                    &locale,
+                ));
+            }
+        }
+
+        let entities = domain::tags::get_entities_by_tag(
+            &self.pool,
+            &uid,
+            &p.tag_id,
+            p.entity_type.as_deref(),
+        )
+        .await
+        .map_err(self.domain_err(&locale))?;
+
+        self.json_result(entities, &locale)
     }
 
     #[rmcp::tool(name = "get_today", description = "mcp-tool-get_today-desc")]

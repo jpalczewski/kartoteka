@@ -40,3 +40,10 @@ pub struct CreateTagsInput {
 pub struct CreateTagsParams {
     pub tags: Vec<CreateTagsInput>,
 }
+
+#[derive(Deserialize, JsonSchema)]
+pub struct GetTagEntitiesParams {
+    pub tag_id: String,
+    /// Filter by entity type: "item" or "list". Omit to get both.
+    pub entity_type: Option<String>,
+}

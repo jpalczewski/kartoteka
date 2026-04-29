@@ -577,6 +577,65 @@ pub async fn remove_container_tag(
     Ok(rows.rows_affected() > 0)
 }
 
+// ── Inverse tag lookups ───────────────────────────────────────────────────────
+
+#[derive(Debug, sqlx::FromRow, serde::Serialize)]
+pub struct TaggedItemRow {
+    pub id: String,
+    pub title: String,
+    pub list_id: String,
+    pub completed: bool,
+}
+
+#[derive(Debug, sqlx::FromRow, serde::Serialize)]
+pub struct TaggedListRow {
+    pub id: String,
+    pub name: String,
+    pub container_id: Option<String>,
+    pub archived: bool,
+}
+
+#[tracing::instrument(skip(pool))]
+pub async fn get_items_by_tag(
+    pool: &SqlitePool,
+    tag_id: &str,
+    user_id: &str,
+) -> Result<Vec<TaggedItemRow>, DbError> {
+    sqlx::query_as::<_, TaggedItemRow>(
+        "SELECT i.id, i.title, i.list_id, i.completed \
+         FROM items i \
+         JOIN item_tags it ON it.item_id = i.id \
+         JOIN lists l ON l.id = i.list_id \
+         WHERE it.tag_id = ? AND l.user_id = ? \
+         ORDER BY i.title",
+    )
+    .bind(tag_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)
+}
+
+#[tracing::instrument(skip(pool))]
+pub async fn get_lists_by_tag(
+    pool: &SqlitePool,
+    tag_id: &str,
+    user_id: &str,
+) -> Result<Vec<TaggedListRow>, DbError> {
+    sqlx::query_as::<_, TaggedListRow>(
+        "SELECT l.id, l.name, l.container_id, l.archived \
+         FROM lists l \
+         JOIN list_tags lt ON lt.list_id = l.id \
+         WHERE lt.tag_id = ? AND l.user_id = ? \
+         ORDER BY l.name",
+    )
+    .bind(tag_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

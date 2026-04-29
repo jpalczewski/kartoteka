@@ -352,6 +352,39 @@ pub async fn get_for_container(
     )
 }
 
+// ── Inverse tag lookup ────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct TagEntities {
+    pub items: Vec<db::tags::TaggedItemRow>,
+    pub lists: Vec<db::tags::TaggedListRow>,
+}
+
+/// Returns items and lists linked to `tag_id`.
+/// `entity_type`: `Some("item")`, `Some("list")`, or `None` for both.
+#[tracing::instrument(skip(pool))]
+pub async fn get_entities_by_tag(
+    pool: &SqlitePool,
+    user_id: &str,
+    tag_id: &str,
+    entity_type: Option<&str>,
+) -> Result<TagEntities, DomainError> {
+    db::tags::get_one(pool, tag_id, user_id)
+        .await?
+        .ok_or(DomainError::NotFound("tag"))?;
+
+    let items = match entity_type {
+        Some(t) if t != "item" => vec![],
+        _ => db::tags::get_items_by_tag(pool, tag_id, user_id).await?,
+    };
+    let lists = match entity_type {
+        Some(t) if t != "list" => vec![],
+        _ => db::tags::get_lists_by_tag(pool, tag_id, user_id).await?,
+    };
+
+    Ok(TagEntities { items, lists })
+}
+
 // ── Integration tests ─────────────────────────────────────────────────────────
 
 #[cfg(test)]
