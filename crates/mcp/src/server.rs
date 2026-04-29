@@ -37,6 +37,9 @@ use crate::tools::{
     read::{GetContainerParams, GetItemParams, GetListParams, ListItemsParams},
     relations::{AddRelationParams, RemoveRelationParams},
     search::SearchItemsParams,
+    tags::{
+        AssignTagParams, CreateTagParams, CreateTagsParams, GetTagEntitiesParams, UnassignTagParams,
+    },
     templates::{CreateListFromTemplateParams, SaveAsTemplateParams},
     time::{LogTimeParams, StartTimerParams},
 };
@@ -501,6 +504,203 @@ impl KartotekaServer {
             .await
             .map_err(self.domain_err(&locale))?;
         self.json_result(data, &locale)
+    }
+
+    #[rmcp::tool(name = "create_tag", description = "mcp-tool-create_tag-desc")]
+    async fn create_tag(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<CreateTagParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let req = domain::tags::CreateTagRequest {
+            name: p.name,
+            color: p.color,
+            parent_tag_id: p.parent_tag_id,
+            tag_type: None,
+            icon: None,
+            metadata: None,
+        };
+        let tag = domain::tags::create(&self.pool, &uid, &req)
+            .await
+            .map_err(self.domain_err(&locale))?;
+        self.json_result(tag, &locale)
+    }
+
+    #[rmcp::tool(name = "assign_tag", description = "mcp-tool-assign_tag-desc")]
+    async fn assign_tag(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<AssignTagParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        match p.entity_type.as_str() {
+            "item" => domain::tags::assign_to_item(&self.pool, &uid, &p.entity_id, &p.tag_id)
+                .await
+                .map_err(self.domain_err(&locale))?,
+            "list" => domain::tags::assign_to_list(&self.pool, &uid, &p.entity_id, &p.tag_id)
+                .await
+                .map_err(self.domain_err(&locale))?,
+            "container" => {
+                domain::tags::assign_to_container(&self.pool, &uid, &p.entity_id, &p.tag_id)
+                    .await
+                    .map_err(self.domain_err(&locale))?
+            }
+            _ => {
+                return Err(self.map_err(
+                    McpError::BadRequest("invalid_entity_type".to_string()),
+                    &locale,
+                ));
+            }
+        }
+        self.json_result(serde_json::json!({"ok": true}), &locale)
+    }
+
+    #[rmcp::tool(name = "unassign_tag", description = "mcp-tool-unassign_tag-desc")]
+    async fn unassign_tag(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<UnassignTagParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        match p.entity_type.as_str() {
+            "item" => {
+                domain::tags::remove_from_item(&self.pool, &uid, &p.entity_id, &p.tag_id)
+                    .await
+                    .map_err(self.domain_err(&locale))?;
+            }
+            "list" => {
+                domain::tags::remove_from_list(&self.pool, &uid, &p.entity_id, &p.tag_id)
+                    .await
+                    .map_err(self.domain_err(&locale))?;
+            }
+            "container" => {
+                domain::tags::remove_from_container(&self.pool, &uid, &p.entity_id, &p.tag_id)
+                    .await
+                    .map_err(self.domain_err(&locale))?;
+            }
+            _ => {
+                return Err(self.map_err(
+                    McpError::BadRequest("invalid_entity_type".to_string()),
+                    &locale,
+                ));
+            }
+        }
+        self.json_result(serde_json::json!({"ok": true}), &locale)
+    }
+
+    #[rmcp::tool(name = "create_tags", description = "mcp-tool-create_tags-desc")]
+    async fn create_tags(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<CreateTagsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+
+        if p.tags.is_empty() {
+            return self.json_result(Vec::<serde_json::Value>::new(), &locale);
+        }
+
+        for tag in &p.tags {
+            domain::tags::validate_tag_input(&tag.name, tag.color.as_deref())
+                .map_err(self.domain_err(&locale))?;
+        }
+
+        let unique_parents: std::collections::HashSet<&str> = p
+            .tags
+            .iter()
+            .filter_map(|t| t.parent_tag_id.as_deref())
+            .collect();
+        for pid in unique_parents {
+            db::tags::get_one(&self.pool, pid, &uid)
+                .await
+                .map_err(self.db_err(&locale))?
+                .ok_or_else(|| {
+                    self.map_err(
+                        McpError::Domain(domain::DomainError::NotFound("parent_tag")),
+                        &locale,
+                    )
+                })?;
+        }
+
+        let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
+        let mut resolver = RefResolver::new();
+        let mut result = Vec::with_capacity(p.tags.len());
+
+        for tag in &p.tags {
+            let parent_id: Option<String> = resolver
+                .pick(
+                    tag.parent_tag_id.as_deref(),
+                    tag.parent_tag_ref.as_deref(),
+                    false,
+                )
+                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?
+                .map(str::to_owned);
+
+            let new_id = Uuid::new_v4().to_string();
+            db::tags::insert_in_tx(
+                &mut tx,
+                &db::tags::InsertTagInput {
+                    id: new_id.clone(),
+                    user_id: uid.clone(),
+                    name: tag.name.clone(),
+                    icon: None,
+                    color: tag.color.clone(),
+                    parent_tag_id: parent_id.clone(),
+                    tag_type: "tag".to_string(),
+                    metadata: None,
+                },
+            )
+            .await
+            .map_err(self.db_err(&locale))?;
+
+            resolver
+                .register(tag.client_ref.as_deref(), &new_id)
+                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+
+            result.push(serde_json::json!({
+                "id": new_id,
+                "name": tag.name,
+                "color": tag.color,
+                "parent_tag_id": parent_id,
+                "tag_type": "tag",
+            }));
+        }
+
+        tx.commit().await.map_err(self.sqlx_err(&locale))?;
+        self.json_result(result, &locale)
+    }
+
+    #[rmcp::tool(
+        name = "get_tag_entities",
+        description = "mcp-tool-get_tag_entities-desc"
+    )]
+    async fn get_tag_entities(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<GetTagEntitiesParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+
+        if let Some(ref t) = p.entity_type {
+            if t != "item" && t != "list" {
+                return Err(self.map_err(
+                    McpError::BadRequest("invalid_entity_type".to_string()),
+                    &locale,
+                ));
+            }
+        }
+
+        let entities = domain::tags::get_entities_by_tag(
+            &self.pool,
+            &uid,
+            &p.tag_id,
+            p.entity_type.as_deref(),
+        )
+        .await
+        .map_err(self.domain_err(&locale))?;
+
+        self.json_result(entities, &locale)
     }
 
     #[rmcp::tool(name = "get_today", description = "mcp-tool-get_today-desc")]

@@ -218,6 +218,28 @@ pub async fn insert(pool: &SqlitePool, input: &InsertTagInput) -> Result<TagRow,
     .map_err(DbError::Sqlx)
 }
 
+#[tracing::instrument(skip(conn))]
+pub async fn insert_in_tx(
+    conn: &mut SqliteConnection,
+    input: &InsertTagInput,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO tags (id, user_id, name, icon, color, parent_tag_id, tag_type, metadata) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&input.id)
+    .bind(&input.user_id)
+    .bind(&input.name)
+    .bind(&input.icon)
+    .bind(&input.color)
+    .bind(&input.parent_tag_id)
+    .bind(&input.tag_type)
+    .bind(&input.metadata)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn update(
     pool: &SqlitePool,
@@ -360,8 +382,8 @@ pub async fn add_item_tag(
     item_id: &str,
     tag_id: &str,
     user_id: &str,
-) -> Result<(), DbError> {
-    sqlx::query(
+) -> Result<bool, DbError> {
+    let rows = sqlx::query(
         "INSERT OR IGNORE INTO item_tags (item_id, tag_id) \
          SELECT ?, ? \
          WHERE EXISTS (SELECT 1 FROM items i JOIN lists l ON l.id = i.list_id WHERE i.id = ? AND l.user_id = ?) \
@@ -376,7 +398,7 @@ pub async fn add_item_tag(
     .execute(pool)
     .await
     .map_err(DbError::Sqlx)?;
-    Ok(())
+    Ok(rows.rows_affected() > 0)
 }
 
 #[tracing::instrument(skip(pool))]
@@ -406,8 +428,8 @@ pub async fn add_list_tag(
     list_id: &str,
     tag_id: &str,
     user_id: &str,
-) -> Result<(), DbError> {
-    sqlx::query(
+) -> Result<bool, DbError> {
+    let rows = sqlx::query(
         "INSERT OR IGNORE INTO list_tags (list_id, tag_id) \
          SELECT ?, ? \
          WHERE EXISTS (SELECT 1 FROM lists WHERE id = ? AND user_id = ?) \
@@ -422,7 +444,7 @@ pub async fn add_list_tag(
     .execute(pool)
     .await
     .map_err(DbError::Sqlx)?;
-    Ok(())
+    Ok(rows.rows_affected() > 0)
 }
 
 #[tracing::instrument(skip(pool))]
@@ -515,8 +537,8 @@ pub async fn add_container_tag(
     container_id: &str,
     tag_id: &str,
     user_id: &str,
-) -> Result<(), DbError> {
-    sqlx::query(
+) -> Result<bool, DbError> {
+    let rows = sqlx::query(
         "INSERT OR IGNORE INTO container_tags (container_id, tag_id) \
          SELECT ?, ? \
          WHERE EXISTS (SELECT 1 FROM containers WHERE id = ? AND user_id = ?) \
@@ -531,7 +553,7 @@ pub async fn add_container_tag(
     .execute(pool)
     .await
     .map_err(DbError::Sqlx)?;
-    Ok(())
+    Ok(rows.rows_affected() > 0)
 }
 
 #[tracing::instrument(skip(pool))]
@@ -553,6 +575,65 @@ pub async fn remove_container_tag(
     .await
     .map_err(DbError::Sqlx)?;
     Ok(rows.rows_affected() > 0)
+}
+
+// ── Inverse tag lookups ───────────────────────────────────────────────────────
+
+#[derive(Debug, sqlx::FromRow, serde::Serialize)]
+pub struct TaggedItemRow {
+    pub id: String,
+    pub title: String,
+    pub list_id: String,
+    pub completed: bool,
+}
+
+#[derive(Debug, sqlx::FromRow, serde::Serialize)]
+pub struct TaggedListRow {
+    pub id: String,
+    pub name: String,
+    pub container_id: Option<String>,
+    pub archived: bool,
+}
+
+#[tracing::instrument(skip(pool))]
+pub async fn get_items_by_tag(
+    pool: &SqlitePool,
+    tag_id: &str,
+    user_id: &str,
+) -> Result<Vec<TaggedItemRow>, DbError> {
+    sqlx::query_as::<_, TaggedItemRow>(
+        "SELECT i.id, i.title, i.list_id, i.completed \
+         FROM items i \
+         JOIN item_tags it ON it.item_id = i.id \
+         JOIN lists l ON l.id = i.list_id \
+         WHERE it.tag_id = ? AND l.user_id = ? \
+         ORDER BY i.title",
+    )
+    .bind(tag_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)
+}
+
+#[tracing::instrument(skip(pool))]
+pub async fn get_lists_by_tag(
+    pool: &SqlitePool,
+    tag_id: &str,
+    user_id: &str,
+) -> Result<Vec<TaggedListRow>, DbError> {
+    sqlx::query_as::<_, TaggedListRow>(
+        "SELECT l.id, l.name, l.container_id, l.archived \
+         FROM lists l \
+         JOIN list_tags lt ON lt.list_id = l.id \
+         WHERE lt.tag_id = ? AND l.user_id = ? \
+         ORDER BY l.name",
+    )
+    .bind(tag_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

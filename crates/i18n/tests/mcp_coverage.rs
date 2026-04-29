@@ -27,6 +27,7 @@ const EXPECTED_TOOL_KEYS: &[&str] = &[
     "tool-remove-tag",
     "tool-set-tag-links",
     "tool-get-tagged-items",
+    "tool-get-tag-entities",
     "tool-get-calendar",
     "tool-get-today",
 ];
