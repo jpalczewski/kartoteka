@@ -37,7 +37,7 @@ use crate::tools::{
     read::{GetContainerParams, GetItemParams, GetListParams, ListItemsParams},
     relations::{AddRelationParams, RemoveRelationParams},
     search::SearchItemsParams,
-    tags::{AssignTagParams, CreateTagParams, UnassignTagParams},
+    tags::{AssignTagParams, CreateTagParams, CreateTagsParams, UnassignTagParams},
     templates::{CreateListFromTemplateParams, SaveAsTemplateParams},
     time::{LogTimeParams, StartTimerParams},
 };
@@ -585,6 +585,71 @@ impl KartotekaServer {
             }
         }
         self.json_result(serde_json::json!({"ok": true}), &locale)
+    }
+
+    #[rmcp::tool(name = "create_tags", description = "mcp-tool-create_tags-desc")]
+    async fn create_tags(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<CreateTagsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+
+        if p.tags.is_empty() {
+            return self.json_result(Vec::<serde_json::Value>::new(), &locale);
+        }
+
+        for pid in p.tags.iter().filter_map(|t| t.parent_tag_id.as_deref()) {
+            db::tags::get_one(&self.pool, pid, &uid)
+                .await
+                .map_err(self.db_err(&locale))?
+                .ok_or_else(|| {
+                    self.map_err(
+                        McpError::Domain(domain::DomainError::NotFound("parent_tag")),
+                        &locale,
+                    )
+                })?;
+        }
+
+        let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
+        let mut resolver = RefResolver::new();
+        let mut result = Vec::with_capacity(p.tags.len());
+
+        for tag in &p.tags {
+            let parent_id = resolver
+                .pick(
+                    tag.parent_tag_id.as_deref(),
+                    tag.parent_tag_ref.as_deref(),
+                    false,
+                )
+                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+
+            let new_id = Uuid::new_v4().to_string();
+            db::tags::insert_in_tx(
+                &mut tx,
+                &db::tags::InsertTagInput {
+                    id: new_id.clone(),
+                    user_id: uid.clone(),
+                    name: tag.name.clone(),
+                    icon: None,
+                    color: tag.color.clone(),
+                    parent_tag_id: parent_id.map(str::to_owned),
+                    tag_type: "tag".to_string(),
+                    metadata: None,
+                },
+            )
+            .await
+            .map_err(self.db_err(&locale))?;
+
+            resolver
+                .register(tag.client_ref.as_deref(), &new_id)
+                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+
+            result.push(serde_json::json!({"id": new_id, "name": tag.name}));
+        }
+
+        tx.commit().await.map_err(self.sqlx_err(&locale))?;
+        self.json_result(result, &locale)
     }
 
     #[rmcp::tool(name = "get_today", description = "mcp-tool-get_today-desc")]

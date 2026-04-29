@@ -87,6 +87,7 @@ mcp-tool-list_containers-desc = Pobierz wszystkie kontenery.
 mcp-tool-get_container-desc = Pobierz szczegóły konkretnego kontenera po ID.
 mcp-tool-list_tags-desc = Pobierz wszystkie tagi.
 mcp-tool-create_tag-desc = Utwórz nowy tag z nazwą, opcjonalnym kolorem i opcjonalnym rodzicem.
+mcp-tool-create_tags-desc = Utwórz wiele tagów atomowo. Użyj parent_tag_ref, aby zagnieździć tag pod tagiem utworzonym wcześniej w tej samej batchy (ustaw client_ref na rodzicu). Referencje tylko do przodu.
 mcp-tool-assign_tag-desc = Przypisz tag do encji. entity_type: "item", "list" lub "container".
 mcp-tool-unassign_tag-desc = Usuń tag z encji. entity_type: "item", "list" lub "container".
 mcp-tool-get_today-desc = Pobierz elementy na dziś.

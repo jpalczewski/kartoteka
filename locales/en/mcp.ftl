@@ -87,6 +87,7 @@ mcp-tool-list_containers-desc = List all your containers.
 mcp-tool-get_container-desc = Get details of a specific container by ID.
 mcp-tool-list_tags-desc = List all your tags.
 mcp-tool-create_tag-desc = Create a new tag with a name, optional color, and optional parent tag.
+mcp-tool-create_tags-desc = Create multiple tags atomically. Use parent_tag_ref to nest under a tag created earlier in this same batch (set client_ref on the parent first). Forward-only references within a batch.
 mcp-tool-assign_tag-desc = Assign a tag to an entity. entity_type: "item", "list", or "container".
 mcp-tool-unassign_tag-desc = Remove a tag from an entity. entity_type: "item", "list", or "container".
 mcp-tool-get_today-desc = Get items due today.

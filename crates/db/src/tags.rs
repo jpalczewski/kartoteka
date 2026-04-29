@@ -218,6 +218,28 @@ pub async fn insert(pool: &SqlitePool, input: &InsertTagInput) -> Result<TagRow,
     .map_err(DbError::Sqlx)
 }
 
+#[tracing::instrument(skip(conn))]
+pub async fn insert_in_tx(
+    conn: &mut SqliteConnection,
+    input: &InsertTagInput,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO tags (id, user_id, name, icon, color, parent_tag_id, tag_type, metadata) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&input.id)
+    .bind(&input.user_id)
+    .bind(&input.name)
+    .bind(&input.icon)
+    .bind(&input.color)
+    .bind(&input.parent_tag_id)
+    .bind(&input.tag_type)
+    .bind(&input.metadata)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn update(
     pool: &SqlitePool,
