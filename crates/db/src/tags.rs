@@ -382,8 +382,8 @@ pub async fn add_item_tag(
     item_id: &str,
     tag_id: &str,
     user_id: &str,
-) -> Result<(), DbError> {
-    sqlx::query(
+) -> Result<bool, DbError> {
+    let rows = sqlx::query(
         "INSERT OR IGNORE INTO item_tags (item_id, tag_id) \
          SELECT ?, ? \
          WHERE EXISTS (SELECT 1 FROM items i JOIN lists l ON l.id = i.list_id WHERE i.id = ? AND l.user_id = ?) \
@@ -398,7 +398,7 @@ pub async fn add_item_tag(
     .execute(pool)
     .await
     .map_err(DbError::Sqlx)?;
-    Ok(())
+    Ok(rows.rows_affected() > 0)
 }
 
 #[tracing::instrument(skip(pool))]
@@ -428,8 +428,8 @@ pub async fn add_list_tag(
     list_id: &str,
     tag_id: &str,
     user_id: &str,
-) -> Result<(), DbError> {
-    sqlx::query(
+) -> Result<bool, DbError> {
+    let rows = sqlx::query(
         "INSERT OR IGNORE INTO list_tags (list_id, tag_id) \
          SELECT ?, ? \
          WHERE EXISTS (SELECT 1 FROM lists WHERE id = ? AND user_id = ?) \
@@ -444,7 +444,7 @@ pub async fn add_list_tag(
     .execute(pool)
     .await
     .map_err(DbError::Sqlx)?;
-    Ok(())
+    Ok(rows.rows_affected() > 0)
 }
 
 #[tracing::instrument(skip(pool))]
@@ -537,8 +537,8 @@ pub async fn add_container_tag(
     container_id: &str,
     tag_id: &str,
     user_id: &str,
-) -> Result<(), DbError> {
-    sqlx::query(
+) -> Result<bool, DbError> {
+    let rows = sqlx::query(
         "INSERT OR IGNORE INTO container_tags (container_id, tag_id) \
          SELECT ?, ? \
          WHERE EXISTS (SELECT 1 FROM containers WHERE id = ? AND user_id = ?) \
@@ -553,7 +553,7 @@ pub async fn add_container_tag(
     .execute(pool)
     .await
     .map_err(DbError::Sqlx)?;
-    Ok(())
+    Ok(rows.rows_affected() > 0)
 }
 
 #[tracing::instrument(skip(pool))]

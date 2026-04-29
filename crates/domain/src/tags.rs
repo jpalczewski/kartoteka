@@ -91,12 +91,24 @@ pub async fn get_one(
     Ok(db::tags::get_one(pool, id, user_id).await?.map(row_to_tag))
 }
 
+/// Validates tag name and optional color without pool access.
+/// Shared by `create` and the `create_tags` MCP batch handler.
+pub fn validate_tag_input(name: &str, color: Option<&str>) -> Result<(), DomainError> {
+    rules::tags::validate_name(name)?;
+    if let Some(c) = color {
+        rules::tags::validate_color(c)?;
+    }
+    Ok(())
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn create(
     pool: &SqlitePool,
     user_id: &str,
     req: &CreateTagRequest,
 ) -> Result<Tag, DomainError> {
+    validate_tag_input(&req.name, req.color.as_deref())?;
+
     // Phase 1: READ — fetch parent type for hierarchy validation
     let parent_type: Option<String> = if let Some(ref parent_id) = req.parent_tag_id {
         let parent = db::tags::get_one(pool, parent_id, user_id)
@@ -255,7 +267,9 @@ pub async fn assign_to_item(
         .ok_or(DomainError::NotFound("tag"))?;
     let existing = db::tags::get_exclusive_type_tag_for_item(pool, item_id, &tag.tag_type).await?;
     rules::tags::validate_exclusive_type(&tag.tag_type, existing.as_ref().map(|t| t.id.as_str()))?;
-    db::tags::add_item_tag(pool, item_id, tag_id, user_id).await?;
+    if !db::tags::add_item_tag(pool, item_id, tag_id, user_id).await? {
+        return Err(DomainError::NotFound("item_or_tag"));
+    }
     Ok(())
 }
 
@@ -276,7 +290,9 @@ pub async fn assign_to_list(
     list_id: &str,
     tag_id: &str,
 ) -> Result<(), DomainError> {
-    db::tags::add_list_tag(pool, list_id, tag_id, user_id).await?;
+    if !db::tags::add_list_tag(pool, list_id, tag_id, user_id).await? {
+        return Err(DomainError::NotFound("list_or_tag"));
+    }
     Ok(())
 }
 
@@ -297,7 +313,9 @@ pub async fn assign_to_container(
     container_id: &str,
     tag_id: &str,
 ) -> Result<(), DomainError> {
-    db::tags::add_container_tag(pool, container_id, tag_id, user_id).await?;
+    if !db::tags::add_container_tag(pool, container_id, tag_id, user_id).await? {
+        return Err(DomainError::NotFound("container_or_tag"));
+    }
     Ok(())
 }
 

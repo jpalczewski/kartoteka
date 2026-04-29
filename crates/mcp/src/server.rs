@@ -601,6 +601,11 @@ impl KartotekaServer {
             return self.json_result(Vec::<serde_json::Value>::new(), &locale);
         }
 
+        for tag in &p.tags {
+            domain::tags::validate_tag_input(&tag.name, tag.color.as_deref())
+                .map_err(self.domain_err(&locale))?;
+        }
+
         for pid in p.tags.iter().filter_map(|t| t.parent_tag_id.as_deref()) {
             db::tags::get_one(&self.pool, pid, &uid)
                 .await
@@ -618,13 +623,14 @@ impl KartotekaServer {
         let mut result = Vec::with_capacity(p.tags.len());
 
         for tag in &p.tags {
-            let parent_id = resolver
+            let parent_id: Option<String> = resolver
                 .pick(
                     tag.parent_tag_id.as_deref(),
                     tag.parent_tag_ref.as_deref(),
                     false,
                 )
-                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+                .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?
+                .map(str::to_owned);
 
             let new_id = Uuid::new_v4().to_string();
             db::tags::insert_in_tx(
@@ -635,7 +641,7 @@ impl KartotekaServer {
                     name: tag.name.clone(),
                     icon: None,
                     color: tag.color.clone(),
-                    parent_tag_id: parent_id.map(str::to_owned),
+                    parent_tag_id: parent_id.clone(),
                     tag_type: "tag".to_string(),
                     metadata: None,
                 },
@@ -647,7 +653,13 @@ impl KartotekaServer {
                 .register(tag.client_ref.as_deref(), &new_id)
                 .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
 
-            result.push(serde_json::json!({"id": new_id, "name": tag.name}));
+            result.push(serde_json::json!({
+                "id": new_id,
+                "name": tag.name,
+                "color": tag.color,
+                "parent_tag_id": parent_id,
+                "tag_type": "tag",
+            }));
         }
 
         tx.commit().await.map_err(self.sqlx_err(&locale))?;

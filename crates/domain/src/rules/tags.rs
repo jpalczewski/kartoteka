@@ -3,6 +3,30 @@ use crate::DomainError;
 /// Tag types that allow at most one instance per entity (item/list/container).
 const EXCLUSIVE_TYPES: &[&str] = &["priority"];
 
+const MAX_TAG_NAME: usize = 100;
+
+pub fn validate_name(name: &str) -> Result<(), DomainError> {
+    if name.trim().is_empty() {
+        return Err(DomainError::Validation("tag name cannot be empty"));
+    }
+    if name.len() > MAX_TAG_NAME {
+        return Err(DomainError::Validation(
+            "tag name too long (max 100 characters)",
+        ));
+    }
+    Ok(())
+}
+
+pub fn validate_color(color: &str) -> Result<(), DomainError> {
+    let hex = color
+        .strip_prefix('#')
+        .ok_or(DomainError::Validation("color must start with '#'"))?;
+    if (hex.len() != 3 && hex.len() != 6) || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(DomainError::Validation("color must be #RGB or #RRGGBB"));
+    }
+    Ok(())
+}
+
 /// Reject merging a tag into itself.
 pub fn validate_merge(source_id: &str, target_id: &str) -> Result<(), DomainError> {
     if source_id == target_id {
