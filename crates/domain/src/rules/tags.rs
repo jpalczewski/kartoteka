@@ -9,7 +9,7 @@ pub fn validate_name(name: &str) -> Result<(), DomainError> {
     if name.trim().is_empty() {
         return Err(DomainError::Validation("tag_name_empty"));
     }
-    if name.len() > MAX_TAG_NAME {
+    if name.chars().count() > MAX_TAG_NAME {
         return Err(DomainError::Validation("tag_name_too_long"));
     }
     Ok(())
