@@ -7,12 +7,10 @@ const MAX_TAG_NAME: usize = 100;
 
 pub fn validate_name(name: &str) -> Result<(), DomainError> {
     if name.trim().is_empty() {
-        return Err(DomainError::Validation("tag name cannot be empty"));
+        return Err(DomainError::Validation("tag_name_empty"));
     }
     if name.len() > MAX_TAG_NAME {
-        return Err(DomainError::Validation(
-            "tag name too long (max 100 characters)",
-        ));
+        return Err(DomainError::Validation("tag_name_too_long"));
     }
     Ok(())
 }
@@ -20,9 +18,9 @@ pub fn validate_name(name: &str) -> Result<(), DomainError> {
 pub fn validate_color(color: &str) -> Result<(), DomainError> {
     let hex = color
         .strip_prefix('#')
-        .ok_or(DomainError::Validation("color must start with '#'"))?;
+        .ok_or(DomainError::Validation("color_invalid_format"))?;
     if (hex.len() != 3 && hex.len() != 6) || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(DomainError::Validation("color must be #RGB or #RRGGBB"));
+        return Err(DomainError::Validation("color_invalid_format"));
     }
     Ok(())
 }

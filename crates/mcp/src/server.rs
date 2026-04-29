@@ -606,7 +606,12 @@ impl KartotekaServer {
                 .map_err(self.domain_err(&locale))?;
         }
 
-        for pid in p.tags.iter().filter_map(|t| t.parent_tag_id.as_deref()) {
+        let unique_parents: std::collections::HashSet<&str> = p
+            .tags
+            .iter()
+            .filter_map(|t| t.parent_tag_id.as_deref())
+            .collect();
+        for pid in unique_parents {
             db::tags::get_one(&self.pool, pid, &uid)
                 .await
                 .map_err(self.db_err(&locale))?

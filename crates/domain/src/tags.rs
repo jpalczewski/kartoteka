@@ -372,14 +372,28 @@ pub async fn get_for_container(
 
 // ── Inverse tag lookup ────────────────────────────────────────────────────────
 
-#[derive(Serialize)]
-pub struct TagEntities {
-    pub items: Vec<db::tags::TaggedItemRow>,
-    pub lists: Vec<db::tags::TaggedListRow>,
+#[derive(Debug, Serialize)]
+pub struct TaggedItem {
+    pub id: String,
+    pub title: String,
+    pub list_id: String,
+    pub completed: bool,
 }
 
-/// Returns items and lists linked to `tag_id`.
-/// `entity_type`: `Some("item")`, `Some("list")`, or `None` for both.
+#[derive(Debug, Serialize)]
+pub struct TaggedList {
+    pub id: String,
+    pub name: String,
+    pub container_id: Option<String>,
+    pub archived: bool,
+}
+
+#[derive(Serialize)]
+pub struct TagEntities {
+    pub items: Vec<TaggedItem>,
+    pub lists: Vec<TaggedList>,
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn get_entities_by_tag(
     pool: &SqlitePool,
@@ -391,16 +405,41 @@ pub async fn get_entities_by_tag(
         .await?
         .ok_or(DomainError::NotFound("tag"))?;
 
-    let items = match entity_type {
-        Some(t) if t != "item" => vec![],
-        _ => db::tags::get_items_by_tag(pool, tag_id, user_id).await?,
-    };
-    let lists = match entity_type {
-        Some(t) if t != "list" => vec![],
-        _ => db::tags::get_lists_by_tag(pool, tag_id, user_id).await?,
+    let (items, lists) = match entity_type {
+        Some("item") => (
+            db::tags::get_items_by_tag(pool, tag_id, user_id).await?,
+            vec![],
+        ),
+        Some("list") => (
+            vec![],
+            db::tags::get_lists_by_tag(pool, tag_id, user_id).await?,
+        ),
+        _ => tokio::try_join!(
+            db::tags::get_items_by_tag(pool, tag_id, user_id),
+            db::tags::get_lists_by_tag(pool, tag_id, user_id),
+        )?,
     };
 
-    Ok(TagEntities { items, lists })
+    Ok(TagEntities {
+        items: items
+            .into_iter()
+            .map(|r| TaggedItem {
+                id: r.id,
+                title: r.title,
+                list_id: r.list_id,
+                completed: r.completed,
+            })
+            .collect(),
+        lists: lists
+            .into_iter()
+            .map(|r| TaggedList {
+                id: r.id,
+                name: r.name,
+                container_id: r.container_id,
+                archived: r.archived,
+            })
+            .collect(),
+    })
 }
 
 // ── Integration tests ─────────────────────────────────────────────────────────
