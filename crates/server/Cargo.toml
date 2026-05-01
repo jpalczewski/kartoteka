@@ -54,7 +54,7 @@ kartoteka-domain = { path = "../domain" }
 kartoteka-auth = { path = "../auth" }
 serde_json.workspace = true
 totp-rs.workspace = true
-sha2 = "0.10"
+sha2 = "0.11"
 base64 = "0.22"
 chrono.workspace = true
 kartoteka-mcp = { path = "../mcp" }
