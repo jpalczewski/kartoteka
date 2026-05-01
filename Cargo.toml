@@ -30,7 +30,7 @@ tracing = "0.1"
 axum = { version = "0.8", features = ["json", "macros"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 axum-login = "0.17"
-tower-sessions = "0.14"
+tower-sessions = "0.15"
 tower-sessions-sqlx-store = { version = "0.15", features = ["sqlite"] }
 argon2 = "0.5"
 time = "0.3"
