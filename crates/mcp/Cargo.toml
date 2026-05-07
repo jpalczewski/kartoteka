@@ -12,7 +12,7 @@ kartoteka-shared = { path = "../shared" }
 kartoteka-domain = { path = "../domain" }
 kartoteka-db     = { path = "../db" }
 
-rmcp = { version = "0.3", features = ["server", "transport-streamable-http-server", "transport-worker", "macros"] }
+rmcp = { version = "1.5", features = ["server", "transport-streamable-http-server", "transport-worker", "macros"] }
 schemars = "1"
 sqlx = { workspace = true }
 serde = { version = "1", features = ["derive"] }
@@ -24,12 +24,12 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.9"
+chrono-tz = "0.10"
 urlencoding = "2"
 
 # MCP-side i18n (outside Leptos)
-fluent-bundle = "0.15"
-fluent-syntax = "0.11"
+fluent-bundle = "0.16"
+fluent-syntax = "0.12"
 unic-langid = "0.9"
 
 [package.metadata.cargo-machete]

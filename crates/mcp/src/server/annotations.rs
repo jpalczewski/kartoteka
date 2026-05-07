@@ -40,39 +40,24 @@ const ADDITIVE_WRITE: &[&str] = &[
 const DESTRUCTIVE: &[&str] = &["update_item", "remove_relation", "stop_timer"];
 
 pub fn for_tool(name: &str) -> ToolAnnotations {
+    let mut ann = ToolAnnotations::default();
     if READ_ONLY.contains(&name) {
-        ToolAnnotations {
-            read_only_hint: Some(true),
-            destructive_hint: Some(false),
-            idempotent_hint: Some(true),
-            open_world_hint: Some(false),
-            title: None,
-        }
+        ann.read_only_hint = Some(true);
+        ann.destructive_hint = Some(false);
+        ann.idempotent_hint = Some(true);
+        ann.open_world_hint = Some(false);
     } else if ADDITIVE_WRITE.contains(&name) {
-        ToolAnnotations {
-            read_only_hint: Some(false),
-            destructive_hint: Some(false),
-            idempotent_hint: Some(false),
-            open_world_hint: Some(false),
-            title: None,
-        }
+        ann.read_only_hint = Some(false);
+        ann.destructive_hint = Some(false);
+        ann.idempotent_hint = Some(false);
+        ann.open_world_hint = Some(false);
     } else if DESTRUCTIVE.contains(&name) {
-        ToolAnnotations {
-            read_only_hint: Some(false),
-            destructive_hint: Some(true),
-            idempotent_hint: Some(false),
-            open_world_hint: Some(false),
-            title: None,
-        }
-    } else {
-        ToolAnnotations {
-            read_only_hint: None,
-            destructive_hint: None,
-            idempotent_hint: None,
-            open_world_hint: None,
-            title: None,
-        }
+        ann.read_only_hint = Some(false);
+        ann.destructive_hint = Some(true);
+        ann.idempotent_hint = Some(false);
+        ann.open_world_hint = Some(false);
     }
+    ann
 }
 
 #[cfg(test)]

@@ -156,7 +156,7 @@ pub async fn authorize_get(
     }
 
     let mut csrf_bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut csrf_bytes);
+    rand::rng().fill_bytes(&mut csrf_bytes);
     let csrf_token = URL_SAFE_NO_PAD.encode(csrf_bytes);
 
     let pending = PendingOAuthRequest {
@@ -230,7 +230,7 @@ pub async fn authorize_post(
     }
 
     let mut code_bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut code_bytes);
+    rand::rng().fill_bytes(&mut code_bytes);
     let code = URL_SAFE_NO_PAD.encode(code_bytes);
     let expires_at = Utc::now() + Duration::minutes(AUTH_CODE_TTL_MIN);
 
@@ -375,7 +375,7 @@ async fn token_refresh(s: OAuthState, form: JsonValue) -> Result<Json<TokenRespo
 
 fn mint_refresh_token() -> (String, String) {
     let mut bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     let token = URL_SAFE_NO_PAD.encode(bytes);
     let hash = URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes()));
     (token, hash)
