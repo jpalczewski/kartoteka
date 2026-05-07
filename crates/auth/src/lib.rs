@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use axum_login::{AuthUser, AuthnBackend};
 use kartoteka_db as db;
 use serde::{Deserialize, Serialize};
@@ -75,7 +74,6 @@ fn build_session_hash(credential: &str, user_id: &str) -> Vec<u8> {
     }
 }
 
-#[async_trait]
 impl AuthnBackend for KartotekaBackend {
     type User = KartotekaUser;
     type Credentials = LoginCredentials;

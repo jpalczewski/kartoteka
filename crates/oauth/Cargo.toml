@@ -19,9 +19,9 @@ tower = { workspace = true }
 tower-sessions = { workspace = true }
 http = "1"
 jsonwebtoken = { workspace = true }
-sha2 = "0.10"
+sha2 = "0.11"
 base64 = "0.22"
-rand = "0.8"
+rand = "0.9"
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = "0.7"
@@ -38,6 +38,6 @@ urlencoding = "2"
 ignored = ["kartoteka-domain", "tracing"]
 
 [dev-dependencies]
-hmac = "0.12"
+hmac = "0.13"
 tower = { version = "0.5", features = ["util"] }
 kartoteka-db = { path = "../db", features = ["test-helpers"] }

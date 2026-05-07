@@ -9,11 +9,12 @@ use rmcp::{
     ErrorData, RoleServer, ServerHandler,
     handler::server::{
         router::tool::ToolRouter,
-        tool::{Extension, Parameters, ToolCallContext},
+        tool::{Extension, ToolCallContext},
+        wrapper::Parameters,
     },
     model::{
-        CallToolRequestParam, CallToolResult, Content, ListResourceTemplatesResult,
-        ListResourcesResult, ListToolsResult, PaginatedRequestParam, ReadResourceRequestParam,
+        CallToolRequestParams, CallToolResult, Content, ListResourceTemplatesResult,
+        ListResourcesResult, ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams,
         ReadResourceResult, ResourceContents, ServerCapabilities, ServerInfo,
     },
     service::RequestContext,
@@ -1071,32 +1072,28 @@ impl KartotekaServer {
 
 impl ServerHandler for KartotekaServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            server_info: rmcp::model::Implementation {
-                name: "kartoteka".into(),
-                version: env!("CARGO_PKG_VERSION").into(),
-            },
-            capabilities: ServerCapabilities::builder()
-                .enable_tools()
-                .enable_resources()
-                .build(),
-            instructions: Some(
-                "Kartoteka is a personal task and list manager. \
-                Start every session by calling list_lists to orient yourself — \
-                you need list IDs for most item operations. \
-                Use search_items to find items by keyword before acting on them. \
-                When adding comments: omit author_name to write in the user's voice; \
-                set author_name to your name (e.g. \"Claude\") for your own observations. \
-                Prefer get_today and list_overdue to surface what needs attention now."
-                    .into(),
-            ),
-            ..ServerInfo::default()
-        }
+        let mut info = ServerInfo::default();
+        info.server_info = rmcp::model::Implementation::new("kartoteka", env!("CARGO_PKG_VERSION"));
+        info.capabilities = ServerCapabilities::builder()
+            .enable_tools()
+            .enable_resources()
+            .build();
+        info.instructions = Some(
+            "Kartoteka is a personal task and list manager. \
+            Start every session by calling list_lists to orient yourself — \
+            you need list IDs for most item operations. \
+            Use search_items to find items by keyword before acting on them. \
+            When adding comments: omit author_name to write in the user's voice; \
+            set author_name to your name (e.g. \"Claude\") for your own observations. \
+            Prefer get_today and list_overdue to surface what needs attention now."
+                .into(),
+        );
+        info
     }
 
     async fn list_tools(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
         let locale = context
@@ -1117,7 +1114,7 @@ impl ServerHandler for KartotekaServer {
 
     async fn call_tool(
         &self,
-        request: CallToolRequestParam,
+        request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let tcc = ToolCallContext::new(self, request, context);
@@ -1126,7 +1123,7 @@ impl ServerHandler for KartotekaServer {
 
     async fn list_resources(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
         let locale = context
@@ -1137,12 +1134,13 @@ impl ServerHandler for KartotekaServer {
         Ok(ListResourcesResult {
             resources: crate::resources::static_resources(&self.i18n, &locale),
             next_cursor: None,
+            meta: None,
         })
     }
 
     async fn list_resource_templates(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, ErrorData> {
         let locale = context
@@ -1153,12 +1151,13 @@ impl ServerHandler for KartotekaServer {
         Ok(ListResourceTemplatesResult {
             resource_templates: crate::resources::resource_templates(&self.i18n, &locale),
             next_cursor: None,
+            meta: None,
         })
     }
 
     async fn read_resource(
         &self,
-        request: ReadResourceRequestParam,
+        request: ReadResourceRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, ErrorData> {
         use crate::resources::{ResourceUri, parse as parse_uri};
@@ -1241,12 +1240,10 @@ impl ServerHandler for KartotekaServer {
             }
         };
 
-        Ok(ReadResourceResult {
-            contents: vec![ResourceContents::text(
-                serde_json::to_string_pretty(&json).unwrap_or_default(),
-                request.uri,
-            )],
-        })
+        Ok(ReadResourceResult::new(vec![ResourceContents::text(
+            serde_json::to_string_pretty(&json).unwrap_or_default(),
+            request.uri,
+        )]))
     }
 }
 

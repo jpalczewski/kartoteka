@@ -124,6 +124,7 @@ async fn dcr_then_token_then_mcp_initialize() {
                 .header("authorization", format!("Bearer {access_token}"))
                 .header("content-type", "application/json")
                 .header("accept", "application/json, text/event-stream")
+                .header("host", "localhost")
                 .body(Body::from(init_body))
                 .unwrap(),
         )

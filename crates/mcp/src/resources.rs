@@ -83,9 +83,12 @@ pub fn static_resources(i18n: &McpI18n, locale: &str) -> Vec<rmcp::model::Resour
             RawResource {
                 uri: uri.into(),
                 name: name.into(),
+                title: None,
                 description: Some(i18n.translate(locale, key)),
                 mime_type: Some("application/json".into()),
                 size: None,
+                icons: None,
+                meta: None,
             },
             None,
         )
@@ -112,8 +115,10 @@ pub fn resource_templates(i18n: &McpI18n, locale: &str) -> Vec<rmcp::model::Reso
             RawResourceTemplate {
                 uri_template: uri.into(),
                 name: name.into(),
+                title: None,
                 description: Some(i18n.translate(locale, key)),
                 mime_type: Some("application/json".into()),
+                icons: None,
             },
             None,
         )

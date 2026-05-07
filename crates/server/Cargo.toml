@@ -18,7 +18,7 @@ kartoteka-domain = { path = "../domain" }
 kartoteka-auth = { path = "../auth" }
 kartoteka-mcp = { path = "../mcp" }
 kartoteka-oauth = { path = "../oauth" }
-rmcp = { version = "0.3", features = ["server", "transport-streamable-http-server"] }
+rmcp = { version = "1.5", features = ["server", "transport-streamable-http-server"] }
 tower.workspace = true
 kartoteka-jobs = { path = "../jobs" }
 kartoteka-frontend = { path = "../frontend", features = ["ssr"] }
@@ -54,7 +54,7 @@ kartoteka-domain = { path = "../domain" }
 kartoteka-auth = { path = "../auth" }
 serde_json.workspace = true
 totp-rs.workspace = true
-sha2 = "0.10"
+sha2 = "0.11"
 base64 = "0.22"
 chrono.workspace = true
 kartoteka-mcp = { path = "../mcp" }
