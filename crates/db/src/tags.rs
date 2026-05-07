@@ -198,6 +198,30 @@ pub async fn get_exclusive_type_tag_for_item(
 
 // ── Write queries ─────────────────────────────────────────────────────────────
 
+pub async fn find_id_by_name_in_scope(
+    pool: &SqlitePool,
+    user_id: &str,
+    name: &str,
+    parent_tag_id: Option<&str>,
+    exclude_id: Option<&str>,
+) -> Result<Option<String>, DbError> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM tags \
+         WHERE user_id = ? \
+           AND LOWER(TRIM(name)) = LOWER(TRIM(?)) \
+           AND parent_tag_id IS ? \
+           AND id != COALESCE(?, '')",
+    )
+    .bind(user_id)
+    .bind(name)
+    .bind(parent_tag_id)
+    .bind(exclude_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(row.map(|(id,)| id))
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn insert(pool: &SqlitePool, input: &InsertTagInput) -> Result<TagRow, DbError> {
     sqlx::query_as::<_, TagRow>(&format!(
@@ -997,5 +1021,63 @@ mod tests {
             .await
             .unwrap();
         assert!(none.is_none());
+    }
+
+    #[tokio::test]
+    async fn find_by_name_exact_match() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let tag = insert_tag(&pool, &uid, "Work", None, "tag").await;
+        let found = find_id_by_name_in_scope(&pool, &uid, "Work", None, None)
+            .await
+            .unwrap();
+        assert_eq!(found, Some(tag.id));
+    }
+
+    #[tokio::test]
+    async fn find_by_name_case_insensitive() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let tag = insert_tag(&pool, &uid, "Work", None, "tag").await;
+        let found = find_id_by_name_in_scope(&pool, &uid, "work", None, None)
+            .await
+            .unwrap();
+        assert_eq!(found, Some(tag.id));
+    }
+
+    #[tokio::test]
+    async fn find_by_name_excludes_self() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let tag = insert_tag(&pool, &uid, "Work", None, "tag").await;
+        let found = find_id_by_name_in_scope(&pool, &uid, "Work", None, Some(&tag.id))
+            .await
+            .unwrap();
+        assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn find_by_name_different_parent_not_found() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let parent = insert_tag(&pool, &uid, "Parent", None, "tag").await;
+        insert_tag(&pool, &uid, "Child", Some(&parent.id), "tag").await;
+        // same name at root level — should not find the child
+        let found = find_id_by_name_in_scope(&pool, &uid, "Child", None, None)
+            .await
+            .unwrap();
+        assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn find_by_name_under_parent_found() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let parent = insert_tag(&pool, &uid, "Parent", None, "tag").await;
+        let child = insert_tag(&pool, &uid, "Child", Some(&parent.id), "tag").await;
+        let found = find_id_by_name_in_scope(&pool, &uid, "child", Some(&parent.id), None)
+            .await
+            .unwrap();
+        assert_eq!(found, Some(child.id));
     }
 }

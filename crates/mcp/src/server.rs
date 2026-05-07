@@ -129,6 +129,22 @@ impl KartotekaServer {
         move |e| self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), locale)
     }
 
+    /// Like `domain_err` but intercepts `AlreadyExists` and returns
+    /// `{"id": "<existing_id>", "existed": true}` instead of an error.
+    fn domain_or_existing<T: serde::Serialize>(
+        &self,
+        result: Result<T, domain::DomainError>,
+        locale: &str,
+    ) -> Result<CallToolResult, ErrorData> {
+        match result {
+            Ok(v) => self.json_result(v, locale),
+            Err(domain::DomainError::AlreadyExists { id, .. }) => {
+                self.json_result(serde_json::json!({"id": id, "existed": true}), locale)
+            }
+            Err(e) => Err(self.domain_err(locale)(e)),
+        }
+    }
+
     fn json_result<T: serde::Serialize>(
         &self,
         value: T,
@@ -192,10 +208,10 @@ impl KartotekaServer {
             unit: p.unit,
             estimated_duration: p.estimated_duration,
         };
-        let item = domain::items::create(&self.pool, &uid, &p.list_id, &req)
-            .await
-            .map_err(self.domain_err(&locale))?;
-        self.json_result(item, &locale)
+        self.domain_or_existing(
+            domain::items::create(&self.pool, &uid, &p.list_id, &req).await,
+            &locale,
+        )
     }
 
     #[rmcp::tool(name = "update_item", description = "mcp-tool-update_item-desc")]
@@ -241,10 +257,7 @@ impl KartotekaServer {
             parent_list_id: p.parent_list_id,
             features: p.features.unwrap_or_default(),
         };
-        let list = domain::lists::create(&self.pool, &uid, &req)
-            .await
-            .map_err(self.domain_err(&locale))?;
-        self.json_result(list, &locale)
+        self.domain_or_existing(domain::lists::create(&self.pool, &uid, &req).await, &locale)
     }
 
     #[rmcp::tool(name = "search_items", description = "mcp-tool-search_items-desc")]
@@ -522,10 +535,7 @@ impl KartotekaServer {
             icon: None,
             metadata: None,
         };
-        let tag = domain::tags::create(&self.pool, &uid, &req)
-            .await
-            .map_err(self.domain_err(&locale))?;
-        self.json_result(tag, &locale)
+        self.domain_or_existing(domain::tags::create(&self.pool, &uid, &req).await, &locale)
     }
 
     #[rmcp::tool(name = "assign_tag", description = "mcp-tool-assign_tag-desc")]
@@ -637,6 +647,23 @@ impl KartotekaServer {
                 )
                 .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?
                 .map(str::to_owned);
+
+            if let Some(eid) = db::tags::find_id_by_name_in_scope(
+                &self.pool,
+                &uid,
+                &tag.name,
+                parent_id.as_deref(),
+                None,
+            )
+            .await
+            .map_err(self.db_err(&locale))?
+            {
+                resolver
+                    .register(tag.client_ref.as_deref(), &eid)
+                    .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+                result.push(serde_json::json!({"id": eid, "name": tag.name, "existed": true}));
+                continue;
+            }
 
             let new_id = Uuid::new_v4().to_string();
             db::tags::insert_in_tx(
@@ -839,15 +866,23 @@ impl KartotekaServer {
                 )
             })?;
 
-        let start_pos = ctx.next_position as i32;
-        let inputs: Vec<db::items::InsertItemInput> = p
-            .items
-            .iter()
-            .enumerate()
-            .map(|(i, item)| db::items::InsertItemInput {
+        let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
+        let mut result = Vec::with_capacity(p.items.len());
+        let mut next_pos = ctx.next_position as i32;
+
+        for item in &p.items {
+            if let Some(eid) =
+                db::items::find_id_by_title_in_list(&self.pool, &p.list_id, &item.title, None)
+                    .await
+                    .map_err(self.db_err(&locale))?
+            {
+                result.push(serde_json::json!({"id": eid, "title": item.title, "existed": true}));
+                continue;
+            }
+            let input = db::items::InsertItemInput {
                 id: Uuid::new_v4().to_string(),
                 list_id: p.list_id.clone(),
-                position: start_pos + i as i32,
+                position: next_pos,
                 title: item.title.clone(),
                 description: item.description.clone(),
                 start_date: item.start_date.clone(),
@@ -859,19 +894,15 @@ impl KartotekaServer {
                 actual_quantity: item.actual_quantity,
                 unit: item.unit.clone(),
                 estimated_duration: item.estimated_duration,
-            })
-            .collect();
+            };
+            db::items::insert_in_tx(&mut tx, &input)
+                .await
+                .map_err(self.db_err(&locale))?;
+            result.push(serde_json::json!({"id": input.id, "title": input.title}));
+            next_pos += 1;
+        }
 
-        let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
-        db::items::insert_many_in_tx(&mut tx, &inputs)
-            .await
-            .map_err(self.db_err(&locale))?;
         tx.commit().await.map_err(self.sqlx_err(&locale))?;
-
-        let result: Vec<_> = inputs
-            .iter()
-            .map(|i| serde_json::json!({"id": i.id, "title": i.title}))
-            .collect();
         self.json_result(result, &locale)
     }
 
@@ -943,6 +974,24 @@ impl KartotekaServer {
                 container_id.map(str::to_owned),
                 parent_list_id.map(str::to_owned),
             ));
+
+            if let Some(eid) = db::lists::find_id_by_name_in_scope(
+                &self.pool,
+                &uid,
+                &list.name,
+                container_id,
+                parent_list_id,
+                None,
+            )
+            .await
+            .map_err(self.db_err(&locale))?
+            {
+                resolver
+                    .register(list.client_ref.as_deref(), &eid)
+                    .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+                result.push(serde_json::json!({"id": eid, "name": list.name, "existed": true}));
+                continue;
+            }
 
             let list_type = list.list_type.as_deref().unwrap_or("custom");
             let new_id = Uuid::new_v4().to_string();

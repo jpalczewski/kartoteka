@@ -219,6 +219,33 @@ pub async fn get_create_item_context(
     }
 }
 
+pub async fn find_id_by_name_in_scope(
+    pool: &SqlitePool,
+    user_id: &str,
+    name: &str,
+    container_id: Option<&str>,
+    parent_list_id: Option<&str>,
+    exclude_id: Option<&str>,
+) -> Result<Option<String>, DbError> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM lists \
+         WHERE user_id = ? \
+           AND LOWER(TRIM(name)) = LOWER(TRIM(?)) \
+           AND container_id IS ? \
+           AND parent_list_id IS ? \
+           AND id != COALESCE(?, '')",
+    )
+    .bind(user_id)
+    .bind(name)
+    .bind(container_id)
+    .bind(parent_list_id)
+    .bind(exclude_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(row.map(|(id,)| id))
+}
+
 pub async fn find_owned_ids(
     pool: &SqlitePool,
     user_id: &str,
@@ -636,5 +663,72 @@ mod tests {
 
         let names = get_feature_names(&pool, &id).await.unwrap();
         assert!(names.is_empty());
+    }
+
+    #[tokio::test]
+    async fn find_by_name_exact_match() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let id = insert_test_list(&pool, &uid, "Zakupy").await;
+        let found = find_id_by_name_in_scope(&pool, &uid, "Zakupy", None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(found, Some(id));
+    }
+
+    #[tokio::test]
+    async fn find_by_name_case_insensitive() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let id = insert_test_list(&pool, &uid, "Zakupy").await;
+        let found = find_id_by_name_in_scope(&pool, &uid, "zakupy", None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(found, Some(id));
+    }
+
+    #[tokio::test]
+    async fn find_by_name_trim() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let id = insert_test_list(&pool, &uid, "  Zakupy  ").await;
+        let found = find_id_by_name_in_scope(&pool, &uid, "Zakupy", None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(found, Some(id));
+    }
+
+    #[tokio::test]
+    async fn find_by_name_excludes_self() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let id = insert_test_list(&pool, &uid, "Zakupy").await;
+        let found = find_id_by_name_in_scope(&pool, &uid, "Zakupy", None, None, Some(&id))
+            .await
+            .unwrap();
+        assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn find_by_name_different_user_not_found() {
+        let pool = test_pool().await;
+        let uid1 = create_test_user(&pool).await;
+        let uid2 = create_test_user(&pool).await;
+        insert_test_list(&pool, &uid1, "Zakupy").await;
+        let found = find_id_by_name_in_scope(&pool, &uid2, "Zakupy", None, None, None)
+            .await
+            .unwrap();
+        assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn find_by_name_no_match_returns_none() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        insert_test_list(&pool, &uid, "Zakupy").await;
+        let found = find_id_by_name_in_scope(&pool, &uid, "Praca", None, None, None)
+            .await
+            .unwrap();
+        assert!(found.is_none());
     }
 }

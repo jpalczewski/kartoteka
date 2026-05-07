@@ -153,6 +153,10 @@ pub async fn create(
 
     // Phase 2: THINK
     rules::items::validate_title(&req.title)?;
+    DomainError::ensure_unique(
+        db::items::find_id_by_title_in_list(pool, list_id, &req.title, None).await?,
+        "item",
+    )?;
     rules::items::validate_item_dates(
         req.start_date.as_deref(),
         req.start_time.as_deref(),
@@ -209,6 +213,10 @@ pub async fn update(
     // Phase 2: THINK
     if let Some(title) = &req.title {
         rules::items::validate_title(title)?;
+        DomainError::ensure_unique(
+            db::items::find_id_by_title_in_list(pool, &current.list_id, title, Some(id)).await?,
+            "item",
+        )?;
     }
     let eff_start_date = effective_date_field(&current.start_date, req.start_date.as_ref());
     let eff_start_time =
@@ -312,7 +320,14 @@ pub async fn move_item(
     id: &str,
     req: &MoveItemRequest,
 ) -> Result<Option<Item>, DomainError> {
-    // Phase 1 READ: validate target list if provided
+    // Phase 1 READ: get current item + validate target list if provided
+    let current = match db::items::get_one(pool, id, user_id)
+        .await?
+        .map(row_to_item)
+    {
+        Some(i) => i,
+        None => return Ok(None),
+    };
     if let Some(target_list_id) = &req.list_id {
         if db::lists::get_one(pool, target_list_id, user_id)
             .await?
@@ -321,6 +336,12 @@ pub async fn move_item(
             return Err(DomainError::NotFound("list"));
         }
     }
+    // Phase 2 THINK: duplicate check in target list
+    let target_list = req.list_id.as_deref().unwrap_or(&current.list_id);
+    DomainError::ensure_unique(
+        db::items::find_id_by_title_in_list(pool, target_list, &current.title, Some(id)).await?,
+        "item",
+    )?;
     // Phase 3 WRITE
     let found =
         db::items::move_item(pool, id, user_id, req.position, req.list_id.as_deref()).await?;
@@ -1065,5 +1086,112 @@ mod tests {
             err,
             DomainError::Validation("start_date_after_deadline")
         ));
+    }
+
+    #[tokio::test]
+    async fn create_duplicate_title_returns_already_exists_with_id() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &uid, &[]).await;
+        let first = create(&pool, &uid, &list_id, &basic_req("Buy milk"))
+            .await
+            .unwrap();
+        let err = create(&pool, &uid, &list_id, &basic_req("buy milk"))
+            .await
+            .unwrap_err();
+        match err {
+            DomainError::AlreadyExists { kind, id } => {
+                assert_eq!(kind, "item");
+                assert_eq!(id, first.id);
+            }
+            _ => panic!("expected AlreadyExists, got {err:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_same_title_different_list_ok() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list1 = create_list(&pool, &uid, &[]).await;
+        let list2 = create_list(&pool, &uid, &[]).await;
+        create(&pool, &uid, &list1, &basic_req("Buy milk"))
+            .await
+            .unwrap();
+        assert!(
+            create(&pool, &uid, &list2, &basic_req("Buy milk"))
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn update_title_to_existing_rejected() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &uid, &[]).await;
+        let first = create(&pool, &uid, &list_id, &basic_req("Buy milk"))
+            .await
+            .unwrap();
+        let second = create(&pool, &uid, &list_id, &basic_req("Eggs"))
+            .await
+            .unwrap();
+        let err = update(
+            &pool,
+            &uid,
+            &second.id,
+            &UpdateItemRequest {
+                title: Some("buy milk".into()),
+                description: None,
+                completed: None,
+                quantity: None,
+                actual_quantity: None,
+                unit: None,
+                start_date: None,
+                start_time: None,
+                deadline: None,
+                deadline_time: None,
+                hard_deadline: None,
+                estimated_duration: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        match err {
+            DomainError::AlreadyExists { id, .. } => assert_eq!(id, first.id),
+            _ => panic!("expected AlreadyExists, got {err:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn update_same_title_as_self_ok() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &uid, &[]).await;
+        let item = create(&pool, &uid, &list_id, &basic_req("Buy milk"))
+            .await
+            .unwrap();
+        assert!(
+            update(
+                &pool,
+                &uid,
+                &item.id,
+                &UpdateItemRequest {
+                    title: Some("Buy milk".into()),
+                    description: None,
+                    completed: None,
+                    quantity: None,
+                    actual_quantity: None,
+                    unit: None,
+                    start_date: None,
+                    start_time: None,
+                    deadline: None,
+                    deadline_time: None,
+                    hard_deadline: None,
+                    estimated_duration: None,
+                },
+            )
+            .await
+            .is_ok()
+        );
     }
 }
