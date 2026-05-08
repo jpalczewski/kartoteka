@@ -637,6 +637,9 @@ impl KartotekaServer {
         let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
         let mut resolver = RefResolver::new();
         let mut result = Vec::with_capacity(p.tags.len());
+        // (parent_tag_id, normalized_name) → id
+        let mut seen: std::collections::HashMap<(Option<String>, String), String> =
+            std::collections::HashMap::new();
 
         for tag in &p.tags {
             let parent_id: Option<String> = resolver
@@ -648,6 +651,14 @@ impl KartotekaServer {
                 .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?
                 .map(str::to_owned);
 
+            let norm_key = (parent_id.clone(), tag.name.trim().to_lowercase());
+            if let Some(eid) = seen.get(&norm_key) {
+                resolver
+                    .register(tag.client_ref.as_deref(), eid)
+                    .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+                result.push(serde_json::json!({"id": eid, "name": tag.name, "existed": true}));
+                continue;
+            }
             if let Some(eid) = db::tags::find_id_by_name_in_scope(
                 &self.pool,
                 &uid,
@@ -658,6 +669,7 @@ impl KartotekaServer {
             .await
             .map_err(self.db_err(&locale))?
             {
+                seen.insert(norm_key, eid.clone());
                 resolver
                     .register(tag.client_ref.as_deref(), &eid)
                     .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
@@ -682,6 +694,7 @@ impl KartotekaServer {
             .await
             .map_err(self.db_err(&locale))?;
 
+            seen.insert(norm_key, new_id.clone());
             resolver
                 .register(tag.client_ref.as_deref(), &new_id)
                 .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
@@ -869,13 +882,20 @@ impl KartotekaServer {
         let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
         let mut result = Vec::with_capacity(p.items.len());
         let mut next_pos = ctx.next_position as i32;
+        let mut seen: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
         for item in &p.items {
+            let norm = item.title.trim().to_lowercase();
+            if let Some(eid) = seen.get(&norm) {
+                result.push(serde_json::json!({"id": eid, "title": item.title, "existed": true}));
+                continue;
+            }
             if let Some(eid) =
                 db::items::find_id_by_title_in_list(&self.pool, &p.list_id, &item.title, None)
                     .await
                     .map_err(self.db_err(&locale))?
             {
+                seen.insert(norm, eid.clone());
                 result.push(serde_json::json!({"id": eid, "title": item.title, "existed": true}));
                 continue;
             }
@@ -898,6 +918,7 @@ impl KartotekaServer {
             db::items::insert_in_tx(&mut tx, &input)
                 .await
                 .map_err(self.db_err(&locale))?;
+            seen.insert(norm, input.id.clone());
             result.push(serde_json::json!({"id": input.id, "title": input.title}));
             next_pos += 1;
         }
@@ -953,6 +974,9 @@ impl KartotekaServer {
         let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
         let mut resolver = RefResolver::new();
         let mut result = Vec::with_capacity(p.lists.len());
+        // (container_id, parent_list_id, normalized_name) → id
+        let mut seen: std::collections::HashMap<(Option<String>, Option<String>, String), String> =
+            std::collections::HashMap::new();
 
         for list in &p.lists {
             let container_id = resolver
@@ -975,6 +999,18 @@ impl KartotekaServer {
                 parent_list_id.map(str::to_owned),
             ));
 
+            let norm_key = (
+                container_id.map(str::to_owned),
+                parent_list_id.map(str::to_owned),
+                list.name.trim().to_lowercase(),
+            );
+            if let Some(eid) = seen.get(&norm_key) {
+                resolver
+                    .register(list.client_ref.as_deref(), eid)
+                    .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+                result.push(serde_json::json!({"id": eid, "name": list.name, "existed": true}));
+                continue;
+            }
             if let Some(eid) = db::lists::find_id_by_name_in_scope(
                 &self.pool,
                 &uid,
@@ -986,6 +1022,7 @@ impl KartotekaServer {
             .await
             .map_err(self.db_err(&locale))?
             {
+                seen.insert(norm_key, eid.clone());
                 resolver
                     .register(list.client_ref.as_deref(), &eid)
                     .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
@@ -1022,6 +1059,7 @@ impl KartotekaServer {
                 }
             }
 
+            seen.insert(norm_key, new_id.clone());
             resolver
                 .register(list.client_ref.as_deref(), &new_id)
                 .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
