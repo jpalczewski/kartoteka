@@ -32,5 +32,9 @@ fluent-bundle = "0.16"
 fluent-syntax = "0.12"
 unic-langid = "0.9"
 
+[dev-dependencies]
+kartoteka-db = { path = "../db", features = ["test-helpers"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
 [package.metadata.cargo-machete]
 ignored = ["async-trait", "chrono", "chrono-tz", "fluent-syntax", "tokio"]

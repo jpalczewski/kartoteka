@@ -1337,12 +1337,67 @@ impl ServerHandler for KartotekaServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::items::CreateItemsInput;
+    use kartoteka_db::lists::{InsertListInput, insert as insert_list};
+    use kartoteka_db::test_helpers::create_test_user;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::str::FromStr;
+
+    /// Multi-connection in-memory pool for tests that hold a transaction while also
+    /// querying the pool (which deadlocks on a single-connection pool).
+    async fn multi_conn_pool() -> SqlitePool {
+        let name = uuid::Uuid::new_v4().simple().to_string();
+        let url = format!("file:{name}?mode=memory&cache=shared");
+        let options = SqliteConnectOptions::from_str(&url)
+            .unwrap()
+            .create_if_missing(true)
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(4)
+            .connect_with(options)
+            .await
+            .unwrap();
+        kartoteka_db::run_migrations(&pool).await.unwrap();
+        pool
+    }
 
     fn parts_with_extensions(extensions: http::Extensions) -> Parts {
         let mut req = http::Request::new(());
         *req.extensions_mut() = extensions;
         let (parts, _) = req.into_parts();
         parts
+    }
+
+    fn test_server(pool: SqlitePool) -> KartotekaServer {
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let locales = manifest.parent().unwrap().parent().unwrap().join("locales");
+        KartotekaServer::new(pool, Arc::new(McpI18n::load_from(&locales)))
+    }
+
+    fn parts_for_user(user_id: &str) -> Parts {
+        let mut ext = http::Extensions::new();
+        ext.insert(UserId(user_id.into()));
+        parts_with_extensions(ext)
+    }
+
+    async fn insert_test_list(pool: &SqlitePool, user_id: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut tx = pool.begin().await.unwrap();
+        insert_list(
+            &mut tx,
+            &InsertListInput {
+                id: id.clone(),
+                user_id: user_id.to_owned(),
+                position: 0,
+                name: "Test List".to_owned(),
+                list_type: "checklist".to_owned(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        id
     }
 
     #[test]
@@ -1373,5 +1428,86 @@ mod tests {
         let parts = parts_with_extensions(http::Extensions::new());
         let err = KartotekaServer::extract_user_id_and_locale(&parts).unwrap_err();
         assert!(matches!(err, McpError::Unauthorized));
+    }
+
+    #[tokio::test]
+    async fn create_items_within_batch_duplicate_returns_existed() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list(&pool, &uid).await;
+        let server = test_server(pool);
+
+        let params = CreateItemsParams {
+            list_id: list_id.clone(),
+            items: vec![
+                CreateItemsInput {
+                    title: "Buy milk".to_owned(),
+                    description: None,
+                    start_date: None,
+                    deadline: None,
+                    hard_deadline: None,
+                    start_time: None,
+                    deadline_time: None,
+                    quantity: None,
+                    actual_quantity: None,
+                    unit: None,
+                    estimated_duration: None,
+                },
+                CreateItemsInput {
+                    title: "BUY MILK".to_owned(), // same title, different case
+                    description: None,
+                    start_date: None,
+                    deadline: None,
+                    hard_deadline: None,
+                    start_time: None,
+                    deadline_time: None,
+                    quantity: None,
+                    actual_quantity: None,
+                    unit: None,
+                    estimated_duration: None,
+                },
+            ],
+        };
+
+        let result = server
+            .create_items(Extension(parts_for_user(&uid)), Parameters(params))
+            .await
+            .unwrap();
+
+        let text = result
+            .content
+            .into_iter()
+            .find_map(|c| match c.raw {
+                rmcp::model::RawContent::Text(t) => Some(t.text),
+                _ => None,
+            })
+            .expect("text content");
+        let items: Vec<serde_json::Value> = serde_json::from_str(&text).unwrap();
+
+        assert_eq!(items.len(), 2, "both inputs must produce an output");
+
+        let first_id = items[0]["id"].as_str().unwrap();
+        assert!(
+            items[0].get("existed").is_none(),
+            "first item should be a new insert"
+        );
+        assert_eq!(
+            items[1]["id"].as_str().unwrap(),
+            first_id,
+            "duplicate should reference the first item's id"
+        );
+        assert_eq!(
+            items[1]["existed"].as_bool(),
+            Some(true),
+            "duplicate must carry existed=true"
+        );
+
+        // Only one row inserted
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE list_id = ?")
+            .bind(&list_id)
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1, "only one item row should exist in the DB");
     }
 }
