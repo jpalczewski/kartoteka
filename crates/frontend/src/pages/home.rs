@@ -12,6 +12,8 @@ use crate::components::home::{
 use crate::components::lists::create_entity_input::CreateEntityInput;
 use crate::components::tags::tag_badge::TagBadge;
 use crate::context::GlobalRefresh;
+use crate::pages::landing::LandingPage;
+use crate::server_fns::auth::get_auth_status;
 use crate::server_fns::{
     containers::{create_container, delete_container, toggle_container_pin},
     home::{get_archived_lists, get_home_data},
@@ -21,6 +23,19 @@ use crate::server_fns::{
 
 #[component]
 pub fn HomePage() -> impl IntoView {
+    let auth = Resource::new(|| (), |_| get_auth_status());
+    view! {
+        <Suspense fallback=|| view! { <LoadingSpinner/> }>
+            {move || auth.get().map(|r| match r {
+                Ok(true) => view! { <HomeContent/> }.into_any(),
+                _ => view! { <LandingPage/> }.into_any(),
+            })}
+        </Suspense>
+    }
+}
+
+#[component]
+fn HomeContent() -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
 
     // Refresh trigger — incrementing causes all Resources to refetch
