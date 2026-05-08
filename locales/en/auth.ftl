@@ -27,3 +27,6 @@ auth-consent-login-and-authorize = Log in and authorize
 # Error messages
 auth-error-prefix = Error: { $detail }
 auth-error-signup-failed = Registration error ({ $status })
+
+# Landing page
+landing-tagline = Your lists and tasks — always at hand.

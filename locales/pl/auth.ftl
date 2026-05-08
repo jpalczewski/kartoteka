@@ -27,3 +27,6 @@ auth-consent-login-and-authorize = Zaloguj i autoryzuj
 # Komunikaty błędów
 auth-error-prefix = Błąd: { $detail }
 auth-error-signup-failed = Błąd rejestracji ({ $status })
+
+# Strona startowa
+landing-tagline = Twoje listy i zadania — zawsze pod ręką.
