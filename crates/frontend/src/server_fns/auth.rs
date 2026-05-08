@@ -201,7 +201,11 @@ pub async fn require_auth(return_to: String) -> Result<(), ServerFnError> {
         .await
         .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
     if auth.user.is_none() {
-        let safe = if return_to.starts_with('/') && !return_to.starts_with("//") {
+        let safe = if return_to.starts_with('/')
+            && !return_to.starts_with("//")
+            && !return_to.contains('\\')
+            && !return_to.contains(['\r', '\n', '\t'])
+        {
             return_to
         } else {
             "/".to_string()

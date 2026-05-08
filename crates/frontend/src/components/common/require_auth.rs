@@ -19,10 +19,30 @@ pub fn RequireAuth(children: ChildrenFn) -> impl IntoView {
             format!("{}{}", p, s)
         }
     };
-    let check = Resource::new(full_path, require_auth);
+    let check = Resource::new(
+        || (),
+        move |_| {
+            let path = full_path();
+            require_auth(path)
+        },
+    );
     view! {
         <Suspense fallback=|| view! { <LoadingSpinner/> }>
-            {move || check.get().and_then(|r| r.ok()).map(|_| children())}
+            {move || match check.get() {
+                None => ().into_any(),
+                Some(Ok(_)) => children().into_any(),
+                Some(Err(_)) => {
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let path = full_path();
+                        let encoded = urlencoding::encode(&path);
+                        if let Some(win) = web_sys::window() {
+                            let _ = win.location().set_href(&format!("/login?return_to={}", encoded));
+                        }
+                    }
+                    view! { <LoadingSpinner/> }.into_any()
+                }
+            }}
         </Suspense>
     }
 }

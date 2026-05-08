@@ -28,7 +28,12 @@ pub fn HomePage() -> impl IntoView {
         <Suspense fallback=|| view! { <LoadingSpinner/> }>
             {move || auth.get().map(|r| match r {
                 Ok(true) => view! { <HomeContent/> }.into_any(),
-                _ => view! { <LandingPage/> }.into_any(),
+                Ok(false) => view! { <LandingPage/> }.into_any(),
+                Err(_) => view! {
+                    <div class="flex min-h-[70vh] items-center justify-center">
+                        <p class="text-base-content/70">"Błąd połączenia. "<a href="/" class="link">"Odśwież stronę."</a></p>
+                    </div>
+                }.into_any(),
             })}
         </Suspense>
     }
