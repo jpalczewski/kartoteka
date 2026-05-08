@@ -18,9 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions-rust-lang/audit@v1
-        name: Audit Rust dependencies
-        with:
-          # rsa: Marvin Attack - no fix available, transitive via sqlx-mysql (unused, we use SQLite)
-          # paste: unmaintained warning - transitive via leptos, no alternative
-          ignore: RUSTSEC-2023-0071 RUSTSEC-2024-0436
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit Rust dependencies
+        # rsa: Marvin Attack - no fix available, transitive via sqlx-mysql (unused, we use SQLite)
+        # paste: unmaintained warning - transitive via leptos, no alternative
+        run: cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2024-0436
