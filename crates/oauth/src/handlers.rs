@@ -10,7 +10,7 @@ use chrono::{Duration, Utc};
 use kartoteka_db::oauth::{
     clients as oauth_clients, codes as oauth_codes, refresh as oauth_refresh,
 };
-use rand::RngCore;
+use rand_core::Rng;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
