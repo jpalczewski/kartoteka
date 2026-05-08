@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 use crate::server_fns::auth::{do_logout, get_nav_data};
 
@@ -12,13 +13,13 @@ pub fn Nav() -> impl IntoView {
                 <a href="/" class="btn btn-ghost text-xl">"Kartoteka"</a>
             </div>
             <div class="navbar-end">
-                <a href="/today" class="btn btn-ghost btn-sm">"Dziś"</a>
-                <a href="/calendar" class="btn btn-ghost btn-sm">"Terminarz"</a>
-                <a href="/tags" class="btn btn-ghost btn-sm" data-testid="nav-tags">"Tagi"</a>
-                <a href="/all" class="btn btn-ghost btn-sm">"Wszystkie"</a>
                 <Suspense>
-                    {move || nav.get().and_then(|r| r.ok()).map(|name| {
-                        view! {
+                    {move || match nav.get().and_then(|r| r.ok()) {
+                        Some(name) => view! {
+                            <a href="/today" class="btn btn-ghost btn-sm">"Dziś"</a>
+                            <a href="/calendar" class="btn btn-ghost btn-sm">"Terminarz"</a>
+                            <a href="/tags" class="btn btn-ghost btn-sm" data-testid="nav-tags">"Tagi"</a>
+                            <a href="/all" class="btn btn-ghost btn-sm">"Wszystkie"</a>
                             <div class="dropdown dropdown-end">
                                 <div tabindex="0" role="button" class="btn btn-ghost btn-sm">
                                     {name} " ▾"
@@ -39,8 +40,13 @@ pub fn Nav() -> impl IntoView {
                                     </li>
                                 </ul>
                             </div>
-                        }
-                    })}
+                        }.into_any(),
+                        None => view! {
+                            <a href="/login" class="btn btn-primary btn-sm">
+                                {move_tr!("nav-login")}
+                            </a>
+                        }.into_any(),
+                    }}
                 </Suspense>
             </div>
         </nav>
