@@ -17,6 +17,7 @@ leptos = { workspace = true }
 leptos_router = { workspace = true }
 leptos_meta = { workspace = true, optional = true }
 leptos-fluent = { workspace = true }
+urlencoding = "2.1"
 serde = { workspace = true }
 serde_json = "1"
 chrono = { workspace = true }
