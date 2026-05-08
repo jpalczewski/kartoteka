@@ -195,6 +195,19 @@ pub async fn create(
     user_id: &str,
     req: &CreateListRequest,
 ) -> Result<List, DomainError> {
+    DomainError::ensure_unique(
+        db::lists::find_id_by_name_in_scope(
+            pool,
+            user_id,
+            &req.name,
+            req.container_id.as_deref(),
+            req.parent_list_id.as_deref(),
+            None,
+        )
+        .await?,
+        "list",
+    )?;
+
     let list_type_str = req.list_type.as_deref().unwrap_or("checklist");
     let list_type = ListType::try_from(list_type_str)?;
 
@@ -253,8 +266,25 @@ pub async fn update(
     req: &UpdateListRequest,
 ) -> Result<Option<List>, DomainError> {
     // Phase 1: READ — need current list to check it exists before update
-    if db::lists::get_one(pool, id, user_id).await?.is_none() {
-        return Ok(None);
+    let current = match db::lists::get_one(pool, id, user_id).await? {
+        Some(c) => c,
+        None => return Ok(None),
+    };
+
+    // Phase 2: THINK — duplicate name check
+    if let Some(ref new_name) = req.name {
+        DomainError::ensure_unique(
+            db::lists::find_id_by_name_in_scope(
+                pool,
+                user_id,
+                new_name,
+                current.container_id.as_deref(),
+                current.parent_list_id.as_deref(),
+                Some(id),
+            )
+            .await?,
+            "list",
+        )?;
     }
 
     // Phase 3: WRITE
@@ -332,6 +362,22 @@ pub async fn move_list(
     user_id: &str,
     req: &MoveListRequest,
 ) -> Result<Option<List>, DomainError> {
+    let current = match db::lists::get_one(pool, id, user_id).await? {
+        Some(c) => c,
+        None => return Ok(None),
+    };
+    DomainError::ensure_unique(
+        db::lists::find_id_by_name_in_scope(
+            pool,
+            user_id,
+            &current.name,
+            req.container_id.as_deref(),
+            req.parent_list_id.as_deref(),
+            Some(id),
+        )
+        .await?,
+        "list",
+    )?;
     let moved = db::lists::move_list(
         pool,
         id,
@@ -658,5 +704,78 @@ mod tests {
         let l2 = create(&pool, &uid, &checklist_req("Second")).await.unwrap();
         assert_eq!(l1.position, 0);
         assert_eq!(l2.position, 1);
+    }
+
+    #[tokio::test]
+    async fn create_duplicate_name_returns_already_exists_with_id() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let first = create(&pool, &uid, &checklist_req("Zakupy")).await.unwrap();
+        let err = create(&pool, &uid, &checklist_req("zakupy"))
+            .await
+            .unwrap_err();
+        match err {
+            DomainError::AlreadyExists { kind, id } => {
+                assert_eq!(kind, "list");
+                assert_eq!(id, first.id);
+            }
+            _ => panic!("expected AlreadyExists, got {err:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_same_name_different_user_ok() {
+        let pool = test_pool().await;
+        let uid1 = create_test_user(&pool).await;
+        let uid2 = create_test_user(&pool).await;
+        create(&pool, &uid1, &checklist_req("Praca")).await.unwrap();
+        assert!(create(&pool, &uid2, &checklist_req("Praca")).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn update_rename_to_existing_name_rejected() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let first = create(&pool, &uid, &checklist_req("Zakupy")).await.unwrap();
+        let second = create(&pool, &uid, &checklist_req("Praca")).await.unwrap();
+        let err = update(
+            &pool,
+            &second.id,
+            &uid,
+            &UpdateListRequest {
+                name: Some("zakupy".into()),
+                icon: None,
+                description: None,
+                list_type: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        match err {
+            DomainError::AlreadyExists { id, .. } => assert_eq!(id, first.id),
+            _ => panic!("expected AlreadyExists, got {err:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn update_same_name_as_self_ok() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list = create(&pool, &uid, &checklist_req("Zakupy")).await.unwrap();
+        assert!(
+            update(
+                &pool,
+                &list.id,
+                &uid,
+                &UpdateListRequest {
+                    name: Some("Zakupy".into()),
+                    icon: None,
+                    description: None,
+                    list_type: None,
+                },
+            )
+            .await
+            .is_ok()
+        );
     }
 }

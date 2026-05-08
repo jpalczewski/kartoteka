@@ -22,12 +22,23 @@ pub enum DomainError {
     Validation(&'static str),
     #[error("feature required: {0}")]
     FeatureRequired(&'static str),
+    #[error("already exists: {kind} id={id}")]
+    AlreadyExists { kind: &'static str, id: String },
     #[error("forbidden")]
     Forbidden,
     #[error("{0}")]
     Internal(String),
     #[error(transparent)]
     Db(#[from] kartoteka_db::DbError),
+}
+
+impl DomainError {
+    pub fn ensure_unique(found: Option<String>, kind: &'static str) -> Result<(), Self> {
+        match found {
+            Some(id) => Err(Self::AlreadyExists { kind, id }),
+            None => Ok(()),
+        }
+    }
 }
 
 #[cfg(test)]

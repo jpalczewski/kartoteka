@@ -122,6 +122,17 @@ pub async fn create(
     // Phase 2: THINK
     let tag_type = req.tag_type.as_deref().unwrap_or("tag");
     rules::tags::validate_location_hierarchy(tag_type, parent_type.as_deref())?;
+    DomainError::ensure_unique(
+        db::tags::find_id_by_name_in_scope(
+            pool,
+            user_id,
+            &req.name,
+            req.parent_tag_id.as_deref(),
+            None,
+        )
+        .await?,
+        "tag",
+    )?;
 
     // Phase 3: WRITE
     let row = db::tags::insert(
@@ -184,6 +195,19 @@ pub async fn update(
                 rules::tags::validate_location_hierarchy(effective_type, parent_type.as_deref())?;
             }
         }
+    }
+
+    // Duplicate name check — use effective parent after any parent change
+    if let Some(ref new_name) = req.name {
+        let effective_parent = match &req.parent_tag_id {
+            Some(p) => p.as_deref(),
+            None => current.parent_tag_id.as_deref(),
+        };
+        DomainError::ensure_unique(
+            db::tags::find_id_by_name_in_scope(pool, user_id, new_name, effective_parent, Some(id))
+                .await?,
+            "tag",
+        )?;
     }
 
     // Phase 3: WRITE
@@ -702,5 +726,122 @@ mod tests {
         .await;
 
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn create_duplicate_tag_name_returns_already_exists_with_id() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let first = make_tag(&pool, &uid, "Work").await;
+        let err = create(
+            &pool,
+            &uid,
+            &CreateTagRequest {
+                name: "work".into(),
+                icon: None,
+                color: None,
+                parent_tag_id: None,
+                tag_type: None,
+                metadata: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        match err {
+            DomainError::AlreadyExists { kind, id } => {
+                assert_eq!(kind, "tag");
+                assert_eq!(id, first.id);
+            }
+            _ => panic!("expected AlreadyExists, got {err:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_same_name_under_different_parent_ok() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let parent1 = make_tag(&pool, &uid, "Parent1").await;
+        let parent2 = make_tag(&pool, &uid, "Parent2").await;
+        create(
+            &pool,
+            &uid,
+            &CreateTagRequest {
+                name: "Child".into(),
+                parent_tag_id: Some(parent1.id.clone()),
+                tag_type: None,
+                icon: None,
+                color: None,
+                metadata: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(
+            create(
+                &pool,
+                &uid,
+                &CreateTagRequest {
+                    name: "Child".into(),
+                    parent_tag_id: Some(parent2.id.clone()),
+                    tag_type: None,
+                    icon: None,
+                    color: None,
+                    metadata: None,
+                },
+            )
+            .await
+            .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn update_tag_name_to_existing_rejected() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let first = make_tag(&pool, &uid, "Work").await;
+        let second = make_tag(&pool, &uid, "Personal").await;
+        let err = update(
+            &pool,
+            &uid,
+            &second.id,
+            &UpdateTagRequest {
+                name: Some("work".into()),
+                icon: None,
+                color: None,
+                parent_tag_id: None,
+                tag_type: None,
+                metadata: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        match err {
+            DomainError::AlreadyExists { id, .. } => assert_eq!(id, first.id),
+            _ => panic!("expected AlreadyExists, got {err:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn update_same_name_as_self_ok() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let tag = make_tag(&pool, &uid, "Work").await;
+        assert!(
+            update(
+                &pool,
+                &uid,
+                &tag.id,
+                &UpdateTagRequest {
+                    name: Some("Work".into()),
+                    icon: None,
+                    color: None,
+                    parent_tag_id: None,
+                    tag_type: None,
+                    metadata: None,
+                },
+            )
+            .await
+            .is_ok()
+        );
     }
 }

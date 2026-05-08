@@ -165,6 +165,27 @@ pub async fn list_all_for_user(pool: &SqlitePool, user_id: &str) -> Result<Vec<I
     .map_err(DbError::Sqlx)
 }
 
+pub async fn find_id_by_title_in_list(
+    pool: &SqlitePool,
+    list_id: &str,
+    title: &str,
+    exclude_id: Option<&str>,
+) -> Result<Option<String>, DbError> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM items \
+         WHERE list_id = ? \
+           AND LOWER(TRIM(title)) = LOWER(TRIM(?)) \
+           AND id != COALESCE(?, '')",
+    )
+    .bind(list_id)
+    .bind(title)
+    .bind(exclude_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(row.map(|(id,)| id))
+}
+
 // ── Write queries ─────────────────────────────────────────────────────────────
 
 #[tracing::instrument(skip(pool))]
@@ -878,5 +899,54 @@ mod tests {
 
         let rows = list_for_list(&pool, &list_id, &uid).await.unwrap();
         assert!(rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn find_by_title_exact_match() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = setup_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "Buy milk", 0).await;
+        let found = find_id_by_title_in_list(&pool, &list_id, "Buy milk", None)
+            .await
+            .unwrap();
+        assert_eq!(found, Some(item.id));
+    }
+
+    #[tokio::test]
+    async fn find_by_title_case_insensitive() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = setup_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "Buy Milk", 0).await;
+        let found = find_id_by_title_in_list(&pool, &list_id, "buy milk", None)
+            .await
+            .unwrap();
+        assert_eq!(found, Some(item.id));
+    }
+
+    #[tokio::test]
+    async fn find_by_title_excludes_self() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = setup_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "Buy milk", 0).await;
+        let found = find_id_by_title_in_list(&pool, &list_id, "Buy milk", Some(&item.id))
+            .await
+            .unwrap();
+        assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn find_by_title_different_list_not_found() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list1 = setup_list(&pool, &uid).await;
+        let list2 = setup_list(&pool, &uid).await;
+        make_item(&pool, &list1, "Buy milk", 0).await;
+        let found = find_id_by_title_in_list(&pool, &list2, "Buy milk", None)
+            .await
+            .unwrap();
+        assert!(found.is_none());
     }
 }

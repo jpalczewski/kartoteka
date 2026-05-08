@@ -129,6 +129,22 @@ impl KartotekaServer {
         move |e| self.map_err(McpError::Domain(db::DbError::Sqlx(e).into()), locale)
     }
 
+    /// Like `domain_err` but intercepts `AlreadyExists` and returns
+    /// `{"id": "<existing_id>", "existed": true}` instead of an error.
+    fn domain_or_existing<T: serde::Serialize>(
+        &self,
+        result: Result<T, domain::DomainError>,
+        locale: &str,
+    ) -> Result<CallToolResult, ErrorData> {
+        match result {
+            Ok(v) => self.json_result(v, locale),
+            Err(domain::DomainError::AlreadyExists { id, .. }) => {
+                self.json_result(serde_json::json!({"id": id, "existed": true}), locale)
+            }
+            Err(e) => Err(self.domain_err(locale)(e)),
+        }
+    }
+
     fn json_result<T: serde::Serialize>(
         &self,
         value: T,
@@ -192,10 +208,10 @@ impl KartotekaServer {
             unit: p.unit,
             estimated_duration: p.estimated_duration,
         };
-        let item = domain::items::create(&self.pool, &uid, &p.list_id, &req)
-            .await
-            .map_err(self.domain_err(&locale))?;
-        self.json_result(item, &locale)
+        self.domain_or_existing(
+            domain::items::create(&self.pool, &uid, &p.list_id, &req).await,
+            &locale,
+        )
     }
 
     #[rmcp::tool(name = "update_item", description = "mcp-tool-update_item-desc")]
@@ -241,10 +257,7 @@ impl KartotekaServer {
             parent_list_id: p.parent_list_id,
             features: p.features.unwrap_or_default(),
         };
-        let list = domain::lists::create(&self.pool, &uid, &req)
-            .await
-            .map_err(self.domain_err(&locale))?;
-        self.json_result(list, &locale)
+        self.domain_or_existing(domain::lists::create(&self.pool, &uid, &req).await, &locale)
     }
 
     #[rmcp::tool(name = "search_items", description = "mcp-tool-search_items-desc")]
@@ -522,10 +535,7 @@ impl KartotekaServer {
             icon: None,
             metadata: None,
         };
-        let tag = domain::tags::create(&self.pool, &uid, &req)
-            .await
-            .map_err(self.domain_err(&locale))?;
-        self.json_result(tag, &locale)
+        self.domain_or_existing(domain::tags::create(&self.pool, &uid, &req).await, &locale)
     }
 
     #[rmcp::tool(name = "assign_tag", description = "mcp-tool-assign_tag-desc")]
@@ -627,6 +637,9 @@ impl KartotekaServer {
         let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
         let mut resolver = RefResolver::new();
         let mut result = Vec::with_capacity(p.tags.len());
+        // (parent_tag_id, normalized_name) → id
+        let mut seen: std::collections::HashMap<(Option<String>, String), String> =
+            std::collections::HashMap::new();
 
         for tag in &p.tags {
             let parent_id: Option<String> = resolver
@@ -637,6 +650,32 @@ impl KartotekaServer {
                 )
                 .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?
                 .map(str::to_owned);
+
+            let norm_key = (parent_id.clone(), tag.name.trim().to_lowercase());
+            if let Some(eid) = seen.get(&norm_key) {
+                resolver
+                    .register(tag.client_ref.as_deref(), eid)
+                    .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+                result.push(serde_json::json!({"id": eid, "name": tag.name, "existed": true}));
+                continue;
+            }
+            if let Some(eid) = db::tags::find_id_by_name_in_scope(
+                &self.pool,
+                &uid,
+                &tag.name,
+                parent_id.as_deref(),
+                None,
+            )
+            .await
+            .map_err(self.db_err(&locale))?
+            {
+                seen.insert(norm_key, eid.clone());
+                resolver
+                    .register(tag.client_ref.as_deref(), &eid)
+                    .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+                result.push(serde_json::json!({"id": eid, "name": tag.name, "existed": true}));
+                continue;
+            }
 
             let new_id = Uuid::new_v4().to_string();
             db::tags::insert_in_tx(
@@ -655,6 +694,7 @@ impl KartotekaServer {
             .await
             .map_err(self.db_err(&locale))?;
 
+            seen.insert(norm_key, new_id.clone());
             resolver
                 .register(tag.client_ref.as_deref(), &new_id)
                 .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
@@ -839,15 +879,30 @@ impl KartotekaServer {
                 )
             })?;
 
-        let start_pos = ctx.next_position as i32;
-        let inputs: Vec<db::items::InsertItemInput> = p
-            .items
-            .iter()
-            .enumerate()
-            .map(|(i, item)| db::items::InsertItemInput {
+        let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
+        let mut result = Vec::with_capacity(p.items.len());
+        let mut next_pos = ctx.next_position as i32;
+        let mut seen: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+        for item in &p.items {
+            let norm = item.title.trim().to_lowercase();
+            if let Some(eid) = seen.get(&norm) {
+                result.push(serde_json::json!({"id": eid, "title": item.title, "existed": true}));
+                continue;
+            }
+            if let Some(eid) =
+                db::items::find_id_by_title_in_list(&self.pool, &p.list_id, &item.title, None)
+                    .await
+                    .map_err(self.db_err(&locale))?
+            {
+                seen.insert(norm, eid.clone());
+                result.push(serde_json::json!({"id": eid, "title": item.title, "existed": true}));
+                continue;
+            }
+            let input = db::items::InsertItemInput {
                 id: Uuid::new_v4().to_string(),
                 list_id: p.list_id.clone(),
-                position: start_pos + i as i32,
+                position: next_pos,
                 title: item.title.clone(),
                 description: item.description.clone(),
                 start_date: item.start_date.clone(),
@@ -859,19 +914,16 @@ impl KartotekaServer {
                 actual_quantity: item.actual_quantity,
                 unit: item.unit.clone(),
                 estimated_duration: item.estimated_duration,
-            })
-            .collect();
+            };
+            db::items::insert_in_tx(&mut tx, &input)
+                .await
+                .map_err(self.db_err(&locale))?;
+            seen.insert(norm, input.id.clone());
+            result.push(serde_json::json!({"id": input.id, "title": input.title}));
+            next_pos += 1;
+        }
 
-        let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
-        db::items::insert_many_in_tx(&mut tx, &inputs)
-            .await
-            .map_err(self.db_err(&locale))?;
         tx.commit().await.map_err(self.sqlx_err(&locale))?;
-
-        let result: Vec<_> = inputs
-            .iter()
-            .map(|i| serde_json::json!({"id": i.id, "title": i.title}))
-            .collect();
         self.json_result(result, &locale)
     }
 
@@ -922,6 +974,9 @@ impl KartotekaServer {
         let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
         let mut resolver = RefResolver::new();
         let mut result = Vec::with_capacity(p.lists.len());
+        // (container_id, parent_list_id, normalized_name) → id
+        let mut seen: std::collections::HashMap<(Option<String>, Option<String>, String), String> =
+            std::collections::HashMap::new();
 
         for list in &p.lists {
             let container_id = resolver
@@ -943,6 +998,37 @@ impl KartotekaServer {
                 container_id.map(str::to_owned),
                 parent_list_id.map(str::to_owned),
             ));
+
+            let norm_key = (
+                container_id.map(str::to_owned),
+                parent_list_id.map(str::to_owned),
+                list.name.trim().to_lowercase(),
+            );
+            if let Some(eid) = seen.get(&norm_key) {
+                resolver
+                    .register(list.client_ref.as_deref(), eid)
+                    .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+                result.push(serde_json::json!({"id": eid, "name": list.name, "existed": true}));
+                continue;
+            }
+            if let Some(eid) = db::lists::find_id_by_name_in_scope(
+                &self.pool,
+                &uid,
+                &list.name,
+                container_id,
+                parent_list_id,
+                None,
+            )
+            .await
+            .map_err(self.db_err(&locale))?
+            {
+                seen.insert(norm_key, eid.clone());
+                resolver
+                    .register(list.client_ref.as_deref(), &eid)
+                    .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
+                result.push(serde_json::json!({"id": eid, "name": list.name, "existed": true}));
+                continue;
+            }
 
             let list_type = list.list_type.as_deref().unwrap_or("custom");
             let new_id = Uuid::new_v4().to_string();
@@ -973,6 +1059,7 @@ impl KartotekaServer {
                 }
             }
 
+            seen.insert(norm_key, new_id.clone());
             resolver
                 .register(list.client_ref.as_deref(), &new_id)
                 .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
@@ -1250,12 +1337,67 @@ impl ServerHandler for KartotekaServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::items::CreateItemsInput;
+    use kartoteka_db::lists::{InsertListInput, insert as insert_list};
+    use kartoteka_db::test_helpers::create_test_user;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::str::FromStr;
+
+    /// Multi-connection in-memory pool for tests that hold a transaction while also
+    /// querying the pool (which deadlocks on a single-connection pool).
+    async fn multi_conn_pool() -> SqlitePool {
+        let name = uuid::Uuid::new_v4().simple().to_string();
+        let url = format!("file:{name}?mode=memory&cache=shared");
+        let options = SqliteConnectOptions::from_str(&url)
+            .unwrap()
+            .create_if_missing(true)
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(4)
+            .connect_with(options)
+            .await
+            .unwrap();
+        kartoteka_db::run_migrations(&pool).await.unwrap();
+        pool
+    }
 
     fn parts_with_extensions(extensions: http::Extensions) -> Parts {
         let mut req = http::Request::new(());
         *req.extensions_mut() = extensions;
         let (parts, _) = req.into_parts();
         parts
+    }
+
+    fn test_server(pool: SqlitePool) -> KartotekaServer {
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let locales = manifest.parent().unwrap().parent().unwrap().join("locales");
+        KartotekaServer::new(pool, Arc::new(McpI18n::load_from(&locales)))
+    }
+
+    fn parts_for_user(user_id: &str) -> Parts {
+        let mut ext = http::Extensions::new();
+        ext.insert(UserId(user_id.into()));
+        parts_with_extensions(ext)
+    }
+
+    async fn insert_test_list(pool: &SqlitePool, user_id: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut tx = pool.begin().await.unwrap();
+        insert_list(
+            &mut tx,
+            &InsertListInput {
+                id: id.clone(),
+                user_id: user_id.to_owned(),
+                position: 0,
+                name: "Test List".to_owned(),
+                list_type: "checklist".to_owned(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        id
     }
 
     #[test]
@@ -1286,5 +1428,86 @@ mod tests {
         let parts = parts_with_extensions(http::Extensions::new());
         let err = KartotekaServer::extract_user_id_and_locale(&parts).unwrap_err();
         assert!(matches!(err, McpError::Unauthorized));
+    }
+
+    #[tokio::test]
+    async fn create_items_within_batch_duplicate_returns_existed() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list(&pool, &uid).await;
+        let server = test_server(pool);
+
+        let params = CreateItemsParams {
+            list_id: list_id.clone(),
+            items: vec![
+                CreateItemsInput {
+                    title: "Buy milk".to_owned(),
+                    description: None,
+                    start_date: None,
+                    deadline: None,
+                    hard_deadline: None,
+                    start_time: None,
+                    deadline_time: None,
+                    quantity: None,
+                    actual_quantity: None,
+                    unit: None,
+                    estimated_duration: None,
+                },
+                CreateItemsInput {
+                    title: "BUY MILK".to_owned(), // same title, different case
+                    description: None,
+                    start_date: None,
+                    deadline: None,
+                    hard_deadline: None,
+                    start_time: None,
+                    deadline_time: None,
+                    quantity: None,
+                    actual_quantity: None,
+                    unit: None,
+                    estimated_duration: None,
+                },
+            ],
+        };
+
+        let result = server
+            .create_items(Extension(parts_for_user(&uid)), Parameters(params))
+            .await
+            .unwrap();
+
+        let text = result
+            .content
+            .into_iter()
+            .find_map(|c| match c.raw {
+                rmcp::model::RawContent::Text(t) => Some(t.text),
+                _ => None,
+            })
+            .expect("text content");
+        let items: Vec<serde_json::Value> = serde_json::from_str(&text).unwrap();
+
+        assert_eq!(items.len(), 2, "both inputs must produce an output");
+
+        let first_id = items[0]["id"].as_str().unwrap();
+        assert!(
+            items[0].get("existed").is_none(),
+            "first item should be a new insert"
+        );
+        assert_eq!(
+            items[1]["id"].as_str().unwrap(),
+            first_id,
+            "duplicate should reference the first item's id"
+        );
+        assert_eq!(
+            items[1]["existed"].as_bool(),
+            Some(true),
+            "duplicate must carry existed=true"
+        );
+
+        // Only one row inserted
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE list_id = ?")
+            .bind(&list_id)
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1, "only one item row should exist in the DB");
     }
 }
