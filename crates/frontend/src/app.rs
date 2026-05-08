@@ -1,10 +1,11 @@
 use leptos::prelude::*;
 use leptos_fluent::leptos_fluent;
 use leptos_router::{
-    components::{Route, Router, Routes},
+    components::{Outlet, ParentRoute, Route, Router, Routes},
     path,
 };
 
+use crate::components::common::require_auth::RequireAuth;
 use crate::components::nav::Nav;
 use crate::components::toast_container::ToastContainer;
 use crate::pages::{
@@ -92,6 +93,13 @@ fn I18nProvider(children: Children) -> impl IntoView {
     }
 }
 
+// ── AuthGuardLayout ────────────────────────────────────────────────────────────
+
+#[component]
+fn AuthGuardLayout() -> impl IntoView {
+    view! { <RequireAuth><Outlet/></RequireAuth> }
+}
+
 // ── App ────────────────────────────────────────────────────────────────────────
 
 #[component]
@@ -122,21 +130,23 @@ pub fn App() -> impl IntoView {
                 <ToastContainer/>
                 <main class="container mx-auto px-4">
                     <Routes fallback=|| view! { <p class="p-4">"404 — Nie znaleziono strony"</p> }>
-                        <Route path=path!("/") view=HomePage/>
-                        <Route path=path!("/all") view=AllPage/>
-                        <Route path=path!("/today") view=TodayPage/>
-                        <Route path=path!("/time") view=TimePage/>
-                        <Route path=path!("/login") view=LoginPage/>
-                        <Route path=path!("/signup") view=SignupPage/>
-                        <Route path=path!("/settings") view=SettingsPage/>
+                        <Route path=path!("/")        view=HomePage/>
+                        <Route path=path!("/login")   view=LoginPage/>
+                        <Route path=path!("/signup")  view=SignupPage/>
                         <Route path=path!("/consent") view=OAuthConsentPage/>
-                        <Route path=path!("/calendar") view=CalendarPage/>
-                        <Route path=path!("/calendar/:date") view=CalendarDayPage/>
-                        <Route path=path!("/tags") view=TagsPage/>
-                        <Route path=path!("/tags/:id") view=TagDetailPage/>
-                        <Route path=path!("/lists/:list_id/items/:id") view=ItemDetailPage/>
-                        <Route path=path!("/lists/:id") view=ListPage/>
-                        <Route path=path!("/containers/:id") view=ContainerPage/>
+                        <ParentRoute path=path!("") view=AuthGuardLayout>
+                            <Route path=path!("/all")                       view=AllPage/>
+                            <Route path=path!("/today")                     view=TodayPage/>
+                            <Route path=path!("/time")                      view=TimePage/>
+                            <Route path=path!("/settings")                  view=SettingsPage/>
+                            <Route path=path!("/calendar")                  view=CalendarPage/>
+                            <Route path=path!("/calendar/:date")            view=CalendarDayPage/>
+                            <Route path=path!("/tags")                      view=TagsPage/>
+                            <Route path=path!("/tags/:id")                  view=TagDetailPage/>
+                            <Route path=path!("/lists/:list_id/items/:id")  view=ItemDetailPage/>
+                            <Route path=path!("/lists/:id")                 view=ListPage/>
+                            <Route path=path!("/containers/:id")            view=ContainerPage/>
+                        </ParentRoute>
                     </Routes>
                 </main>
             </Router>
