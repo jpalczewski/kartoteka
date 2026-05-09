@@ -10,9 +10,11 @@ use crate::server_fns::auth::require_auth;
 #[component]
 pub fn RequireAuth(children: ChildrenFn) -> impl IntoView {
     let location = use_location();
+    let pathname = location.pathname;
+    let search = location.search;
     let full_path = move || {
-        let p = location.pathname.get();
-        let s = location.search.get();
+        let p = pathname.get();
+        let s = search.get();
         if s.is_empty() {
             p
         } else {
