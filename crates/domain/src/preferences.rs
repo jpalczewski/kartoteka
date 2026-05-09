@@ -1,24 +1,26 @@
 use crate::DomainError;
 use kartoteka_db as db;
+use kartoteka_shared::Locale;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Preferences {
     pub timezone: String,
-    pub locale: String,
+    pub locale: Locale,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UpdatePreferencesRequest {
     pub timezone: Option<String>,
-    pub locale: Option<String>,
+    pub locale: Option<Locale>,
 }
 
 #[tracing::instrument(skip(pool))]
 pub async fn get(pool: &SqlitePool, user_id: &str) -> Result<Preferences, DomainError> {
     let timezone = db::preferences::get_timezone(pool, user_id).await?;
-    let locale = db::preferences::get_locale(pool, user_id).await?;
+    let locale_str = db::preferences::get_locale(pool, user_id).await?;
+    let locale = locale_str.parse().unwrap_or_default();
     Ok(Preferences { timezone, locale })
 }
 
@@ -31,8 +33,8 @@ pub async fn update(
     if let Some(ref tz) = req.timezone {
         db::preferences::set_timezone(pool, user_id, tz).await?;
     }
-    if let Some(ref locale) = req.locale {
-        db::preferences::set_locale(pool, user_id, locale).await?;
+    if let Some(locale) = req.locale {
+        db::preferences::set_locale(pool, user_id, locale.as_str()).await?;
     }
     get(pool, user_id).await
 }
@@ -49,7 +51,7 @@ mod tests {
 
         let prefs = get(&pool, &uid).await.unwrap();
         assert_eq!(prefs.timezone, "UTC");
-        assert_eq!(prefs.locale, "en");
+        assert_eq!(prefs.locale, Locale::En);
     }
 
     #[tokio::test]
@@ -69,7 +71,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(prefs.timezone, "America/New_York");
-        assert_eq!(prefs.locale, "en");
+        assert_eq!(prefs.locale, Locale::En);
     }
 
     #[tokio::test]
@@ -82,14 +84,14 @@ mod tests {
             &uid,
             &UpdatePreferencesRequest {
                 timezone: None,
-                locale: Some("pl".to_string()),
+                locale: Some(Locale::Pl),
             },
         )
         .await
         .unwrap();
 
         assert_eq!(prefs.timezone, "UTC");
-        assert_eq!(prefs.locale, "pl");
+        assert_eq!(prefs.locale, Locale::Pl);
     }
 
     #[tokio::test]
@@ -102,14 +104,14 @@ mod tests {
             &uid,
             &UpdatePreferencesRequest {
                 timezone: Some("Europe/Warsaw".to_string()),
-                locale: Some("pl".to_string()),
+                locale: Some(Locale::Pl),
             },
         )
         .await
         .unwrap();
 
         assert_eq!(prefs.timezone, "Europe/Warsaw");
-        assert_eq!(prefs.locale, "pl");
+        assert_eq!(prefs.locale, Locale::Pl);
     }
 
     #[tokio::test]
@@ -122,7 +124,7 @@ mod tests {
             &uid,
             &UpdatePreferencesRequest {
                 timezone: Some("Asia/Tokyo".to_string()),
-                locale: Some("ja".to_string()),
+                locale: Some(Locale::Pl),
             },
         )
         .await
@@ -140,6 +142,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(prefs.timezone, "Asia/Tokyo");
-        assert_eq!(prefs.locale, "ja");
+        assert_eq!(prefs.locale, Locale::Pl);
     }
 }

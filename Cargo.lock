@@ -1786,7 +1786,6 @@ dependencies = [
  "kartoteka-auth",
  "kartoteka-db",
  "kartoteka-domain",
- "kartoteka-i18n",
  "kartoteka-oauth",
  "kartoteka-shared",
  "leptos",
@@ -1809,7 +1808,7 @@ name = "kartoteka-i18n"
 version = "0.4.1"
 dependencies = [
  "fluent-syntax",
- "serde",
+ "kartoteka-shared",
  "serde_json",
 ]
 

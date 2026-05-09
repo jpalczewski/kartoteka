@@ -1,8 +1,6 @@
 # Kartoteka — task runner
 set dotenv-load
 
-export CLOUDFLARE_ACCOUNT_ID := env("CLOUDFLARE_ACCOUNT_ID", "")
-
 default:
     @just --list
 
@@ -15,17 +13,6 @@ setup:
     cd crates/frontend && npm install
 
 # === DEV ===
-
-# Uruchom Gateway worker lokalnie
-dev-gateway:
-    cp -r locales gateway/locales
-    cp locales/en/mcp.ftl gateway/locales/en/mcp.txt
-    cp locales/pl/mcp.ftl gateway/locales/pl/mcp.txt
-    cd gateway && npx wrangler dev --env local --local --port 8788
-
-# Wystaw Gateway przez HTTPS via cloudflared tunnel
-dev-tunnel:
-    cloudflared tunnel --url http://localhost:8788
 
 # Uruchom SSR server + Tailwind watch (nowy rewrite)
 dev:
@@ -53,48 +40,15 @@ check:
 check-ssr:
     cargo check -p kartoteka-server -p kartoteka-frontend --features ssr
 
-build: build-server build-gateway
-
-build-server:
+build:
     cd crates/frontend && npm install
     cargo leptos build --release
 
-build-gateway:
-    cd gateway && npx wrangler deploy --dry-run
-
-# === MIGRACJE ===
-
-# Gateway auth DB migrations — uses /migrate endpoint (programmatic, Better Auth generates schema)
-migrate-gateway-local:
-    curl -X POST http://localhost:8788/migrate -H "x-migrate-secret: dev-migrate-secret"
-
-migrate-gateway-dev:
-    curl -X POST ${GATEWAY_DEV_URL}/migrate -H "x-migrate-secret: ${MIGRATE_SECRET_DEV}"
-
-migrate-gateway-prod:
-    curl -X POST https://kartoteka-gateway.jpalczewski.workers.dev/migrate -H "x-migrate-secret: ${MIGRATE_SECRET}"
-
 # === DEPLOY ===
-
-deploy: deploy-gateway migrate-gateway-prod
-
-deploy-gateway-dev:
-    cp -r locales gateway/locales
-    cp locales/en/mcp.ftl gateway/locales/en/mcp.txt
-    cp locales/pl/mcp.ftl gateway/locales/pl/mcp.txt
-    cd gateway && npx wrangler deploy --env dev
-
-deploy-dev: deploy-gateway-dev migrate-gateway-dev
 
 # Zbuduj obraz AMD64 lokalnie (Colima) i zdeployuj na preview
 deploy-preview:
     bash scripts/deploy-preview.sh
-
-deploy-gateway:
-    cp -r locales gateway/locales
-    cp locales/en/mcp.ftl gateway/locales/en/mcp.txt
-    cp locales/pl/mcp.ftl gateway/locales/pl/mcp.txt
-    cd gateway && npx wrangler deploy
 
 # === QUALITY ===
 

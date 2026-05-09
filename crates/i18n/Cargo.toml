@@ -8,7 +8,7 @@ publish = false
 workspace = true
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+kartoteka-shared = { path = "../shared" }
 
 [dev-dependencies]
 fluent-syntax = "0.12"
