@@ -1,3 +1,4 @@
+use kartoteka_shared::Locale;
 use kartoteka_shared::types::{TokenCreated, TokenInfo, UserSetting};
 use leptos::prelude::*;
 
@@ -143,10 +144,34 @@ pub async fn set_reg_enabled(enabled: bool) -> Result<(), ServerFnError> {
         .map_err(|e| ServerFnError::new(e.to_string()))
 }
 
+/// Set the locale for the current user via domain::preferences (writes `locale` key).
+#[server(prefix = "/leptos")]
+pub async fn set_locale_sf(locale: Locale) -> Result<(), ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    domain::preferences::update(
+        &pool,
+        &user.id,
+        &domain::preferences::UpdatePreferencesRequest {
+            timezone: None,
+            locale: Some(locale),
+        },
+    )
+    .await
+    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    Ok(())
+}
+
 /// Combined settings page data: settings list + is_admin flag + token list + reg_enabled.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SettingsPageData {
     pub settings: Vec<UserSetting>,
+    pub locale: Locale,
     pub is_admin: bool,
     pub tokens: Vec<TokenInfo>,
     pub reg_enabled: bool,
@@ -163,6 +188,10 @@ pub async fn get_settings_page_data() -> Result<SettingsPageData, ServerFnError>
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
 
     let settings = domain::settings::list_all(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+    let prefs = domain::preferences::get(&pool, &user.id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
 
@@ -183,6 +212,7 @@ pub async fn get_settings_page_data() -> Result<SettingsPageData, ServerFnError>
                 updated_at: s.updated_at,
             })
             .collect(),
+        locale: prefs.locale,
         is_admin: user.role == "admin",
         tokens: token_rows
             .into_iter()
