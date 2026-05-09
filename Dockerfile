@@ -36,6 +36,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry,sharin
     --mount=type=cache,target=/usr/local/cargo/git,id=cargo-git,sharing=locked \
     --mount=type=cache,target=/app/target,id=cargo-target,sharing=locked \
     set -eu; \
+    export CARGO_INCREMENTAL=0; \
     if [ "$CARGO_PROFILE" = "release" ]; then \
         cargo leptos build --release; \
         cp target/release/kartoteka /out-kartoteka; \

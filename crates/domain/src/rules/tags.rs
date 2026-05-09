@@ -80,6 +80,37 @@ pub fn validate_location_hierarchy(
     Ok(())
 }
 
+pub const LOCATION_TYPES: &[&str] = &["country", "city", "address"];
+
+pub fn validate_is_location_type(tag_type: &str) -> Result<(), DomainError> {
+    if !LOCATION_TYPES.contains(&tag_type) {
+        return Err(DomainError::Validation("invalid_location_type"));
+    }
+    Ok(())
+}
+
+pub fn serialize_address_metadata(address: &str) -> String {
+    serde_json::json!({"address": address}).to_string()
+}
+
+const MAX_ADDRESS_LEN: usize = 200;
+
+/// Validate metadata JSON for address-type tags.
+/// Expected format: `{"address": "..."}` — address field optional, max 200 chars.
+pub fn validate_address_metadata(metadata: Option<&str>) -> Result<(), DomainError> {
+    let Some(raw) = metadata else {
+        return Ok(());
+    };
+    let parsed: serde_json::Value =
+        serde_json::from_str(raw).map_err(|_| DomainError::Validation("metadata_invalid_json"))?;
+    if let Some(addr) = parsed.get("address").and_then(|v| v.as_str()) {
+        if addr.chars().count() > MAX_ADDRESS_LEN {
+            return Err(DomainError::Validation("address_too_long"));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,6 +170,34 @@ mod tests {
     }
 
     // validate_location_hierarchy
+    // validate_address_metadata
+    #[test]
+    fn address_metadata_none_ok() {
+        assert!(validate_address_metadata(None).is_ok());
+    }
+
+    #[test]
+    fn address_metadata_valid_json_ok() {
+        assert!(validate_address_metadata(Some(r#"{"address":"ul. Kowalska 1"}"#)).is_ok());
+    }
+
+    #[test]
+    fn address_metadata_empty_address_ok() {
+        assert!(validate_address_metadata(Some(r#"{"address":""}"#)).is_ok());
+    }
+
+    #[test]
+    fn address_metadata_invalid_json_rejected() {
+        assert!(validate_address_metadata(Some("not-json")).is_err());
+    }
+
+    #[test]
+    fn address_metadata_address_too_long_rejected() {
+        let long = "a".repeat(201);
+        let meta = format!(r#"{{"address":"{}"}}"#, long);
+        assert!(validate_address_metadata(Some(&meta)).is_err());
+    }
+
     #[test]
     fn generic_tag_no_restriction() {
         assert!(validate_location_hierarchy("tag", None).is_ok());

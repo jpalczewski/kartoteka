@@ -46,6 +46,21 @@ pub struct UpdateTagRequest {
     pub metadata: Option<Option<String>>,
 }
 
+#[derive(Debug)]
+pub struct CreateLocationRequest {
+    pub tag_type: String,
+    pub name: String,
+    pub parent_tag_id: Option<String>,
+    pub address: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct UpdateLocationRequest {
+    pub name: Option<String>,
+    pub address: Option<String>,
+    pub clear_address: bool,
+}
+
 // ── Conversion ────────────────────────────────────────────────────────────────
 
 fn row_to_tag(row: db::types::TagRow) -> Tag {
@@ -122,6 +137,9 @@ pub async fn create(
     // Phase 2: THINK
     let tag_type = req.tag_type.as_deref().unwrap_or("tag");
     rules::tags::validate_location_hierarchy(tag_type, parent_type.as_deref())?;
+    if tag_type == "address" {
+        rules::tags::validate_address_metadata(req.metadata.as_deref())?;
+    }
     DomainError::ensure_unique(
         db::tags::find_id_by_name_in_scope(
             pool,
@@ -197,6 +215,15 @@ pub async fn update(
         }
     }
 
+    // Validate address metadata if the effective tag type is address
+    if effective_type == "address" {
+        let effective_meta = req
+            .metadata
+            .as_ref()
+            .map_or(current.metadata.as_deref(), |m| m.as_deref());
+        rules::tags::validate_address_metadata(effective_meta)?;
+    }
+
     // Duplicate name check — use effective parent after any parent change
     if let Some(ref new_name) = req.name {
         let effective_parent = match &req.parent_tag_id {
@@ -239,6 +266,72 @@ pub async fn update(
 #[tracing::instrument(skip(pool))]
 pub async fn delete(pool: &SqlitePool, user_id: &str, id: &str) -> Result<bool, DomainError> {
     Ok(db::tags::delete(pool, id, user_id).await?)
+}
+
+#[tracing::instrument(skip(pool))]
+pub async fn create_location(
+    pool: &SqlitePool,
+    user_id: &str,
+    req: &CreateLocationRequest,
+) -> Result<Tag, DomainError> {
+    rules::tags::validate_is_location_type(&req.tag_type)?;
+    let metadata = (req.tag_type == "address")
+        .then(|| {
+            req.address
+                .as_deref()
+                .filter(|a| !a.trim().is_empty())
+                .map(rules::tags::serialize_address_metadata)
+        })
+        .flatten();
+    create(
+        pool,
+        user_id,
+        &CreateTagRequest {
+            name: req.name.clone(),
+            icon: None,
+            color: None,
+            parent_tag_id: req.parent_tag_id.clone(),
+            tag_type: Some(req.tag_type.clone()),
+            metadata,
+        },
+    )
+    .await
+}
+
+#[tracing::instrument(skip(pool))]
+pub async fn update_location(
+    pool: &SqlitePool,
+    user_id: &str,
+    id: &str,
+    req: &UpdateLocationRequest,
+) -> Result<Option<Tag>, DomainError> {
+    let current = match db::tags::get_one(pool, id, user_id).await? {
+        Some(t) => t,
+        None => return Ok(None),
+    };
+    rules::tags::validate_is_location_type(&current.tag_type)?;
+    let metadata_update = if req.clear_address {
+        Some(None)
+    } else {
+        req.address
+            .as_deref()
+            .filter(|a| !a.trim().is_empty())
+            .map(|a| Some(rules::tags::serialize_address_metadata(a)))
+    };
+    update(
+        pool,
+        user_id,
+        id,
+        &UpdateTagRequest {
+            name: req.name.clone(),
+            icon: None,
+            color: None,
+            parent_tag_id: None,
+            tag_type: None,
+            metadata: metadata_update,
+        },
+    )
+    .await
 }
 
 /// Merge `source` into `target`: reassign all links + children, then delete source.

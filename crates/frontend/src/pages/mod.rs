@@ -5,6 +5,7 @@ pub mod home;
 pub mod item_detail;
 pub mod landing;
 pub mod list;
+pub mod locations;
 pub mod login;
 pub mod oauth_consent;
 pub mod settings;

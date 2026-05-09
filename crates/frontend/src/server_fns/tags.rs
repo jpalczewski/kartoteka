@@ -340,6 +340,65 @@ pub async fn update_tag_color(id: String, color: String) -> Result<Tag, ServerFn
     Ok(domain_tag_to_shared(tag))
 }
 
+/// Create a location tag (country / city / address).
+/// `tag_type` must be one of "country", "city", "address".
+#[server(prefix = "/leptos")]
+pub async fn create_location(
+    tag_type: String,
+    name: String,
+    parent_tag_id: Option<String>,
+    address: Option<String>,
+) -> Result<Tag, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let user = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let tag = domain::tags::create_location(
+        &pool,
+        &user.id,
+        &domain::tags::CreateLocationRequest {
+            tag_type,
+            name,
+            parent_tag_id,
+            address,
+        },
+    )
+    .await
+    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    Ok(domain_tag_to_shared(tag))
+}
+
+#[server(prefix = "/leptos")]
+pub async fn update_location_metadata(
+    id: String,
+    name: Option<String>,
+    address: Option<String>,
+    clear_address: bool,
+) -> Result<Tag, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let user = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let tag = domain::tags::update_location(
+        &pool,
+        &user.id,
+        &id,
+        &domain::tags::UpdateLocationRequest {
+            name,
+            address,
+            clear_address,
+        },
+    )
+    .await
+    .map_err(|e| ServerFnError::new(e.to_string()))?
+    .ok_or_else(|| ServerFnError::new("location not found".to_string()))?;
+    Ok(domain_tag_to_shared(tag))
+}
+
 /// Delete a tag by id.
 #[server(prefix = "/leptos")]
 pub async fn delete_tag(id: String) -> Result<(), ServerFnError> {

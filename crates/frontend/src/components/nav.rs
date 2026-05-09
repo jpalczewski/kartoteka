@@ -19,6 +19,7 @@ pub fn Nav() -> impl IntoView {
                             <a href="/today" class="btn btn-ghost btn-sm">{move_tr!("nav-today")}</a>
                             <a href="/calendar" class="btn btn-ghost btn-sm">{move_tr!("nav-calendar")}</a>
                             <a href="/tags" class="btn btn-ghost btn-sm" data-testid="nav-tags">{move_tr!("nav-tags")}</a>
+                            <a href="/locations" class="btn btn-ghost btn-sm">{move_tr!("locations-title")}</a>
                             <a href="/all" class="btn btn-ghost btn-sm">{move_tr!("nav-all")}</a>
                             <div class="dropdown dropdown-end">
                                 <div tabindex="0" role="button" class="btn btn-ghost btn-sm">
