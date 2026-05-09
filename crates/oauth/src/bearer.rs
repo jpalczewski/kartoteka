@@ -25,17 +25,22 @@ pub async fn bearer_auth_middleware(
         return Err((StatusCode::FORBIDDEN, "forbidden: wrong scope").into_response());
     }
 
-    req.extensions_mut().insert(UserId(claims.sub));
+    let user_id = claims.sub;
 
-    let locale = req
-        .headers()
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next())
-        .and_then(|v| v.split('-').next())
-        .map(|s| s.to_lowercase())
-        .filter(|s| s == "pl" || s == "en")
-        .unwrap_or_else(|| "en".into());
+    let locale = kartoteka_db::preferences::get_locale(&state.pool, &user_id)
+        .await
+        .unwrap_or_else(|_| {
+            req.headers()
+                .get(header::ACCEPT_LANGUAGE)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.split(',').next())
+                .and_then(|v| v.split('-').next())
+                .map(|s| s.to_lowercase())
+                .filter(|s| s == "pl" || s == "en")
+                .unwrap_or_else(|| "en".into())
+        });
+
+    req.extensions_mut().insert(UserId(user_id));
     req.extensions_mut().insert(UserLocale(locale));
 
     Ok(next.run(req).await)
@@ -55,7 +60,7 @@ mod tests {
     use super::*;
     use axum::{Router, body::Body, extract::Extension, routing::get};
     use http::Request;
-    use kartoteka_db::test_helpers::test_pool;
+    use kartoteka_db::test_helpers::{create_test_user, test_pool};
     use tower::ServiceExt;
 
     async fn handler(
@@ -76,7 +81,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn valid_bearer_sets_extensions() {
+    async fn locale_defaults_to_en_when_no_db_row() {
         let pool = test_pool().await;
         let secret = "secret-at-least-32-chars-long-padded";
         let state = OAuthState {
@@ -94,7 +99,33 @@ mod tests {
         let res = app_with_state(state).oneshot(req).await.unwrap();
         assert_eq!(res.status(), 200);
         let body = axum::body::to_bytes(res.into_body(), 512).await.unwrap();
-        assert_eq!(std::str::from_utf8(&body).unwrap(), "u-1:pl");
+        assert_eq!(std::str::from_utf8(&body).unwrap(), "u-1:en");
+    }
+
+    #[tokio::test]
+    async fn locale_from_db_overrides_accept_language() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        kartoteka_db::preferences::set_locale(&pool, &uid, "pl")
+            .await
+            .unwrap();
+        let secret = "secret-at-least-32-chars-long-padded";
+        let state = OAuthState {
+            pool,
+            signing_secret: secret.into(),
+            public_base_url: "http://x".into(),
+        };
+        let token = crate::storage::sign_access_token(&uid, "mcp", secret).unwrap();
+        let req = Request::builder()
+            .uri("/t")
+            .header("authorization", format!("Bearer {token}"))
+            .header("accept-language", "en-US")
+            .body(Body::empty())
+            .unwrap();
+        let res = app_with_state(state).oneshot(req).await.unwrap();
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 512).await.unwrap();
+        assert_eq!(std::str::from_utf8(&body).unwrap(), format!("{uid}:pl"));
     }
 
     #[tokio::test]

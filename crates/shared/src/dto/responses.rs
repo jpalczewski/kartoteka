@@ -1,3 +1,4 @@
+use crate::Locale;
 use crate::models::{Container, Item, List, ListFeature};
 use serde::{Deserialize, Serialize};
 
@@ -51,13 +52,13 @@ pub struct ContainerChildrenResponse {
 /// Response from GET /api/preferences
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PreferencesResponse {
-    pub locale: String,
+    pub locale: Locale,
 }
 
 /// Request body for PUT /api/preferences
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdatePreferencesBody {
-    pub locale: String,
+    pub locale: Locale,
 }
 
 /// Error response body returned by API

@@ -23,6 +23,7 @@ use crate::pages::{
     time::TimePage,
     today::TodayPage,
 };
+use crate::server_fns::settings::get_user_locale_sf;
 
 // ── Toast context ──────────────────────────────────────────────────────────────
 
@@ -87,6 +88,8 @@ fn I18nProvider(children: Children) -> impl IntoView {
         default_language: "en",
         set_language_to_cookie: true,
         initial_language_from_cookie: true,
+        initial_language_from_server_function: get_user_locale_sf,
+        initial_language_from_server_function_to_cookie: true,
         initial_language_from_navigator: true,
         initial_language_from_accept_language_header: true,
         cookie_name: "lang",

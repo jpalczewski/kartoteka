@@ -4,8 +4,10 @@ use crate::app::{ToastContext, ToastKind};
 use crate::components::common::loading::LoadingSpinner;
 use crate::context::GlobalRefresh;
 use crate::server_fns::settings::{
-    create_token_sf, get_settings_page_data, revoke_token_sf, set_reg_enabled, set_setting,
+    create_token_sf, get_settings_page_data, revoke_token_sf, set_locale_sf, set_reg_enabled,
+    set_setting,
 };
+use kartoteka_shared::Locale;
 use kartoteka_shared::types::TokenCreated;
 
 const TIMEZONES: &[&str] = &[
@@ -42,10 +44,7 @@ pub fn SettingsPage() -> impl IntoView {
                 {move || data_res.get().map(|result| match result {
                     Err(e) => view! { <p class="text-error">"Błąd: " {e.to_string()}</p> }.into_any(),
                     Ok(data) => {
-                        let current_lang = data.settings.iter()
-                            .find(|s| s.key == "language")
-                            .map(|s| s.value.clone())
-                            .unwrap_or_else(|| "en".to_string());
+                        let current_locale = data.locale;
                         let current_tz = data.settings.iter()
                             .find(|s| s.key == "timezone")
                             .map(|s| s.value.clone())
@@ -63,16 +62,17 @@ pub fn SettingsPage() -> impl IntoView {
                                         class="select select-bordered w-full max-w-xs"
                                         on:change=move |ev| {
                                             let val = event_target_value(&ev);
+                                            let locale = val.parse::<Locale>().unwrap_or_default();
                                             leptos::task::spawn_local(async move {
-                                                match set_setting("language".to_string(), val).await {
+                                                match set_locale_sf(locale).await {
                                                     Ok(_) => set_refresh.update(|n| *n += 1),
                                                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                                 }
                                             });
                                         }
                                     >
-                                        <option value="en" selected={let cl = current_lang.clone(); move || cl == "en"}>"English"</option>
-                                        <option value="pl" selected=move || current_lang == "pl">"Polski"</option>
+                                        <option value="en" selected=move || current_locale == Locale::En>"English"</option>
+                                        <option value="pl" selected=move || current_locale == Locale::Pl>"Polski"</option>
                                     </select>
                                 </div>
 
