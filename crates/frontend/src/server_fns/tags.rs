@@ -340,6 +340,90 @@ pub async fn update_tag_color(id: String, color: String) -> Result<Tag, ServerFn
     Ok(domain_tag_to_shared(tag))
 }
 
+/// Create a location tag (country / city / address).
+/// `tag_type` must be one of "country", "city", "address".
+/// For address tags, `address` is stored as `{"address": "..."}` in metadata.
+#[server(prefix = "/leptos")]
+pub async fn create_location(
+    tag_type: String,
+    name: String,
+    parent_tag_id: Option<String>,
+    address: Option<String>,
+) -> Result<Tag, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+
+    let metadata = address
+        .as_deref()
+        .filter(|a| !a.trim().is_empty())
+        .map(|a| format!(r#"{{"address":"{}"}}"#, a.replace('"', "\\\"")));
+
+    let tag = domain::tags::create(
+        &pool,
+        &user.id,
+        &domain::tags::CreateTagRequest {
+            name,
+            icon: None,
+            color: None,
+            parent_tag_id,
+            tag_type: Some(tag_type),
+            metadata,
+        },
+    )
+    .await
+    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    Ok(domain_tag_to_shared(tag))
+}
+
+/// Update a location tag's alias (name) and/or formal address (metadata).
+#[server(prefix = "/leptos")]
+pub async fn update_location_metadata(
+    id: String,
+    name: Option<String>,
+    address: Option<String>,
+    clear_address: bool,
+) -> Result<Tag, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+
+    let metadata_update = if clear_address {
+        Some(None)
+    } else {
+        address
+            .as_deref()
+            .filter(|a| !a.trim().is_empty())
+            .map(|a| Some(format!(r#"{{"address":"{}"}}"#, a.replace('"', "\\\""))))
+    };
+
+    let tag = domain::tags::update(
+        &pool,
+        &user.id,
+        &id,
+        &domain::tags::UpdateTagRequest {
+            name,
+            icon: None,
+            color: None,
+            parent_tag_id: None,
+            tag_type: None,
+            metadata: metadata_update,
+        },
+    )
+    .await
+    .map_err(|e| ServerFnError::new(e.to_string()))?
+    .ok_or_else(|| ServerFnError::new("location not found".to_string()))?;
+    Ok(domain_tag_to_shared(tag))
+}
+
 /// Delete a tag by id.
 #[server(prefix = "/leptos")]
 pub async fn delete_tag(id: String) -> Result<(), ServerFnError> {
