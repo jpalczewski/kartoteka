@@ -1799,6 +1799,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tower-sessions",
+ "urlencoding",
  "wasm-bindgen",
  "web-sys",
 ]
