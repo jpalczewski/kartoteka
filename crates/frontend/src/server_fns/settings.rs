@@ -13,6 +13,23 @@ use {
 #[derive(Clone)]
 pub struct SigningSecret(pub String);
 
+/// Returns the authenticated user's stored locale for leptos-fluent initialization.
+/// Returns None for unauthenticated requests (landing page, login page).
+#[server(prefix = "/leptos")]
+pub async fn get_user_locale_sf() -> Result<Option<String>, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let Some(user) = auth.user else {
+        return Ok(None);
+    };
+    let prefs = domain::preferences::get(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    Ok(Some(prefs.locale.to_string()))
+}
+
 /// All settings for the current user as key-value pairs.
 #[server(prefix = "/leptos")]
 pub async fn get_all_settings() -> Result<Vec<UserSetting>, ServerFnError> {
