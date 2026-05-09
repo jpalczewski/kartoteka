@@ -161,7 +161,6 @@ pub async fn set_reg_enabled(enabled: bool) -> Result<(), ServerFnError> {
         .map_err(|e| ServerFnError::new(e.to_string()))
 }
 
-/// Set the locale for the current user.
 #[server(prefix = "/leptos")]
 pub async fn set_locale_sf(locale: Locale) -> Result<(), ServerFnError> {
     let pool = expect_context::<SqlitePool>();
