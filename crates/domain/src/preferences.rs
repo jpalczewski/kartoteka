@@ -39,6 +39,21 @@ pub async fn update(
     get(pool, user_id).await
 }
 
+pub async fn get_locale(pool: &SqlitePool, user_id: &str) -> Result<Locale, DomainError> {
+    let s = db::preferences::get_locale(pool, user_id).await?;
+    Ok(s.parse().unwrap_or_default())
+}
+
+pub async fn set_locale(
+    pool: &SqlitePool,
+    user_id: &str,
+    locale: Locale,
+) -> Result<(), DomainError> {
+    db::preferences::set_locale(pool, user_id, locale.as_str())
+        .await
+        .map_err(Into::into)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

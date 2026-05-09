@@ -24,10 +24,10 @@ pub async fn get_user_locale_sf() -> Result<Option<String>, ServerFnError> {
     let Some(user) = auth.user else {
         return Ok(None);
     };
-    let prefs = domain::preferences::get(&pool, &user.id)
+    let locale = domain::preferences::get_locale(&pool, &user.id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
-    Ok(Some(prefs.locale.to_string()))
+    Ok(Some(locale.to_string()))
 }
 
 /// All settings for the current user as key-value pairs.
@@ -161,7 +161,7 @@ pub async fn set_reg_enabled(enabled: bool) -> Result<(), ServerFnError> {
         .map_err(|e| ServerFnError::new(e.to_string()))
 }
 
-/// Set the locale for the current user via domain::preferences (writes `locale` key).
+/// Set the locale for the current user.
 #[server(prefix = "/leptos")]
 pub async fn set_locale_sf(locale: Locale) -> Result<(), ServerFnError> {
     let pool = expect_context::<SqlitePool>();
@@ -171,17 +171,9 @@ pub async fn set_locale_sf(locale: Locale) -> Result<(), ServerFnError> {
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    domain::preferences::update(
-        &pool,
-        &user.id,
-        &domain::preferences::UpdatePreferencesRequest {
-            timezone: None,
-            locale: Some(locale),
-        },
-    )
-    .await
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
-    Ok(())
+    domain::preferences::set_locale(&pool, &user.id, locale)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))
 }
 
 /// Combined settings page data: settings list + is_admin flag + token list + reg_enabled.
@@ -204,21 +196,13 @@ pub async fn get_settings_page_data() -> Result<SettingsPageData, ServerFnError>
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
 
-    let settings = domain::settings::list_all(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-
-    let prefs = domain::preferences::get(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-
-    let token_rows = domain::auth::list_tokens(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-
-    let reg_enabled = domain::auth::is_registration_enabled(&pool)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let (settings, locale, token_rows, reg_enabled) = tokio::try_join!(
+        domain::settings::list_all(&pool, &user.id),
+        domain::preferences::get_locale(&pool, &user.id),
+        domain::auth::list_tokens(&pool, &user.id),
+        domain::auth::is_registration_enabled(&pool),
+    )
+    .map_err(|e| ServerFnError::new(e.to_string()))?;
 
     Ok(SettingsPageData {
         settings: settings
@@ -229,7 +213,7 @@ pub async fn get_settings_page_data() -> Result<SettingsPageData, ServerFnError>
                 updated_at: s.updated_at,
             })
             .collect(),
-        locale: prefs.locale,
+        locale,
         is_admin: user.role == "admin",
         tokens: token_rows
             .into_iter()
