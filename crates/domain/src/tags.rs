@@ -122,6 +122,9 @@ pub async fn create(
     // Phase 2: THINK
     let tag_type = req.tag_type.as_deref().unwrap_or("tag");
     rules::tags::validate_location_hierarchy(tag_type, parent_type.as_deref())?;
+    if tag_type == "address" {
+        rules::tags::validate_address_metadata(req.metadata.as_deref())?;
+    }
     DomainError::ensure_unique(
         db::tags::find_id_by_name_in_scope(
             pool,
@@ -195,6 +198,15 @@ pub async fn update(
                 rules::tags::validate_location_hierarchy(effective_type, parent_type.as_deref())?;
             }
         }
+    }
+
+    // Validate address metadata if the effective tag type is address
+    if effective_type == "address" {
+        let effective_meta = req
+            .metadata
+            .as_ref()
+            .map_or(current.metadata.as_deref(), |m| m.as_deref());
+        rules::tags::validate_address_metadata(effective_meta)?;
     }
 
     // Duplicate name check — use effective parent after any parent change
