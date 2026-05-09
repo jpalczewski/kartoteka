@@ -22,11 +22,9 @@ Kartoteka — aplikacja todo/listy. Leptos 0.8 SSR (Axum) + SQLite + `axum-login
 - `OAUTH_SIGNING_SECRET` — wymagany do dev (min 32 znaków), zarządzane przez `.env` + `set dotenv-load` w justfile
 
 ### Frontend (Leptos 0.8 SSR)
-- Używaj `Resource::new`, nie `LocalResource` — SSR futures muszą być `Send`
-- `Resource::get()` zwraca `Option<T>` — pattern: `if let Some(Ok(data)) = resource.get()`
-- Server functions przez `#[server]` makro w `crates/frontend-v2/src/server_fns/`
-- `use_context` tylko w ciele komponentu — nie w closures
-- Non-Copy typy w `Fn` closure → `StoredValue::new()` lub `.clone()` przed wejściem
+Szczegółowe reguły w `crates/frontend/CLAUDE.md`. Skrót:
+- Build: **zawsze** przez `cargo leptos build` / `just dev` — nigdy `cargo build -p kartoteka-server`
+- Server functions: `#[server(prefix = "/leptos")]` w `src/server_fns/`
 
 ### Shared crate (`crates/shared/`)
 - `models/`, `dto/` (requests/responses), `deserializers.rs` (pub(crate)), `constants.rs`, `date_utils.rs`

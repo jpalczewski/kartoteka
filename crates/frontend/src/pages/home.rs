@@ -1,5 +1,6 @@
 use kartoteka_shared::types::{CreateContainerRequest, CreateListRequest};
 use leptos::prelude::*;
+use leptos_fluent::{I18n, move_tr};
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::{
@@ -12,6 +13,8 @@ use crate::components::home::{
 use crate::components::lists::create_entity_input::CreateEntityInput;
 use crate::components::tags::tag_badge::TagBadge;
 use crate::context::GlobalRefresh;
+use crate::pages::landing::LandingPage;
+use crate::server_fns::auth::get_auth_status;
 use crate::server_fns::{
     containers::{create_container, delete_container, toggle_container_pin},
     home::{get_archived_lists, get_home_data},
@@ -21,6 +24,25 @@ use crate::server_fns::{
 
 #[component]
 pub fn HomePage() -> impl IntoView {
+    let auth = Resource::new(|| (), |_| get_auth_status());
+    view! {
+        <Suspense fallback=|| view! { <LoadingSpinner/> }>
+            {move || auth.get().map(|r| match r {
+                Ok(true) => view! { <HomeContent/> }.into_any(),
+                Ok(false) => view! { <LandingPage/> }.into_any(),
+                Err(_) => view! {
+                    <div class="flex min-h-[70vh] items-center justify-center">
+                        <p class="text-base-content/70">"Błąd połączenia. "<a href="/" class="link">"Odśwież stronę."</a></p>
+                    </div>
+                }.into_any(),
+            })}
+        </Suspense>
+    }
+}
+
+#[component]
+fn HomeContent() -> impl IntoView {
+    let i18n = expect_context::<I18n>();
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
 
     // Refresh trigger — incrementing causes all Resources to refetch
@@ -69,12 +91,13 @@ pub fn HomePage() -> impl IntoView {
     });
 
     let on_delete_list_confirmed = Callback::new(move |list_id: String| {
+        let msg = i18n.tr("home-list-deleted");
         leptos::task::spawn_local(async move {
             match delete_list(list_id).await {
                 Ok(_) => {
                     pending_delete.set(None);
                     set_refresh.update(|n| *n += 1);
-                    toast.push("Lista usunięta.".to_string(), ToastKind::Success);
+                    toast.push(msg, ToastKind::Success);
                 }
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
@@ -82,11 +105,12 @@ pub fn HomePage() -> impl IntoView {
     });
 
     let on_delete_container = Callback::new(move |container_id: String| {
+        let msg = i18n.tr("home-container-deleted");
         leptos::task::spawn_local(async move {
             match delete_container(container_id).await {
                 Ok(_) => {
                     set_refresh.update(|n| *n += 1);
-                    toast.push("Folder usunięty.".to_string(), ToastKind::Success);
+                    toast.push(msg, ToastKind::Success);
                 }
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
@@ -123,11 +147,12 @@ pub fn HomePage() -> impl IntoView {
     });
 
     let on_restore_list = Callback::new(move |list_id: String| {
+        let msg = i18n.tr("home-list-restored");
         leptos::task::spawn_local(async move {
             match archive_list(list_id).await {
                 Ok(_) => {
                     set_refresh.update(|n| *n += 1);
-                    toast.push("Lista przywrócona.".to_string(), ToastKind::Success);
+                    toast.push(msg, ToastKind::Success);
                 }
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
@@ -136,16 +161,16 @@ pub fn HomePage() -> impl IntoView {
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            <h2 class="text-2xl font-bold mb-4">"Strona główna"</h2>
+            <h2 class="text-2xl font-bold mb-4">{move_tr!("home-heading")}</h2>
 
             {move || pending_delete.get().map(|(lid, lname)| {
                 let lid_confirm = lid.clone();
                 view! {
                     <ConfirmModal
                         open=Signal::derive(move || pending_delete.get().is_some())
-                        title="Usuń listę".to_string()
-                        message=format!("Czy na pewno chcesz usunąć listę \"{}\"?", lname)
-                        confirm_label="Usuń".to_string()
+                        title=i18n.tr("home-delete-list-title")
+                        message=i18n.tr("home-delete-list-confirm").replace("{ $name }", &lname)
+                        confirm_label=i18n.tr("common-delete")
                         variant=ConfirmVariant::Danger
                         on_close=Callback::new(move |_| pending_delete.set(None))
                         on_confirm=Callback::new(move |_| {
@@ -267,7 +292,7 @@ pub fn HomePage() -> impl IntoView {
                             <div class="collapse collapse-arrow bg-base-200 mt-6">
                                 <input type="checkbox" />
                                 <div class="collapse-title font-semibold">
-                                    "📦 Zarchiwizowane (" {count} ")"
+                                    {move_tr!("home-archive", { "count" => count })}
                                 </div>
                                 <div class="collapse-content">
                                     <div class="flex flex-col gap-2 pt-2">
@@ -283,7 +308,7 @@ pub fn HomePage() -> impl IntoView {
                                                         class="btn btn-ghost btn-sm"
                                                         on:click=move |_| on_restore_list.run(lid.clone())
                                                     >
-                                                        "Przywróć"
+                                                        {move_tr!("home-restore-button")}
                                                     </button>
                                                 </div>
                                             }

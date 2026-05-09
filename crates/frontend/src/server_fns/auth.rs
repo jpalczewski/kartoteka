@@ -12,6 +12,7 @@ use {
     },
     sqlx::SqlitePool,
     tower_sessions::Session,
+    urlencoding,
 };
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -180,5 +181,37 @@ pub async fn do_register(
         .map_err(|e| ServerFnError::new(e.to_string()))?;
 
     leptos_axum::redirect("/login");
+    Ok(())
+}
+
+/// Returns true if the current session has an authenticated user.
+#[server(prefix = "/leptos")]
+pub async fn get_auth_status() -> Result<bool, ServerFnError> {
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    Ok(auth.user.is_some())
+}
+
+/// Checks auth and issues a server-side redirect to /login?return_to=<path> if not
+/// authenticated. During SSR the redirect header is set before any HTML is sent.
+#[server(prefix = "/leptos")]
+pub async fn require_auth(return_to: String) -> Result<(), ServerFnError> {
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    if auth.user.is_none() {
+        let safe = if return_to.starts_with('/')
+            && !return_to.starts_with("//")
+            && !return_to.contains('\\')
+            && !return_to.contains(['\r', '\n', '\t'])
+        {
+            return_to
+        } else {
+            "/".to_string()
+        };
+        leptos_axum::redirect(&format!("/login?return_to={}", urlencoding::encode(&safe)));
+        return Err(ServerFnError::new("unauthorized".to_string()));
+    }
     Ok(())
 }

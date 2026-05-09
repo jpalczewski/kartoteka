@@ -1,5 +1,4 @@
 home-title = Kartoteka
-landing-tagline = Your lists and tasks
 home-pinned = Pinned
 home-recent = Recently opened
 home-folders-and-projects = Folders and projects
@@ -10,3 +9,6 @@ home-list-deleted = List deleted
 home-list-restored = List restored
 home-container-deleted = Container deleted
 home-restore-button = Restore
+home-heading = Home
+home-delete-list-title = Delete list
+home-delete-list-confirm = Are you sure you want to delete "{ $name }"?
