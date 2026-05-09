@@ -9,6 +9,6 @@ locations-formal-address-placeholder = Formal address (e.g. ul. Kowalska 1) — 
 locations-empty = No locations. Add your first country above.
 locations-save = Save
 locations-cancel = Cancel
+locations-load-error = Error: { $detail }
 locations-delete-title = Delete location
-locations-delete-action = Delete
 locations-delete-confirm = Delete this location and all its children?

@@ -342,7 +342,6 @@ pub async fn update_tag_color(id: String, color: String) -> Result<Tag, ServerFn
 
 /// Create a location tag (country / city / address).
 /// `tag_type` must be one of "country", "city", "address".
-/// For address tags, `address` is stored as `{"address": "..."}` in metadata.
 #[server(prefix = "/leptos")]
 pub async fn create_location(
     tag_type: String,
@@ -351,28 +350,19 @@ pub async fn create_location(
     address: Option<String>,
 ) -> Result<Tag, ServerFnError> {
     let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+    let user = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
         .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-
-    let metadata = address
-        .as_deref()
-        .filter(|a| !a.trim().is_empty())
-        .map(|a| serde_json::json!({"address": a}).to_string());
-
-    let tag = domain::tags::create(
+    let tag = domain::tags::create_location(
         &pool,
         &user.id,
-        &domain::tags::CreateTagRequest {
+        &domain::tags::CreateLocationRequest {
+            tag_type,
             name,
-            icon: None,
-            color: None,
             parent_tag_id,
-            tag_type: Some(tag_type),
-            metadata,
+            address,
         },
     )
     .await
@@ -380,7 +370,6 @@ pub async fn create_location(
     Ok(domain_tag_to_shared(tag))
 }
 
-/// Update a location tag's alias (name) and/or formal address (metadata).
 #[server(prefix = "/leptos")]
 pub async fn update_location_metadata(
     id: String,
@@ -389,33 +378,19 @@ pub async fn update_location_metadata(
     clear_address: bool,
 ) -> Result<Tag, ServerFnError> {
     let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+    let user = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
         .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-
-    let metadata_update = if clear_address {
-        Some(None)
-    } else {
-        address
-            .as_deref()
-            .filter(|a| !a.trim().is_empty())
-            .map(|a| Some(serde_json::json!({"address": a}).to_string()))
-    };
-
-    let tag = domain::tags::update(
+    let tag = domain::tags::update_location(
         &pool,
         &user.id,
         &id,
-        &domain::tags::UpdateTagRequest {
+        &domain::tags::UpdateLocationRequest {
             name,
-            icon: None,
-            color: None,
-            parent_tag_id: None,
-            tag_type: None,
-            metadata: metadata_update,
+            address,
+            clear_address,
         },
     )
     .await

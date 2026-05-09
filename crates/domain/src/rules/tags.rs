@@ -80,6 +80,19 @@ pub fn validate_location_hierarchy(
     Ok(())
 }
 
+pub const LOCATION_TYPES: &[&str] = &["country", "city", "address"];
+
+pub fn validate_is_location_type(tag_type: &str) -> Result<(), DomainError> {
+    if !LOCATION_TYPES.contains(&tag_type) {
+        return Err(DomainError::Validation("invalid_location_type"));
+    }
+    Ok(())
+}
+
+pub fn serialize_address_metadata(address: &str) -> String {
+    serde_json::json!({"address": address}).to_string()
+}
+
 const MAX_ADDRESS_LEN: usize = 200;
 
 /// Validate metadata JSON for address-type tags.

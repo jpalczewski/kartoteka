@@ -96,7 +96,7 @@ pub fn LocationsPage() -> impl IntoView {
                         .get()
                         .map(|result| match result {
                             Err(e) => {
-                                view! { <p class="text-error">"Błąd: " {e.to_string()}</p> }
+                                view! { <p class="text-error">{move_tr!("locations-load-error", {"detail" => e.to_string()})}</p> }
                                     .into_any()
                             }
                             Ok(tags) => {
@@ -157,6 +157,15 @@ fn LocationNode(node: LocNode, depth: usize, on_refresh: Callback<()>) -> impl I
         "city" => Some("address"),
         _ => None,
     };
+
+    let child_placeholder = i18n.tr(match child_type {
+        Some("city") => "locations-city-placeholder",
+        _ => "locations-alias-placeholder",
+    });
+    let add_child_label = i18n.tr(match child_type {
+        Some("city") => "locations-add-city",
+        _ => "locations-add-address",
+    });
 
     let indent_class = match depth {
         0 => "",
@@ -331,10 +340,7 @@ fn LocationNode(node: LocNode, depth: usize, on_refresh: Callback<()>) -> impl I
                     <input
                         type="text"
                         class="input input-bordered input-sm flex-1 min-w-32"
-                        prop:placeholder=move || match child_type {
-                            Some("city") => i18n.tr("locations-city-placeholder"),
-                            _ => i18n.tr("locations-alias-placeholder"),
-                        }
+                        prop:placeholder=child_placeholder.clone()
                         prop:value=move || child_name.get()
                         on:input=move |ev| set_child_name.set(event_target_value(&ev))
                         on:keydown=move |ev| {
@@ -361,10 +367,7 @@ fn LocationNode(node: LocNode, depth: usize, on_refresh: Callback<()>) -> impl I
                         class="btn btn-sm btn-primary"
                         on:click=move |_| on_add_child.run(())
                     >
-                        {move || match child_type {
-                            Some("city") => i18n.tr("locations-add-city"),
-                            _ => i18n.tr("locations-add-address"),
-                        }}
+                        {add_child_label.clone()}
                     </button>
                     <button
                         class="btn btn-sm btn-ghost"
@@ -379,7 +382,7 @@ fn LocationNode(node: LocNode, depth: usize, on_refresh: Callback<()>) -> impl I
                 open=Signal::from(show_delete)
                 title=i18n.tr("locations-delete-title")
                 message=i18n.tr("locations-delete-confirm")
-                confirm_label=i18n.tr("locations-delete-action")
+                confirm_label=i18n.tr("common-delete")
                 variant=ConfirmVariant::Danger
                 on_confirm=on_delete_confirm
                 on_close=Callback::new(move |_: ()| show_delete.set(false))
