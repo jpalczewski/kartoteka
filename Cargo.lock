@@ -1808,7 +1808,6 @@ name = "kartoteka-i18n"
 version = "0.4.1"
 dependencies = [
  "fluent-syntax",
- "kartoteka-shared",
  "serde_json",
 ]
 
