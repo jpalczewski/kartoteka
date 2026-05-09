@@ -1,0 +1,12 @@
+locations-title = Lokalizacje
+locations-add-country = Dodaj kraj
+locations-add-city = Dodaj miasto
+locations-add-address = Dodaj adres
+locations-country-placeholder = Nazwa kraju (np. Polska)
+locations-city-placeholder = Nazwa miasta (np. Kraków)
+locations-alias-placeholder = Alias (np. Praca, Dom)
+locations-formal-address-placeholder = Formalny adres (np. ul. Kowalska 1) — opcjonalny
+locations-empty = Brak lokalizacji. Dodaj pierwszy kraj powyżej.
+locations-save = Zapisz
+locations-cancel = Anuluj
+locations-delete-confirm = Usunąć tę lokalizację i wszystkie potomne?

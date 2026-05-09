@@ -1,0 +1,12 @@
+locations-title = Locations
+locations-add-country = Add country
+locations-add-city = Add city
+locations-add-address = Add address
+locations-country-placeholder = Country name (e.g. Poland)
+locations-city-placeholder = City name (e.g. Kraków)
+locations-alias-placeholder = Alias (e.g. Work, Home)
+locations-formal-address-placeholder = Formal address (e.g. ul. Kowalska 1) — optional
+locations-empty = No locations. Add your first country above.
+locations-save = Save
+locations-cancel = Cancel
+locations-delete-confirm = Delete this location and all its children?
