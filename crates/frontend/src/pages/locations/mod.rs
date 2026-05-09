@@ -198,15 +198,20 @@ fn LocationNode(node: LocNode, depth: usize, on_refresh: Callback<()>) -> impl I
             if name.trim().is_empty() {
                 return;
             }
-            let address = if is_address {
-                Some(edit_address.get_untracked())
+            let (address, clear_address) = if is_address {
+                let addr = edit_address.get_untracked();
+                if addr.trim().is_empty() {
+                    (None, true)
+                } else {
+                    (Some(addr), false)
+                }
             } else {
-                None
+                (None, false)
             };
             set_show_edit.set(false);
             let id = tag_id.clone();
             leptos::task::spawn_local(async move {
-                match update_location_metadata(id, Some(name), address, false).await {
+                match update_location_metadata(id, Some(name), address, clear_address).await {
                     Ok(_) => on_refresh.run(()),
                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
                 }
@@ -372,9 +377,9 @@ fn LocationNode(node: LocNode, depth: usize, on_refresh: Callback<()>) -> impl I
 
             <ConfirmModal
                 open=Signal::from(show_delete)
-                title="Usuń lokalizację".to_string()
+                title=i18n.tr("locations-delete-title")
                 message=i18n.tr("locations-delete-confirm")
-                confirm_label="Usuń".to_string()
+                confirm_label=i18n.tr("locations-delete-action")
                 variant=ConfirmVariant::Danger
                 on_confirm=on_delete_confirm
                 on_close=Callback::new(move |_: ()| show_delete.set(false))

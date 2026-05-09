@@ -361,7 +361,7 @@ pub async fn create_location(
     let metadata = address
         .as_deref()
         .filter(|a| !a.trim().is_empty())
-        .map(|a| format!(r#"{{"address":"{}"}}"#, a.replace('"', "\\\"")));
+        .map(|a| serde_json::json!({"address": a}).to_string());
 
     let tag = domain::tags::create(
         &pool,
@@ -402,7 +402,7 @@ pub async fn update_location_metadata(
         address
             .as_deref()
             .filter(|a| !a.trim().is_empty())
-            .map(|a| Some(format!(r#"{{"address":"{}"}}"#, a.replace('"', "\\\""))))
+            .map(|a| Some(serde_json::json!({"address": a}).to_string()))
     };
 
     let tag = domain::tags::update(
