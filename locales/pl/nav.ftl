@@ -8,3 +8,4 @@ nav-settings = Ustawienia
 nav-logout = Wyloguj
 nav-login = Zaloguj
 nav-admin = Admin
+nav-all = Wszystkie

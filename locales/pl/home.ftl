@@ -10,3 +10,6 @@ home-list-deleted = Lista usunięta
 home-list-restored = Lista przywrócona
 home-container-deleted = Kontener usunięty
 home-restore-button = Przywróć
+home-heading = Strona główna
+home-delete-list-title = Usuń listę
+home-delete-list-confirm = Czy na pewno chcesz usunąć listę „{ $name }"?

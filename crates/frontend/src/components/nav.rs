@@ -16,16 +16,16 @@ pub fn Nav() -> impl IntoView {
                 <Suspense>
                     {move || match nav.get().and_then(|r| r.ok()) {
                         Some(name) => view! {
-                            <a href="/today" class="btn btn-ghost btn-sm">"Dziś"</a>
-                            <a href="/calendar" class="btn btn-ghost btn-sm">"Terminarz"</a>
-                            <a href="/tags" class="btn btn-ghost btn-sm" data-testid="nav-tags">"Tagi"</a>
-                            <a href="/all" class="btn btn-ghost btn-sm">"Wszystkie"</a>
+                            <a href="/today" class="btn btn-ghost btn-sm">{move_tr!("nav-today")}</a>
+                            <a href="/calendar" class="btn btn-ghost btn-sm">{move_tr!("nav-calendar")}</a>
+                            <a href="/tags" class="btn btn-ghost btn-sm" data-testid="nav-tags">{move_tr!("nav-tags")}</a>
+                            <a href="/all" class="btn btn-ghost btn-sm">{move_tr!("nav-all")}</a>
                             <div class="dropdown dropdown-end">
                                 <div tabindex="0" role="button" class="btn btn-ghost btn-sm">
                                     {name} " ▾"
                                 </div>
                                 <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-50 w-52 p-2 shadow-lg border border-base-300">
-                                    <li><a href="/settings">"⚙ Ustawienia"</a></li>
+                                    <li><a href="/settings">"⚙ " {move_tr!("nav-settings")}</a></li>
                                     <li>
                                         <button
                                             type="button"
@@ -35,7 +35,7 @@ pub fn Nav() -> impl IntoView {
                                                 });
                                             }
                                         >
-                                            "⏻ Wyloguj"
+                                            "⏻ " {move_tr!("nav-logout")}
                                         </button>
                                     </li>
                                 </ul>
