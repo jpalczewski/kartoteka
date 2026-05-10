@@ -4,7 +4,7 @@ use leptos::prelude::*;
 #[cfg(feature = "ssr")]
 use {
     axum_login::AuthSession, kartoteka_auth::KartotekaBackend, kartoteka_domain as domain,
-    sqlx::SqlitePool,
+    rust_iso3166, sqlx::SqlitePool,
 };
 
 #[server(prefix = "/leptos")]
@@ -149,6 +149,21 @@ pub async fn delete_location_sf(id: String) -> Result<bool, ServerFnError> {
     domain::locations::delete_location(&pool, &user.id, &id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))
+}
+
+#[server(prefix = "/leptos")]
+pub async fn get_country_regions_sf(iso_code: String) -> Result<Vec<String>, ServerFnError> {
+    let mut names: Vec<String> = if let Some(c) = rust_iso3166::from_alpha2(&iso_code) {
+        c.subdivisions()
+            .into_iter()
+            .flatten()
+            .map(|s| s.name.to_string())
+            .collect()
+    } else {
+        vec![]
+    };
+    names.sort();
+    Ok(names)
 }
 
 #[server(prefix = "/leptos")]

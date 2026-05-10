@@ -7,8 +7,8 @@ use crate::app::{ToastContext, ToastKind};
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::locations::{
-    delete_location_sf, get_city_addresses_sf, get_countries, get_location_detail_sf,
-    update_location_sf,
+    delete_location_sf, get_city_addresses_sf, get_countries, get_country_regions_sf,
+    get_location_detail_sf, update_location_sf,
 };
 
 use super::InlineAlias;
@@ -30,6 +30,24 @@ pub fn CityDetailPage() -> impl IntoView {
         |(id, _)| get_city_addresses_sf(id),
     );
     let countries_res = Resource::new(|| (), |_| get_countries());
+
+    let country_iso = Memo::new(move |_| -> Option<String> {
+        let city = city_res.get()?.ok()??;
+        let countries = countries_res.get()?.ok()?;
+        countries
+            .into_iter()
+            .find(|c| c.id == city.country_id)
+            .map(|c| c.iso_code)
+    });
+    let regions_res = Resource::new(
+        move || country_iso.get(),
+        |iso| async move {
+            match iso {
+                Some(code) => get_country_regions_sf(code).await,
+                None => Ok(vec![]),
+            }
+        },
+    );
 
     let (editing_name, set_editing_name) = signal(false);
     let (edit_name, set_edit_name) = signal(String::new());
@@ -155,21 +173,45 @@ pub fn CityDetailPage() -> impl IntoView {
                                             }}
                                             <div class="flex items-center gap-2 mt-1 text-sm text-base-content/60">
                                                 {move || if editing_region.get() {
+                                                    let regions = regions_res.get()
+                                                        .and_then(|r| r.ok())
+                                                        .unwrap_or_default();
                                                     view! {
                                                         <div class="flex gap-2 items-center">
-                                                            <input
-                                                                type="text"
-                                                                class="input input-bordered input-xs"
-                                                                prop:value=move || edit_region.get()
-                                                                on:input=move |ev| set_edit_region.set(event_target_value(&ev))
-                                                                on:keydown=move |ev| {
-                                                                    match ev.key().as_str() {
-                                                                        "Enter" => on_save_region.run(()),
-                                                                        "Escape" => set_editing_region.set(false),
-                                                                        _ => {}
-                                                                    }
-                                                                }
-                                                            />
+                                                            {if regions.is_empty() {
+                                                                view! {
+                                                                    <input
+                                                                        type="text"
+                                                                        class="input input-bordered input-xs"
+                                                                        prop:value=move || edit_region.get()
+                                                                        on:input=move |ev| set_edit_region.set(event_target_value(&ev))
+                                                                        on:keydown=move |ev| {
+                                                                            match ev.key().as_str() {
+                                                                                "Enter" => on_save_region.run(()),
+                                                                                "Escape" => set_editing_region.set(false),
+                                                                                _ => {}
+                                                                            }
+                                                                        }
+                                                                    />
+                                                                }.into_any()
+                                                            } else {
+                                                                let current = edit_region.get_untracked();
+                                                                view! {
+                                                                    <select
+                                                                        class="select select-bordered select-xs"
+                                                                        on:change=move |ev| set_edit_region.set(event_target_value(&ev))
+                                                                    >
+                                                                        <option value="" disabled selected=current.is_empty()>"—"</option>
+                                                                        {regions.into_iter().map(|name| {
+                                                                            let selected = name == current;
+                                                                            let name2 = name.clone();
+                                                                            view! {
+                                                                                <option value=name selected=selected>{name2}</option>
+                                                                            }
+                                                                        }).collect_view()}
+                                                                    </select>
+                                                                }.into_any()
+                                                            }}
                                                             <button class="btn btn-xs btn-primary" on:click=move |_| on_save_region.run(())>
                                                                 {i18n.tr("locations-save")}
                                                             </button>
