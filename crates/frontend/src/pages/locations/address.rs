@@ -10,6 +10,8 @@ use crate::server_fns::locations::{
     delete_location_sf, get_location_detail_sf, update_location_sf,
 };
 
+use super::InlineAlias;
+
 #[component]
 pub fn AddressDetailPage() -> impl IntoView {
     let params = use_params_map();
@@ -27,8 +29,6 @@ pub fn AddressDetailPage() -> impl IntoView {
 
     let (editing_name, set_editing_name) = signal(false);
     let (edit_name, set_edit_name) = signal(String::new());
-    let (editing_alias, set_editing_alias) = signal(false);
-    let (edit_alias, set_edit_alias) = signal(String::new());
     let show_delete = RwSignal::new(false);
 
     let on_save_name = Callback::new(move |_: ()| {
@@ -37,30 +37,11 @@ pub fn AddressDetailPage() -> impl IntoView {
             return;
         }
         let id = addr_id.get_untracked();
-        let toast2 = toast.clone();
         set_editing_name.set(false);
         leptos::task::spawn_local(async move {
             match update_location_sf(id, Some(name), None, false, None, None, false).await {
                 Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast2.push(e.to_string(), ToastKind::Error),
-            }
-        });
-    });
-
-    let on_save_alias = Callback::new(move |_: ()| {
-        let alias = edit_alias.get_untracked();
-        let id = addr_id.get_untracked();
-        let toast2 = toast.clone();
-        set_editing_alias.set(false);
-        leptos::task::spawn_local(async move {
-            let result = if alias.trim().is_empty() {
-                update_location_sf(id, None, None, true, None, None, false).await
-            } else {
-                update_location_sf(id, None, Some(alias), false, None, None, false).await
-            };
-            match result {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast2.push(e.to_string(), ToastKind::Error),
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
         });
     });
@@ -111,7 +92,8 @@ pub fn AddressDetailPage() -> impl IntoView {
                         Ok(None) => view! { <p class="text-base-content/50">"Nie znaleziono adresu."</p> }.into_any(),
                         Ok(Some(addr)) => {
                             let addr_name = StoredValue::new(addr.name.clone());
-                            let addr_alias = StoredValue::new(addr.alias.clone());
+                            let addr_id_str = addr.id.clone();
+                            let addr_alias = addr.alias.clone();
 
                             view! {
                                 <div>
@@ -157,62 +139,9 @@ pub fn AddressDetailPage() -> impl IntoView {
                                                     </div>
                                                 }.into_any()
                                             }}
-                                            // Alias
-                                            {move || if editing_alias.get() {
-                                                view! {
-                                                    <div class="flex gap-2 items-center mt-2">
-                                                        <input
-                                                            type="text"
-                                                            class="input input-bordered input-xs"
-                                                            placeholder=i18n.tr("locations-alias-placeholder")
-                                                            prop:value=move || edit_alias.get()
-                                                            on:input=move |ev| set_edit_alias.set(event_target_value(&ev))
-                                                            on:keydown=move |ev| {
-                                                                match ev.key().as_str() {
-                                                                    "Enter" => on_save_alias.run(()),
-                                                                    "Escape" => set_editing_alias.set(false),
-                                                                    _ => {}
-                                                                }
-                                                            }
-                                                        />
-                                                        <button class="btn btn-xs btn-primary" on:click=move |_| on_save_alias.run(())>
-                                                            {i18n.tr("locations-save")}
-                                                        </button>
-                                                        <button class="btn btn-xs btn-ghost" on:click=move |_| set_editing_alias.set(false)>
-                                                            {i18n.tr("locations-cancel")}
-                                                        </button>
-                                                    </div>
-                                                }.into_any()
-                                            } else {
-                                                view! {
-                                                    <div class="mt-2">
-                                                        {match addr_alias.get_value() {
-                                                            Some(alias) => view! {
-                                                                <span
-                                                                    class="badge badge-ghost badge-sm cursor-pointer"
-                                                                    on:click=move |_| {
-                                                                        set_edit_alias.set(addr_alias.get_value().unwrap_or_default());
-                                                                        set_editing_alias.set(true);
-                                                                    }
-                                                                >
-                                                                    {alias}
-                                                                </span>
-                                                            }.into_any(),
-                                                            None => view! {
-                                                                <button
-                                                                    class="btn btn-xs btn-ghost opacity-50"
-                                                                    on:click=move |_| {
-                                                                        set_edit_alias.set(String::new());
-                                                                        set_editing_alias.set(true);
-                                                                    }
-                                                                >
-                                                                    "+alias"
-                                                                </button>
-                                                            }.into_any(),
-                                                        }}
-                                                    </div>
-                                                }.into_any()
-                                            }}
+                                            <div class="mt-2">
+                                                <InlineAlias id=addr_id_str.clone() initial=addr_alias.clone() set_refresh />
+                                            </div>
                                         </div>
                                         <button
                                             class="btn btn-sm btn-ghost text-error"
