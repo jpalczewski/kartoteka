@@ -61,6 +61,7 @@ pub struct List {
     pub pinned: bool,
     #[serde(default)]
     pub last_opened_at: Option<String>,
+    pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

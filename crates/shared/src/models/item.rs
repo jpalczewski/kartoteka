@@ -18,6 +18,7 @@ pub struct Item {
     pub deadline: Option<String>,
     pub deadline_time: Option<String>,
     pub hard_deadline: Option<String>,
+    pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -39,6 +40,7 @@ pub struct DateItem {
     pub deadline: Option<String>,
     pub deadline_time: Option<String>,
     pub hard_deadline: Option<String>,
+    pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub list_name: String,
@@ -64,6 +66,7 @@ impl From<DateItem> for Item {
             deadline: di.deadline,
             deadline_time: di.deadline_time,
             hard_deadline: di.hard_deadline,
+            location_id: di.location_id,
             created_at: di.created_at,
             updated_at: di.updated_at,
         }
@@ -102,6 +105,7 @@ pub struct SearchItemResult {
     pub deadline: Option<String>,
     pub deadline_time: Option<String>,
     pub hard_deadline: Option<String>,
+    pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub list_name: String,

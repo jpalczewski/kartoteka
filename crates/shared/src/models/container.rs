@@ -21,6 +21,7 @@ pub struct Container {
     #[serde(deserialize_with = "bool_from_number")]
     pub pinned: bool,
     pub last_opened_at: Option<String>,
+    pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
