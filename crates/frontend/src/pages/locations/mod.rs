@@ -2,7 +2,7 @@ pub mod address;
 pub mod city;
 
 use leptos::prelude::*;
-use leptos_fluent::I18n;
+use leptos_fluent::{I18n, move_tr};
 use leptos_router::components::A;
 
 use crate::app::{ToastContext, ToastKind};
@@ -134,7 +134,7 @@ pub fn LocationsPage() -> impl IntoView {
                 <input
                     type="text"
                     class="input input-bordered flex-1"
-                    placeholder=i18n.tr("locations-parse-placeholder")
+                    placeholder=move_tr!("locations-parse-placeholder")
                     prop:value=move || parse_input.get()
                     prop:disabled=move || parsing.get()
                     on:input=move |ev| set_parse_input.set(event_target_value(&ev))
@@ -149,7 +149,7 @@ pub fn LocationsPage() -> impl IntoView {
                     prop:disabled=move || parsing.get()
                     on:click=move |_| on_parse.run(())
                 >
-                    {i18n.tr("locations-parse-add")}
+                    {move_tr!("locations-parse-add")}
                 </button>
             </div>
 
@@ -164,7 +164,7 @@ pub fn LocationsPage() -> impl IntoView {
                             if groups.is_empty() {
                                 return view! {
                                     <div class="text-center text-base-content/50 py-8">
-                                        {i18n.tr("locations-empty")}
+                                        {move_tr!("locations-empty")}
                                     </div>
                                 }
                                 .into_any();
@@ -309,13 +309,13 @@ fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoVie
                                 class="btn btn-sm btn-primary"
                                 on:click=move |_| on_save.run(())
                             >
-                                {i18n.tr("locations-save")}
+                                {move_tr!("locations-save")}
                             </button>
                             <button
                                 class="btn btn-sm btn-ghost"
                                 on:click=move |_| set_editing.set(false)
                             >
-                                {i18n.tr("locations-cancel")}
+                                {move_tr!("locations-cancel")}
                             </button>
                         </div>
                     }
@@ -439,13 +439,13 @@ fn AddressRow(addr: Location, set_refresh: WriteSignal<u32>) -> impl IntoView {
                             class="btn btn-xs btn-primary"
                             on:click=move |_| on_save.run(())
                         >
-                            {i18n.tr("locations-save")}
+                            {move_tr!("locations-save")}
                         </button>
                         <button
                             class="btn btn-xs btn-ghost"
                             on:click=move |_| set_editing.set(false)
                         >
-                            {i18n.tr("locations-cancel")}
+                            {move_tr!("locations-cancel")}
                         </button>
                     }
                     .into_any()
@@ -491,7 +491,6 @@ pub(super) fn InlineAlias(
     initial: Option<String>,
     set_refresh: WriteSignal<u32>,
 ) -> impl IntoView {
-    let i18n = expect_context::<I18n>();
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let id_sv = StoredValue::new(id);
     let alias_sv = StoredValue::new(initial);
@@ -533,7 +532,7 @@ pub(super) fn InlineAlias(
                         <input
                             type="text"
                             class="input input-bordered input-xs"
-                            placeholder=i18n.tr("locations-alias-placeholder")
+                            placeholder=move_tr!("locations-alias-placeholder")
                             prop:value=move || edit_value.get()
                             on:input=move |ev| set_edit_value.set(event_target_value(&ev))
                             on:keydown=move |ev| {
@@ -545,10 +544,10 @@ pub(super) fn InlineAlias(
                             }
                         />
                         <button class="btn btn-xs btn-primary" on:click=move |_| on_save.run(())>
-                            {i18n.tr("locations-save")}
+                            {move_tr!("locations-save")}
                         </button>
                         <button class="btn btn-xs btn-ghost" on:click=move |_| set_editing.set(false)>
-                            {i18n.tr("locations-cancel")}
+                            {move_tr!("locations-cancel")}
                         </button>
                     </div>
                 }

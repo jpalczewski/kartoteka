@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use leptos_fluent::I18n;
+use leptos_fluent::{I18n, move_tr};
 use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 
@@ -46,17 +46,16 @@ pub fn AddressDetailPage() -> impl IntoView {
         });
     });
 
+    let navigate = leptos_router::hooks::use_navigate();
     let on_delete = Callback::new(move |_: ()| {
         show_delete.set(false);
         let id = addr_id.get_untracked();
         let cid = city_id.get_untracked();
         let toast2 = toast.clone();
+        let nav = navigate.clone();
         leptos::task::spawn_local(async move {
             match delete_location_sf(id).await {
-                Ok(_) => {
-                    let navigate = leptos_router::hooks::use_navigate();
-                    navigate(&format!("/locations/{}", cid), Default::default());
-                }
+                Ok(_) => nav(&format!("/locations/{}", cid), Default::default()),
                 Err(e) => toast2.push(e.to_string(), ToastKind::Error),
             }
         });
@@ -67,7 +66,7 @@ pub fn AddressDetailPage() -> impl IntoView {
             // Breadcrumb
             <div class="flex items-center gap-2 mb-4 text-sm text-base-content/50">
                 <A href="/locations" attr:class="hover:text-base-content">
-                    {i18n.tr("locations-title")}
+                    {move_tr!("locations-title")}
                 </A>
                 <span>"/"</span>
                 <Suspense>
@@ -116,10 +115,10 @@ pub fn AddressDetailPage() -> impl IntoView {
                                                             }
                                                         />
                                                         <button class="btn btn-sm btn-primary" on:click=move |_| on_save_name.run(())>
-                                                            {i18n.tr("locations-save")}
+                                                            {move_tr!("locations-save")}
                                                         </button>
                                                         <button class="btn btn-sm btn-ghost" on:click=move |_| set_editing_name.set(false)>
-                                                            {i18n.tr("locations-cancel")}
+                                                            {move_tr!("locations-cancel")}
                                                         </button>
                                                     </div>
                                                 }.into_any()

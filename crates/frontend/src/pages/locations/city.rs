@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use leptos_fluent::I18n;
+use leptos_fluent::{I18n, move_tr};
 use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 
@@ -84,16 +84,15 @@ pub fn CityDetailPage() -> impl IntoView {
         });
     });
 
+    let navigate = leptos_router::hooks::use_navigate();
     let on_delete = Callback::new(move |_: ()| {
         show_delete.set(false);
         let id = city_id.get_untracked();
         let toast2 = toast.clone();
+        let nav = navigate.clone();
         leptos::task::spawn_local(async move {
             match delete_location_sf(id).await {
-                Ok(_) => {
-                    let navigate = leptos_router::hooks::use_navigate();
-                    navigate("/locations", Default::default());
-                }
+                Ok(_) => nav("/locations", Default::default()),
                 Err(e) => toast2.push(e.to_string(), ToastKind::Error),
             }
         });
@@ -103,7 +102,7 @@ pub fn CityDetailPage() -> impl IntoView {
         <div class="container mx-auto max-w-2xl p-4">
             <div class="mb-4">
                 <A href="/locations" attr:class="text-sm text-base-content/50 hover:text-base-content">
-                    {i18n.tr("locations-title")}
+                    {move_tr!("locations-title")}
                 </A>
             </div>
 
@@ -147,10 +146,10 @@ pub fn CityDetailPage() -> impl IntoView {
                                                             }
                                                         />
                                                         <button class="btn btn-sm btn-primary" on:click=move |_| on_save_name.run(())>
-                                                            {i18n.tr("locations-save")}
+                                                            {move_tr!("locations-save")}
                                                         </button>
                                                         <button class="btn btn-sm btn-ghost" on:click=move |_| set_editing_name.set(false)>
-                                                            {i18n.tr("locations-cancel")}
+                                                            {move_tr!("locations-cancel")}
                                                         </button>
                                                     </div>
                                                 }.into_any()
@@ -212,10 +211,10 @@ pub fn CityDetailPage() -> impl IntoView {
                                                                 }.into_any()
                                                             }}
                                                             <button class="btn btn-xs btn-primary" on:click=move |_| on_save_region.run(())>
-                                                                {i18n.tr("locations-save")}
+                                                                {move_tr!("locations-save")}
                                                             </button>
                                                             <button class="btn btn-xs btn-ghost" on:click=move |_| set_editing_region.set(false)>
-                                                                {i18n.tr("locations-cancel")}
+                                                                {move_tr!("locations-cancel")}
                                                             </button>
                                                         </div>
                                                     }.into_any()
