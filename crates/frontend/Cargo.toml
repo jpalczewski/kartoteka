@@ -39,6 +39,7 @@ axum-login = { workspace = true, optional = true }
 sqlx = { workspace = true, optional = true }
 kartoteka-domain = { path = "../domain", optional = true }
 kartoteka-auth = { path = "../auth", optional = true }
+rust_iso3166 = { version = "0.1", optional = true }
 kartoteka-db = { path = "../db", optional = true }
 kartoteka-oauth = { path = "../oauth", optional = true }
 tower-sessions = { workspace = true, optional = true }
@@ -69,6 +70,7 @@ ssr = [
     "dep:sqlx",
     "dep:kartoteka-domain",
     "dep:kartoteka-auth",
+    "dep:rust_iso3166",
     "dep:kartoteka-db",
     "dep:kartoteka-oauth",
     "dep:tower-sessions",
