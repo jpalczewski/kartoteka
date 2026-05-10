@@ -1,8 +1,10 @@
 use leptos::prelude::*;
+use leptos_fluent::I18n;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::loading::LoadingSpinner;
 use crate::context::GlobalRefresh;
+use crate::server_fns::locations::get_countries;
 use crate::server_fns::settings::{
     create_token_sf, get_settings_page_data, revoke_token_sf, set_locale_sf, set_reg_enabled,
     set_setting,
@@ -31,7 +33,9 @@ pub fn SettingsPage() -> impl IntoView {
     let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
     let (refresh, set_refresh) = signal(0u32);
 
+    let i18n = expect_context::<I18n>();
     let data_res = Resource::new(move || refresh.get(), |_| get_settings_page_data());
+    let countries_res = Resource::new(|| (), |_| get_countries());
 
     let (new_token_name, set_new_token_name) = signal(String::new());
     let (created_token, set_created_token) = signal(Option::<TokenCreated>::None);
@@ -104,6 +108,49 @@ pub fn SettingsPage() -> impl IntoView {
                                         }).collect::<Vec<_>>()}
                                     </select>
                                 </div>
+
+                                // --- Default country ---
+                                {
+                                    let current_country = data.settings.iter()
+                                        .find(|s| s.key == "default_country_iso")
+                                        .map(|s| s.value.clone())
+                                        .unwrap_or_default();
+                                    let countries = countries_res.get()
+                                        .and_then(|r| r.ok())
+                                        .unwrap_or_default();
+                                    view! {
+                                        <div class="card bg-base-200 p-4">
+                                            <h3 class="font-semibold mb-1">"Domyślny kraj"</h3>
+                                            <p class="text-sm text-base-content/60 mb-3">
+                                                "Uzywany gdy wpisujesz lokalizacje bez podania kraju (np. Olsztyn)."
+                                            </p>
+                                            <select
+                                                class="select select-bordered w-full max-w-xs"
+                                                on:change=move |ev| {
+                                                    let val = event_target_value(&ev);
+                                                    leptos::task::spawn_local(async move {
+                                                        match set_setting("default_country_iso".to_string(), val).await {
+                                                            Ok(_) => set_refresh.update(|n| *n += 1),
+                                                            Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                        }
+                                                    });
+                                                }
+                                            >
+                                                <option value="" selected=current_country.is_empty()>
+                                                    "-- wybierz kraj --"
+                                                </option>
+                                                {countries.into_iter().map(|c| {
+                                                    let iso = c.iso_code.clone();
+                                                    let label = format!("{} - {}", c.iso_code, i18n.tr(&format!("country-{}", c.iso_code)));
+                                                    let selected = current_country == c.iso_code;
+                                                    view! {
+                                                        <option value=iso selected=selected>{label}</option>
+                                                    }
+                                                }).collect::<Vec<_>>()}
+                                            </select>
+                                        </div>
+                                    }
+                                }
 
                                 // --- API Tokens ---
                                 <div class="card bg-base-200 p-4">
