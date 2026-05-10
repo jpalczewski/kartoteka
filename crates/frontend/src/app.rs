@@ -15,7 +15,7 @@ use crate::pages::{
     home::HomePage,
     item_detail::ItemDetailPage,
     list::ListPage,
-    locations::LocationsPage,
+    locations::{LocationsPage, address::AddressDetailPage, city::CityDetailPage},
     login::LoginPage,
     oauth_consent::OAuthConsentPage,
     settings::SettingsPage,
@@ -148,6 +148,8 @@ pub fn App() -> impl IntoView {
                             <Route path=path!("/tags")                      view=TagsPage/>
                             <Route path=path!("/tags/:id")                  view=TagDetailPage/>
                             <Route path=path!("/locations")                 view=LocationsPage/>
+                            <Route path=path!("/locations/:id")             view=CityDetailPage/>
+                            <Route path=path!("/locations/:city_id/:id")    view=AddressDetailPage/>
                             <Route path=path!("/lists/:list_id/items/:id")  view=ItemDetailPage/>
                             <Route path=path!("/lists/:id")                 view=ListPage/>
                             <Route path=path!("/containers/:id")            view=ContainerPage/>

@@ -1,5 +1,9 @@
+pub mod address;
+pub mod city;
+
 use leptos::prelude::*;
 use leptos_fluent::I18n;
+use leptos_router::components::A;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
@@ -280,9 +284,10 @@ fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoVie
         })
     };
 
-    let display_name = city.name.clone();
+    let display_name = StoredValue::new(city.name.clone());
     let region = city.region.clone();
     let alias_store = StoredValue::new(city.alias.clone());
+    let city_href = StoredValue::new(format!("/locations/{}", city_id));
 
     view! {
         <div class="card bg-base-200 p-2">
@@ -319,7 +324,7 @@ fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoVie
                 } else if editing_alias.get() {
                     view! {
                         <div class="flex gap-2 items-center">
-                            <span class="font-medium text-sm">{display_name.clone()}</span>
+                            <span class="font-medium text-sm">{display_name.get_value()}</span>
                             <input
                                 type="text"
                                 class="input input-bordered input-xs flex-1"
@@ -353,7 +358,9 @@ fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoVie
                     let alias = alias_store.get_value();
                     view! {
                         <div class="flex items-center gap-2 flex-wrap">
-                            <span class="font-medium">{display_name.clone()}</span>
+                            <A href=city_href.get_value() attr:class="font-medium hover:underline">
+                                {display_name.get_value()}
+                            </A>
                             {region
                                 .as_ref()
                                 .map(|r| {
@@ -505,7 +512,7 @@ fn AddressRow(addr: Location, set_refresh: WriteSignal<u32>) -> impl IntoView {
         })
     };
 
-    let display_name = addr.name.clone();
+    let display_name = StoredValue::new(addr.name.clone());
     let alias_store = StoredValue::new(addr.alias.clone());
 
     view! {
@@ -540,7 +547,7 @@ fn AddressRow(addr: Location, set_refresh: WriteSignal<u32>) -> impl IntoView {
                     .into_any()
                 } else if editing_alias.get() {
                     view! {
-                        <span class="text-sm">{display_name.clone()}</span>
+                        <span class="text-sm">{display_name.get_value()}</span>
                         <input
                             type="text"
                             class="input input-bordered input-xs flex-1"
@@ -572,7 +579,7 @@ fn AddressRow(addr: Location, set_refresh: WriteSignal<u32>) -> impl IntoView {
                 } else {
                     let alias = alias_store.get_value();
                     view! {
-                        <span class="text-sm flex-1">{display_name.clone()}</span>
+                        <span class="text-sm flex-1">{display_name.get_value()}</span>
                         <AliasBadge
                             alias=alias.clone()
                             on_edit=Callback::new(move |_: ()| {

@@ -8,6 +8,38 @@ use {
 };
 
 #[server(prefix = "/leptos")]
+pub async fn get_location_detail_sf(id: String) -> Result<Option<Location>, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    domain::locations::get_location(&pool, &user.id, &id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))
+}
+
+#[server(prefix = "/leptos")]
+pub async fn get_city_addresses_sf(city_id: String) -> Result<Vec<Location>, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let all = domain::locations::list_locations(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    Ok(all
+        .into_iter()
+        .filter(|l| l.parent_id.as_deref() == Some(city_id.as_str()))
+        .collect())
+}
+
+#[server(prefix = "/leptos")]
 pub async fn get_countries() -> Result<Vec<Country>, ServerFnError> {
     let pool = expect_context::<SqlitePool>();
     domain::locations::list_countries(&pool)

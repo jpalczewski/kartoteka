@@ -103,6 +103,16 @@ fn resolve_country_code(input: &str) -> Option<&'static str> {
     COUNTRY_ALIASES.get(input.to_lowercase().as_str()).copied()
 }
 
+pub async fn get_location(
+    pool: &SqlitePool,
+    user_id: &str,
+    id: &str,
+) -> Result<Option<Location>, DomainError> {
+    Ok(db::locations::get_location(pool, id, user_id)
+        .await?
+        .map(row_to_location))
+}
+
 pub async fn list_countries(pool: &SqlitePool) -> Result<Vec<Country>, DomainError> {
     Ok(db::locations::list_countries(pool)
         .await?
