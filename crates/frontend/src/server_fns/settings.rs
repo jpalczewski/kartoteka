@@ -17,7 +17,9 @@ pub struct SigningSecret(pub String);
 /// Returns None for unauthenticated requests (landing page, login page).
 #[server(prefix = "/leptos")]
 pub async fn get_user_locale_sf() -> Result<Option<String>, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
+    let Some(pool) = use_context::<SqlitePool>() else {
+        return Ok(None);
+    };
     let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
         .await
         .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
