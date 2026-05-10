@@ -33,6 +33,8 @@ pub fn CityDetailPage() -> impl IntoView {
 
     let (editing_name, set_editing_name) = signal(false);
     let (edit_name, set_edit_name) = signal(String::new());
+    let (editing_region, set_editing_region) = signal(false);
+    let (edit_region, set_edit_region) = signal(String::new());
     let show_delete = RwSignal::new(false);
 
     let on_save_name = Callback::new(move |_: ()| {
@@ -44,6 +46,21 @@ pub fn CityDetailPage() -> impl IntoView {
         set_editing_name.set(false);
         leptos::task::spawn_local(async move {
             match update_location_sf(id, Some(name), None, false, None, None, false).await {
+                Ok(_) => set_refresh.update(|n| *n += 1),
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+        });
+    });
+
+    let on_save_region = Callback::new(move |_: ()| {
+        let region = edit_region.get_untracked();
+        let id = city_id.get_untracked();
+        set_editing_region.set(false);
+        if region.trim().is_empty() {
+            return;
+        }
+        leptos::task::spawn_local(async move {
+            match update_location_sf(id, None, None, false, Some(region), None, false).await {
                 Ok(_) => set_refresh.update(|n| *n += 1),
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
@@ -88,7 +105,8 @@ pub fn CityDetailPage() -> impl IntoView {
                             let city_name = StoredValue::new(city.name.clone());
                             let city_id_str = city.id.clone();
                             let city_alias = city.alias.clone();
-                            let city_region = city.region.clone();
+                            let city_region_sv = StoredValue::new(city.region.clone());
+                            let country_name_sv = StoredValue::new(country_name);
 
                             view! {
                                 <div>
@@ -136,8 +154,49 @@ pub fn CityDetailPage() -> impl IntoView {
                                                 }.into_any()
                                             }}
                                             <div class="flex items-center gap-2 mt-1 text-sm text-base-content/60">
-                                                {city_region.as_ref().map(|r| view! { <span>{r.clone()}</span> })}
-                                                <span>{country_name}</span>
+                                                {move || if editing_region.get() {
+                                                    view! {
+                                                        <div class="flex gap-2 items-center">
+                                                            <input
+                                                                type="text"
+                                                                class="input input-bordered input-xs"
+                                                                prop:value=move || edit_region.get()
+                                                                on:input=move |ev| set_edit_region.set(event_target_value(&ev))
+                                                                on:keydown=move |ev| {
+                                                                    match ev.key().as_str() {
+                                                                        "Enter" => on_save_region.run(()),
+                                                                        "Escape" => set_editing_region.set(false),
+                                                                        _ => {}
+                                                                    }
+                                                                }
+                                                            />
+                                                            <button class="btn btn-xs btn-primary" on:click=move |_| on_save_region.run(())>
+                                                                {i18n.tr("locations-save")}
+                                                            </button>
+                                                            <button class="btn btn-xs btn-ghost" on:click=move |_| set_editing_region.set(false)>
+                                                                {i18n.tr("locations-cancel")}
+                                                            </button>
+                                                        </div>
+                                                    }.into_any()
+                                                } else {
+                                                    view! {
+                                                        <div class="flex items-center gap-2">
+                                                            {city_region_sv.get_value().map(|r| view! {
+                                                                <span>{r.clone()}</span>
+                                                            })}
+                                                            <button
+                                                                class="btn btn-xs btn-ghost"
+                                                                on:click=move |_| {
+                                                                    set_edit_region.set(city_region_sv.get_value().unwrap_or_default());
+                                                                    set_editing_region.set(true);
+                                                                }
+                                                            >
+                                                                {if city_region_sv.get_value().is_some() { "✎" } else { "+region" }}
+                                                            </button>
+                                                            <span>{country_name_sv.get_value()}</span>
+                                                        </div>
+                                                    }.into_any()
+                                                }}
                                             </div>
                                             <div class="mt-2">
                                                 <InlineAlias id=city_id_str.clone() initial=city_alias.clone() set_refresh />
