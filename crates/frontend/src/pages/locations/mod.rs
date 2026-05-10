@@ -18,6 +18,12 @@ use kartoteka_shared::{Country, Location};
 #[derive(Clone)]
 struct CountryGroup {
     country: Country,
+    regions: Vec<RegionGroup>,
+}
+
+#[derive(Clone)]
+struct RegionGroup {
+    region: Option<String>,
     cities: Vec<CityGroup>,
 }
 
@@ -38,7 +44,7 @@ fn group_locations(countries: &[Country], locs: &[Location]) -> Vec<CountryGroup
         .iter()
         .filter(|c| cities.iter().any(|l| l.country_id == c.id))
         .map(|c| {
-            let city_groups = cities
+            let city_groups: Vec<CityGroup> = cities
                 .iter()
                 .filter(|l| l.country_id == c.id)
                 .map(|city| CityGroup {
@@ -50,9 +56,35 @@ fn group_locations(countries: &[Country], locs: &[Location]) -> Vec<CountryGroup
                         .collect(),
                 })
                 .collect();
+
+            // Group cities by region: named regions first (sorted), then None at end
+            let mut region_map: std::collections::BTreeMap<String, Vec<CityGroup>> =
+                std::collections::BTreeMap::new();
+            let mut no_region: Vec<CityGroup> = vec![];
+            for cg in city_groups {
+                match cg.city.region.clone() {
+                    Some(r) => region_map.entry(r).or_default().push(cg),
+                    None => no_region.push(cg),
+                }
+            }
+
+            let mut regions: Vec<RegionGroup> = region_map
+                .into_iter()
+                .map(|(r, cities)| RegionGroup {
+                    region: Some(r),
+                    cities,
+                })
+                .collect();
+            if !no_region.is_empty() {
+                regions.push(RegionGroup {
+                    region: None,
+                    cities: no_region,
+                });
+            }
+
             CountryGroup {
                 country: c.clone(),
-                cities: city_groups,
+                regions,
             }
         })
         .collect();
@@ -187,12 +219,25 @@ fn CountrySection(
                 <span class="badge badge-outline">{group.country.iso_code.clone()}</span>
                 {country_name}
             </h3>
-            <div class="flex flex-col gap-1 ml-2">
+            <div class="flex flex-col gap-2 ml-2">
                 {group
-                    .cities
+                    .regions
                     .into_iter()
-                    .map(|cg| {
-                        view! { <CityRow city_group=cg set_refresh=set_refresh /> }
+                    .map(|rg| {
+                        view! {
+                            <div>
+                                {rg.region.map(|r| view! {
+                                    <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-1 ml-1">
+                                        {r}
+                                    </div>
+                                })}
+                                <div class="flex flex-col gap-1">
+                                    {rg.cities.into_iter().map(|cg| {
+                                        view! { <CityRow city_group=cg set_refresh=set_refresh /> }
+                                    }).collect_view()}
+                                </div>
+                            </div>
+                        }
                     })
                     .collect_view()}
             </div>
@@ -241,7 +286,6 @@ fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoVie
     });
 
     let display_name = StoredValue::new(city.name.clone());
-    let region = city.region.clone();
     let city_href = StoredValue::new(format!("/locations/{}", city_id.get_value()));
 
     view! {
@@ -282,13 +326,6 @@ fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoVie
                             <A href=city_href.get_value() attr:class="font-medium hover:underline">
                                 {display_name.get_value()}
                             </A>
-                            {region
-                                .as_ref()
-                                .map(|r| {
-                                    view! {
-                                        <span class="text-sm text-base-content/50">{r.clone()}</span>
-                                    }
-                                })}
                             <InlineAlias id=city_id.get_value() initial=city_alias_sv.get_value() set_refresh />
                             <div class="ml-auto flex gap-1">
                                 <button
