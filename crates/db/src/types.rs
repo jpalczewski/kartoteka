@@ -249,6 +249,28 @@ pub struct TemplateTagRow {
     pub tag_id: String,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct CountryRow {
+    pub id: String,
+    pub iso_code: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct LocationRow {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    pub alias: Option<String>,
+    pub region: Option<String>,
+    pub address: Option<String>,
+    pub r#type: String,
+    pub country_id: String,
+    pub parent_id: Option<String>,
+    pub lat: Option<f64>,
+    pub lon: Option<f64>,
+    pub created_at: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
