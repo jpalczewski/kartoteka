@@ -31,16 +31,15 @@ pub fn CityDetailPage() -> impl IntoView {
     );
     let countries_res = Resource::new(|| (), |_| get_countries());
 
-    let country_iso = Memo::new(move |_| -> Option<String> {
-        let city = city_res.get()?.ok()??;
-        let countries = countries_res.get()?.ok()?;
-        countries
-            .into_iter()
-            .find(|c| c.id == city.country_id)
-            .map(|c| c.iso_code)
-    });
     let regions_res = Resource::new(
-        move || country_iso.get(),
+        move || {
+            let city = city_res.get()?.ok()??;
+            let countries = countries_res.get()?.ok()?;
+            countries
+                .into_iter()
+                .find(|c| c.id == city.country_id)
+                .map(|c| c.iso_code)
+        },
         |iso| async move {
             match iso {
                 Some(code) => get_country_regions_sf(code).await,
