@@ -1,52 +1,42 @@
+use kartoteka_shared::models::Location;
 use leptos::prelude::*;
 use leptos_fluent::{I18n, move_tr};
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::loading::LoadingSpinner;
-use crate::server_fns::tags::{
-    create_location, delete_tag, get_all_tags, update_location_metadata,
+use crate::server_fns::locations::{
+    create_location_sf, delete_location_sf, get_locations_sf, update_location_sf,
 };
-use kartoteka_shared::types::Tag;
-
 const LOCATION_TYPES: &[&str] = &["country", "city", "address"];
-
-fn extract_address(tag: &Tag) -> Option<String> {
-    let meta = tag.metadata.as_deref()?;
-    let v: serde_json::Value = serde_json::from_str(meta).ok()?;
-    v.get("address")?
-        .as_str()
-        .filter(|s| !s.is_empty())
-        .map(String::from)
-}
 
 #[derive(Clone)]
 struct LocNode {
-    tag: Tag,
+    loc: Location,
     children: Vec<LocNode>,
 }
 
-fn build_location_tree(tags: &[Tag]) -> Vec<LocNode> {
-    fn collect(tags: &[Tag], parent_id: Option<&str>) -> Vec<LocNode> {
-        tags.iter()
-            .filter(|t| {
-                LOCATION_TYPES.contains(&t.tag_type.as_str())
-                    && t.parent_tag_id.as_deref() == parent_id
+fn build_location_tree(locs: &[Location]) -> Vec<LocNode> {
+    fn collect(locs: &[Location], parent_id: Option<&str>) -> Vec<LocNode> {
+        locs.iter()
+            .filter(|l| {
+                LOCATION_TYPES.contains(&l.location_type.as_str())
+                    && l.parent_id.as_deref() == parent_id
             })
-            .map(|t| LocNode {
-                tag: t.clone(),
-                children: collect(tags, Some(&t.id)),
+            .map(|l| LocNode {
+                loc: l.clone(),
+                children: collect(locs, Some(&l.id)),
             })
             .collect()
     }
-    collect(tags, None)
+    collect(locs, None)
 }
 
 #[component]
 pub fn LocationsPage() -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let (refresh, set_refresh) = signal(0u32);
-    let tags_res = Resource::new(move || refresh.get(), |_| get_all_tags());
+    let locs_res = Resource::new(move || refresh.get(), |_| get_locations_sf());
 
     let (new_country, set_new_country) = signal(String::new());
 
@@ -57,7 +47,17 @@ pub fn LocationsPage() -> impl IntoView {
         }
         set_new_country.set(String::new());
         leptos::task::spawn_local(async move {
-            match create_location("country".into(), name, None, None).await {
+            match create_location_sf(
+                name,
+                None,
+                None,
+                None,
+                "country".to_string(),
+                String::new(),
+                None,
+            )
+            .await
+            {
                 Ok(_) => set_refresh.update(|n| *n += 1),
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
@@ -92,15 +92,22 @@ pub fn LocationsPage() -> impl IntoView {
 
             <Suspense fallback=|| view! { <LoadingSpinner/> }>
                 {move || {
-                    tags_res
+                    locs_res
                         .get()
                         .map(|result| match result {
                             Err(e) => {
-                                view! { <p class="text-error">{move_tr!("locations-load-error", {"detail" => e.to_string()})}</p> }
+                                view! {
+                                    <p class="text-error">
+                                        {move_tr!(
+                                            "locations-load-error",
+                                            {"detail" => e.to_string()}
+                                        )}
+                                    </p>
+                                }
                                     .into_any()
                             }
-                            Ok(tags) => {
-                                let tree = build_location_tree(&tags);
+                            Ok(locs) => {
+                                let tree = build_location_tree(&locs);
                                 if tree.is_empty() {
                                     return view! {
                                         <div class="text-center text-base-content/50 py-8">
@@ -140,19 +147,19 @@ pub fn LocationsPage() -> impl IntoView {
 fn LocationNode(node: LocNode, depth: usize, on_refresh: Callback<()>) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let i18n = expect_context::<I18n>();
-    let tag = node.tag.clone();
-    let tag_id = tag.id.clone();
-    let tag_type = tag.tag_type.clone();
+    let loc = node.loc.clone();
+    let loc_id = loc.id.clone();
+    let loc_type = loc.location_type.clone();
 
     let (show_add_child, set_show_add_child) = signal(false);
     let (show_edit, set_show_edit) = signal(false);
     let show_delete = RwSignal::new(false);
     let (child_name, set_child_name) = signal(String::new());
     let (child_address, set_child_address) = signal(String::new());
-    let (edit_name, set_edit_name) = signal(tag.name.clone());
-    let (edit_address, set_edit_address) = signal(extract_address(&tag).unwrap_or_default());
+    let (edit_name, set_edit_name) = signal(loc.name.clone());
+    let (edit_address, set_edit_address) = signal(loc.address.clone().unwrap_or_default());
 
-    let child_type: Option<&'static str> = match tag_type.as_str() {
+    let child_type: Option<&'static str> = match loc_type.as_str() {
         "country" => Some("city"),
         "city" => Some("address"),
         _ => None,
@@ -174,7 +181,8 @@ fn LocationNode(node: LocNode, depth: usize, on_refresh: Callback<()>) -> impl I
     };
 
     let on_add_child = {
-        let tag_id = tag_id.clone();
+        let loc_id = loc_id.clone();
+        let country_id = loc.country_id.clone();
         Callback::new(move |_: ()| {
             let Some(ct) = child_type else { return };
             let name = child_name.get_untracked();
@@ -182,16 +190,28 @@ fn LocationNode(node: LocNode, depth: usize, on_refresh: Callback<()>) -> impl I
                 return;
             }
             let address = if ct == "address" {
-                Some(child_address.get_untracked())
+                let a = child_address.get_untracked();
+                if a.is_empty() { None } else { Some(a) }
             } else {
                 None
             };
             set_child_name.set(String::new());
             set_child_address.set(String::new());
             set_show_add_child.set(false);
-            let parent_id = tag_id.clone();
+            let parent_id = loc_id.clone();
+            let cid = country_id.clone();
             leptos::task::spawn_local(async move {
-                match create_location(ct.to_string(), name, Some(parent_id), address).await {
+                match create_location_sf(
+                    name,
+                    None,
+                    None,
+                    address,
+                    ct.to_string(),
+                    cid,
+                    Some(parent_id),
+                )
+                .await
+                {
                     Ok(_) => on_refresh.run(()),
                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
                 }
@@ -200,8 +220,8 @@ fn LocationNode(node: LocNode, depth: usize, on_refresh: Callback<()>) -> impl I
     };
 
     let on_save_edit = {
-        let tag_id = tag_id.clone();
-        let is_address = tag_type == "address";
+        let loc_id = loc_id.clone();
+        let is_address = loc_type == "address";
         Callback::new(move |_: ()| {
             let name = edit_name.get_untracked();
             if name.trim().is_empty() {
@@ -218,9 +238,11 @@ fn LocationNode(node: LocNode, depth: usize, on_refresh: Callback<()>) -> impl I
                 (None, false)
             };
             set_show_edit.set(false);
-            let id = tag_id.clone();
+            let id = loc_id.clone();
             leptos::task::spawn_local(async move {
-                match update_location_metadata(id, Some(name), address, clear_address).await {
+                match update_location_sf(id, Some(name), None, false, None, address, clear_address)
+                    .await
+                {
                     Ok(_) => on_refresh.run(()),
                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
                 }
@@ -229,12 +251,12 @@ fn LocationNode(node: LocNode, depth: usize, on_refresh: Callback<()>) -> impl I
     };
 
     let on_delete_confirm = {
-        let tag_id = tag_id.clone();
+        let loc_id = loc_id.clone();
         Callback::new(move |_: ()| {
             show_delete.set(false);
-            let id = tag_id.clone();
+            let id = loc_id.clone();
             leptos::task::spawn_local(async move {
-                match delete_tag(id).await {
+                match delete_location_sf(id).await {
                     Ok(_) => on_refresh.run(()),
                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
                 }
@@ -242,9 +264,9 @@ fn LocationNode(node: LocNode, depth: usize, on_refresh: Callback<()>) -> impl I
         })
     };
 
-    let formal_address = extract_address(&tag);
-    let display_name = tag.name.clone();
-    let is_address_type = tag_type == "address";
+    let formal_address = loc.address.clone();
+    let display_name = loc.name.clone();
+    let is_address_type = loc_type == "address";
 
     view! {
         <div class=format!("card bg-base-200 p-2 mb-1 {}", indent_class)>

@@ -46,21 +46,6 @@ pub struct UpdateTagRequest {
     pub metadata: Option<Option<String>>,
 }
 
-#[derive(Debug)]
-pub struct CreateLocationRequest {
-    pub tag_type: String,
-    pub name: String,
-    pub parent_tag_id: Option<String>,
-    pub address: Option<String>,
-}
-
-#[derive(Debug)]
-pub struct UpdateLocationRequest {
-    pub name: Option<String>,
-    pub address: Option<String>,
-    pub clear_address: bool,
-}
-
 // ── Conversion ────────────────────────────────────────────────────────────────
 
 fn row_to_tag(row: db::types::TagRow) -> Tag {
@@ -124,22 +109,8 @@ pub async fn create(
 ) -> Result<Tag, DomainError> {
     validate_tag_input(&req.name, req.color.as_deref())?;
 
-    // Phase 1: READ — fetch parent type for hierarchy validation
-    let parent_type: Option<String> = if let Some(ref parent_id) = req.parent_tag_id {
-        let parent = db::tags::get_one(pool, parent_id, user_id)
-            .await?
-            .ok_or(DomainError::NotFound("parent_tag"))?;
-        Some(parent.tag_type)
-    } else {
-        None
-    };
-
     // Phase 2: THINK
     let tag_type = req.tag_type.as_deref().unwrap_or("tag");
-    rules::tags::validate_location_hierarchy(tag_type, parent_type.as_deref())?;
-    if tag_type == "address" {
-        rules::tags::validate_address_metadata(req.metadata.as_deref())?;
-    }
     DomainError::ensure_unique(
         db::tags::find_id_by_name_in_scope(
             pool,
@@ -183,45 +154,11 @@ pub async fn update(
         None => return Ok(None),
     };
 
-    // Phase 2: THINK — validate parent change and hierarchy
-    let effective_type = req.tag_type.as_deref().unwrap_or(&current.tag_type);
-
-    match &req.parent_tag_id {
-        Some(Some(new_parent_id)) => {
-            // Cycle detection
-            let ancestors = db::tags::get_ancestors(pool, new_parent_id, user_id).await?;
-            rules::tags::validate_parent(id, new_parent_id, &ancestors)?;
-            // Location hierarchy with new parent
-            let parent = db::tags::get_one(pool, new_parent_id, user_id)
-                .await?
-                .ok_or(DomainError::NotFound("parent_tag"))?;
-            rules::tags::validate_location_hierarchy(effective_type, Some(&parent.tag_type))?;
-        }
-        Some(None) => {
-            // Clearing parent — validate hierarchy with no parent
-            rules::tags::validate_location_hierarchy(effective_type, None)?;
-        }
-        None => {
-            // Parent unchanged; only re-validate if tag_type is changing
-            if req.tag_type.is_some() {
-                let parent_type = match &current.parent_tag_id {
-                    Some(pid) => db::tags::get_one(pool, pid, user_id)
-                        .await?
-                        .map(|p| p.tag_type),
-                    None => None,
-                };
-                rules::tags::validate_location_hierarchy(effective_type, parent_type.as_deref())?;
-            }
-        }
-    }
-
-    // Validate address metadata if the effective tag type is address
-    if effective_type == "address" {
-        let effective_meta = req
-            .metadata
-            .as_ref()
-            .map_or(current.metadata.as_deref(), |m| m.as_deref());
-        rules::tags::validate_address_metadata(effective_meta)?;
+    // Phase 2: THINK — validate parent change
+    if let Some(Some(new_parent_id)) = &req.parent_tag_id {
+        // Cycle detection
+        let ancestors = db::tags::get_ancestors(pool, new_parent_id, user_id).await?;
+        rules::tags::validate_parent(id, new_parent_id, &ancestors)?;
     }
 
     // Duplicate name check — use effective parent after any parent change
@@ -266,72 +203,6 @@ pub async fn update(
 #[tracing::instrument(skip(pool))]
 pub async fn delete(pool: &SqlitePool, user_id: &str, id: &str) -> Result<bool, DomainError> {
     Ok(db::tags::delete(pool, id, user_id).await?)
-}
-
-#[tracing::instrument(skip(pool))]
-pub async fn create_location(
-    pool: &SqlitePool,
-    user_id: &str,
-    req: &CreateLocationRequest,
-) -> Result<Tag, DomainError> {
-    rules::tags::validate_is_location_type(&req.tag_type)?;
-    let metadata = (req.tag_type == "address")
-        .then(|| {
-            req.address
-                .as_deref()
-                .filter(|a| !a.trim().is_empty())
-                .map(rules::tags::serialize_address_metadata)
-        })
-        .flatten();
-    create(
-        pool,
-        user_id,
-        &CreateTagRequest {
-            name: req.name.clone(),
-            icon: None,
-            color: None,
-            parent_tag_id: req.parent_tag_id.clone(),
-            tag_type: Some(req.tag_type.clone()),
-            metadata,
-        },
-    )
-    .await
-}
-
-#[tracing::instrument(skip(pool))]
-pub async fn update_location(
-    pool: &SqlitePool,
-    user_id: &str,
-    id: &str,
-    req: &UpdateLocationRequest,
-) -> Result<Option<Tag>, DomainError> {
-    let current = match db::tags::get_one(pool, id, user_id).await? {
-        Some(t) => t,
-        None => return Ok(None),
-    };
-    rules::tags::validate_is_location_type(&current.tag_type)?;
-    let metadata_update = if req.clear_address {
-        Some(None)
-    } else {
-        req.address
-            .as_deref()
-            .filter(|a| !a.trim().is_empty())
-            .map(|a| Some(rules::tags::serialize_address_metadata(a)))
-    };
-    update(
-        pool,
-        user_id,
-        id,
-        &UpdateTagRequest {
-            name: req.name.clone(),
-            icon: None,
-            color: None,
-            parent_tag_id: None,
-            tag_type: None,
-            metadata: metadata_update,
-        },
-    )
-    .await
 }
 
 /// Merge `source` into `target`: reassign all links + children, then delete source.
@@ -760,65 +631,6 @@ mod tests {
                 .unwrap_err(),
             DomainError::Validation(_)
         ));
-    }
-
-    #[tokio::test]
-    async fn city_tag_requires_country_parent() {
-        let pool = test_pool().await;
-        let uid = create_test_user(&pool).await;
-        let generic = make_tag(&pool, &uid, "Generic").await;
-
-        let result = create(
-            &pool,
-            &uid,
-            &CreateTagRequest {
-                name: "Warsaw".to_string(),
-                tag_type: Some("city".to_string()),
-                parent_tag_id: Some(generic.id.clone()),
-                icon: None,
-                color: None,
-                metadata: None,
-            },
-        )
-        .await;
-
-        assert!(matches!(result.unwrap_err(), DomainError::Validation(_)));
-    }
-
-    #[tokio::test]
-    async fn city_with_country_parent_ok() {
-        let pool = test_pool().await;
-        let uid = create_test_user(&pool).await;
-        let country = create(
-            &pool,
-            &uid,
-            &CreateTagRequest {
-                name: "Poland".to_string(),
-                tag_type: Some("country".to_string()),
-                icon: None,
-                color: None,
-                parent_tag_id: None,
-                metadata: None,
-            },
-        )
-        .await
-        .unwrap();
-
-        let result = create(
-            &pool,
-            &uid,
-            &CreateTagRequest {
-                name: "Warsaw".to_string(),
-                tag_type: Some("city".to_string()),
-                parent_tag_id: Some(country.id.clone()),
-                icon: None,
-                color: None,
-                metadata: None,
-            },
-        )
-        .await;
-
-        assert!(result.is_ok());
     }
 
     #[tokio::test]
