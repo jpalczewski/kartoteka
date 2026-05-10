@@ -340,3 +340,29 @@ pub struct ValidateInviteRequest {
     pub code: String,
     pub email: String,
 }
+
+// ── Location requests ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateLocationRequest {
+    pub name: String,
+    pub alias: Option<String>,
+    pub region: Option<String>,
+    pub address: Option<String>,
+    pub location_type: String,
+    pub country_id: String,
+    pub parent_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateLocationRequest {
+    pub name: Option<String>,
+    pub alias: Option<Option<String>>,
+    pub region: Option<String>,
+    pub address: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParseLocationRequest {
+    pub input: String,
+}

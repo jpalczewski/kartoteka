@@ -7,6 +7,7 @@ pub use locale::Locale;
 pub(crate) mod deserializers;
 pub mod dto;
 pub mod models;
+pub use models::{Country, Location};
 pub mod types;
 pub(crate) mod validation;
 

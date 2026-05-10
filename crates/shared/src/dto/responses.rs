@@ -90,3 +90,11 @@ pub struct HomeData {
     #[serde(default)]
     pub root_lists: Vec<List>,
 }
+
+// ── Location responses ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParseLocationResponse {
+    pub location_id: String,
+    pub location: crate::models::Location,
+}
