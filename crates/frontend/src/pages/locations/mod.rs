@@ -1,404 +1,329 @@
-use kartoteka_shared::models::Location;
 use leptos::prelude::*;
-use leptos_fluent::{I18n, move_tr};
+use leptos_fluent::I18n;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::locations::{
-    create_location_sf, delete_location_sf, get_locations_sf, update_location_sf,
+    delete_location_sf, get_countries, get_locations_sf, parse_location_sf, update_location_sf,
 };
-const LOCATION_TYPES: &[&str] = &["country", "city", "address"];
+use kartoteka_shared::{Country, Location};
+
+// ── data grouping ─────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
-struct LocNode {
-    loc: Location,
-    children: Vec<LocNode>,
+struct CountryGroup {
+    country: Country,
+    cities: Vec<CityGroup>,
 }
 
-fn build_location_tree(locs: &[Location]) -> Vec<LocNode> {
-    fn collect(locs: &[Location], parent_id: Option<&str>) -> Vec<LocNode> {
-        locs.iter()
-            .filter(|l| {
-                LOCATION_TYPES.contains(&l.location_type.as_str())
-                    && l.parent_id.as_deref() == parent_id
-            })
-            .map(|l| LocNode {
-                loc: l.clone(),
-                children: collect(locs, Some(&l.id)),
-            })
-            .collect()
-    }
-    collect(locs, None)
+#[derive(Clone)]
+struct CityGroup {
+    city: Location,
+    addresses: Vec<Location>,
 }
+
+fn group_locations(countries: &[Country], locs: &[Location]) -> Vec<CountryGroup> {
+    let cities: Vec<&Location> = locs.iter().filter(|l| l.location_type == "city").collect();
+    let addresses: Vec<&Location> = locs
+        .iter()
+        .filter(|l| l.location_type == "address")
+        .collect();
+
+    let mut groups: Vec<CountryGroup> = countries
+        .iter()
+        .filter(|c| cities.iter().any(|l| l.country_id == c.id))
+        .map(|c| {
+            let city_groups = cities
+                .iter()
+                .filter(|l| l.country_id == c.id)
+                .map(|city| CityGroup {
+                    city: (*city).clone(),
+                    addresses: addresses
+                        .iter()
+                        .filter(|a| a.parent_id.as_deref() == Some(city.id.as_str()))
+                        .map(|a| (*a).clone())
+                        .collect(),
+                })
+                .collect();
+            CountryGroup {
+                country: c.clone(),
+                cities: city_groups,
+            }
+        })
+        .collect();
+
+    groups.sort_by(|a, b| a.country.iso_code.cmp(&b.country.iso_code));
+    groups
+}
+
+// ── page ──────────────────────────────────────────────────────────────────────
 
 #[component]
 pub fn LocationsPage() -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let i18n = expect_context::<I18n>();
     let (refresh, set_refresh) = signal(0u32);
+
+    let countries_res = Resource::new(|| (), |_| get_countries());
     let locs_res = Resource::new(move || refresh.get(), |_| get_locations_sf());
 
-    let (new_country, set_new_country) = signal(String::new());
+    let (parse_input, set_parse_input) = signal(String::new());
+    let (parsing, set_parsing) = signal(false);
 
-    let on_add_country = Callback::new(move |_: ()| {
-        let name = new_country.get_untracked();
-        if name.trim().is_empty() {
+    let on_parse = Callback::new(move |_: ()| {
+        let input = parse_input.get_untracked();
+        if input.trim().is_empty() || parsing.get_untracked() {
             return;
         }
-        set_new_country.set(String::new());
+        set_parsing.set(true);
         leptos::task::spawn_local(async move {
-            match create_location_sf(
-                name,
-                None,
-                None,
-                None,
-                "country".to_string(),
-                String::new(),
-                None,
-            )
-            .await
-            {
-                Ok(_) => set_refresh.update(|n| *n += 1),
+            match parse_location_sf(input).await {
+                Ok(_) => {
+                    set_parse_input.set(String::new());
+                    set_refresh.update(|n| *n += 1);
+                }
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
+            set_parsing.set(false);
         });
     });
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            <h2 class="text-2xl font-bold mb-4">{move_tr!("locations-title")}</h2>
+            <h2 class="text-2xl font-bold mb-4">"Lokalizacje"</h2>
 
+            // Parser input
             <div class="flex gap-2 mb-6">
                 <input
                     type="text"
                     class="input input-bordered flex-1"
-                    prop:placeholder=move_tr!("locations-country-placeholder")
-                    prop:value=move || new_country.get()
-                    on:input=move |ev| set_new_country.set(event_target_value(&ev))
+                    placeholder=i18n.tr("locations-parse-placeholder")
+                    prop:value=move || parse_input.get()
+                    prop:disabled=move || parsing.get()
+                    on:input=move |ev| set_parse_input.set(event_target_value(&ev))
                     on:keydown=move |ev| {
                         if ev.key() == "Enter" {
-                            on_add_country.run(());
+                            on_parse.run(());
                         }
                     }
                 />
                 <button
-                    type="button"
                     class="btn btn-primary"
-                    on:click=move |_| on_add_country.run(())
+                    prop:disabled=move || parsing.get()
+                    on:click=move |_| on_parse.run(())
                 >
-                    {move_tr!("locations-add-country")}
+                    {i18n.tr("locations-parse-add")}
                 </button>
             </div>
 
+            // Location tree grouped by country
             <Suspense fallback=|| view! { <LoadingSpinner/> }>
                 {move || {
-                    locs_res
-                        .get()
-                        .map(|result| match result {
-                            Err(e) => {
-                                view! {
-                                    <p class="text-error">
-                                        {move_tr!(
-                                            "locations-load-error",
-                                            {"detail" => e.to_string()}
-                                        )}
-                                    </p>
-                                }
-                                    .into_any()
-                            }
-                            Ok(locs) => {
-                                let tree = build_location_tree(&locs);
-                                if tree.is_empty() {
-                                    return view! {
-                                        <div class="text-center text-base-content/50 py-8">
-                                            {move_tr!("locations-empty")}
-                                        </div>
-                                    }
-                                        .into_any();
-                                }
-                                view! {
-                                    <div class="flex flex-col gap-1">
-                                        {tree
-                                            .into_iter()
-                                            .map(|node| {
-                                                view! {
-                                                    <LocationNode
-                                                        node=node
-                                                        depth=0
-                                                        on_refresh=Callback::new(move |_: ()| {
-                                                            set_refresh.update(|n| *n += 1)
-                                                        })
-                                                    />
-                                                }
-                                            })
-                                            .collect::<Vec<_>>()}
+                    let countries = countries_res.get();
+                    let locs = locs_res.get();
+                    match (countries, locs) {
+                        (Some(Ok(countries)), Some(Ok(locs))) => {
+                            let groups = group_locations(&countries, &locs);
+                            if groups.is_empty() {
+                                return view! {
+                                    <div class="text-center text-base-content/50 py-8">
+                                        {i18n.tr("locations-empty")}
                                     </div>
                                 }
-                                    .into_any()
+                                .into_any();
                             }
-                        })
+                            view! {
+                                <div class="flex flex-col gap-4">
+                                    {groups
+                                        .into_iter()
+                                        .map(|group| {
+                                            let country_name = i18n
+                                                .tr(&format!("country-{}", group.country.iso_code));
+                                            view! {
+                                                <CountrySection
+                                                    group=group
+                                                    country_name=country_name
+                                                    set_refresh=set_refresh
+                                                />
+                                            }
+                                        })
+                                        .collect_view()}
+                                </div>
+                            }
+                            .into_any()
+                        }
+                        (Some(Err(e)), _) | (_, Some(Err(e))) => {
+                            view! {
+                                <p class="text-error">
+                                    {format!("{}: {}", i18n.tr("locations-load-error"), e)}
+                                </p>
+                            }
+                            .into_any()
+                        }
+                        _ => view! { <LoadingSpinner/> }.into_any(),
+                    }
                 }}
             </Suspense>
         </div>
     }
 }
 
+// ── country section ───────────────────────────────────────────────────────────
+
 #[component]
-fn LocationNode(node: LocNode, depth: usize, on_refresh: Callback<()>) -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
+fn CountrySection(
+    group: CountryGroup,
+    country_name: String,
+    set_refresh: WriteSignal<u32>,
+) -> impl IntoView {
+    view! {
+        <div>
+            <h3 class="text-lg font-semibold text-base-content/70 mb-2 flex items-center gap-2">
+                <span class="badge badge-outline">{group.country.iso_code.clone()}</span>
+                {country_name}
+            </h3>
+            <div class="flex flex-col gap-1 ml-2">
+                {group
+                    .cities
+                    .into_iter()
+                    .map(|cg| {
+                        view! { <CityRow city_group=cg set_refresh=set_refresh /> }
+                    })
+                    .collect_view()}
+            </div>
+        </div>
+    }
+}
+
+// ── city row ──────────────────────────────────────────────────────────────────
+
+#[component]
+fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoView {
     let i18n = expect_context::<I18n>();
-    let loc = node.loc.clone();
-    let loc_id = loc.id.clone();
-    let loc_type = loc.location_type.clone();
+    let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let city = city_group.city.clone();
+    let city_id = city.id.clone();
 
-    let (show_add_child, set_show_add_child) = signal(false);
-    let (show_edit, set_show_edit) = signal(false);
+    let (editing, set_editing) = signal(false);
+    let (edit_name, set_edit_name) = signal(city.name.clone());
     let show_delete = RwSignal::new(false);
-    let (child_name, set_child_name) = signal(String::new());
-    let (child_address, set_child_address) = signal(String::new());
-    let (edit_name, set_edit_name) = signal(loc.name.clone());
-    let (edit_address, set_edit_address) = signal(loc.address.clone().unwrap_or_default());
 
-    let child_type: Option<&'static str> = match loc_type.as_str() {
-        "country" => Some("city"),
-        "city" => Some("address"),
-        _ => None,
-    };
-
-    let child_placeholder = i18n.tr(match child_type {
-        Some("city") => "locations-city-placeholder",
-        _ => "locations-alias-placeholder",
-    });
-    let add_child_label = i18n.tr(match child_type {
-        Some("city") => "locations-add-city",
-        _ => "locations-add-address",
-    });
-
-    let indent_class = match depth {
-        0 => "",
-        1 => "ml-4",
-        _ => "ml-8",
-    };
-
-    let on_add_child = {
-        let loc_id = loc_id.clone();
-        let country_id = loc.country_id.clone();
-        Callback::new(move |_: ()| {
-            let Some(ct) = child_type else { return };
-            let name = child_name.get_untracked();
-            if name.trim().is_empty() {
-                return;
-            }
-            let address = if ct == "address" {
-                let a = child_address.get_untracked();
-                if a.is_empty() { None } else { Some(a) }
-            } else {
-                None
-            };
-            set_child_name.set(String::new());
-            set_child_address.set(String::new());
-            set_show_add_child.set(false);
-            let parent_id = loc_id.clone();
-            let cid = country_id.clone();
-            leptos::task::spawn_local(async move {
-                match create_location_sf(
-                    name,
-                    None,
-                    None,
-                    address,
-                    ct.to_string(),
-                    cid,
-                    Some(parent_id),
-                )
-                .await
-                {
-                    Ok(_) => on_refresh.run(()),
-                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                }
-            });
-        })
-    };
-
-    let on_save_edit = {
-        let loc_id = loc_id.clone();
-        let is_address = loc_type == "address";
+    let on_save = {
+        let id = city_id.clone();
         Callback::new(move |_: ()| {
             let name = edit_name.get_untracked();
             if name.trim().is_empty() {
                 return;
             }
-            let (address, clear_address) = if is_address {
-                let addr = edit_address.get_untracked();
-                if addr.trim().is_empty() {
-                    (None, true)
-                } else {
-                    (Some(addr), false)
-                }
-            } else {
-                (None, false)
-            };
-            set_show_edit.set(false);
-            let id = loc_id.clone();
+            set_editing.set(false);
+            let id = id.clone();
             leptos::task::spawn_local(async move {
-                match update_location_sf(id, Some(name), None, false, None, address, clear_address)
-                    .await
-                {
-                    Ok(_) => on_refresh.run(()),
+                match update_location_sf(id, Some(name), None, false, None, None, false).await {
+                    Ok(_) => set_refresh.update(|n| *n += 1),
                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
                 }
             });
         })
     };
 
-    let on_delete_confirm = {
-        let loc_id = loc_id.clone();
+    let on_delete = {
+        let id = city_id.clone();
         Callback::new(move |_: ()| {
             show_delete.set(false);
-            let id = loc_id.clone();
+            let id = id.clone();
             leptos::task::spawn_local(async move {
                 match delete_location_sf(id).await {
-                    Ok(_) => on_refresh.run(()),
+                    Ok(_) => set_refresh.update(|n| *n += 1),
                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
                 }
             });
         })
     };
 
-    let formal_address = loc.address.clone();
-    let display_name = loc.name.clone();
-    let is_address_type = loc_type == "address";
+    let display_name = city.name.clone();
+    let region = city.region.clone();
 
     view! {
-        <div class=format!("card bg-base-200 p-2 mb-1 {}", indent_class)>
+        <div class="card bg-base-200 p-2">
             {move || {
-                if show_edit.get() {
+                if editing.get() {
                     view! {
-                        <div class="flex gap-2 items-center flex-wrap">
+                        <div class="flex gap-2 items-center">
                             <input
                                 type="text"
-                                class="input input-bordered input-sm flex-1 min-w-32"
+                                class="input input-bordered input-sm flex-1"
                                 prop:value=move || edit_name.get()
                                 on:input=move |ev| set_edit_name.set(event_target_value(&ev))
-                            />
-                            {if is_address_type {
-                                view! {
-                                    <input
-                                        type="text"
-                                        class="input input-bordered input-sm flex-1 min-w-32"
-                                        prop:placeholder=move_tr!(
-                                            "locations-formal-address-placeholder"
-                                        )
-                                        prop:value=move || edit_address.get()
-                                        on:input=move |ev| {
-                                            set_edit_address.set(event_target_value(&ev))
-                                        }
-                                    />
+                                on:keydown=move |ev| {
+                                    if ev.key() == "Enter" {
+                                        on_save.run(());
+                                    }
                                 }
-                                    .into_any()
-                            } else {
-                                view! {}.into_any()
-                            }}
+                            />
                             <button
                                 class="btn btn-sm btn-primary"
-                                on:click=move |_| on_save_edit.run(())
+                                on:click=move |_| on_save.run(())
                             >
-                                {move_tr!("locations-save")}
+                                {i18n.tr("locations-save")}
                             </button>
                             <button
                                 class="btn btn-sm btn-ghost"
-                                on:click=move |_| set_show_edit.set(false)
+                                on:click=move |_| set_editing.set(false)
                             >
-                                {move_tr!("locations-cancel")}
+                                {i18n.tr("locations-cancel")}
                             </button>
                         </div>
                     }
-                        .into_any()
+                    .into_any()
                 } else {
                     view! {
-                        <div class="flex gap-2 items-center">
-                            <span class="flex-1 font-medium">{display_name.clone()}</span>
-                            {formal_address
+                        <div class="flex items-center gap-2">
+                            <span class="font-medium">{display_name.clone()}</span>
+                            {region
                                 .as_ref()
-                                .map(|a| {
+                                .map(|r| {
                                     view! {
-                                        <span class="text-sm text-base-content/60">{a.clone()}</span>
+                                        <span class="text-sm text-base-content/50">{r.clone()}</span>
                                     }
                                 })}
-                            {if child_type.is_some() {
-                                view! {
-                                    <button
-                                        class="btn btn-xs btn-ghost"
-                                        on:click=move |_| {
-                                            set_show_add_child.update(|v| *v = !*v)
-                                        }
-                                    >
-                                        "+"
-                                    </button>
-                                }
-                                    .into_any()
-                            } else {
-                                view! {}.into_any()
-                            }}
-                            <button
-                                class="btn btn-xs btn-ghost"
-                                on:click=move |_| set_show_edit.set(true)
-                            >
-                                "✎"
-                            </button>
-                            <button
-                                class="btn btn-xs btn-ghost text-error"
-                                on:click=move |_| show_delete.set(true)
-                            >
-                                "✕"
-                            </button>
+                            <div class="ml-auto flex gap-1">
+                                <button
+                                    class="btn btn-xs btn-ghost"
+                                    on:click=move |_| set_editing.set(true)
+                                >
+                                    "✎"
+                                </button>
+                                <button
+                                    class="btn btn-xs btn-ghost text-error"
+                                    on:click=move |_| show_delete.set(true)
+                                >
+                                    "✕"
+                                </button>
+                            </div>
                         </div>
                     }
-                        .into_any()
+                    .into_any()
                 }
             }}
 
-            <Show when=move || show_add_child.get()>
-                <div class="flex gap-2 mt-2 ml-4 flex-wrap">
-                    <input
-                        type="text"
-                        class="input input-bordered input-sm flex-1 min-w-32"
-                        prop:placeholder=child_placeholder.clone()
-                        prop:value=move || child_name.get()
-                        on:input=move |ev| set_child_name.set(event_target_value(&ev))
-                        on:keydown=move |ev| {
-                            if ev.key() == "Enter" {
-                                on_add_child.run(());
-                            }
-                        }
-                    />
-                    {if child_type == Some("address") {
-                        view! {
-                            <input
-                                type="text"
-                                class="input input-bordered input-sm flex-1 min-w-32"
-                                prop:placeholder=move_tr!("locations-formal-address-placeholder")
-                                prop:value=move || child_address.get()
-                                on:input=move |ev| set_child_address.set(event_target_value(&ev))
-                            />
-                        }
-                            .into_any()
-                    } else {
-                        view! {}.into_any()
-                    }}
-                    <button
-                        class="btn btn-sm btn-primary"
-                        on:click=move |_| on_add_child.run(())
-                    >
-                        {add_child_label.clone()}
-                    </button>
-                    <button
-                        class="btn btn-sm btn-ghost"
-                        on:click=move |_| set_show_add_child.set(false)
-                    >
-                        {move_tr!("locations-cancel")}
-                    </button>
-                </div>
-            </Show>
+            // Addresses under city
+            {if !city_group.addresses.is_empty() {
+                view! {
+                    <div class="flex flex-col gap-1 mt-1 ml-4">
+                        {city_group
+                            .addresses
+                            .into_iter()
+                            .map(|addr| {
+                                view! { <AddressRow addr=addr set_refresh=set_refresh /> }
+                            })
+                            .collect_view()}
+                    </div>
+                }
+                .into_any()
+            } else {
+                view! {}.into_any()
+            }}
 
             <ConfirmModal
                 open=Signal::from(show_delete)
@@ -406,20 +331,118 @@ fn LocationNode(node: LocNode, depth: usize, on_refresh: Callback<()>) -> impl I
                 message=i18n.tr("locations-delete-confirm")
                 confirm_label=i18n.tr("common-delete")
                 variant=ConfirmVariant::Danger
-                on_confirm=on_delete_confirm
+                on_confirm=on_delete
                 on_close=Callback::new(move |_: ()| show_delete.set(false))
             />
-
-            {node
-                .children
-                .into_iter()
-                .map(|child| {
-                    view! {
-                        <LocationNode node=child depth=depth + 1 on_refresh=on_refresh/>
-                    }
-                })
-                .collect_view()}
         </div>
     }
-    .into_any()
+}
+
+// ── address row ───────────────────────────────────────────────────────────────
+
+#[component]
+fn AddressRow(addr: Location, set_refresh: WriteSignal<u32>) -> impl IntoView {
+    let i18n = expect_context::<I18n>();
+    let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let addr_id = addr.id.clone();
+
+    let (editing, set_editing) = signal(false);
+    let (edit_name, set_edit_name) = signal(addr.name.clone());
+    let show_delete = RwSignal::new(false);
+
+    let on_save = {
+        let id = addr_id.clone();
+        Callback::new(move |_: ()| {
+            let name = edit_name.get_untracked();
+            if name.trim().is_empty() {
+                return;
+            }
+            set_editing.set(false);
+            let id = id.clone();
+            leptos::task::spawn_local(async move {
+                match update_location_sf(id, Some(name), None, false, None, None, false).await {
+                    Ok(_) => set_refresh.update(|n| *n += 1),
+                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                }
+            });
+        })
+    };
+
+    let on_delete = {
+        let id = addr_id.clone();
+        Callback::new(move |_: ()| {
+            show_delete.set(false);
+            let id = id.clone();
+            leptos::task::spawn_local(async move {
+                match delete_location_sf(id).await {
+                    Ok(_) => set_refresh.update(|n| *n += 1),
+                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                }
+            });
+        })
+    };
+
+    let display_name = addr.name.clone();
+
+    view! {
+        <div class="flex items-center gap-2 py-1 px-2 rounded bg-base-100">
+            {move || {
+                if editing.get() {
+                    view! {
+                        <input
+                            type="text"
+                            class="input input-bordered input-xs flex-1"
+                            prop:value=move || edit_name.get()
+                            on:input=move |ev| set_edit_name.set(event_target_value(&ev))
+                            on:keydown=move |ev| {
+                                if ev.key() == "Enter" {
+                                    on_save.run(());
+                                }
+                            }
+                        />
+                        <button
+                            class="btn btn-xs btn-primary"
+                            on:click=move |_| on_save.run(())
+                        >
+                            {i18n.tr("locations-save")}
+                        </button>
+                        <button
+                            class="btn btn-xs btn-ghost"
+                            on:click=move |_| set_editing.set(false)
+                        >
+                            {i18n.tr("locations-cancel")}
+                        </button>
+                    }
+                    .into_any()
+                } else {
+                    view! {
+                        <span class="text-sm flex-1">{display_name.clone()}</span>
+                        <button
+                            class="btn btn-xs btn-ghost"
+                            on:click=move |_| set_editing.set(true)
+                        >
+                            "✎"
+                        </button>
+                        <button
+                            class="btn btn-xs btn-ghost text-error"
+                            on:click=move |_| show_delete.set(true)
+                        >
+                            "✕"
+                        </button>
+                    }
+                    .into_any()
+                }
+            }}
+
+            <ConfirmModal
+                open=Signal::from(show_delete)
+                title=i18n.tr("locations-delete-title")
+                message=i18n.tr("locations-delete-confirm")
+                confirm_label=i18n.tr("common-delete")
+                variant=ConfirmVariant::Danger
+                on_confirm=on_delete
+                on_close=Callback::new(move |_: ()| show_delete.set(false))
+            />
+        </div>
+    }
 }
