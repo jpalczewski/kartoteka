@@ -207,6 +207,8 @@ fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoVie
 
     let (editing, set_editing) = signal(false);
     let (edit_name, set_edit_name) = signal(city.name.clone());
+    let (editing_alias, set_editing_alias) = signal(false);
+    let (edit_alias, set_edit_alias) = signal(city.alias.clone().unwrap_or_default());
     let show_delete = RwSignal::new(false);
 
     let on_save = {
@@ -222,6 +224,43 @@ fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoVie
                 match update_location_sf(id, Some(name), None, false, None, None, false).await {
                     Ok(_) => set_refresh.update(|n| *n += 1),
                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                }
+            });
+        })
+    };
+
+    let on_save_alias = {
+        let id = city_id.clone();
+        let toast2 = toast.clone();
+        Callback::new(move |_: ()| {
+            let alias = edit_alias.get_untracked();
+            set_editing_alias.set(false);
+            let id = id.clone();
+            let toast2 = toast2.clone();
+            leptos::task::spawn_local(async move {
+                let result = if alias.trim().is_empty() {
+                    update_location_sf(id, None, None, true, None, None, false).await
+                } else {
+                    update_location_sf(id, None, Some(alias), false, None, None, false).await
+                };
+                match result {
+                    Ok(_) => set_refresh.update(|n| *n += 1),
+                    Err(e) => toast2.push(e.to_string(), ToastKind::Error),
+                }
+            });
+        })
+    };
+
+    let on_clear_alias = {
+        let id = city_id.clone();
+        let toast2 = toast.clone();
+        Callback::new(move |_: ()| {
+            let id = id.clone();
+            let toast2 = toast2.clone();
+            leptos::task::spawn_local(async move {
+                match update_location_sf(id, None, None, true, None, None, false).await {
+                    Ok(_) => set_refresh.update(|n| *n += 1),
+                    Err(e) => toast2.push(e.to_string(), ToastKind::Error),
                 }
             });
         })
@@ -243,6 +282,7 @@ fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoVie
 
     let display_name = city.name.clone();
     let region = city.region.clone();
+    let alias_store = StoredValue::new(city.alias.clone());
 
     view! {
         <div class="card bg-base-200 p-2">
@@ -276,9 +316,43 @@ fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoVie
                         </div>
                     }
                     .into_any()
-                } else {
+                } else if editing_alias.get() {
                     view! {
-                        <div class="flex items-center gap-2">
+                        <div class="flex gap-2 items-center">
+                            <span class="font-medium text-sm">{display_name.clone()}</span>
+                            <input
+                                type="text"
+                                class="input input-bordered input-xs flex-1"
+                                placeholder=i18n.tr("locations-alias-placeholder")
+                                prop:value=move || edit_alias.get()
+                                on:input=move |ev| set_edit_alias.set(event_target_value(&ev))
+                                on:keydown=move |ev| {
+                                    match ev.key().as_str() {
+                                        "Enter" => on_save_alias.run(()),
+                                        "Escape" => set_editing_alias.set(false),
+                                        _ => {}
+                                    }
+                                }
+                            />
+                            <button
+                                class="btn btn-xs btn-primary"
+                                on:click=move |_| on_save_alias.run(())
+                            >
+                                {i18n.tr("locations-save")}
+                            </button>
+                            <button
+                                class="btn btn-xs btn-ghost"
+                                on:click=move |_| set_editing_alias.set(false)
+                            >
+                                {i18n.tr("locations-cancel")}
+                            </button>
+                        </div>
+                    }
+                    .into_any()
+                } else {
+                    let alias = alias_store.get_value();
+                    view! {
+                        <div class="flex items-center gap-2 flex-wrap">
                             <span class="font-medium">{display_name.clone()}</span>
                             {region
                                 .as_ref()
@@ -287,6 +361,14 @@ fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoVie
                                         <span class="text-sm text-base-content/50">{r.clone()}</span>
                                     }
                                 })}
+                            <AliasBadge
+                                alias=alias.clone()
+                                on_edit=Callback::new(move |_: ()| {
+                                    set_edit_alias.set(alias.clone().unwrap_or_default());
+                                    set_editing_alias.set(true);
+                                })
+                                on_clear=on_clear_alias
+                            />
                             <div class="ml-auto flex gap-1">
                                 <button
                                     class="btn btn-xs btn-ghost"
@@ -348,10 +430,13 @@ fn AddressRow(addr: Location, set_refresh: WriteSignal<u32>) -> impl IntoView {
 
     let (editing, set_editing) = signal(false);
     let (edit_name, set_edit_name) = signal(addr.name.clone());
+    let (editing_alias, set_editing_alias) = signal(false);
+    let (edit_alias, set_edit_alias) = signal(addr.alias.clone().unwrap_or_default());
     let show_delete = RwSignal::new(false);
 
     let on_save = {
         let id = addr_id.clone();
+        let toast2 = toast.clone();
         Callback::new(move |_: ()| {
             let name = edit_name.get_untracked();
             if name.trim().is_empty() {
@@ -359,10 +444,48 @@ fn AddressRow(addr: Location, set_refresh: WriteSignal<u32>) -> impl IntoView {
             }
             set_editing.set(false);
             let id = id.clone();
+            let toast2 = toast2.clone();
             leptos::task::spawn_local(async move {
                 match update_location_sf(id, Some(name), None, false, None, None, false).await {
                     Ok(_) => set_refresh.update(|n| *n += 1),
-                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                    Err(e) => toast2.push(e.to_string(), ToastKind::Error),
+                }
+            });
+        })
+    };
+
+    let on_save_alias = {
+        let id = addr_id.clone();
+        let toast2 = toast.clone();
+        Callback::new(move |_: ()| {
+            let alias = edit_alias.get_untracked();
+            set_editing_alias.set(false);
+            let id = id.clone();
+            let toast2 = toast2.clone();
+            leptos::task::spawn_local(async move {
+                let result = if alias.trim().is_empty() {
+                    update_location_sf(id, None, None, true, None, None, false).await
+                } else {
+                    update_location_sf(id, None, Some(alias), false, None, None, false).await
+                };
+                match result {
+                    Ok(_) => set_refresh.update(|n| *n += 1),
+                    Err(e) => toast2.push(e.to_string(), ToastKind::Error),
+                }
+            });
+        })
+    };
+
+    let on_clear_alias = {
+        let id = addr_id.clone();
+        let toast2 = toast.clone();
+        Callback::new(move |_: ()| {
+            let id = id.clone();
+            let toast2 = toast2.clone();
+            leptos::task::spawn_local(async move {
+                match update_location_sf(id, None, None, true, None, None, false).await {
+                    Ok(_) => set_refresh.update(|n| *n += 1),
+                    Err(e) => toast2.push(e.to_string(), ToastKind::Error),
                 }
             });
         })
@@ -383,9 +506,10 @@ fn AddressRow(addr: Location, set_refresh: WriteSignal<u32>) -> impl IntoView {
     };
 
     let display_name = addr.name.clone();
+    let alias_store = StoredValue::new(addr.alias.clone());
 
     view! {
-        <div class="flex items-center gap-2 py-1 px-2 rounded bg-base-100">
+        <div class="flex items-center gap-2 py-1 px-2 rounded bg-base-100 flex-wrap">
             {move || {
                 if editing.get() {
                     view! {
@@ -414,9 +538,49 @@ fn AddressRow(addr: Location, set_refresh: WriteSignal<u32>) -> impl IntoView {
                         </button>
                     }
                     .into_any()
+                } else if editing_alias.get() {
+                    view! {
+                        <span class="text-sm">{display_name.clone()}</span>
+                        <input
+                            type="text"
+                            class="input input-bordered input-xs flex-1"
+                            placeholder=i18n.tr("locations-alias-placeholder")
+                            prop:value=move || edit_alias.get()
+                            on:input=move |ev| set_edit_alias.set(event_target_value(&ev))
+                            on:keydown=move |ev| {
+                                match ev.key().as_str() {
+                                    "Enter" => on_save_alias.run(()),
+                                    "Escape" => set_editing_alias.set(false),
+                                    _ => {}
+                                }
+                            }
+                        />
+                        <button
+                            class="btn btn-xs btn-primary"
+                            on:click=move |_| on_save_alias.run(())
+                        >
+                            {i18n.tr("locations-save")}
+                        </button>
+                        <button
+                            class="btn btn-xs btn-ghost"
+                            on:click=move |_| set_editing_alias.set(false)
+                        >
+                            {i18n.tr("locations-cancel")}
+                        </button>
+                    }
+                    .into_any()
                 } else {
+                    let alias = alias_store.get_value();
                     view! {
                         <span class="text-sm flex-1">{display_name.clone()}</span>
+                        <AliasBadge
+                            alias=alias.clone()
+                            on_edit=Callback::new(move |_: ()| {
+                                set_edit_alias.set(alias.clone().unwrap_or_default());
+                                set_editing_alias.set(true);
+                            })
+                            on_clear=on_clear_alias
+                        />
                         <button
                             class="btn btn-xs btn-ghost"
                             on:click=move |_| set_editing.set(true)
@@ -444,5 +608,46 @@ fn AddressRow(addr: Location, set_refresh: WriteSignal<u32>) -> impl IntoView {
                 on_close=Callback::new(move |_: ()| show_delete.set(false))
             />
         </div>
+    }
+}
+
+// ── alias badge ───────────────────────────────────────────────────────────────
+
+#[component]
+fn AliasBadge(
+    alias: Option<String>,
+    on_edit: Callback<()>,
+    on_clear: Callback<()>,
+) -> impl IntoView {
+    match alias {
+        Some(a) => view! {
+            <span class="inline-flex items-center gap-1 badge badge-ghost badge-sm">
+                <button
+                    type="button"
+                    class="hover:underline"
+                    on:click=move |_| on_edit.run(())
+                >
+                    {a}
+                </button>
+                <button
+                    type="button"
+                    class="leading-none opacity-50 hover:opacity-100"
+                    on:click=move |_| on_clear.run(())
+                >
+                    "x"
+                </button>
+            </span>
+        }
+        .into_any(),
+        None => view! {
+            <button
+                type="button"
+                class="btn btn-xs btn-ghost opacity-40 hover:opacity-100"
+                on:click=move |_| on_edit.run(())
+            >
+                "+alias"
+            </button>
+        }
+        .into_any(),
     }
 }
