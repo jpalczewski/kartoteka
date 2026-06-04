@@ -5,6 +5,7 @@ use leptos_router::hooks::{use_navigate, use_params_map};
 use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::CommentSection;
 use crate::components::common::breadcrumbs::Breadcrumbs;
+use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::dnd::{DetachDropZone, ReorderDropTarget};
 use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
@@ -32,6 +33,7 @@ fn container_status_icon(status: Option<&str>) -> &'static str {
 #[component]
 pub fn ContainerPage() -> impl IntoView {
     let i18n = expect_context::<I18n>();
+    let (confirm_delete_self, set_confirm_delete_self) = signal(false);
     let params = use_params_map();
     let container_id = Signal::derive(move || params.read().get("id").unwrap_or_default());
     let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
@@ -269,7 +271,11 @@ pub fn ContainerPage() -> impl IntoView {
                             })
                         };
 
-                        let on_delete_self = Callback::new(move |_: ()| {
+                        let on_request_delete_self = Callback::new(move |_: ()| {
+                            set_confirm_delete_self.set(true);
+                        });
+
+                        let on_delete_self_confirmed = Callback::new(move |_: ()| {
                             let id = cid_for_delete.clone();
                             leptos::task::spawn_local(async move {
                                 match delete_container(id).await {
@@ -281,6 +287,19 @@ pub fn ContainerPage() -> impl IntoView {
 
                         view! {
                             <div class="flex flex-col gap-6">
+                                <ConfirmModal
+                                    open=Signal::derive(move || confirm_delete_self.get())
+                                    title="Usuń kontener".to_string()
+                                    message="Czy na pewno chcesz usunąć ten kontener? Tej operacji nie można cofnąć.".to_string()
+                                    confirm_label="Usuń".to_string()
+                                    variant=ConfirmVariant::Danger
+                                    on_confirm=Callback::new(move |_| {
+                                        set_confirm_delete_self.set(false);
+                                        on_delete_self_confirmed.run(());
+                                    })
+                                    on_close=Callback::new(move |_| set_confirm_delete_self.set(false))
+                                />
+
                                 <DetachDropZone
                                     dnd_state=dnd_state
                                     visible=detach_visible
@@ -339,7 +358,7 @@ pub fn ContainerPage() -> impl IntoView {
                                             type="button"
                                             class="btn btn-ghost btn-sm text-error"
                                             title="Usuń kontener"
-                                            on:click=move |_| on_delete_self.run(())
+                                            on:click=move |_| on_request_delete_self.run(())
                                         >
                                             {"✕"}
                                         </button>
