@@ -16,8 +16,8 @@ use crate::context::GlobalRefresh;
 use crate::pages::landing::LandingPage;
 use crate::server_fns::auth::get_auth_status;
 use crate::server_fns::{
-    containers::{create_container, delete_container, toggle_container_pin},
-    home::{get_archived_lists, get_home_data},
+    containers::{archive_container, create_container, delete_container, toggle_container_pin},
+    home::{get_archived_containers, get_archived_lists, get_home_data},
     lists::{archive_list, create_list, delete_list},
     tags::{assign_tag_to_list, get_all_tags, get_list_tag_links, remove_tag_from_list},
 };
@@ -63,6 +63,10 @@ fn HomeContent() -> impl IntoView {
     let archived_res = Resource::new(
         move || (refresh.get(), global_refresh.get()),
         |_| get_archived_lists(),
+    );
+    let archived_containers_res = Resource::new(
+        move || (refresh.get(), global_refresh.get()),
+        |_| get_archived_containers(),
     );
     let tags_res = Resource::new(|| (), |_| get_all_tags());
     let tag_links_res = Resource::new(
@@ -158,6 +162,22 @@ fn HomeContent() -> impl IntoView {
             }
         });
     });
+
+    let on_restore_container = {
+        let msg_restored = i18n.tr("home-container-restored");
+        Callback::new(move |container_id: String| {
+            let msg = msg_restored.clone();
+            leptos::task::spawn_local(async move {
+                match archive_container(container_id).await {
+                    Ok(_) => {
+                        set_refresh.update(|n| *n += 1);
+                        toast.push(msg, ToastKind::Success);
+                    }
+                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                }
+            });
+        })
+    };
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
@@ -285,41 +305,58 @@ fn HomeContent() -> impl IntoView {
 
             // Archived section
             <Transition fallback=|| view! {}>
-                {move || archived_res.get().map(|result| match result {
-                    Ok(archived) if !archived.is_empty() => {
-                        let count = archived.len();
-                        view! {
-                            <div class="collapse collapse-arrow bg-base-200 mt-6">
-                                <input type="checkbox" />
-                                <div class="collapse-title font-semibold">
-                                    {move_tr!("home-archive", { "count" => count })}
-                                </div>
-                                <div class="collapse-content">
-                                    <div class="flex flex-col gap-2 pt-2">
-                                        {archived.into_iter().map(|list| {
-                                            let lid = list.id.clone();
-                                            view! {
-                                                <div class="flex items-center justify-between p-3 bg-base-100 rounded-lg">
-                                                    <span class="text-base-content/70">
-                                                        {list.name.clone()}
-                                                    </span>
-                                                    <button
-                                                        type="button"
-                                                        class="btn btn-ghost btn-sm"
-                                                        on:click=move |_| on_restore_list.run(lid.clone())
-                                                    >
-                                                        {move_tr!("home-restore-button")}
-                                                    </button>
-                                                </div>
-                                            }
-                                        }).collect::<Vec<_>>()}
-                                    </div>
+                {move || {
+                    let lists = archived_res.get().and_then(|r| r.ok()).unwrap_or_default();
+                    let containers = archived_containers_res.get().and_then(|r| r.ok()).unwrap_or_default();
+                    let total = lists.len() + containers.len();
+                    if total == 0 {
+                        return view! {}.into_any();
+                    }
+                    view! {
+                        <div class="collapse collapse-arrow bg-base-200 mt-6">
+                            <input type="checkbox" />
+                            <div class="collapse-title font-semibold">
+                                {move_tr!("home-archive", { "count" => total })}
+                            </div>
+                            <div class="collapse-content">
+                                <div class="flex flex-col gap-2 pt-2">
+                                    {containers.into_iter().map(|c| {
+                                        let cid = c.id.clone();
+                                        view! {
+                                            <div class="flex items-center justify-between p-3 bg-base-100 rounded-lg">
+                                                <span class="text-base-content/70">{"📁 "}{c.name.clone()}</span>
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-ghost btn-sm"
+                                                    on:click=move |_| on_restore_container.run(cid.clone())
+                                                >
+                                                    {move_tr!("home-restore-button")}
+                                                </button>
+                                            </div>
+                                        }
+                                    }).collect::<Vec<_>>()}
+                                    {lists.into_iter().map(|list| {
+                                        let lid = list.id.clone();
+                                        view! {
+                                            <div class="flex items-center justify-between p-3 bg-base-100 rounded-lg">
+                                                <span class="text-base-content/70">
+                                                    {list.name.clone()}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-ghost btn-sm"
+                                                    on:click=move |_| on_restore_list.run(lid.clone())
+                                                >
+                                                    {move_tr!("home-restore-button")}
+                                                </button>
+                                            </div>
+                                        }
+                                    }).collect::<Vec<_>>()}
                                 </div>
                             </div>
-                        }.into_any()
-                    }
-                    _ => view! {}.into_any(),
-                })}
+                        </div>
+                    }.into_any()
+                }}
             </Transition>
         </div>
     }
