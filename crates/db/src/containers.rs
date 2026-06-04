@@ -756,35 +756,80 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn toggle_archived_flips_container() {
+    async fn toggle_archived_flips_and_cascades() {
+        use crate::lists as db_lists;
+
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let c = create_test_container(&pool, &uid, "A", None).await;
-        assert!(!c.archived);
 
-        let affected = toggle_archived(&pool, &c.id, &uid).await.unwrap();
+        // parent → child hierarchy
+        let parent = create_test_container(&pool, &uid, "Parent", None).await;
+        let child = create_test_container(&pool, &uid, "Child", Some(&parent.id)).await;
+
+        // list attached to the child container
+        let list_id = uuid::Uuid::new_v4().to_string();
+        let mut tx = pool.begin().await.unwrap();
+        db_lists::insert(
+            &mut tx,
+            &db_lists::InsertListInput {
+                id: list_id.clone(),
+                user_id: uid.clone(),
+                name: "MyList".into(),
+                list_type: "checklist".into(),
+                container_id: Some(child.id.clone()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        // archive parent — should cascade to child and list
+        let affected = toggle_archived(&pool, &parent.id, &uid).await.unwrap();
         assert!(affected);
 
-        let after = get_one(&pool, &c.id, &uid).await.unwrap().unwrap();
-        assert!(after.archived);
+        let after_parent = get_one(&pool, &parent.id, &uid).await.unwrap().unwrap();
+        assert!(after_parent.archived);
 
-        let affected2 = toggle_archived(&pool, &c.id, &uid).await.unwrap();
-        assert!(affected2);
-        let after2 = get_one(&pool, &c.id, &uid).await.unwrap().unwrap();
-        assert!(!after2.archived);
+        let after_child = get_one(&pool, &child.id, &uid).await.unwrap().unwrap();
+        assert!(after_child.archived, "child should be archived by cascade");
+
+        let after_list = db_lists::get_one(&pool, &list_id, &uid)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            after_list.archived != 0,
+            "list should be archived by cascade"
+        );
+
+        // restore parent — cascade back
+        toggle_archived(&pool, &parent.id, &uid).await.unwrap();
+        let restored_child = get_one(&pool, &child.id, &uid).await.unwrap().unwrap();
+        assert!(
+            !restored_child.archived,
+            "child should be restored by cascade"
+        );
     }
 
     #[tokio::test]
-    async fn list_archived_returns_root_archived_only() {
+    async fn list_archived_returns_root_only_not_cascaded_children() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let a = create_test_container(&pool, &uid, "A", None).await;
-        create_test_container(&pool, &uid, "B", None).await;
 
-        toggle_archived(&pool, &a.id, &uid).await.unwrap();
+        let parent = create_test_container(&pool, &uid, "Parent", None).await;
+        let _child = create_test_container(&pool, &uid, "Child", Some(&parent.id)).await;
 
+        // archive parent — cascades to child
+        toggle_archived(&pool, &parent.id, &uid).await.unwrap();
+
+        // list_archived should return ONLY the parent (root of archived subtree)
         let archived = list_archived(&pool, &uid).await.unwrap();
-        assert_eq!(archived.len(), 1);
-        assert_eq!(archived[0].id, a.id);
+        assert_eq!(
+            archived.len(),
+            1,
+            "should return only root of archived subtree, not cascaded children"
+        );
+        assert_eq!(archived[0].id, parent.id);
     }
 }
