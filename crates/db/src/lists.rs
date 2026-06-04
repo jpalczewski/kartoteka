@@ -18,6 +18,7 @@ pub struct ListRow {
     pub container_id: Option<String>,
     pub pinned: i64,
     pub last_opened_at: Option<String>,
+    pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub features: String,
@@ -313,15 +314,21 @@ pub async fn set_features(
 
 // ── Write queries (no transaction needed) ────────────────────────────────────
 
+#[derive(Debug)]
+pub struct UpdateListInput {
+    pub name: Option<String>,
+    pub icon: Option<Option<String>>,
+    pub description: Option<Option<String>>,
+    pub list_type: Option<String>,
+    pub location_id: Option<Option<String>>,
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn update(
     pool: &SqlitePool,
     id: &str,
     user_id: &str,
-    name: Option<&str>,
-    icon: Option<Option<&str>>,
-    description: Option<Option<&str>>,
-    list_type: Option<&str>,
+    input: &UpdateListInput,
 ) -> Result<bool, DbError> {
     let rows = sqlx::query(
         "UPDATE lists \
@@ -329,15 +336,18 @@ pub async fn update(
              icon = CASE WHEN ? = 1 THEN ? ELSE icon END, \
              description = CASE WHEN ? = 1 THEN ? ELSE description END, \
              list_type = COALESCE(?, list_type), \
+             location_id = CASE WHEN ? = 1 THEN ? ELSE location_id END, \
              updated_at = datetime('now') \
          WHERE id = ? AND user_id = ?",
     )
-    .bind(name)
-    .bind(icon.is_some() as i32)
-    .bind(icon.and_then(|v| v))
-    .bind(description.is_some() as i32)
-    .bind(description.and_then(|v| v))
-    .bind(list_type)
+    .bind(input.name.as_deref())
+    .bind(input.icon.is_some() as i32)
+    .bind(input.icon.as_ref().and_then(|v| v.as_deref()))
+    .bind(input.description.is_some() as i32)
+    .bind(input.description.as_ref().and_then(|v| v.as_deref()))
+    .bind(input.list_type.as_deref())
+    .bind(input.location_id.is_some() as i32)
+    .bind(input.location_id.as_ref().and_then(|v| v.as_deref()))
     .bind(id)
     .bind(user_id)
     .execute(pool)

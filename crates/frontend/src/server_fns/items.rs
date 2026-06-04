@@ -34,6 +34,7 @@ pub(crate) fn domain_item_to_shared(item: domain::items::Item) -> Item {
         deadline_time: item.deadline_time,
         hard_deadline: item.hard_deadline,
         estimated_duration: item.estimated_duration,
+        location_id: item.location_id,
         created_at: item.created_at,
         updated_at: item.updated_at,
     }
@@ -346,6 +347,7 @@ pub async fn update_actual_quantity(
         deadline_time: None,
         hard_deadline: None,
         estimated_duration: None,
+        location_id: None,
     };
     let item = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
@@ -388,6 +390,7 @@ pub async fn update_item_quantity(
         deadline_time: None,
         hard_deadline: None,
         estimated_duration: None,
+        location_id: None,
     };
     let item = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
@@ -443,6 +446,7 @@ pub async fn update_item_description(
         deadline_time: None,
         hard_deadline: None,
         estimated_duration: None,
+        location_id: None,
     };
     let item = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
@@ -485,6 +489,7 @@ pub async fn update_item_dates(
         deadline_time: to_field(deadline_time),
         hard_deadline: to_field(hard_deadline),
         estimated_duration: None,
+        location_id: None,
     };
     let item = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
@@ -528,6 +533,7 @@ pub async fn update_item(
         deadline_time: None,
         hard_deadline: None,
         estimated_duration: None,
+        location_id: None,
     };
     let item = domain::items::update(&pool, &user.id, &item_id, &req)
         .await

@@ -90,6 +90,7 @@ pub async fn rename_list(
         icon: None,
         description: description.map(|d| if d.trim().is_empty() { None } else { Some(d) }),
         list_type: None,
+        location_id: None,
     };
     let list = domain::lists::update(&pool, &id, &user.id, &req)
         .await

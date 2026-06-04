@@ -15,6 +15,7 @@ fn row_to_container(r: kartoteka_db::types::ContainerRow) -> Container {
         position: r.position,
         pinned: r.pinned,
         last_opened_at: r.last_opened_at,
+        location_id: r.location_id,
         created_at: r.created_at,
         updated_at: r.updated_at,
     }
@@ -35,6 +36,7 @@ fn row_to_list(r: kartoteka_db::lists::ListRow) -> Result<List, DomainError> {
         container_id: r.container_id,
         pinned: r.pinned != 0,
         last_opened_at: r.last_opened_at,
+        location_id: r.location_id,
         created_at: r.created_at,
         updated_at: r.updated_at,
         features,

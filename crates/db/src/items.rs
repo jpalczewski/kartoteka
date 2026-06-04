@@ -35,6 +35,7 @@ pub struct UpdateItemInput {
     pub deadline_time: Option<Option<String>>,
     pub hard_deadline: Option<Option<String>>,
     pub estimated_duration: Option<Option<i32>>,
+    pub location_id: Option<Option<String>>,
 }
 
 // ── Column list constant ──────────────────────────────────────────────────────
@@ -42,7 +43,7 @@ pub struct UpdateItemInput {
 const ITEM_COLUMNS: &str = "i.id, i.list_id, i.title, i.description, i.completed, i.position, \
      i.quantity, i.actual_quantity, i.unit, i.start_date, i.start_time, \
      i.deadline, i.deadline_time, i.hard_deadline, i.estimated_duration, \
-     i.created_at, i.updated_at";
+     i.location_id, i.created_at, i.updated_at";
 
 // ── Read queries ──────────────────────────────────────────────────────────────
 
@@ -198,7 +199,7 @@ pub async fn insert(pool: &SqlitePool, input: &InsertItemInput) -> Result<ItemRo
          RETURNING id, list_id, title, description, completed, position, \
                    quantity, actual_quantity, unit, start_date, start_time, \
                    deadline, deadline_time, hard_deadline, estimated_duration, \
-                   created_at, updated_at",
+                   location_id, created_at, updated_at",
     )
     .bind(&input.id)
     .bind(&input.list_id)
@@ -311,6 +312,7 @@ pub async fn update(
             deadline_time = CASE WHEN ? = 1 THEN ? ELSE deadline_time END, \
             hard_deadline = CASE WHEN ? = 1 THEN ? ELSE hard_deadline END, \
             estimated_duration = CASE WHEN ? = 1 THEN ? ELSE estimated_duration END, \
+            location_id = CASE WHEN ? = 1 THEN ? ELSE location_id END, \
             updated_at = datetime('now') \
          WHERE id = ? AND list_id IN (SELECT id FROM lists WHERE user_id = ?)",
     )
@@ -336,6 +338,8 @@ pub async fn update(
     .bind(input.hard_deadline.as_ref().and_then(|v| v.as_deref()))
     .bind(input.estimated_duration.is_some() as i32)
     .bind(input.estimated_duration.and_then(|v| v))
+    .bind(input.location_id.is_some() as i32)
+    .bind(input.location_id.as_ref().and_then(|v| v.as_deref()))
     .bind(id)
     .bind(user_id)
     .execute(pool)
@@ -646,6 +650,7 @@ mod tests {
                 deadline_time: None,
                 hard_deadline: None,
                 estimated_duration: None,
+                location_id: None,
             },
         )
         .await
@@ -696,6 +701,7 @@ mod tests {
                 deadline_time: None,
                 hard_deadline: None,
                 estimated_duration: None,
+                location_id: None,
             },
         )
         .await

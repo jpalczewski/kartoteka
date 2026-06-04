@@ -58,6 +58,7 @@ pub async fn rename_container(
         description: Some(description),
         icon: None,
         status: None,
+        location_id: None,
     };
     domain::containers::update(&pool, &id, &user.id, &req)
         .await

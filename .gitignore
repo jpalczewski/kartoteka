@@ -59,5 +59,6 @@ data.db-wal
 # Test results
 test-results/
 tests/test-results-debug/
+*.log
 
 CLAUDE.local.md

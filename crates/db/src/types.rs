@@ -93,6 +93,7 @@ pub struct ContainerRow {
     pub position: i32,
     pub pinned: bool,
     pub last_opened_at: Option<String>,
+    pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -132,6 +133,7 @@ pub struct ItemRow {
     pub deadline_time: Option<String>,
     pub hard_deadline: Option<FlexDate>,
     pub estimated_duration: Option<i32>,
+    pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

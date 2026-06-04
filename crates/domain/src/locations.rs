@@ -103,6 +103,19 @@ fn resolve_country_code(input: &str) -> Option<&'static str> {
     COUNTRY_ALIASES.get(input.to_lowercase().as_str()).copied()
 }
 
+pub(crate) async fn ensure_owned(
+    pool: &SqlitePool,
+    location_id: &Option<Option<String>>,
+    user_id: &str,
+) -> Result<(), DomainError> {
+    if let Some(Some(loc_id)) = location_id {
+        if !db::locations::exists_for_user(pool, loc_id, user_id).await? {
+            return Err(DomainError::NotFound("location"));
+        }
+    }
+    Ok(())
+}
+
 pub async fn get_location(
     pool: &SqlitePool,
     user_id: &str,

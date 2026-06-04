@@ -67,6 +67,7 @@ pub struct List {
     pub container_id: Option<String>,
     pub pinned: bool,
     pub last_opened_at: Option<String>,
+    pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub features: Vec<ListFeature>,
@@ -91,6 +92,7 @@ pub struct UpdateListRequest {
     pub icon: Option<Option<String>>, // Some(None) clears the field
     pub description: Option<Option<String>>,
     pub list_type: Option<String>,
+    pub location_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -147,6 +149,7 @@ pub(crate) fn row_to_list(row: db::lists::ListRow) -> Result<List, DomainError> 
         container_id: row.container_id,
         pinned: row.pinned != 0,
         last_opened_at: row.last_opened_at,
+        location_id: row.location_id,
         created_at: row.created_at,
         updated_at: row.updated_at,
         features,
@@ -287,15 +290,20 @@ pub async fn update(
         )?;
     }
 
+    crate::locations::ensure_owned(pool, &req.location_id, user_id).await?;
+
     // Phase 3: WRITE
     let updated = db::lists::update(
         pool,
         id,
         user_id,
-        req.name.as_deref(),
-        req.icon.as_ref().map(|v| v.as_deref()),
-        req.description.as_ref().map(|v| v.as_deref()),
-        req.list_type.as_deref(),
+        &db::lists::UpdateListInput {
+            name: req.name.clone(),
+            icon: req.icon.clone(),
+            description: req.description.clone(),
+            list_type: req.list_type.clone(),
+            location_id: req.location_id.clone(),
+        },
     )
     .await?;
 
@@ -747,6 +755,7 @@ mod tests {
                 icon: None,
                 description: None,
                 list_type: None,
+                location_id: None,
             },
         )
         .await
@@ -772,6 +781,7 @@ mod tests {
                     icon: None,
                     description: None,
                     list_type: None,
+                    location_id: None,
                 },
             )
             .await

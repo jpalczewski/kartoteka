@@ -8,6 +8,7 @@ fn update_container_request_omits_missing_optional_fields() {
         name: Some("Projekt".into()),
         description: None,
         status: None,
+        location_id: None,
     };
 
     let json = serde_json::to_value(&req).unwrap();
@@ -21,6 +22,7 @@ fn update_list_request_preserves_explicit_null_for_nullable_fields() {
         description: Some(None),
         list_type: None,
         archived: None,
+        location_id: None,
     };
 
     let json = serde_json::to_value(&req).unwrap();
