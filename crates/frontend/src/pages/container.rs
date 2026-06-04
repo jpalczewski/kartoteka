@@ -1,5 +1,6 @@
 use leptos::prelude::*;
-use leptos_router::hooks::use_params_map;
+use leptos_fluent::I18n;
+use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::CommentSection;
@@ -12,9 +13,10 @@ use crate::components::lists::{
 };
 use crate::context::GlobalRefresh;
 use crate::server_fns::containers::{
-    create_container, get_container_data, move_container, rename_container, reorder_containers,
+    archive_container, create_container, delete_container, get_container_data, move_container,
+    rename_container, reorder_containers,
 };
-use crate::server_fns::lists::{create_list, move_list, reorder_lists};
+use crate::server_fns::lists::{archive_list, create_list, delete_list, move_list, reorder_lists};
 use crate::state::dnd::{DndState, DropTarget, EntityKind};
 
 fn container_status_icon(status: Option<&str>) -> &'static str {
@@ -29,10 +31,12 @@ fn container_status_icon(status: Option<&str>) -> &'static str {
 
 #[component]
 pub fn ContainerPage() -> impl IntoView {
+    let i18n = expect_context::<I18n>();
     let params = use_params_map();
     let container_id = Signal::derive(move || params.read().get("id").unwrap_or_default());
     let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let navigate = StoredValue::new_local(use_navigate());
     let (refresh, set_refresh) = signal(0u32);
 
     let data_res = Resource::new(
@@ -198,6 +202,83 @@ pub fn ContainerPage() -> impl IntoView {
                             });
                         });
 
+                        // Callbacks for child containers
+                        let archived_msg = i18n.tr("home-container-archived");
+                        let on_archive_child_container = {
+                            let msg = archived_msg.clone();
+                            Callback::new(move |id: String| {
+                                let msg = msg.clone();
+                                leptos::task::spawn_local(async move {
+                                    match archive_container(id).await {
+                                        Ok(_) => {
+                                            global_refresh.bump();
+                                            toast.push(msg, ToastKind::Success);
+                                        }
+                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                    }
+                                });
+                            })
+                        };
+
+                        let on_delete_child_container = Callback::new(move |id: String| {
+                            leptos::task::spawn_local(async move {
+                                match delete_container(id).await {
+                                    Ok(_) => global_refresh.bump(),
+                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                }
+                            });
+                        });
+
+                        // Callbacks for lists
+                        let on_archive_list_cb = Callback::new(move |id: String| {
+                            leptos::task::spawn_local(async move {
+                                match archive_list(id).await {
+                                    Ok(_) => global_refresh.bump(),
+                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                }
+                            });
+                        });
+
+                        let on_delete_list_cb = Callback::new(move |id: String| {
+                            leptos::task::spawn_local(async move {
+                                match delete_list(id).await {
+                                    Ok(_) => global_refresh.bump(),
+                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                }
+                            });
+                        });
+
+                        // Callbacks for the current container itself (archive/delete → navigate away)
+                        let cid_for_archive = data.container.id.clone();
+                        let cid_for_delete = data.container.id.clone();
+
+                        let on_archive_self = {
+                            let msg = archived_msg.clone();
+                            Callback::new(move |_: ()| {
+                                let id = cid_for_archive.clone();
+                                let msg = msg.clone();
+                                leptos::task::spawn_local(async move {
+                                    match archive_container(id).await {
+                                        Ok(_) => {
+                                            toast.push(msg, ToastKind::Success);
+                                            navigate.with_value(|nav| nav("/", Default::default()));
+                                        }
+                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                    }
+                                });
+                            })
+                        };
+
+                        let on_delete_self = Callback::new(move |_: ()| {
+                            let id = cid_for_delete.clone();
+                            leptos::task::spawn_local(async move {
+                                match delete_container(id).await {
+                                    Ok(_) => navigate.with_value(|nav| nav("/", Default::default())),
+                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                }
+                            });
+                        });
+
                         view! {
                             <div class="flex flex-col gap-6">
                                 <DetachDropZone
@@ -212,7 +293,7 @@ pub fn ContainerPage() -> impl IntoView {
                                 // Header
                                 <div class="flex items-center gap-3">
                                     <span class="text-3xl">{icon}</span>
-                                    <div class="flex flex-col gap-1">
+                                    <div class="flex-1 flex flex-col gap-1">
                                         <EditableText
                                             value=name.clone()
                                             on_save=Callback::new(move |new_name: String| {
@@ -245,6 +326,24 @@ pub fn ContainerPage() -> impl IntoView {
                                             class="text-base-content/60 text-sm cursor-pointer hover:underline decoration-dotted"
                                         />
                                     </div>
+                                    <div class="flex gap-1">
+                                        <button
+                                            type="button"
+                                            class="btn btn-ghost btn-sm"
+                                            title="Archiwizuj kontener"
+                                            on:click=move |_| on_archive_self.run(())
+                                        >
+                                            {"🗄"}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="btn btn-ghost btn-sm text-error"
+                                            title="Usuń kontener"
+                                            on:click=move |_| on_delete_self.run(())
+                                        >
+                                            {"✕"}
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <CreateEntityInput
@@ -273,6 +372,8 @@ pub fn ContainerPage() -> impl IntoView {
                                                             container=child
                                                             dnd_state=dnd_state
                                                             on_nest_drop=on_container_nest
+                                                            on_archive=on_archive_child_container
+                                                            on_delete=on_delete_child_container
                                                         />
                                                     }
                                                 }).collect::<Vec<_>>()}
@@ -315,6 +416,8 @@ pub fn ContainerPage() -> impl IntoView {
                                                             list=list
                                                             dnd_state=dnd_state
                                                             on_nest_drop=on_list_nest
+                                                            on_archive=on_archive_list_cb
+                                                            on_delete=on_delete_list_cb
                                                         />
                                                     }
                                                 }).collect::<Vec<_>>()}
