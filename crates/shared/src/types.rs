@@ -137,6 +137,7 @@ pub struct Container {
     pub parent_container_id: Option<String>,
     pub position: i32,
     pub pinned: bool,
+    pub archived: bool,
     pub last_opened_at: Option<String>,
     pub location_id: Option<String>,
     pub created_at: String,
