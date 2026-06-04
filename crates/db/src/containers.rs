@@ -142,10 +142,14 @@ pub async fn update(
         .status
         .as_ref()
         .map_or(existing.status.as_deref(), |v| v.as_deref());
+    let location_id = req
+        .location_id
+        .as_ref()
+        .map_or(existing.location_id.as_deref(), |v| v.as_deref());
 
     let row = sqlx::query_as(
         r#"UPDATE containers
-           SET name=?, icon=?, description=?, status=?, updated_at=datetime('now')
+           SET name=?, icon=?, description=?, status=?, location_id=?, updated_at=datetime('now')
            WHERE id=? AND user_id=?
            RETURNING *"#,
     )
@@ -153,6 +157,7 @@ pub async fn update(
     .bind(icon)
     .bind(description)
     .bind(status)
+    .bind(location_id)
     .bind(id)
     .bind(user_id)
     .fetch_optional(pool)
@@ -403,6 +408,7 @@ mod tests {
             icon: Some(Some("🗂️".to_string())),
             description: Some(Some("A description".to_string())),
             status: None,
+            location_id: None,
         };
 
         let updated = update(&pool, &created.id, &uid, &req)
@@ -430,6 +436,7 @@ mod tests {
             icon: Some(None), // clear icon
             description: None,
             status: None,
+            location_id: None,
         };
 
         let updated = update(&pool, &created.id, &uid, &update_req)

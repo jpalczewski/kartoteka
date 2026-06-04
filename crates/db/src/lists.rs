@@ -18,6 +18,7 @@ pub struct ListRow {
     pub container_id: Option<String>,
     pub pinned: i64,
     pub last_opened_at: Option<String>,
+    pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub features: String,
@@ -313,22 +314,36 @@ pub async fn set_features(
 
 // ── Write queries (no transaction needed) ────────────────────────────────────
 
+#[derive(Debug)]
+pub struct UpdateListInput<'a> {
+    pub name: Option<&'a str>,
+    pub icon: Option<Option<&'a str>>,
+    pub description: Option<Option<&'a str>>,
+    pub list_type: Option<&'a str>,
+    pub location_id: Option<Option<&'a str>>,
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn update(
     pool: &SqlitePool,
     id: &str,
     user_id: &str,
-    name: Option<&str>,
-    icon: Option<Option<&str>>,
-    description: Option<Option<&str>>,
-    list_type: Option<&str>,
+    input: &UpdateListInput<'_>,
 ) -> Result<bool, DbError> {
+    let &UpdateListInput {
+        name,
+        icon,
+        description,
+        list_type,
+        location_id,
+    } = input;
     let rows = sqlx::query(
         "UPDATE lists \
          SET name = COALESCE(?, name), \
              icon = CASE WHEN ? = 1 THEN ? ELSE icon END, \
              description = CASE WHEN ? = 1 THEN ? ELSE description END, \
              list_type = COALESCE(?, list_type), \
+             location_id = CASE WHEN ? = 1 THEN ? ELSE location_id END, \
              updated_at = datetime('now') \
          WHERE id = ? AND user_id = ?",
     )
@@ -338,6 +353,8 @@ pub async fn update(
     .bind(description.is_some() as i32)
     .bind(description.and_then(|v| v))
     .bind(list_type)
+    .bind(location_id.is_some() as i32)
+    .bind(location_id.and_then(|v| v))
     .bind(id)
     .bind(user_id)
     .execute(pool)

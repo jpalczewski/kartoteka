@@ -18,6 +18,7 @@ fn row_to_container(r: ContainerRow) -> Container {
         position: r.position,
         pinned: r.pinned,
         last_opened_at: r.last_opened_at,
+        location_id: r.location_id,
         created_at: r.created_at,
         updated_at: r.updated_at,
     }
@@ -334,6 +335,7 @@ mod tests {
                 icon: Some(Some("📁".into())),
                 description: None,
                 status: None,
+                location_id: None,
             },
         )
         .await

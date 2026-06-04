@@ -25,6 +25,7 @@ fn list_has_feature() {
         container_id: None,
         pinned: false,
         last_opened_at: None,
+        location_id: None,
         created_at: "2024-01-01".into(),
         updated_at: "2024-01-01".into(),
     };

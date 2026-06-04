@@ -293,6 +293,7 @@ pub struct UpdateItemRequest {
     pub deadline: Option<Option<String>>,
     pub deadline_time: Option<Option<String>>,
     pub hard_deadline: Option<Option<String>>,
+    pub location_id: Option<Option<String>>,
 }
 
 /// Response from GET /api/lists/:list_id/items/:id — item + list context in one call.

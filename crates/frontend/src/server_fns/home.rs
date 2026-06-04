@@ -24,6 +24,7 @@ pub(crate) fn domain_list_to_shared(l: domain::lists::List) -> List {
         container_id: l.container_id,
         pinned: l.pinned,
         last_opened_at: l.last_opened_at,
+        location_id: l.location_id,
         created_at: l.created_at,
         updated_at: l.updated_at,
         features: l.features,

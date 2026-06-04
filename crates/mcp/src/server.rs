@@ -234,6 +234,7 @@ impl KartotekaServer {
             deadline_time: p.deadline_time_field(),
             hard_deadline: p.hard_deadline_field(),
             estimated_duration: p.estimated_duration_field(),
+            location_id: None,
         };
         let item = domain::items::update(&self.pool, &uid, &p.item_id, &req)
             .await

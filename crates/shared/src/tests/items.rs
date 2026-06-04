@@ -225,6 +225,7 @@ fn date_item_to_item_conversion() {
         deadline: Some("2024-12-31".into()),
         deadline_time: None,
         hard_deadline: None,
+        location_id: None,
         created_at: "2024-01-01".into(),
         updated_at: "2024-01-01".into(),
         list_name: "Shopping".into(),

@@ -24,6 +24,7 @@ pub struct Item {
     pub deadline_time: Option<String>,
     pub hard_deadline: Option<FlexDate>,
     pub estimated_duration: Option<i32>,
+    pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -60,6 +61,7 @@ pub struct UpdateItemRequest {
     pub deadline_time: Option<Option<String>>,
     pub hard_deadline: Option<Option<String>>,
     pub estimated_duration: Option<Option<i32>>,
+    pub location_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,6 +89,7 @@ fn row_to_item(row: db::types::ItemRow) -> Item {
         deadline_time: row.deadline_time,
         hard_deadline: row.hard_deadline,
         estimated_duration: row.estimated_duration,
+        location_id: row.location_id,
         created_at: row.created_at,
         updated_at: row.updated_at,
     }
@@ -248,6 +251,7 @@ pub async fn update(
         deadline_time: req.deadline_time.clone(),
         hard_deadline: req.hard_deadline.clone(),
         estimated_duration: req.estimated_duration,
+        location_id: req.location_id.clone(),
     };
     let found = db::items::update(pool, id, user_id, &input).await?;
     if !found {
@@ -608,6 +612,7 @@ mod tests {
             deadline_time: None,
             hard_deadline: None,
             estimated_duration: None,
+            location_id: None,
         };
 
         let updated = update(&pool, &user_id, &item.id, &req)
@@ -649,6 +654,7 @@ mod tests {
             deadline_time: None,
             hard_deadline: None,
             estimated_duration: None,
+            location_id: None,
         };
 
         let updated = update(&pool, &user_id, &item.id, &req)
@@ -690,6 +696,7 @@ mod tests {
             deadline_time: None,
             hard_deadline: None,
             estimated_duration: None,
+            location_id: None,
         };
 
         let updated = update(&pool, &user_id, &item.id, &req)
@@ -1044,6 +1051,7 @@ mod tests {
             deadline_time: None,
             hard_deadline: None,
             estimated_duration: None,
+            location_id: None,
         };
         let err = update(&pool, &user_id, &item.id, &req).await.unwrap_err();
         assert!(matches!(err, DomainError::Validation("title_empty")));
@@ -1080,6 +1088,7 @@ mod tests {
             deadline_time: None,
             hard_deadline: None,
             estimated_duration: None,
+            location_id: None,
         };
         let err = update(&pool, &user_id, &item.id, &req).await.unwrap_err();
         assert!(matches!(
@@ -1152,6 +1161,7 @@ mod tests {
                 deadline_time: None,
                 hard_deadline: None,
                 estimated_duration: None,
+                location_id: None,
             },
         )
         .await
@@ -1188,6 +1198,7 @@ mod tests {
                     deadline_time: None,
                     hard_deadline: None,
                     estimated_duration: None,
+                    location_id: None,
                 },
             )
             .await

@@ -138,6 +138,7 @@ pub struct Container {
     pub position: i32,
     pub pinned: bool,
     pub last_opened_at: Option<String>,
+    pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -162,6 +163,8 @@ pub struct UpdateContainerRequest {
     pub description: Option<Option<String>>,
     /// None = no change; Some(None) = clear; Some(Some(v)) = set
     pub status: Option<Option<String>>,
+    /// None = no change; Some(None) = clear; Some(Some(id)) = set
+    pub location_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -212,6 +215,7 @@ pub struct List {
     pub container_id: Option<String>,
     pub pinned: bool,
     pub last_opened_at: Option<String>,
+    pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub features: Vec<ListFeature>,
@@ -274,6 +278,7 @@ pub struct Item {
     pub deadline_time: Option<String>,
     pub hard_deadline: Option<FlexDate>,
     pub estimated_duration: Option<i32>,
+    pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

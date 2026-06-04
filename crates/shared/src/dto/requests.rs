@@ -259,6 +259,12 @@ pub struct UpdateItemRequest {
         skip_serializing_if = "Option::is_none"
     )]
     pub hard_deadline: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub location_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
