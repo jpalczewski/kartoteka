@@ -51,8 +51,9 @@ pub async fn archive_container(id: String) -> Result<(), ServerFnError> {
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
     domain::containers::toggle_archive(&pool, &id, &user.id)
         .await
-        .map(|_| ())
-        .map_err(|e| ServerFnError::new(e.to_string()))
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .ok_or_else(|| ServerFnError::new("not found".to_string()))?;
+    Ok(())
 }
 
 #[server(prefix = "/leptos")]
