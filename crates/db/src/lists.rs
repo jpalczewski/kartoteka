@@ -65,15 +65,23 @@ pub async fn list_all(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListRow>, 
     .map_err(DbError::Sqlx)
 }
 
-/// Returns all archived lists for the user, including archived sublists.
+/// Returns archived lists for the user that were directly archived (not cascade-archived
+/// via their container). Lists whose container is currently archived are excluded to
+/// avoid count inflation and orphaning on restore.
 /// Note: unlike `list_all`, this does not filter by parent_list_id IS NULL.
 #[tracing::instrument(skip(pool))]
 pub async fn list_archived(pool: &SqlitePool, user_id: &str) -> Result<Vec<ListRow>, DbError> {
     sqlx::query_as::<_, ListRow>(
-        "SELECT l.* FROM lists l \
-         WHERE l.user_id = ? AND l.archived = 1 \
-         ORDER BY l.updated_at DESC",
+        "SELECT * FROM lists
+         WHERE user_id = ?
+           AND archived = 1
+           AND (container_id IS NULL
+                OR container_id NOT IN (
+                    SELECT id FROM containers WHERE archived = 1 AND user_id = ?
+                ))
+         ORDER BY position ASC",
     )
+    .bind(user_id)
     .bind(user_id)
     .fetch_all(pool)
     .await
@@ -740,5 +748,62 @@ mod tests {
             .await
             .unwrap();
         assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn list_archived_excludes_lists_in_archived_container() {
+        use crate::containers as db_containers;
+        use kartoteka_shared::types::CreateContainerRequest;
+
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+
+        // Create a container
+        let container = db_containers::insert(
+            &pool,
+            &uid,
+            &CreateContainerRequest {
+                name: "My Container".into(),
+                icon: None,
+                description: None,
+                status: None,
+                parent_container_id: None,
+            },
+            0,
+        )
+        .await
+        .unwrap();
+
+        // Create a list inside that container
+        let list_id = uuid::Uuid::new_v4().to_string();
+        let mut tx = pool.begin().await.unwrap();
+        insert(
+            &mut tx,
+            &InsertListInput {
+                id: list_id.clone(),
+                user_id: uid.clone(),
+                position: 0,
+                name: "List in container".into(),
+                list_type: "checklist".into(),
+                container_id: Some(container.id.clone()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        // Archive the container (cascade-archives the list too)
+        db_containers::toggle_archived(&pool, &container.id, &uid)
+            .await
+            .unwrap();
+
+        // list_archived should NOT include the list — it was cascade-archived via container
+        let archived = list_archived(&pool, &uid).await.unwrap();
+        assert!(
+            archived.is_empty(),
+            "cascade-archived list should not appear in list_archived; got: {:?}",
+            archived.iter().map(|r| &r.name).collect::<Vec<_>>()
+        );
     }
 }
