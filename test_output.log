@@ -1,5 +1,0 @@
-   Compiling kartoteka-domain v0.1.1 (/Users/erxyi/Projekty/kartoteka/crates/domain)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.05s
-     Running unittests src/lib.rs (/Users/erxyi/.cargo/target/debug/deps/kartoteka_domain-2f26ca14fa89665c)
-error: Unrecognized option: 'lib'
-error: test failed, to rerun pass `-p kartoteka-domain --lib`

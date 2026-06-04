@@ -291,6 +291,11 @@ pub async fn update(
     }
 
     // Phase 3: WRITE
+    if let Some(Some(ref loc_id)) = req.location_id {
+        if !db::locations::exists_for_user(pool, loc_id, user_id).await? {
+            return Err(DomainError::NotFound("location"));
+        }
+    }
     let updated = db::lists::update(
         pool,
         id,

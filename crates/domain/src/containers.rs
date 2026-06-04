@@ -1,6 +1,6 @@
 use crate::{DomainError, rules};
 use kartoteka_db::types::ContainerRow;
-use kartoteka_db::{SqlitePool, containers as db_containers};
+use kartoteka_db::{SqlitePool, containers as db_containers, locations as db_locations};
 use kartoteka_shared::types::{
     Container, ContainerProgress, CreateContainerRequest, MoveContainerRequest,
     UpdateContainerRequest,
@@ -81,6 +81,11 @@ pub async fn update(
     user_id: &str,
     req: &UpdateContainerRequest,
 ) -> Result<Container, DomainError> {
+    if let Some(Some(ref loc_id)) = req.location_id {
+        if !db_locations::exists_for_user(pool, loc_id, user_id).await? {
+            return Err(DomainError::NotFound("location"));
+        }
+    }
     db_containers::update(pool, id, user_id, req)
         .await?
         .map(row_to_container)
