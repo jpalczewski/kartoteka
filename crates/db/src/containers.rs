@@ -32,10 +32,12 @@ pub async fn next_position(
 /// List all containers for a user, ordered by position.
 #[tracing::instrument(skip(pool))]
 pub async fn list_all(pool: &SqlitePool, user_id: &str) -> Result<Vec<ContainerRow>, DbError> {
-    let rows = sqlx::query_as("SELECT * FROM containers WHERE user_id = ? ORDER BY position ASC")
-        .bind(user_id)
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query_as(
+        "SELECT * FROM containers WHERE user_id = ? AND archived = 0 ORDER BY position ASC",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
     Ok(rows)
 }
 
@@ -176,6 +178,76 @@ pub async fn delete(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, 
     Ok(result.rows_affected() > 0)
 }
 
+/// Toggle archived state for a container and all its descendants + their lists.
+/// Returns true if the root container was found and updated.
+#[tracing::instrument(skip(pool))]
+pub async fn toggle_archived(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, DbError> {
+    let current = get_one(pool, id, user_id).await?;
+    let Some(row) = current else {
+        return Ok(false);
+    };
+    let new_val: i32 = if row.archived { 0 } else { 1 };
+
+    let mut tx = pool.begin().await.map_err(DbError::Sqlx)?;
+
+    sqlx::query(
+        "WITH RECURSIVE subtree(id) AS (
+            SELECT id FROM containers WHERE id = ? AND user_id = ?
+            UNION ALL
+            SELECT c.id FROM containers c JOIN subtree s ON c.parent_container_id = s.id
+        )
+        UPDATE containers SET archived = ?, updated_at = datetime('now')
+        WHERE id IN (SELECT id FROM subtree) AND user_id = ?",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(new_val)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(DbError::Sqlx)?;
+
+    sqlx::query(
+        "WITH RECURSIVE subtree(id) AS (
+            SELECT id FROM containers WHERE id = ? AND user_id = ?
+            UNION ALL
+            SELECT c.id FROM containers c JOIN subtree s ON c.parent_container_id = s.id
+        )
+        UPDATE lists SET archived = ?, updated_at = datetime('now')
+        WHERE container_id IN (SELECT id FROM subtree) AND user_id = ?",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(new_val)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(DbError::Sqlx)?;
+
+    tx.commit().await.map_err(DbError::Sqlx)?;
+    Ok(true)
+}
+
+/// List archived containers for a user — root entries only
+/// (containers whose parent is not also archived).
+#[tracing::instrument(skip(pool))]
+pub async fn list_archived(pool: &SqlitePool, user_id: &str) -> Result<Vec<ContainerRow>, DbError> {
+    let rows = sqlx::query_as(
+        "SELECT * FROM containers
+         WHERE user_id = ? AND archived = 1
+           AND (parent_container_id IS NULL
+                OR parent_container_id NOT IN (
+                    SELECT id FROM containers WHERE archived = 1 AND user_id = ?
+                ))
+         ORDER BY position ASC",
+    )
+    .bind(user_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 /// List direct children of a container.
 #[tracing::instrument(skip(pool))]
 pub async fn children(
@@ -184,7 +256,7 @@ pub async fn children(
     user_id: &str,
 ) -> Result<Vec<ContainerRow>, DbError> {
     let rows = sqlx::query_as(
-        "SELECT * FROM containers WHERE parent_container_id=? AND user_id=? ORDER BY position ASC",
+        "SELECT * FROM containers WHERE parent_container_id=? AND user_id=? AND archived = 0 ORDER BY position ASC",
     )
     .bind(parent_id)
     .bind(user_id)
@@ -197,7 +269,7 @@ pub async fn children(
 #[tracing::instrument(skip(pool))]
 pub async fn root(pool: &SqlitePool, user_id: &str) -> Result<Vec<ContainerRow>, DbError> {
     let rows = sqlx::query_as(
-        "SELECT * FROM containers WHERE user_id=? AND parent_container_id IS NULL ORDER BY position ASC",
+        "SELECT * FROM containers WHERE user_id=? AND parent_container_id IS NULL AND archived = 0 ORDER BY position ASC",
     )
     .bind(user_id)
     .fetch_all(pool)
@@ -209,7 +281,7 @@ pub async fn root(pool: &SqlitePool, user_id: &str) -> Result<Vec<ContainerRow>,
 #[tracing::instrument(skip(pool))]
 pub async fn pinned(pool: &SqlitePool, user_id: &str) -> Result<Vec<ContainerRow>, DbError> {
     let rows = sqlx::query_as(
-        "SELECT * FROM containers WHERE user_id=? AND pinned=1 ORDER BY position ASC",
+        "SELECT * FROM containers WHERE user_id=? AND pinned=1 AND archived = 0 ORDER BY position ASC",
     )
     .bind(user_id)
     .fetch_all(pool)
@@ -221,7 +293,7 @@ pub async fn pinned(pool: &SqlitePool, user_id: &str) -> Result<Vec<ContainerRow
 #[tracing::instrument(skip(pool))]
 pub async fn recent(pool: &SqlitePool, user_id: &str) -> Result<Vec<ContainerRow>, DbError> {
     let rows = sqlx::query_as(
-        "SELECT * FROM containers WHERE user_id=? ORDER BY COALESCE(last_opened_at, updated_at) DESC LIMIT 10",
+        "SELECT * FROM containers WHERE user_id=? AND archived = 0 ORDER BY COALESCE(last_opened_at, updated_at) DESC LIMIT 10",
     )
     .bind(user_id)
     .fetch_all(pool)
@@ -333,6 +405,25 @@ pub async fn touch_last_opened(pool: &SqlitePool, id: &str, user_id: &str) -> Re
     .execute(pool)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+async fn create_test_container(
+    pool: &SqlitePool,
+    user_id: &str,
+    name: &str,
+    parent_id: Option<&str>,
+) -> ContainerRow {
+    use kartoteka_shared::types::CreateContainerRequest;
+    let req = CreateContainerRequest {
+        name: name.to_string(),
+        icon: None,
+        description: None,
+        status: None,
+        parent_container_id: parent_id.map(str::to_string),
+    };
+    let pos = next_position(pool, user_id, parent_id).await.unwrap();
+    insert(pool, user_id, &req, pos).await.unwrap()
 }
 
 #[cfg(test)]
@@ -662,5 +753,38 @@ mod tests {
         // Next position should be 1
         let pos1 = next_position(&pool, &uid, None).await.unwrap();
         assert_eq!(pos1, 1);
+    }
+
+    #[tokio::test]
+    async fn toggle_archived_flips_container() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let c = create_test_container(&pool, &uid, "A", None).await;
+        assert!(!c.archived);
+
+        let affected = toggle_archived(&pool, &c.id, &uid).await.unwrap();
+        assert!(affected);
+
+        let after = get_one(&pool, &c.id, &uid).await.unwrap().unwrap();
+        assert!(after.archived);
+
+        let affected2 = toggle_archived(&pool, &c.id, &uid).await.unwrap();
+        assert!(affected2);
+        let after2 = get_one(&pool, &c.id, &uid).await.unwrap().unwrap();
+        assert!(!after2.archived);
+    }
+
+    #[tokio::test]
+    async fn list_archived_returns_root_archived_only() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let a = create_test_container(&pool, &uid, "A", None).await;
+        create_test_container(&pool, &uid, "B", None).await;
+
+        toggle_archived(&pool, &a.id, &uid).await.unwrap();
+
+        let archived = list_archived(&pool, &uid).await.unwrap();
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].id, a.id);
     }
 }
