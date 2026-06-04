@@ -315,12 +315,12 @@ pub async fn set_features(
 // ── Write queries (no transaction needed) ────────────────────────────────────
 
 #[derive(Debug)]
-pub struct UpdateListInput<'a> {
-    pub name: Option<&'a str>,
-    pub icon: Option<Option<&'a str>>,
-    pub description: Option<Option<&'a str>>,
-    pub list_type: Option<&'a str>,
-    pub location_id: Option<Option<&'a str>>,
+pub struct UpdateListInput {
+    pub name: Option<String>,
+    pub icon: Option<Option<String>>,
+    pub description: Option<Option<String>>,
+    pub list_type: Option<String>,
+    pub location_id: Option<Option<String>>,
 }
 
 #[tracing::instrument(skip(pool))]
@@ -328,15 +328,8 @@ pub async fn update(
     pool: &SqlitePool,
     id: &str,
     user_id: &str,
-    input: &UpdateListInput<'_>,
+    input: &UpdateListInput,
 ) -> Result<bool, DbError> {
-    let &UpdateListInput {
-        name,
-        icon,
-        description,
-        list_type,
-        location_id,
-    } = input;
     let rows = sqlx::query(
         "UPDATE lists \
          SET name = COALESCE(?, name), \
@@ -347,14 +340,14 @@ pub async fn update(
              updated_at = datetime('now') \
          WHERE id = ? AND user_id = ?",
     )
-    .bind(name)
-    .bind(icon.is_some() as i32)
-    .bind(icon.and_then(|v| v))
-    .bind(description.is_some() as i32)
-    .bind(description.and_then(|v| v))
-    .bind(list_type)
-    .bind(location_id.is_some() as i32)
-    .bind(location_id.and_then(|v| v))
+    .bind(input.name.as_deref())
+    .bind(input.icon.is_some() as i32)
+    .bind(input.icon.as_ref().and_then(|v| v.as_deref()))
+    .bind(input.description.is_some() as i32)
+    .bind(input.description.as_ref().and_then(|v| v.as_deref()))
+    .bind(input.list_type.as_deref())
+    .bind(input.location_id.is_some() as i32)
+    .bind(input.location_id.as_ref().and_then(|v| v.as_deref()))
     .bind(id)
     .bind(user_id)
     .execute(pool)

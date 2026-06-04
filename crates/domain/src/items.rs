@@ -236,13 +236,9 @@ pub async fn update(
         eff_deadline_time,
         eff_hard_deadline.as_deref(),
     )?;
+    crate::locations::ensure_owned(pool, &req.location_id, user_id).await?;
 
     // Phase 3: WRITE
-    if let Some(Some(ref loc_id)) = req.location_id {
-        if !db::locations::exists_for_user(pool, loc_id, user_id).await? {
-            return Err(DomainError::NotFound("location"));
-        }
-    }
     let input = db::items::UpdateItemInput {
         title: req.title.clone(),
         description: req.description.clone(),

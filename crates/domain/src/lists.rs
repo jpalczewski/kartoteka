@@ -290,22 +290,19 @@ pub async fn update(
         )?;
     }
 
+    crate::locations::ensure_owned(pool, &req.location_id, user_id).await?;
+
     // Phase 3: WRITE
-    if let Some(Some(ref loc_id)) = req.location_id {
-        if !db::locations::exists_for_user(pool, loc_id, user_id).await? {
-            return Err(DomainError::NotFound("location"));
-        }
-    }
     let updated = db::lists::update(
         pool,
         id,
         user_id,
         &db::lists::UpdateListInput {
-            name: req.name.as_deref(),
-            icon: req.icon.as_ref().map(|v| v.as_deref()),
-            description: req.description.as_ref().map(|v| v.as_deref()),
-            list_type: req.list_type.as_deref(),
-            location_id: req.location_id.as_ref().map(|v| v.as_deref()),
+            name: req.name.clone(),
+            icon: req.icon.clone(),
+            description: req.description.clone(),
+            list_type: req.list_type.clone(),
+            location_id: req.location_id.clone(),
         },
     )
     .await?;

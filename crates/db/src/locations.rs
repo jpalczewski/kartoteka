@@ -105,13 +105,13 @@ pub async fn update_location(
 }
 
 pub async fn exists_for_user(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, DbError> {
-    let (count,): (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM locations WHERE id = ? AND user_id = ?")
+    let row: Option<(i64,)> =
+        sqlx::query_as("SELECT 1 FROM locations WHERE id = ? AND user_id = ? LIMIT 1")
             .bind(id)
             .bind(user_id)
-            .fetch_one(pool)
+            .fetch_optional(pool)
             .await?;
-    Ok(count > 0)
+    Ok(row.is_some())
 }
 
 pub async fn delete_location(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, DbError> {
