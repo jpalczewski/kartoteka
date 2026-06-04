@@ -41,6 +41,21 @@ pub async fn delete_container(id: String) -> Result<(), ServerFnError> {
 }
 
 #[server(prefix = "/leptos")]
+pub async fn archive_container(id: String) -> Result<(), ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    domain::containers::toggle_archive(&pool, &id, &user.id)
+        .await
+        .map(|_| ())
+        .map_err(|e| ServerFnError::new(e.to_string()))
+}
+
+#[server(prefix = "/leptos")]
 pub async fn rename_container(
     id: String,
     name: String,
