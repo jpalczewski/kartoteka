@@ -17,6 +17,7 @@ fn row_to_container(r: ContainerRow) -> Container {
         parent_container_id: r.parent_container_id,
         position: r.position,
         pinned: r.pinned,
+        archived: r.archived,
         last_opened_at: r.last_opened_at,
         location_id: r.location_id,
         created_at: r.created_at,
@@ -96,6 +97,34 @@ pub async fn delete(pool: &SqlitePool, id: &str, user_id: &str) -> Result<(), Do
         return Err(DomainError::NotFound("container"));
     }
     Ok(())
+}
+
+/// Toggle archived state for a container and all its descendants + their lists.
+#[tracing::instrument(skip(pool))]
+pub async fn toggle_archive(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+) -> Result<Option<Container>, DomainError> {
+    let toggled = db_containers::toggle_archived(pool, id, user_id).await?;
+    if !toggled {
+        return Ok(None);
+    }
+    db_containers::get_one(pool, id, user_id)
+        .await?
+        .map(row_to_container)
+        .ok_or(DomainError::NotFound("container"))
+        .map(Some)
+}
+
+/// List archived containers (root entries only).
+#[tracing::instrument(skip(pool))]
+pub async fn list_archived(
+    pool: &SqlitePool,
+    user_id: &str,
+) -> Result<Vec<Container>, DomainError> {
+    let rows = db_containers::list_archived(pool, user_id).await?;
+    Ok(rows.into_iter().map(row_to_container).collect())
 }
 
 /// Move a container to a new parent/position, with cycle and hierarchy validation.
@@ -445,5 +474,50 @@ mod tests {
 
         let all = list_all(&pool, &uid).await.unwrap();
         assert_eq!(all.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn toggle_archive_flips_and_returns_updated() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+
+        let c = make_container(&pool, &uid, "Archivable").await;
+        assert!(!c.archived);
+
+        let updated = toggle_archive(&pool, &c.id, &uid).await.unwrap().unwrap();
+        assert!(updated.archived);
+
+        let restored = toggle_archive(&pool, &c.id, &uid).await.unwrap().unwrap();
+        assert!(!restored.archived);
+    }
+
+    #[tokio::test]
+    async fn list_all_excludes_archived_containers() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+
+        let a = make_container(&pool, &uid, "A").await;
+        make_container(&pool, &uid, "B").await;
+
+        toggle_archive(&pool, &a.id, &uid).await.unwrap();
+
+        let all = list_all(&pool, &uid).await.unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].name, "B");
+    }
+
+    #[tokio::test]
+    async fn list_archived_returns_archived_containers() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+
+        let a = make_container(&pool, &uid, "A").await;
+        make_container(&pool, &uid, "B").await;
+
+        toggle_archive(&pool, &a.id, &uid).await.unwrap();
+
+        let archived = list_archived(&pool, &uid).await.unwrap();
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].name, "A");
     }
 }

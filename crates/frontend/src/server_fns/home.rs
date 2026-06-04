@@ -1,4 +1,4 @@
-use kartoteka_shared::types::{HomeData, List};
+use kartoteka_shared::types::{Container, HomeData, List};
 use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
@@ -76,4 +76,19 @@ pub async fn get_archived_lists() -> Result<Vec<List>, ServerFnError> {
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
     Ok(lists.into_iter().map(domain_list_to_shared).collect())
+}
+
+/// Archived containers for the home page archive section.
+#[server(prefix = "/leptos")]
+pub async fn get_archived_containers() -> Result<Vec<Container>, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    domain::containers::list_archived(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))
 }

@@ -14,6 +14,7 @@ fn row_to_container(r: kartoteka_db::types::ContainerRow) -> Container {
         parent_container_id: r.parent_container_id,
         position: r.position,
         pinned: r.pinned,
+        archived: r.archived,
         last_opened_at: r.last_opened_at,
         location_id: r.location_id,
         created_at: r.created_at,

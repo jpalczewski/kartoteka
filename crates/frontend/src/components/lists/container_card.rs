@@ -19,10 +19,9 @@ pub fn container_icon(status: Option<&str>) -> &'static str {
 pub fn ContainerCard(
     container: Container,
     #[prop(optional)] on_delete: Option<Callback<String>>,
+    #[prop(optional)] on_archive: Option<Callback<String>>,
     #[prop(optional)] on_pin: Option<Callback<String>>,
-    /// Enable drag handle + nest drop zone when provided.
-    #[prop(optional)]
-    dnd_state: Option<RwSignal<DndState>>,
+    #[prop(optional)] dnd_state: Option<RwSignal<DndState>>,
     #[prop(optional)] on_nest_drop: Option<Callback<DropTarget>>,
 ) -> impl IntoView {
     let href = format!("/containers/{}", container.id);
@@ -33,6 +32,7 @@ pub fn ContainerCard(
 
     let cid = container.id.clone();
     let cid_del = container.id.clone();
+    let cid_archive = container.id.clone();
     let cid_pin = container.id.clone();
     let name = container.name.clone();
 
@@ -58,6 +58,19 @@ pub fn ContainerCard(
                                     on:click=move |_| cb.run(cid.clone())
                                 >
                                     {"📌"}
+                                </button>
+                            }
+                        })}
+                        {on_archive.map(|cb| {
+                            let cid = cid_archive.clone();
+                            view! {
+                                <button
+                                    type="button"
+                                    class="btn btn-ghost btn-xs"
+                                    title="Archiwizuj"
+                                    on:click=move |_| cb.run(cid.clone())
+                                >
+                                    {"🗄"}
                                 </button>
                             }
                         })}

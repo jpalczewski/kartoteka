@@ -24,11 +24,8 @@ pub fn ListCard(
     #[prop(default = vec![])] list_tag_ids: Vec<String>,
     #[prop(optional)] on_tag_toggle: Option<Callback<String>>,
     #[prop(optional)] on_delete: Option<Callback<String>>,
-    /// If provided, the card gains a drag handle and becomes a nest drop target.
-    /// The callback fires with `DropTarget::Nest(list.id)` when something is
-    /// dropped onto the card body.
-    #[prop(optional)]
-    dnd_state: Option<RwSignal<DndState>>,
+    #[prop(optional)] on_archive: Option<Callback<String>>,
+    #[prop(optional)] dnd_state: Option<RwSignal<DndState>>,
     #[prop(optional)] on_nest_drop: Option<Callback<DropTarget>>,
 ) -> impl IntoView {
     let href = format!("/lists/{}", list.id);
@@ -38,6 +35,7 @@ pub fn ListCard(
 
     let list_id = list.id.clone();
     let list_id_del = list.id.clone();
+    let list_id_archive = list.id.clone();
     let list_name = list.name.clone();
 
     let body = view! {
@@ -46,21 +44,36 @@ pub fn ListCard(
             data-testid="list-card"
             on:click=move |_| { navigate(&href_nav, Default::default()); }
         >
-            {on_delete.map(|cb| {
-                let lid = list_id_del.clone();
-                view! {
-                    <button
-                        type="button"
-                        class="btn btn-ghost btn-xs btn-circle absolute top-2 right-2 z-10 text-error"
-                        on:click=move |ev| {
-                            ev.stop_propagation();
-                            cb.run(lid.clone());
-                        }
-                    >
-                        {"✕"}
-                    </button>
-                }
-            })}
+            <div class="flex absolute top-2 right-2 z-10 gap-1" on:click=move |ev| ev.stop_propagation()>
+                {on_archive.map(|cb| {
+                    let lid = list_id_archive.clone();
+                    view! {
+                        <button
+                            type="button"
+                            class="btn btn-ghost btn-xs btn-circle"
+                            title="Archiwizuj"
+                            on:click=move |_| cb.run(lid.clone())
+                        >
+                            {"🗄"}
+                        </button>
+                    }
+                })}
+                {on_delete.map(|cb| {
+                    let lid = list_id_del.clone();
+                    view! {
+                        <button
+                            type="button"
+                            class="btn btn-ghost btn-xs btn-circle text-error"
+                            on:click=move |ev| {
+                                ev.stop_propagation();
+                                cb.run(lid.clone());
+                            }
+                        >
+                            {"✕"}
+                        </button>
+                    }
+                })}
+            </div>
             <div class="card-body p-4">
                 <div class="flex items-center gap-2">
                     <span>{icon}</span>
