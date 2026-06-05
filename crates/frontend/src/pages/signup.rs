@@ -31,7 +31,7 @@ pub fn SignupPage() -> impl IntoView {
                 {
                     #[cfg(target_arch = "wasm32")]
                     if let Some(win) = web_sys::window() {
-                        let _ = win.location().assign("/");
+                        let _ = win.location().set_href("/");
                     }
                 }
                 Err(e) => {
