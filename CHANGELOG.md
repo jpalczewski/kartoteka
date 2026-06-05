@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2](https://github.com/jpalczewski/kartoteka/compare/v1.3.1...v1.3.2) (2026-06-05)
+
+
+### Bug Fixes
+
+* **docker:** clear target/site before build to ensure hash.txt is generated ([#214](https://github.com/jpalczewski/kartoteka/issues/214)) ([9fcec04](https://github.com/jpalczewski/kartoteka/commit/9fcec046e7f6b1de35b344521516bd7d1f42383b))
+* **wasm:** enable hash-files and fix CSS 404 in SSR ([#212](https://github.com/jpalczewski/kartoteka/issues/212)) ([3abb452](https://github.com/jpalczewski/kartoteka/commit/3abb452982b1c9053ab440d0e641cadd48631ce4))
+
 ## [1.3.1](https://github.com/jpalczewski/kartoteka/compare/v1.3.0...v1.3.1) (2026-06-05)
 
 
