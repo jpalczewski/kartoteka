@@ -25,23 +25,24 @@ pub fn ListPreview(
 
     let (refresh, set_refresh) = signal(0u32);
 
-    // Resource fires only when expanded (refresh > 0 means user has expanded at least once).
-    // Re-expanding after collapse re-fetches to show fresh data.
-    // global_refresh is included so external mutations propagate once expanded.
-    let items_resource = Resource::new(
-        {
-            let lid = list_id.clone();
-            move || (lid.clone(), refresh.get(), global_refresh.get())
-        },
-        |(id, rev, _)| async move {
-            if rev == 0 {
-                // Not yet expanded — return empty without hitting the server.
-                Ok(Vec::<PreviewItem>::new())
-            } else {
-                get_list_preview_items(id).await
+    // LocalResource runs only on the client (not during SSR).
+    // This avoids SSR reactive-graph issues and keeps the lazy-load contract:
+    // no server round-trip until the user first expands the collapse.
+    let items_resource = LocalResource::new({
+        let lid = list_id.clone();
+        move || {
+            let id = lid.clone();
+            let rev = refresh.get();
+            let _ = global_refresh.get(); // track for reactive invalidation
+            async move {
+                if rev == 0 {
+                    Ok(Vec::<PreviewItem>::new())
+                } else {
+                    get_list_preview_items(id).await
+                }
             }
-        },
-    );
+        }
+    });
 
     let on_toggle = Callback::new(move |item_id: String| {
         leptos::task::spawn_local(async move {
