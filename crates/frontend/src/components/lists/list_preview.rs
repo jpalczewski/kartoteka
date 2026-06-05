@@ -13,6 +13,7 @@ pub fn ListPreview(
     list: List,
     #[prop(optional)] on_delete: Option<Callback<String>>,
     #[prop(optional)] on_archive: Option<Callback<String>>,
+    #[prop(optional)] force_expand: Option<Signal<bool>>,
 ) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
@@ -23,7 +24,26 @@ pub fn ListPreview(
     let icon = list_type_icon(&list.list_type);
     let href = format!("/lists/{}", list.id);
 
+    let (is_open, set_is_open) = signal(false);
     let (refresh, set_refresh) = signal(0u32);
+
+    // When force_expand flips to true, open the panel and trigger the first fetch.
+    // When it flips back to false, close the panel (collapse all).
+    // Effects are client-only, which is correct — this is a user-triggered action.
+    if let Some(force) = force_expand {
+        Effect::new(move |_| {
+            if force.get() {
+                set_is_open.set(true);
+                set_refresh.update(|n| {
+                    if *n == 0 {
+                        *n = 1
+                    }
+                });
+            } else {
+                set_is_open.set(false);
+            }
+        });
+    }
 
     // rev == 0 means the collapse hasn't been opened yet — skip the fetch.
     let items_resource = Resource::new(
@@ -69,13 +89,14 @@ pub fn ListPreview(
 
     view! {
         <div class="collapse collapse-arrow bg-base-200 border border-base-300">
-            // Checking the hidden checkbox triggers expand; we use the CSS collapse pattern.
-            // on:change fires when the checkbox toggles — we use it to trigger the first fetch.
             <input
                 type="checkbox"
+                prop:checked=move || is_open.get()
                 on:change=move |ev| {
-                    if event_target_checked(&ev) {
-                        set_refresh.update(|n| *n += 1);
+                    let checked = event_target_checked(&ev);
+                    set_is_open.set(checked);
+                    if checked {
+                        set_refresh.update(|n| if *n == 0 { *n = 1 });
                     }
                 }
             />

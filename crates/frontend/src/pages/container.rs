@@ -40,7 +40,10 @@ pub fn ContainerPage() -> impl IntoView {
     let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let navigate = StoredValue::new(use_navigate());
+    let expand_all_label = StoredValue::new(i18n.tr("lists-expand-all"));
+    let collapse_all_label = StoredValue::new(i18n.tr("lists-collapse-all"));
     let (refresh, set_refresh) = signal(0u32);
+    let (expand_all, set_expand_all) = signal(false);
 
     let data_res = Resource::new(
         move || (container_id.get(), global_refresh.get(), refresh.get()),
@@ -420,9 +423,18 @@ pub fn ContainerPage() -> impl IntoView {
                                 } else {
                                     view! {
                                         <div>
-                                            <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">
-                                                "Listy (" {lists.len()} ")"
-                                            </h3>
+                                            <div class="flex items-center justify-between mb-2">
+                                                <h3 class="text-sm font-semibold text-base-content/60 uppercase tracking-wide">
+                                                    "Listy (" {lists.len()} ")"
+                                                </h3>
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-ghost btn-xs"
+                                                    on:click=move |_| set_expand_all.update(|v| *v = !*v)
+                                                >
+                                                    {move || if expand_all.get() { collapse_all_label.get_value() } else { expand_all_label.get_value() }}
+                                                </button>
+                                            </div>
                                             <div class="flex flex-col gap-1">
                                                 {lists.into_iter().map(|list| {
                                                     let lid = list.id.clone();
@@ -436,6 +448,7 @@ pub fn ContainerPage() -> impl IntoView {
                                                             list=list
                                                             on_archive=on_archive_list_cb
                                                             on_delete=on_delete_list_cb
+                                                            force_expand=Signal::from(expand_all)
                                                         />
                                                     }
                                                 }).collect::<Vec<_>>()}
