@@ -4,4 +4,5 @@ pub mod container_card;
 pub mod create_entity_input;
 pub mod deadlines_config;
 pub mod list_card;
+pub mod list_preview;
 pub mod sublist_section;
