@@ -56,7 +56,15 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
             ServerFnError::new($e.to_string())
         };
     }
-    let (list_res, items_res, sublists_res, settings_res, tag_links_res, all_tags_res) = tokio::join!(
+    let (
+        list_res,
+        items_res,
+        sublists_res,
+        settings_res,
+        item_tag_links_res,
+        all_tags_res,
+        list_tag_links_res,
+    ) = tokio::join!(
         async {
             domain::lists::get_one(&pool, &list_id, &user.id)
                 .await
@@ -87,13 +95,19 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
                 .await
                 .map_err(|e| sfn_err!(e))
         },
+        async {
+            db::tags::get_all_list_tag_links(&pool, &user.id)
+                .await
+                .map_err(|e| sfn_err!(e))
+        },
     );
     let list = list_res?.ok_or_else(|| ServerFnError::new("list not found".to_string()))?;
     let items = items_res?;
     let sublists = sublists_res?;
     let settings = settings_res?;
-    let raw_tag_links: Vec<(String, String)> = tag_links_res?;
+    let raw_item_tag_links: Vec<(String, String)> = item_tag_links_res?;
     let all_domain_tags: Vec<domain::tags::Tag> = all_tags_res?;
+    let raw_list_tag_links: Vec<(String, String)> = list_tag_links_res?;
 
     let tz = settings
         .iter()
@@ -119,13 +133,17 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
         items: items.into_iter().map(domain_item_to_shared).collect(),
         sublists: sublists.into_iter().map(domain_list_to_shared).collect(),
         created_at_local,
-        item_tag_links: raw_tag_links
+        item_tag_links: raw_item_tag_links
             .into_iter()
             .map(|(item_id, tag_id)| ItemTagLink { item_id, tag_id })
             .collect(),
         all_tags: all_domain_tags
             .into_iter()
             .map(domain_tag_to_shared)
+            .collect(),
+        list_tag_ids: raw_list_tag_links
+            .into_iter()
+            .filter_map(|(linked_list_id, tag_id)| (linked_list_id == list_id).then_some(tag_id))
             .collect(),
         today_date,
         container_name,
