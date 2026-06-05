@@ -82,6 +82,8 @@ lists-main-move-target = { $name } (główna)
 
 lists-expand-all = Rozwiń wszystkie
 lists-collapse-all = Zwiń wszystkie
+lists-preview-open-full = Otwórz pełny widok
+lists-preview-new-item-placeholder = Nowy element...
 
 # Toasty
 lists-toast-container-deleted = Kontener usunięty
