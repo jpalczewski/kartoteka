@@ -19,47 +19,52 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v6
 
-      - id: buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - name: Setup Rust
+        run: |
+          command -v rustup || \
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+          . "$HOME/.cargo/env"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup show
 
-      # Cache scope is per cargo_profile (debug/release) so dev (debug) and preview
-      # (debug) share buildkit mount cache and GHA layer cache; prod (release) is isolated.
-      - name: Cache mounts
-        id: cache
-        uses: actions/cache@v5
-        with:
-          path: cache-mount
-          key: cache-mount-${{ inputs.cargo_profile }}-${{ hashFiles('Dockerfile', 'Cargo.lock') }}
-          restore-keys: |
-            cache-mount-${{ inputs.cargo_profile }}-
+      - name: Install cargo-leptos
+        run: |
+          cargo leptos --version 2>/dev/null | grep -q '0.3.5' || \
+            cargo install cargo-leptos --version 0.3.5 --locked
 
-      - name: Inject cache mounts
-        uses: reproducible-containers/buildkit-cache-dance@v3
+      - uses: actions/setup-node@v4
         with:
-          builder: ${{ steps.buildx.outputs.name }}
-          cache-map: |
-            {
-              "cache-mount/cargo-registry": {
-                "target": "/usr/local/cargo/registry",
-                "id": "cargo-registry"
-              },
-              "cache-mount/cargo-git": {
-                "target": "/usr/local/cargo/git",
-                "id": "cargo-git"
-              },
-              "cache-mount/cargo-target": {
-                "target": "/app/target",
-                "id": "cargo-target"
-              }
-            }
-          skip-extraction: ${{ steps.cache.outputs.cache-hit }}
+          node-version: '22'
+
+      - name: Build CSS
+        run: cd crates/frontend && npm install && npx @tailwindcss/cli -i style/input.css -o style/main.css --minify
+
+      - name: Build binary and site
+        env:
+          CARGO_PROFILE: ${{ inputs.cargo_profile }}
+        run: |
+          if [ "$CARGO_PROFILE" = "release" ]; then
+            cargo leptos build --release
+          else
+            cargo leptos build
+          fi
+
+      - name: Stage artifacts
+        env:
+          CARGO_PROFILE: ${{ inputs.cargo_profile }}
+        run: |
+          rm -rf dist && mkdir -p dist/site dist/locales
+          PROFILE_DIR=$([ "$CARGO_PROFILE" = "release" ] && echo "release" || echo "debug")
+          cp "target/${PROFILE_DIR}/kartoteka" dist/kartoteka
+          cp -r target/site/. dist/site/
+          cp -r locales/. dist/locales/
 
       - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
@@ -83,12 +88,14 @@ jobs:
           fi
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.tags.outputs.tags }}
-          build-args: |
-            CARGO_PROFILE=${{ inputs.cargo_profile }}
-          cache-from: type=gha,scope=${{ inputs.cargo_profile }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.cargo_profile }}
+      - name: Build and push Docker image
+        env:
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          TAG_ARGS=$(echo "$TAGS" | tr ',' '\n' | sed 's/^/--tag /' | tr '\n' ' ')
+          docker buildx build \
+            --builder persistent \
+            --file Dockerfile.runtime \
+            --push \
+            $TAG_ARGS \
+            dist/

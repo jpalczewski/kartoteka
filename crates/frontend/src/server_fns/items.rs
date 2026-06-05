@@ -154,7 +154,7 @@ pub async fn create_item(
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    let desc = description.and_then(|d| if d.trim().is_empty() { None } else { Some(d) });
+    let desc = description.filter(|d| !d.trim().is_empty());
     let opt_date = |s: Option<String>| s.and_then(empty_as_none);
     let item = domain::items::create(
         &pool,
