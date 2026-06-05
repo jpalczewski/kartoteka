@@ -40,7 +40,16 @@ pub fn LoginPage() -> impl IntoView {
                 {
                     #[cfg(target_arch = "wasm32")]
                     if let Some(win) = web_sys::window() {
-                        let dest = rt_dest.as_deref().unwrap_or("/");
+                        let raw = rt_dest.as_deref().unwrap_or("/");
+                        let dest = if raw.starts_with('/')
+                            && !raw.starts_with("//")
+                            && !raw.starts_with("/\\")
+                            && !raw.contains(':')
+                        {
+                            raw
+                        } else {
+                            "/"
+                        };
                         let _ = win.location().assign(dest);
                     }
                 }
