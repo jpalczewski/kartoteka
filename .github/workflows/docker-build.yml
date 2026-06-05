@@ -26,6 +26,45 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup Rust
+        run: |
+          command -v rustup || \
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup show
+
+      - name: Install cargo-leptos
+        run: |
+          cargo leptos --version 2>/dev/null | grep -q '0.3.5' || \
+            cargo install cargo-leptos --version 0.3.5 --locked
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build CSS
+        run: cd crates/frontend && npm install && npx @tailwindcss/cli -i style/input.css -o style/main.css --minify
+
+      - name: Build binary and site
+        env:
+          CARGO_PROFILE: ${{ inputs.cargo_profile }}
+        run: |
+          if [ "$CARGO_PROFILE" = "release" ]; then
+            cargo leptos build --release
+          else
+            cargo leptos build
+          fi
+
+      - name: Stage artifacts
+        env:
+          CARGO_PROFILE: ${{ inputs.cargo_profile }}
+        run: |
+          rm -rf dist && mkdir -p dist/site dist/locales
+          PROFILE_DIR=$([ "$CARGO_PROFILE" = "release" ] && echo "release" || echo "debug")
+          cp "target/${PROFILE_DIR}/kartoteka" dist/kartoteka
+          cp -r target/site/. dist/site/
+          cp -r locales/. dist/locales/
+
       - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ghcr.io
@@ -48,17 +87,14 @@ jobs:
           fi
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push
+      - name: Build and push Docker image
         env:
           TAGS: ${{ steps.tags.outputs.tags }}
-          CARGO_PROFILE: ${{ inputs.cargo_profile }}
         run: |
           TAG_ARGS=$(echo "$TAGS" | tr ',' '\n' | sed 's/^/--tag /' | tr '\n' ' ')
           docker buildx build \
             --builder persistent \
-            --cache-from type=local,src=/tmp/buildx-cache \
-            --cache-to type=local,dest=/tmp/buildx-cache,mode=max \
-            --build-arg CARGO_PROFILE="$CARGO_PROFILE" \
+            --file Dockerfile.runtime \
             --push \
             $TAG_ARGS \
-            .
+            dist/
