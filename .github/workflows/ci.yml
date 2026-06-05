@@ -92,5 +92,6 @@ jobs:
       - name: Setup Rust
         run: |
           . "$HOME/.cargo/env"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           rustup show
       - run: cargo test --workspace
