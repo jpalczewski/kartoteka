@@ -63,6 +63,7 @@ USER app
 
 ENV BIND_ADDR=0.0.0.0:3000 \
     LEPTOS_SITE_ROOT=site \
+    LEPTOS_HASH_FILES=true \
     RUST_LOG=info \
     DATABASE_URL=sqlite:////data/data.db
 

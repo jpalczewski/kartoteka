@@ -15,6 +15,7 @@ pub use app::App;
 #[cfg(feature = "ssr")]
 pub fn shell(options: leptos::config::LeptosOptions) -> impl leptos::IntoView {
     use leptos::prelude::*;
+    use leptos_meta::HashedStylesheet;
 
     view! {
         <!DOCTYPE html>
@@ -23,8 +24,8 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl leptos::IntoView {
                 <meta charset="utf-8"/>
                 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
                 <AutoReload options=options.clone() />
-                <HydrationScripts options/>
-                <link rel="stylesheet" href="/pkg/kartoteka.css"/>
+                <HydrationScripts options=options.clone() />
+                <HashedStylesheet options id="leptos"/>
                 {match (std::env::var("ANALYTICS_URL"), std::env::var("ANALYTICS_SITE_ID")) {
                     (Ok(url), Ok(site_id)) => view! {
                         <script defer src=url data-website-id=site_id></script>
