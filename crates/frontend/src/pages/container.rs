@@ -10,7 +10,8 @@ use crate::components::common::dnd::{DetachDropZone, ReorderDropTarget};
 use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::lists::{
-    container_card::ContainerCard, create_entity_input::CreateEntityInput, list_card::ListCard,
+    container_card::ContainerCard, create_entity_input::CreateEntityInput,
+    list_preview::ListPreview,
 };
 use crate::context::GlobalRefresh;
 use crate::server_fns::containers::{
@@ -123,7 +124,7 @@ pub fn ContainerPage() -> impl IntoView {
                         });
 
                         // Drop on list card: List → make sublist. Container → ignore.
-                        let on_list_nest = Callback::new(move |target: DropTarget| {
+                        let _on_list_nest = Callback::new(move |target: DropTarget| {
                             let Some(nest_id) = target.nest_id().map(str::to_string) else { return };
                             let Some((kind, id)) = dnd_state.with_untracked(|s| {
                                 s.dragged.as_ref().map(|d| (d.kind, d.id.clone()))
@@ -431,10 +432,8 @@ pub fn ContainerPage() -> impl IntoView {
                                                             target=DropTarget::Before(lid)
                                                             on_drop=on_list_reorder
                                                         />
-                                                        <ListCard
+                                                        <ListPreview
                                                             list=list
-                                                            dnd_state=dnd_state
-                                                            on_nest_drop=on_list_nest
                                                             on_archive=on_archive_list_cb
                                                             on_delete=on_delete_list_cb
                                                         />
