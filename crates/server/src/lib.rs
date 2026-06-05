@@ -107,6 +107,35 @@ pub fn test_router(pool: SqlitePool, auth_layer: AuthLayer, signing_secret: Stri
     )
 }
 
+/// `Host` allowlist for the MCP streamable-HTTP transport: loopback for local dev,
+/// the deployment's own public host (derived from `PUBLIC_BASE_URL`), and any extra
+/// virtual hosts from `MCP_ALLOWED_HOSTS` (comma-separated — e.g. an edge gateway or
+/// preview domain). rmcp's DNS-rebinding guard rejects any `Host` not on this list,
+/// so the production host must be present or every `/mcp` request returns 403.
+fn mcp_allowed_hosts(public_base_url: &str) -> Vec<String> {
+    let mut hosts = vec![
+        "localhost".to_string(),
+        "127.0.0.1".to_string(),
+        "::1".to_string(),
+    ];
+    if let Ok(uri) = public_base_url.parse::<axum::http::Uri>() {
+        if let Some(authority) = uri.authority() {
+            hosts.push(authority.host().to_string());
+            hosts.push(authority.as_str().to_string());
+        }
+    }
+    if let Ok(extra) = std::env::var("MCP_ALLOWED_HOSTS") {
+        hosts.extend(
+            extra
+                .split(',')
+                .map(str::trim)
+                .filter(|h| !h.is_empty())
+                .map(String::from),
+        );
+    }
+    hosts
+}
+
 pub fn router(
     pool: SqlitePool,
     auth_layer: AuthLayer,
@@ -115,11 +144,10 @@ pub fn router(
     leptos_options: leptos::config::LeptosOptions,
     mcp_i18n: Arc<McpI18n>,
 ) -> Router {
-    use rmcp::transport::streamable_http_server::{
-        StreamableHttpService, session::local::LocalSessionManager,
-    };
+    use kartoteka_mcp::{LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService};
 
     let routes = generate_route_list(App);
+    let mcp_allowed_hosts = mcp_allowed_hosts(&public_base_url);
     let oauth_state = OAuthState {
         pool: pool.clone(),
         signing_secret: signing_secret.clone(),
@@ -138,7 +166,7 @@ pub fn router(
     let mcp_service = StreamableHttpService::new(
         move || Ok(mcp_server.clone()),
         Arc::new(LocalSessionManager::default()),
-        Default::default(),
+        StreamableHttpServerConfig::default().with_allowed_hosts(mcp_allowed_hosts),
     );
 
     Router::new()

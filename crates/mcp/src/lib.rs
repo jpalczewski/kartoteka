@@ -9,6 +9,12 @@ pub mod tools;
 pub use i18n::McpI18n;
 pub use server::KartotekaServer;
 
+/// rmcp streamable-HTTP transport types, re-exported so `crates/server` can mount
+/// the MCP service without taking a direct dependency on `rmcp`.
+pub use rmcp::transport::streamable_http_server::{
+    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
+};
+
 use http::request::Parts;
 use kartoteka_shared::auth_ctx::{UserId, UserLocale};
 
