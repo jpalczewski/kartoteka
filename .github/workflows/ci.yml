@@ -82,14 +82,15 @@ jobs:
 
   test:
     name: Tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push'
     needs: check-clippy
+    env:
+      CARGO_TARGET_DIR: /home/github-runner/.cache/kartoteka/target
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: workspace
+      - name: Setup Rust
+        run: |
+          . "$HOME/.cargo/env"
+          rustup show
       - run: cargo test --workspace
