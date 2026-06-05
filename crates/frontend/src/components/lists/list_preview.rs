@@ -83,13 +83,13 @@ pub fn ListPreview(
                 <span data-testid="list-preview-title">{list_name}</span>
                 <a
                     href=href
-                    class="btn btn-ghost btn-xs ml-1"
+                    class="btn btn-ghost btn-xs ml-1 relative z-10"
                     title="Otwórz pełny widok"
                     on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()
                 >
                     "↗"
                 </a>
-                <div class="ml-auto flex gap-1 mr-2" on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()>
+                <div class="ml-auto flex gap-1 mr-2 relative z-10" on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()>
                     {on_archive.map(|cb| {
                         let lid = list_id_archive.clone();
                         view! {
