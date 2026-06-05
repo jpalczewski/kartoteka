@@ -32,9 +32,27 @@ pub fn LoginPage() -> impl IntoView {
         }
         set_loading.set(true);
         set_error.set(None);
+        #[cfg(target_arch = "wasm32")]
+        let rt_dest = rt.clone();
         leptos::task::spawn_local(async move {
             match do_login(e, p, rt).await {
-                Ok(LoginOutcome::Ok) => {}
+                Ok(LoginOutcome::Ok) =>
+                {
+                    #[cfg(target_arch = "wasm32")]
+                    if let Some(win) = web_sys::window() {
+                        let raw = rt_dest.as_deref().unwrap_or("/");
+                        let dest = if raw.starts_with('/')
+                            && !raw.starts_with("//")
+                            && !raw.starts_with("/\\")
+                            && !raw.contains(':')
+                        {
+                            raw
+                        } else {
+                            "/"
+                        };
+                        let _ = win.location().set_href(dest);
+                    }
+                }
                 Ok(LoginOutcome::TwoFaRequired) => {
                     set_loading.set(false);
                     set_stage.set(LoginStage::TwoFa);
@@ -58,7 +76,13 @@ pub fn LoginPage() -> impl IntoView {
         set_error.set(None);
         leptos::task::spawn_local(async move {
             match do_verify_2fa(code).await {
-                Ok(_) => {}
+                Ok(_) =>
+                {
+                    #[cfg(target_arch = "wasm32")]
+                    if let Some(win) = web_sys::window() {
+                        let _ = win.location().set_href("/");
+                    }
+                }
                 Err(e) => {
                     let msg = match e.to_string().as_str() {
                         s if s.contains("invalid_code") => "Nieprawidłowy kod.".to_string(),

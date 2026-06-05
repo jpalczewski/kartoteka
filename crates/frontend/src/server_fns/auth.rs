@@ -168,7 +168,7 @@ pub async fn do_logout() -> Result<(), ServerFnError> {
     Ok(())
 }
 
-/// Register a new account. Redirects to /login on success.
+/// Register a new account, log in immediately, and redirect to /.
 #[server(prefix = "/leptos")]
 pub async fn do_register(
     email: String,
@@ -176,11 +176,26 @@ pub async fn do_register(
     name: Option<String>,
 ) -> Result<(), ServerFnError> {
     let pool = expect_context::<SqlitePool>();
+    let mut auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+
     domain::auth::register(&pool, &email, &password, name.as_deref())
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
 
-    leptos_axum::redirect("/login");
+    let credentials = LoginCredentials { email, password };
+    match auth.authenticate(credentials).await {
+        Ok(Some(user)) => {
+            if let Err(e) = auth.login(&user).await {
+                leptos::logging::warn!("auto-login after registration failed: {e}");
+            }
+        }
+        Ok(None) => leptos::logging::warn!("auto-login after registration: user not found"),
+        Err(e) => leptos::logging::warn!("auto-login after registration: auth error: {e}"),
+    }
+
+    leptos_axum::redirect("/");
     Ok(())
 }
 
