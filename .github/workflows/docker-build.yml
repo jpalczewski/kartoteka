@@ -65,6 +65,7 @@ jobs:
           rm -rf dist && mkdir -p dist/site dist/locales
           PROFILE_DIR=$([ "$CARGO_PROFILE" = "release" ] && echo "release" || echo "debug")
           cp "${CARGO_TARGET_DIR}/${PROFILE_DIR}/kartoteka" dist/kartoteka
+          cp "${CARGO_TARGET_DIR}/${PROFILE_DIR}/hash.txt" dist/hash.txt
           cp -r target/site/. dist/site/
           cp -r locales/. dist/locales/
 

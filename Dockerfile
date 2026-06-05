@@ -41,9 +41,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry,sharin
     if [ "$CARGO_PROFILE" = "release" ]; then \
         cargo leptos build --release; \
         cp target/release/kartoteka /out-kartoteka; \
+        cp target/release/hash.txt /out-hash.txt; \
     else \
         cargo leptos build; \
         cp target/debug/kartoteka /out-kartoteka; \
+        cp target/debug/hash.txt /out-hash.txt; \
     fi; \
     cp -r target/site /out-site
 
@@ -55,6 +57,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /data && chown app:app /data
 
 COPY --from=builder /out-kartoteka /app/kartoteka
+COPY --from=builder /out-hash.txt /app/hash.txt
 COPY --from=builder /out-site /app/site
 COPY locales/ /app/locales/
 RUN chown -R app:app /app

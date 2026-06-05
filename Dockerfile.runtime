@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /data && chown app:app /data
 
 COPY kartoteka /app/kartoteka
+COPY hash.txt /app/hash.txt
 COPY site /app/site
 COPY locales /app/locales
 RUN chown -R app:app /app

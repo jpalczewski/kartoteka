@@ -34,6 +34,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
     cargo leptos build --release && \
     cp target/release/kartoteka /app/kartoteka_bin && \
+    cp target/release/hash.txt /app/hash.txt && \
     cp -r target/site /app/site_build
 
 # ─── Stage 2: Runtime (~20 MB) ─────────────────────────────────────────────
@@ -43,6 +44,7 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /app/kartoteka_bin /app/kartoteka
+COPY --from=builder /app/hash.txt      /app/hash.txt
 COPY --from=builder /app/site_build    /app/site
 
 ENV RUST_LOG="info"
