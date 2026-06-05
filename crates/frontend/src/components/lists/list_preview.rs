@@ -1,6 +1,7 @@
 use crate::app::{ToastContext, ToastKind};
 use crate::components::lists::add_input::AddInput;
 use crate::components::lists::list_card::list_type_icon;
+use crate::context::GlobalRefresh;
 use crate::server_fns::items::{create_item, toggle_item};
 use crate::server_fns::lists::get_list_preview_items;
 use kartoteka_shared::PreviewItem;
@@ -14,6 +15,7 @@ pub fn ListPreview(
     #[prop(optional)] on_archive: Option<Callback<String>>,
 ) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
     let list_id = list.id.clone();
     let list_name = list.name.clone();
     let icon = list_type_icon(&list.list_type);
@@ -23,12 +25,13 @@ pub fn ListPreview(
 
     // Resource fires only when expanded (refresh > 0 means user has expanded at least once).
     // Re-expanding after collapse re-fetches to show fresh data.
+    // global_refresh is included so external mutations propagate once expanded.
     let items_resource = Resource::new(
         {
             let lid = list_id.clone();
-            move || (lid.clone(), refresh.get())
+            move || (lid.clone(), refresh.get(), global_refresh.get())
         },
-        |(id, rev)| async move {
+        |(id, rev, _)| async move {
             if rev == 0 {
                 // Not yet expanded — return empty without hitting the server.
                 Ok(Vec::<PreviewItem>::new())
@@ -68,12 +71,7 @@ pub fn ListPreview(
             <input
                 type="checkbox"
                 on:change=move |ev| {
-                    use web_sys::wasm_bindgen::JsCast;
-                    let checked = ev.target()
-                        .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
-                        .map(|el| el.checked())
-                        .unwrap_or(false);
-                    if checked {
+                    if event_target_checked(&ev) {
                         set_refresh.update(|n| *n += 1);
                     }
                 }
@@ -107,6 +105,7 @@ pub fn ListPreview(
                             <button
                                 type="button"
                                 class="btn btn-ghost btn-xs btn-circle text-error"
+                                title="Usuń"
                                 on:click=move |_| cb.run(lid.clone())
                             >{"✕"}</button>
                         }
