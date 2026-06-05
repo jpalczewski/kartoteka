@@ -16,7 +16,7 @@ pub fn Nav() -> impl IntoView {
                 <a href="/" class="btn btn-ghost text-xl">"Kartoteka"</a>
             </div>
             <div class="navbar-end">
-                <Transition>
+                <Suspense>
                     {move || match nav.get().and_then(|r| r.ok()) {
                         Some(name) => view! {
                             <a href="/today" class="btn btn-ghost btn-sm">{move_tr!("nav-today")}</a>
@@ -51,7 +51,7 @@ pub fn Nav() -> impl IntoView {
                             </a>
                         }.into_any(),
                     }}
-                </Transition>
+                </Suspense>
             </div>
         </nav>
     }

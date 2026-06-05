@@ -27,8 +27,12 @@ pub fn SignupPage() -> impl IntoView {
         let name_opt = if n.trim().is_empty() { None } else { Some(n) };
         leptos::task::spawn_local(async move {
             match do_register(e, p, name_opt).await {
-                Ok(_) => {
-                    // redirect to /login handled by server
+                Ok(_) =>
+                {
+                    #[cfg(target_arch = "wasm32")]
+                    if let Some(win) = web_sys::window() {
+                        let _ = win.location().assign("/");
+                    }
                 }
                 Err(e) => {
                     set_error.set(Some(e.to_string()));
