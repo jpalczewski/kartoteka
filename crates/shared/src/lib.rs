@@ -6,6 +6,7 @@ pub use locale::Locale;
 #[allow(dead_code)]
 pub(crate) mod deserializers;
 pub mod dto;
+pub use dto::*;
 pub mod models;
 pub use models::*;
 pub mod types;
