@@ -1,11 +1,14 @@
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
+use leptos_router::hooks::use_location;
 
 use crate::server_fns::auth::{do_logout, get_nav_data};
 
 #[component]
 pub fn Nav() -> impl IntoView {
-    let nav = Resource::new(|| (), |_| get_nav_data());
+    let location = use_location();
+    let pathname = location.pathname;
+    let nav = Resource::new(move || pathname.get(), |_| get_nav_data());
 
     view! {
         <nav class="navbar bg-base-100 border-b border-base-300">
@@ -13,7 +16,7 @@ pub fn Nav() -> impl IntoView {
                 <a href="/" class="btn btn-ghost text-xl">"Kartoteka"</a>
             </div>
             <div class="navbar-end">
-                <Suspense>
+                <Transition>
                     {move || match nav.get().and_then(|r| r.ok()) {
                         Some(name) => view! {
                             <a href="/today" class="btn btn-ghost btn-sm">{move_tr!("nav-today")}</a>
@@ -48,7 +51,7 @@ pub fn Nav() -> impl IntoView {
                             </a>
                         }.into_any(),
                     }}
-                </Suspense>
+                </Transition>
             </div>
         </nav>
     }
