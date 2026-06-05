@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0](https://github.com/jpalczewski/kartoteka/compare/v1.2.0...v1.3.0) (2026-06-05)
+
+
+### Features
+
+* archive and delete for containers and lists from container view ([#203](https://github.com/jpalczewski/kartoteka/issues/203)) ([6b889b2](https://github.com/jpalczewski/kartoteka/commit/6b889b24c1cb1e0f296c026e2b764ef0daae375c))
+* **container:** inline list preview with lazy fetch, toggle, and add ([#207](https://github.com/jpalczewski/kartoteka/issues/207)) ([68356e8](https://github.com/jpalczewski/kartoteka/commit/68356e85cb644cfba1a0d0f34c356beb1ab105f5))
+* **domain:** enforce unique names within parent for lists, items, and tags ([#174](https://github.com/jpalczewski/kartoteka/issues/174)) ([97d9e94](https://github.com/jpalczewski/kartoteka/commit/97d9e941f4f4e281062ff1d4685fcda02fa6f640))
+* landing page for unauthenticated users ([#178](https://github.com/jpalczewski/kartoteka/issues/178)) ([d19ae95](https://github.com/jpalczewski/kartoteka/commit/d19ae954c98a670b28bf716abd836c7812e1f96a))
+* locale persistence end-to-end + gateway removal ([#179](https://github.com/jpalczewski/kartoteka/issues/179)) ([71ac83d](https://github.com/jpalczewski/kartoteka/commit/71ac83db930a78b54a66c7d637bbe5f2e23dd5ec))
+* **location:** propagate location_id through lists, items, and containers ([#202](https://github.com/jpalczewski/kartoteka/issues/202)) ([ac65668](https://github.com/jpalczewski/kartoteka/commit/ac65668e2d1dc5cb113d3391113c6c8fa8a87020))
+* **locations:** dedicated locations table with full CRUD management ([#187](https://github.com/jpalczewski/kartoteka/issues/187)) ([b940d48](https://github.com/jpalczewski/kartoteka/commit/b940d48d1e89faef155661d7b6884e36a4f7b729))
+* **locations:** location CRUD management page with domain validation ([#184](https://github.com/jpalczewski/kartoteka/issues/184)) ([c215e66](https://github.com/jpalczewski/kartoteka/commit/c215e66b7b40144d40de4593650c61eac8c11120))
+* **mcp:** tag tools — create_tag, assign_tag, unassign_tag, create_tags ([#171](https://github.com/jpalczewski/kartoteka/issues/171)) ([4309cfa](https://github.com/jpalczewski/kartoteka/commit/4309cfa9f9360445f955cd6147cdff1d98beb93b))
+
+
+### Bug Fixes
+
+* **ci:** fix Docker build failures caused by runner disk exhaustion ([#204](https://github.com/jpalczewski/kartoteka/issues/204)) ([18efc73](https://github.com/jpalczewski/kartoteka/commit/18efc73a5377d89c30f9694bb4ee303fc565fae4))
+* **ci:** replace unmaintained audit action with direct cargo audit call ([#176](https://github.com/jpalczewski/kartoteka/issues/176)) ([4560dcf](https://github.com/jpalczewski/kartoteka/commit/4560dcff3e7fa0c25a5908400d064d0e5afbfc97))
+* **settings:** use use_context for SqlitePool in get_user_locale_sf ([#189](https://github.com/jpalczewski/kartoteka/issues/189)) ([97592ce](https://github.com/jpalczewski/kartoteka/commit/97592ce4f07ee3e784540dfc8750a763cf794f96))
+
 ## [1.2.0](https://github.com/jpalczewski/kartoteka/compare/v1.1.3...v1.2.0) (2026-04-27)
 
 
