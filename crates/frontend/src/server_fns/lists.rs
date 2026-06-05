@@ -1,11 +1,11 @@
+use kartoteka_shared::PreviewItem;
 use kartoteka_shared::types::{CreateListRequest, List};
 use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
     crate::server_fns::home::domain_list_to_shared, axum_login::AuthSession,
-    kartoteka_auth::KartotekaBackend, kartoteka_db, kartoteka_domain as domain,
-    kartoteka_shared::PreviewItem, sqlx::SqlitePool,
+    kartoteka_auth::KartotekaBackend, kartoteka_db, kartoteka_domain as domain, sqlx::SqlitePool,
 };
 
 /// Create a new list. `container_id` puts the list inside a container;
