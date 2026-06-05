@@ -23,6 +23,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      CARGO_TARGET_DIR: /home/github-runner/.cache/kartoteka/target
     steps:
       - uses: actions/checkout@v6
 
@@ -62,7 +64,7 @@ jobs:
         run: |
           rm -rf dist && mkdir -p dist/site dist/locales
           PROFILE_DIR=$([ "$CARGO_PROFILE" = "release" ] && echo "release" || echo "debug")
-          cp "target/${PROFILE_DIR}/kartoteka" dist/kartoteka
+          cp "${CARGO_TARGET_DIR}/${PROFILE_DIR}/kartoteka" dist/kartoteka
           cp -r target/site/. dist/site/
           cp -r locales/. dist/locales/
 
