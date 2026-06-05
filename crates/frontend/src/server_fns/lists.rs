@@ -1,3 +1,4 @@
+use kartoteka_shared::PreviewItem;
 use kartoteka_shared::types::{CreateListRequest, List};
 use leptos::prelude::*;
 
@@ -277,4 +278,29 @@ pub async fn reset_list(id: String) -> Result<(), ServerFnError> {
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
     Ok(())
+}
+
+/// Fetch minimal item data for a list — used by container preview (lazy on expand).
+#[server(prefix = "/leptos")]
+pub async fn get_list_preview_items(list_id: String) -> Result<Vec<PreviewItem>, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let items = domain::items::list_for_list(&pool, &list_id, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    Ok(items
+        .into_iter()
+        .map(|i| PreviewItem {
+            id: i.id,
+            title: i.title,
+            completed: i.completed,
+            quantity: i.quantity,
+            unit: i.unit,
+        })
+        .collect())
 }

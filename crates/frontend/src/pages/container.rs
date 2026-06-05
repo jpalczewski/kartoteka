@@ -10,7 +10,8 @@ use crate::components::common::dnd::{DetachDropZone, ReorderDropTarget};
 use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::lists::{
-    container_card::ContainerCard, create_entity_input::CreateEntityInput, list_card::ListCard,
+    container_card::ContainerCard, create_entity_input::CreateEntityInput,
+    list_preview::ListPreview,
 };
 use crate::context::GlobalRefresh;
 use crate::server_fns::containers::{
@@ -38,8 +39,11 @@ pub fn ContainerPage() -> impl IntoView {
     let container_id = Signal::derive(move || params.read().get("id").unwrap_or_default());
     let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let navigate = StoredValue::new_local(use_navigate());
+    let navigate = StoredValue::new(use_navigate());
+    let expand_all_label = StoredValue::new(i18n.tr("lists-expand-all"));
+    let collapse_all_label = StoredValue::new(i18n.tr("lists-collapse-all"));
     let (refresh, set_refresh) = signal(0u32);
+    let (expand_all, set_expand_all) = signal(false);
 
     let data_res = Resource::new(
         move || (container_id.get(), global_refresh.get(), refresh.get()),
@@ -123,7 +127,7 @@ pub fn ContainerPage() -> impl IntoView {
                         });
 
                         // Drop on list card: List → make sublist. Container → ignore.
-                        let on_list_nest = Callback::new(move |target: DropTarget| {
+                        let _on_list_nest = Callback::new(move |target: DropTarget| {
                             let Some(nest_id) = target.nest_id().map(str::to_string) else { return };
                             let Some((kind, id)) = dnd_state.with_untracked(|s| {
                                 s.dragged.as_ref().map(|d| (d.kind, d.id.clone()))
@@ -419,9 +423,18 @@ pub fn ContainerPage() -> impl IntoView {
                                 } else {
                                     view! {
                                         <div>
-                                            <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">
-                                                "Listy (" {lists.len()} ")"
-                                            </h3>
+                                            <div class="flex items-center justify-between mb-2">
+                                                <h3 class="text-sm font-semibold text-base-content/60 uppercase tracking-wide">
+                                                    "Listy (" {lists.len()} ")"
+                                                </h3>
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-ghost btn-xs"
+                                                    on:click=move |_| set_expand_all.update(|v| *v = !*v)
+                                                >
+                                                    {move || if expand_all.get() { collapse_all_label.get_value() } else { expand_all_label.get_value() }}
+                                                </button>
+                                            </div>
                                             <div class="flex flex-col gap-1">
                                                 {lists.into_iter().map(|list| {
                                                     let lid = list.id.clone();
@@ -431,12 +444,11 @@ pub fn ContainerPage() -> impl IntoView {
                                                             target=DropTarget::Before(lid)
                                                             on_drop=on_list_reorder
                                                         />
-                                                        <ListCard
+                                                        <ListPreview
                                                             list=list
-                                                            dnd_state=dnd_state
-                                                            on_nest_drop=on_list_nest
                                                             on_archive=on_archive_list_cb
                                                             on_delete=on_delete_list_cb
+                                                            force_expand=Signal::from(expand_all)
                                                         />
                                                     }
                                                 }).collect::<Vec<_>>()}

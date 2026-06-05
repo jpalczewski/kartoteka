@@ -98,3 +98,14 @@ pub struct ParseLocationResponse {
     pub location_id: String,
     pub location: crate::models::Location,
 }
+
+// ── Container preview ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreviewItem {
+    pub id: String,
+    pub title: String,
+    pub completed: bool,
+    pub quantity: Option<i32>,
+    pub unit: Option<String>,
+}

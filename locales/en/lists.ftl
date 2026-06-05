@@ -80,6 +80,11 @@ lists-empty = This list is empty
 lists-inline-error = Error: { $detail }
 lists-main-move-target = { $name } (main)
 
+lists-expand-all = Expand all
+lists-collapse-all = Collapse all
+lists-preview-open-full = Open full view
+lists-preview-new-item-placeholder = New item...
+
 # Toasts
 lists-toast-container-deleted = Container deleted
 lists-toast-list-deleted = List deleted
