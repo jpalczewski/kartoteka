@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.4](https://github.com/jpalczewski/kartoteka/compare/v1.3.3...v1.3.4) (2026-06-05)
+
+
+### Bug Fixes
+
+* **mcp:** allow deployment host for streamable-http transport; bump rmcp to 1.7 ([#219](https://github.com/jpalczewski/kartoteka/issues/219)) ([6b6bec8](https://github.com/jpalczewski/kartoteka/commit/6b6bec8423232b718bfe396472eae5064b73ef36))
+
 ## [1.3.3](https://github.com/jpalczewski/kartoteka/compare/v1.3.2...v1.3.3) (2026-06-05)
 
 
