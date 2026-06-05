@@ -7,7 +7,7 @@ use crate::server_fns::lists::get_list_preview_items;
 use kartoteka_shared::types::List;
 use kartoteka_shared::{FEATURE_CHECKLIST, FEATURE_QUANTITY, PreviewItem};
 use leptos::prelude::*;
-use leptos_fluent::I18n;
+use leptos_fluent::move_tr;
 
 #[component]
 pub fn ListPreview(
@@ -16,15 +16,8 @@ pub fn ListPreview(
     #[prop(optional)] on_archive: Option<Callback<String>>,
     #[prop(optional)] force_expand: Option<Signal<bool>>,
 ) -> impl IntoView {
-    let i18n = expect_context::<I18n>();
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
-    let loading_text = StoredValue::new(i18n.tr("common-loading"));
-    let open_full_title = StoredValue::new(i18n.tr("lists-preview-open-full"));
-    let archive_title = StoredValue::new(i18n.tr("lists-header-archive-button"));
-    let delete_title = StoredValue::new(i18n.tr("common-delete"));
-    let new_item_placeholder = StoredValue::new(i18n.tr("lists-preview-new-item-placeholder"));
-    let add_label = StoredValue::new(i18n.tr("common-add"));
     let has_checklist = list.has_feature(FEATURE_CHECKLIST);
     let has_quantity = list.has_feature(FEATURE_QUANTITY);
     let list_id = list.id.clone();
@@ -114,7 +107,7 @@ pub fn ListPreview(
                 <a
                     href=href
                     class="btn btn-ghost btn-xs ml-1 relative z-10"
-                    title=open_full_title.get_value()
+                    title=move_tr!("lists-preview-open-full")
                     on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()
                 >
                     "↗"
@@ -126,7 +119,7 @@ pub fn ListPreview(
                             <button
                                 type="button"
                                 class="btn btn-ghost btn-xs btn-circle"
-                                title=archive_title.get_value()
+                                title=move_tr!("lists-header-archive-button")
                                 on:click=move |_| cb.run(lid.clone())
                             >{"🗄"}</button>
                         }
@@ -137,7 +130,7 @@ pub fn ListPreview(
                             <button
                                 type="button"
                                 class="btn btn-ghost btn-xs btn-circle text-error"
-                                title=delete_title.get_value()
+                                title=move_tr!("common-delete")
                                 on:click=move |_| cb.run(lid.clone())
                             >{"✕"}</button>
                         }
@@ -145,7 +138,7 @@ pub fn ListPreview(
                 </div>
             </div>
             <div class="collapse-content">
-                <Suspense fallback=move || view! { <p class="text-sm text-base-content/50 py-2">{loading_text.get_value()}</p> }>
+                <Suspense fallback=|| view! { <p class="text-sm text-base-content/50 py-2">{move_tr!("common-loading")}</p> }>
                     {move || items_resource.get().map(|result| match result {
                         Err(e) => view! {
                             <p class="text-error text-sm">{e.to_string()}</p>
@@ -189,8 +182,8 @@ pub fn ListPreview(
                                     }).collect::<Vec<_>>()}
                                     <div class="mt-2">
                                         <AddInput
-                                            placeholder=Signal::derive(move || new_item_placeholder.get_value())
-                                            button_label=Signal::derive(move || add_label.get_value())
+                                            placeholder=move_tr!("lists-preview-new-item-placeholder")
+                                            button_label=move_tr!("common-add")
                                             on_submit=on_add
                                         />
                                     </div>
