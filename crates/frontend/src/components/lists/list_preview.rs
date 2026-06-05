@@ -4,8 +4,8 @@ use crate::components::lists::list_card::list_type_icon;
 use crate::context::GlobalRefresh;
 use crate::server_fns::items::{create_item, toggle_item};
 use crate::server_fns::lists::get_list_preview_items;
-use kartoteka_shared::PreviewItem;
 use kartoteka_shared::types::List;
+use kartoteka_shared::{FEATURE_CHECKLIST, FEATURE_QUANTITY, PreviewItem};
 use leptos::prelude::*;
 
 #[component]
@@ -16,6 +16,8 @@ pub fn ListPreview(
 ) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
+    let has_checklist = list.has_feature(FEATURE_CHECKLIST);
+    let has_quantity = list.has_feature(FEATURE_QUANTITY);
     let list_id = list.id.clone();
     let list_name = list.name.clone();
     let icon = list_type_icon(&list.list_type);
@@ -128,17 +130,23 @@ pub fn ListPreview(
                                     {items.into_iter().map(|item| {
                                         let iid = item.id.clone();
                                         view! {
-                                            <label class="flex items-center gap-2 cursor-pointer py-1">
-                                                <input
-                                                    type="checkbox"
-                                                    class="checkbox checkbox-sm"
-                                                    prop:checked=item.completed
-                                                    on:change=move |_| on_toggle.run(iid.clone())
-                                                />
-                                                <span class:line-through=item.completed class:opacity-50=item.completed>
+                                            <div class="flex items-center gap-2 py-1">
+                                                {has_checklist.then(|| view! {
+                                                    <input
+                                                        type="checkbox"
+                                                        class="checkbox checkbox-sm"
+                                                        prop:checked=item.completed
+                                                        on:change=move |_| on_toggle.run(iid.clone())
+                                                    />
+                                                })}
+                                                <span
+                                                    class:line-through=move || has_checklist && item.completed
+                                                    class:opacity-50=move || has_checklist && item.completed
+                                                >
                                                     {item.title.clone()}
                                                 </span>
-                                                {item.quantity.map(|q| {
+                                                {(has_quantity && item.quantity.is_some()).then(|| {
+                                                    let q = item.quantity.unwrap();
                                                     let display = item.unit.as_deref()
                                                         .map(|u| format!("{q} {u}"))
                                                         .unwrap_or_else(|| format!("{q}×"));
@@ -146,7 +154,7 @@ pub fn ListPreview(
                                                         <span class="text-xs text-base-content/50 ml-1">{display}</span>
                                                     }
                                                 })}
-                                            </label>
+                                            </div>
                                         }
                                     }).collect::<Vec<_>>()}
                                     <div class="mt-2">

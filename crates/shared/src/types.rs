@@ -222,6 +222,12 @@ pub struct List {
     pub features: Vec<ListFeature>,
 }
 
+impl List {
+    pub fn has_feature(&self, name: &str) -> bool {
+        self.features.iter().any(|f| f.feature_name == name)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tag {
     pub id: String,
