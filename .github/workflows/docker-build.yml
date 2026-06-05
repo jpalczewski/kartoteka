@@ -19,57 +19,12 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v6
-
-      # Free ~14 GB of preinstalled bloat so the runner has room for the Docker
-      # image (~6 GB) and the cargo-registry cache-dance (~1 GB) simultaneously.
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /usr/local/.ghcup /usr/local/share/boost /opt/hostedtoolcache/CodeQL \
-            /usr/share/swift
-          df -h /
-
-      - id: buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-
-      # Cache scope is per cargo_profile (debug/release) so dev (debug) and preview
-      # (debug) share buildkit mount cache and GHA layer cache; prod (release) is isolated.
-      #
-      # cargo-target is intentionally excluded: the debug target dir exceeds 5 GB
-      # and causes "no space left on device" when cache-dance copies it back to the
-      # runner after the build. Layer cache (type=gha) handles Docker-level caching;
-      # cargo-registry + cargo-git avoid re-downloading crates on each run.
-      - name: Cache mounts
-        id: cache
-        uses: actions/cache@v5
-        with:
-          path: cache-mount
-          key: cache-mount-${{ inputs.cargo_profile }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            cache-mount-${{ inputs.cargo_profile }}-
-
-      - name: Inject cache mounts
-        uses: reproducible-containers/buildkit-cache-dance@v3
-        with:
-          builder: ${{ steps.buildx.outputs.name }}
-          cache-map: |
-            {
-              "cache-mount/cargo-registry": {
-                "target": "/usr/local/cargo/registry",
-                "id": "cargo-registry"
-              },
-              "cache-mount/cargo-git": {
-                "target": "/usr/local/cargo/git",
-                "id": "cargo-git"
-              }
-            }
-          skip-extraction: ${{ steps.cache.outputs.cache-hit }}
 
       - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
@@ -93,12 +48,17 @@ jobs:
           fi
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.tags.outputs.tags }}
-          build-args: |
-            CARGO_PROFILE=${{ inputs.cargo_profile }}
-          cache-from: type=gha,scope=${{ inputs.cargo_profile }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.cargo_profile }}
+      - name: Build and push
+        env:
+          TAGS: ${{ steps.tags.outputs.tags }}
+          CARGO_PROFILE: ${{ inputs.cargo_profile }}
+        run: |
+          TAG_ARGS=$(echo "$TAGS" | tr ',' '\n' | sed 's/^/--tag /' | tr '\n' ' ')
+          docker buildx build \
+            --builder persistent \
+            --cache-from type=local,src=/tmp/buildx-cache \
+            --cache-to type=local,dest=/tmp/buildx-cache,mode=max \
+            --build-arg CARGO_PROFILE="$CARGO_PROFILE" \
+            --push \
+            $TAG_ARGS \
+            .
