@@ -199,7 +199,7 @@ fn build_ancestors(
         let Some(parent) = all.iter().find(|c| c.id == pid) else {
             break;
         };
-        result.push((parent.id.clone(), parent.name.clone()));
+        result.push((format!("/containers/{}", parent.id), parent.name.clone()));
         current_parent = parent.parent_container_id.as_deref();
     }
     result.reverse();

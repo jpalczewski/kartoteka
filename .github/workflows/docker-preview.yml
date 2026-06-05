@@ -18,7 +18,7 @@ jobs:
     uses: ./.github/workflows/docker-build-deploy.yml
     with:
       image_tag: preview
-      cargo_profile: debug
+      cargo_profile: release
     secrets:
       coolify_webhook: ${{ secrets.COOLIFY_WEBHOOK_PREVIEW }}
       coolify_token: ${{ secrets.COOLIFY_TOKEN }}
