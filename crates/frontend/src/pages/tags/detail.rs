@@ -28,7 +28,7 @@ pub fn TagDetailPage() -> impl IntoView {
     let params = use_params_map();
     let tag_id_fn = Memo::new(move |_| params.read().get("id").unwrap_or_default());
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let navigate = StoredValue::new_local(use_navigate());
+    let navigate = StoredValue::new(use_navigate());
 
     let (refresh, set_refresh) = signal(0u32);
     let (recursive, set_recursive) = signal(true);

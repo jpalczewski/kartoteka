@@ -39,7 +39,7 @@ pub fn ContainerPage() -> impl IntoView {
     let container_id = Signal::derive(move || params.read().get("id").unwrap_or_default());
     let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let navigate = StoredValue::new_local(use_navigate());
+    let navigate = StoredValue::new(use_navigate());
     let (refresh, set_refresh) = signal(0u32);
 
     let data_res = Resource::new(
