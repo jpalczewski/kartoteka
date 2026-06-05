@@ -302,6 +302,8 @@ pub struct ListData {
     pub item_tag_links: Vec<ItemTagLink>,
     /// All tags for the user. Used to resolve tag names/colors for item rows and the filter bar.
     pub all_tags: Vec<Tag>,
+    /// Tag IDs assigned directly to this list.
+    pub list_tag_ids: Vec<String>,
     /// Today's date as "YYYY-MM-DD" in user's timezone — used for deadline grouping.
     pub today_date: String,
     /// Name of the parent container, if any — used for breadcrumbs.

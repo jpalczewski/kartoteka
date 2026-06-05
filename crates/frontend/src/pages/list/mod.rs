@@ -30,8 +30,7 @@ use crate::server_fns::lists::{
     reset_list, update_list_features,
 };
 use crate::server_fns::tags::{
-    assign_tag_to_item, assign_tag_to_list, get_all_tags, get_list_tag_links, remove_tag_from_item,
-    remove_tag_from_list,
+    assign_tag_to_item, assign_tag_to_list, remove_tag_from_item, remove_tag_from_list,
 };
 use crate::state::dnd::{
     DndState, EntityKind, ItemDndState, ItemDropPlan, ItemDropTarget, build_item_drop_plan,
@@ -85,26 +84,12 @@ pub fn ListPage() -> impl IntoView {
         |_| get_all_lists(),
     );
 
-    let tag_res = Resource::new(
-        move || (list_id(), refresh.get(), global_refresh.get()),
-        |(lid, _, _)| async move {
-            let tags = get_all_tags().await?;
-            let links = get_list_tag_links().await?;
-            let tag_ids: Vec<String> = links
-                .into_iter()
-                .filter(|l| l.list_id == lid)
-                .map(|l| l.tag_id)
-                .collect();
-            Ok::<(Vec<kartoteka_shared::types::Tag>, Vec<String>), ServerFnError>((tags, tag_ids))
-        },
-    );
-
     let on_tag_toggle = Callback::new(move |tag_id: String| {
         let lid = list_id();
-        let current_tag_ids = tag_res
+        let current_tag_ids = data_res
             .get()
             .and_then(|r| r.ok())
-            .map(|(_, ids)| ids)
+            .map(|data| data.list_tag_ids)
             .unwrap_or_default();
         let has_tag = current_tag_ids.contains(&tag_id);
         leptos::task::spawn_local(async move {
@@ -319,7 +304,9 @@ pub fn ListPage() -> impl IntoView {
                         let item_tag_links_filter = data.item_tag_links.clone();
                         let all_tags_for_filter = data.all_tags.clone();
                         let all_tags_for_rows = data.all_tags.clone();
+                        let all_tags_for_list_tags = data.all_tags.clone();
                         let all_tags_for_selector = data.all_tags.clone();
+                        let list_tag_ids = data.list_tag_ids.clone();
                         let today_date = data.today_date.clone();
                         let breadcrumb_crumbs = if let Some(ref cname) = data.container_name {
                             let cid = data.list.container_id.clone().unwrap_or_default();
@@ -553,15 +540,11 @@ pub fn ListPage() -> impl IntoView {
 
                                 // Tags
                                 <div class="mb-4" data-testid="list-tags-section">
-                                    {move || tag_res.get().and_then(|r| r.ok()).map(|(all_tags, tag_ids)| {
-                                        view! {
-                                            <TagList
-                                                all_tags=all_tags
-                                                selected_tag_ids=tag_ids
-                                                on_toggle=on_tag_toggle
-                                            />
-                                        }
-                                    })}
+                                    <TagList
+                                        all_tags=all_tags_for_list_tags
+                                        selected_tag_ids=list_tag_ids
+                                        on_toggle=on_tag_toggle
+                                    />
                                 </div>
 
                                 // Tag filter bar (shown only when items have tags)
