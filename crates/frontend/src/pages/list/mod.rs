@@ -10,6 +10,7 @@ use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::CommentSection;
 use crate::components::common::breadcrumbs::Breadcrumbs;
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
+use crate::components::common::container_selector_dropdown::ContainerSelectorDropdown;
 use crate::components::common::dnd::{DetachDropZone, ItemDropTargetMarker};
 use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
@@ -21,6 +22,7 @@ use crate::components::lists::{
 use crate::components::tags::tag_filter_bar::TagFilterBar;
 use crate::components::tags::tag_list::TagList;
 use crate::context::GlobalRefresh;
+use crate::server_fns::containers::get_containers_for_move;
 use crate::server_fns::items::{
     delete_item, get_list_data, move_item, reorder_items, set_item_placement, toggle_item,
     update_actual_quantity, update_item_dates, update_item_description,
@@ -83,6 +85,31 @@ pub fn ListPage() -> impl IntoView {
         move || (refresh.get(), global_refresh.get()),
         |_| get_all_lists(),
     );
+
+    let container_dropdown_open = RwSignal::new(false);
+    let containers_res = Resource::new(
+        move || container_dropdown_open.get(),
+        |open| async move {
+            if open {
+                get_containers_for_move(None, false).await
+            } else {
+                Ok(vec![])
+            }
+        },
+    );
+    let on_move_to_container = Callback::new(move |cid: String| {
+        let lid = list_id();
+        leptos::task::spawn_local(async move {
+            match move_list(lid, Some(cid), None).await {
+                Ok(_) => {
+                    set_refresh.update(|n| *n += 1);
+                    global_refresh.bump();
+                }
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+            container_dropdown_open.set(false);
+        });
+    });
 
     let on_tag_toggle = Callback::new(move |tag_id: String| {
         let lid = list_id();
@@ -308,6 +335,7 @@ pub fn ListPage() -> impl IntoView {
                         let all_tags_for_selector = data.all_tags.clone();
                         let list_tag_ids = data.list_tag_ids.clone();
                         let today_date = data.today_date.clone();
+                        let container_name_sv = StoredValue::new(data.container_name.clone());
                         let breadcrumb_crumbs = if let Some(ref cname) = data.container_name {
                             let cid = data.list.container_id.clone().unwrap_or_default();
                             vec![(format!("/containers/{cid}"), cname.clone())]
@@ -356,6 +384,50 @@ pub fn ListPage() -> impl IntoView {
                                         class="text-2xl font-bold cursor-pointer hover:underline decoration-dotted"
                                         testid="list-name-heading"
                                     />
+                                    // Container move/detach
+                                    {move || {
+                                        let opts = containers_res.get().and_then(|r| r.ok()).unwrap_or_default();
+                                        if let Some(cname) = container_name_sv.get_value() {
+                                            view! {
+                                                <div class="flex items-center gap-1 shrink-0">
+                                                    <span class="text-xs text-base-content/60 flex items-center gap-1">
+                                                        "📦 "
+                                                        <span class="max-w-28 truncate">{cname}</span>
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        class="btn btn-ghost btn-xs btn-circle text-error"
+                                                        title="Odepnij od kontenera"
+                                                        on:click=move |_| {
+                                                            let lid = list_id();
+                                                            leptos::task::spawn_local(async move {
+                                                                match move_list(lid, None, None).await {
+                                                                    Ok(_) => { set_refresh.update(|n| *n += 1); global_refresh.bump(); }
+                                                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                                }
+                                                            });
+                                                        }
+                                                    >{"✕"}</button>
+                                                </div>
+                                            }.into_any()
+                                        } else {
+                                            view! {
+                                                <div class="relative shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        class="btn btn-ghost btn-xs btn-square"
+                                                        title="Przenieś do kontenera"
+                                                        on:click=move |_| container_dropdown_open.update(|v| *v = !*v)
+                                                    >{"📦"}</button>
+                                                    <ContainerSelectorDropdown
+                                                        open=container_dropdown_open
+                                                        options=opts
+                                                        on_select=on_move_to_container
+                                                    />
+                                                </div>
+                                            }.into_any()
+                                        }
+                                    }}
                                     // Dropdown at the end, pushed right via ml-auto
                                     <div class="dropdown dropdown-end ml-auto">
                                         <div tabindex="0" role="button" class="btn btn-ghost btn-sm btn-circle" data-testid="list-actions-btn">

@@ -103,3 +103,6 @@ mcp-tool-create_container-desc = Utwórz pojedynczy folder (bez status) lub proj
 mcp-tool-create_items-desc = Dodaj wiele elementów do jednej listy atomowo. Podaj list_id raz na poziomie głównym; wszystkie elementy trafiają do tej listy w podanej kolejności.
 mcp-tool-create_lists-desc = Utwórz wiele list atomowo. Użyj container_ref aby odwołać się do kontenera z poprzedniego wywołania create_containers (ustaw na nim client_ref). Użyj parent_list_ref aby zagnieździć pod listą z tego samego batcha. Referencje tylko do wcześniejszych elementów.
 mcp-tool-create_containers-desc = Utwórz wiele folderów/projektów atomowo. Użyj parent_container_ref aby zagnieździć pod kontenerem z wcześniej w tym samym batchu (ustaw client_ref na rodzicu). Tylko referencje do wcześniejszych elementów w tablicy.
+
+mcp-tool-move_list_to_container-desc = Przenieś listę do kontenera lub odepnij ją od bieżącego (container_id: null).
+mcp-tool-move_container_to_parent-desc = Wnieś kontener do folderu-rodzica lub odepnij do poziomu głównego (parent_container_id: null). Tylko foldery (bez status) mogą być rodzicem.

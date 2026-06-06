@@ -3,7 +3,7 @@ use kartoteka_db::{self as db, lists::InsertListInput};
 use kartoteka_domain as domain;
 use kartoteka_shared::{
     auth_ctx::{UserId, UserLocale},
-    types::CreateContainerRequest,
+    types::{CreateContainerRequest, MoveContainerRequest},
 };
 use rmcp::{
     ErrorData, RoleServer, ServerHandler,
@@ -35,6 +35,7 @@ use crate::tools::{
         CreateContainerParams, CreateContainersParams, CreateItemParams, CreateItemsParams,
         CreateListParams, CreateListsParams, UpdateItemParams,
     },
+    movement::{MoveContainerToParentParams, MoveListToContainerParams},
     read::{
         GetContainerParams, GetItemParams, GetListParams, ListContainerItemsParams, ListItemsParams,
     },
@@ -1198,6 +1199,60 @@ impl KartotekaServer {
 
         tx.commit().await.map_err(self.sqlx_err(&locale))?;
         self.json_result(result, &locale)
+    }
+
+    // ── Movement tools ────────────────────────────────────────────────────────
+
+    #[rmcp::tool(
+        name = "move_list_to_container",
+        description = "mcp-tool-move_list_to_container-desc"
+    )]
+    #[tracing::instrument(skip(self, parts), fields(action = "mcp_move_list_to_container"))]
+    async fn move_list_to_container(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<MoveListToContainerParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let position = db::lists::next_position(&self.pool, &uid, p.container_id.as_deref(), None)
+            .await
+            .map_err(self.db_err(&locale))?;
+        let req = domain::lists::MoveListRequest {
+            position,
+            container_id: p.container_id,
+            parent_list_id: None,
+        };
+        let list = domain::lists::move_list(&self.pool, &p.list_id, &uid, &req)
+            .await
+            .map_err(self.domain_err(&locale))?
+            .ok_or_else(|| {
+                self.map_err(
+                    McpError::Domain(domain::DomainError::NotFound("list")),
+                    &locale,
+                )
+            })?;
+        self.json_result(list, &locale)
+    }
+
+    #[rmcp::tool(
+        name = "move_container_to_parent",
+        description = "mcp-tool-move_container_to_parent-desc"
+    )]
+    #[tracing::instrument(skip(self, parts), fields(action = "mcp_move_container_to_parent"))]
+    async fn move_container_to_parent(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<MoveContainerToParentParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let req = MoveContainerRequest {
+            parent_container_id: p.parent_container_id,
+            position: None,
+        };
+        let container = domain::containers::move_container(&self.pool, &p.container_id, &uid, &req)
+            .await
+            .map_err(self.domain_err(&locale))?;
+        self.json_result(container, &locale)
     }
 }
 

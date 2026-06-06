@@ -1,5 +1,6 @@
 pub mod comments;
 pub mod items;
+pub mod movement;
 pub mod read;
 pub mod relations;
 pub mod search;
