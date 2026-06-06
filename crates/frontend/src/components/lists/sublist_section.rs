@@ -98,15 +98,14 @@ pub fn SublistSection(
                         <DragHandleButton dnd_state=state kind=EntityKind::List dragged_id=sid aria_label="Przeciągnij podlistę" />
                     }
                 })}
-                <span data-testid="sublist-name">{list_name}</span>
                 <a
                     href=format!("/lists/{}", sublist.id)
-                    class="btn btn-ghost btn-xs ml-1"
-                    title="Otwórz jako widok listy"
+                    class="relative z-[2] font-semibold hover:underline decoration-dotted"
                     data-testid="sublist-open-link"
                     on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()
                 >
-                    "↗"
+                    {list_name}
+                    <span class="ml-1 text-xs opacity-50">"↗"</span>
                 </a>
                 {move || {
                     let current = items.get();
