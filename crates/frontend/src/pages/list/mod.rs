@@ -338,8 +338,7 @@ pub fn ListPage() -> impl IntoView {
                         let today_date = data.today_date.clone();
                         let container_name_sv = StoredValue::new(data.container_name.clone());
                         let mut breadcrumb_crumbs = vec![];
-                        if let Some(ref cname) = data.container_name {
-                            let cid = data.list.container_id.clone().unwrap_or_default();
+                        if let (Some(cname), Some(cid)) = (&data.container_name, &data.list.container_id) {
                             breadcrumb_crumbs.push((format!("/containers/{cid}"), cname.clone()));
                         }
                         if let Some(ref plid) = data.list.parent_list_id {

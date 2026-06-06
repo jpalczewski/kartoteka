@@ -170,8 +170,7 @@ pub fn ListPreview(
                                                         >
                                                             {item.title.clone()}
                                                         </span>
-                                                        {(has_quantity && item.quantity.is_some()).then(|| {
-                                                            let q = item.quantity.unwrap();
+                                                        {item.quantity.filter(|_| has_quantity).map(|q| {
                                                             let display = item.unit.as_deref()
                                                                 .map(|u| format!("{q} {u}"))
                                                                 .unwrap_or_else(|| format!("{q}×"));

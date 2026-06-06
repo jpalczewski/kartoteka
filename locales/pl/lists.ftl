@@ -82,6 +82,8 @@ lists-main-move-target = { $name } (główna)
 
 lists-expand-all = Rozwiń wszystkie
 lists-collapse-all = Zwiń wszystkie
+
+# Podgląd listy
 lists-preview-open-full = Otwórz pełny widok
 lists-preview-new-item-placeholder = Nowy element...
 
@@ -90,6 +92,7 @@ lists-move-to-container = Przenieś do kontenera
 lists-detach-from-container = Odepnij od kontenera
 lists-move-to-parent = Wnieś do kontenera
 lists-detach-from-parent = Odepnij od rodzica
+
 
 # Toasty
 lists-toast-container-deleted = Kontener usunięty

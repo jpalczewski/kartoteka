@@ -82,6 +82,8 @@ lists-main-move-target = { $name } (main)
 
 lists-expand-all = Expand all
 lists-collapse-all = Collapse all
+
+# List preview
 lists-preview-open-full = Open full view
 lists-preview-new-item-placeholder = New item...
 
@@ -90,6 +92,7 @@ lists-move-to-container = Move to container
 lists-detach-from-container = Detach from container
 lists-move-to-parent = Move to parent
 lists-detach-from-parent = Detach from parent
+
 
 # Toasts
 lists-toast-container-deleted = Container deleted
