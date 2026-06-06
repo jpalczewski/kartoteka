@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0](https://github.com/jpalczewski/kartoteka/compare/v1.3.4...v1.4.0) (2026-06-06)
+
+
+### Features
+
+* **mcp:** add list_container_items tool for paginated cross-list browsing ([#236](https://github.com/jpalczewski/kartoteka/issues/236)) ([dfea812](https://github.com/jpalczewski/kartoteka/commit/dfea812a7bfe35b56e7c344f53ea6c15ddb15f4f))
+* **observability:** add TraceLayer, per-env log levels, and parser action fix ([#245](https://github.com/jpalczewski/kartoteka/issues/245)) ([01a4cb0](https://github.com/jpalczewski/kartoteka/commit/01a4cb0e503e4a4d7582be3c399ff1e0b3921773))
+* **ui+mcp:** add explicit move/detach UI for lists and containers ([#239](https://github.com/jpalczewski/kartoteka/issues/239)) ([879a70e](https://github.com/jpalczewski/kartoteka/commit/879a70ef76dc6ae1dc484e34e909b565c54f1d00))
+
+
+### Bug Fixes
+
+* **frontend:** reduce CommentSection to single SSR request via CommentsPayload ([#243](https://github.com/jpalczewski/kartoteka/issues/243)) ([b483ed6](https://github.com/jpalczewski/kartoteka/commit/b483ed6e80131187b02ca019f483560dcd581242))
+* **frontend:** use absolute paths in container breadcrumb ancestors ([#221](https://github.com/jpalczewski/kartoteka/issues/221)) ([f8835d4](https://github.com/jpalczewski/kartoteka/commit/f8835d4e5eb43a2374541a3b362fb93b1dd97984))
+* **mcp:** fix batch create_items/create_lists deadlock on single-connection pool ([#247](https://github.com/jpalczewski/kartoteka/issues/247)) ([c321e47](https://github.com/jpalczewski/kartoteka/commit/c321e477f6e89c614eb885a0d0d9892bca968b53)), closes [#237](https://github.com/jpalczewski/kartoteka/issues/237)
+
 ## [1.3.4](https://github.com/jpalczewski/kartoteka/compare/v1.3.3...v1.3.4) (2026-06-05)
 
 
