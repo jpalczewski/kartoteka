@@ -128,6 +128,16 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
         None
     };
 
+    let parent_list_name = if let Some(ref plid) = list.parent_list_id {
+        domain::lists::get_one(&pool, plid, &user.id)
+            .await
+            .ok()
+            .flatten()
+            .map(|l| l.name)
+    } else {
+        None
+    };
+
     Ok(ListData {
         list: domain_list_to_shared(list),
         items: items.into_iter().map(domain_item_to_shared).collect(),
@@ -147,7 +157,7 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
             .collect(),
         today_date,
         container_name,
-        parent_list_name: None,
+        parent_list_name,
     })
 }
 
