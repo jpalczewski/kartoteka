@@ -8,11 +8,10 @@ Kartoteka — aplikacja todo/listy. Leptos 0.8 SSR (Axum) + SQLite + `axum-login
 
 ## Architektura
 
-- **Monorepo**: Cargo workspace — `api`, `auth`, `db`, `domain`, `frontend`, `frontend-v2`, `i18n`, `jobs`, `logging`, `mcp`, `oauth`, `server`, `shared`
+- **Monorepo**: Cargo workspace — `auth`, `db`, `domain`, `frontend`, `i18n`, `jobs`, `mcp`, `oauth`, `server`, `shared`
 - **Server**: Axum (`crates/server`) — SSR, `/api/*`, auth middleware
-- **Frontend**: Leptos 0.8 SSR w `crates/frontend-v2` (główny). `crates/frontend` trzyma Tailwind input + `node_modules`
-- **MCP**: `crates/mcp` używa `rmcp` (Rust MCP SDK), wystawiany przez `crates/server`
-- **Gateway** (`gateway/`): osobny worker Cloudflare — edge proxy dla MCP, deploy via wrangler. Migracje schema przez endpoint `/migrate`
+- **Frontend**: Leptos 0.8 SSR w `crates/frontend` — komponenty SSR, routing, server functions (`src/server_fns/`), Tailwind input + `node_modules`
+- **MCP**: `crates/mcp` używa `rmcp` (Rust MCP SDK), wystawiany pod `/mcp` przez główny serwer — bez osobnego gateway
 - **Auth**: `crates/auth` — `axum-login` + `tower-sessions` (SQLite store), hasła `argon2`, 2FA `totp-rs`. OAuth providers w `crates/oauth`. Sesja via HttpOnly cookie
 - **DB**: SQLite przez `sqlx`, UUID v4 (TEXT) IDs, timestampy `datetime('now')`. Migracje w `crates/db/migrations/` wykonywane przy starcie serwera
 
@@ -41,12 +40,13 @@ Każdy handler w `crates/server/src/` **musi** mieć `#[instrument(fields(action
 just setup        # cargo-leptos + wasm target + npm install (crates/frontend)
 just dev          # dev-leptos + dev-tailwind w parallel (trap/wait)
 just check        # cargo check --workspace
+just check-ssr    # cargo check bez WASM — szybszy feedback
+just build        # npm install + cargo leptos build --release
 just test         # cargo test --workspace
 just test-e2e     # Playwright (wymaga running just dev)
 just lint         # Clippy + fmt check
 just fmt          # cargo fmt
 just ci           # fmt + lint + audit + machete + test
-just deploy       # gateway (Cloudflare) + auth migrations
 just deploy-preview  # build AMD64 obraz lokalnie + deploy preview
 ```
 
@@ -71,8 +71,7 @@ Projekt używa szybko ewoluujących bibliotek (Leptos 0.8, DaisyUI 5, rmcp). Prz
 
 ## Deployment
 
-- **Główna aplikacja**: Docker (`Dockerfile`: node css-builder → rust nightly builder → debian-slim runtime). Deploy na **Coolify** przez `docker-build-deploy` workflow (push na main)
-- **Gateway** (MCP edge): Cloudflare Workers via `wrangler deploy` (z `gateway/`)
+- **Główna aplikacja**: Docker (`Dockerfile`: node css-builder → rust nightly builder → debian-slim runtime). Deploy na **Coolify** przez `docker-build-deploy` workflow (release-please → tag → deploy)
 - Preview: `just deploy-preview` (AMD64 build via Colima)
 
 ## CI/CD
@@ -85,4 +84,4 @@ Projekt używa szybko ewoluujących bibliotek (Leptos 0.8, DaisyUI 5, rmcp). Prz
 ## Pliki do NIE commitowania
 
 - `.env` — sekrety
-- `target/`, `build/`, `.wrangler/` — build/cache
+- `target/`, `build/` — build/cache
