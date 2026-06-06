@@ -1,4 +1,7 @@
-use crate::{DbError, types::ItemRow};
+use crate::{
+    DbError,
+    types::{ContainerItemRow, ItemRow},
+};
 use sqlx::{QueryBuilder, Sqlite, SqliteConnection, SqlitePool};
 
 // ── Input types ───────────────────────────────────────────────────────────────
@@ -413,6 +416,62 @@ pub async fn move_item(
     .await
     .map_err(DbError::Sqlx)?;
     Ok(rows.rows_affected() > 0)
+}
+
+#[tracing::instrument(skip(pool))]
+pub async fn list_for_container(
+    pool: &SqlitePool,
+    container_id: &str,
+    user_id: &str,
+    limit: u32,
+    offset: usize,
+    recursive: bool,
+) -> Result<Vec<ContainerItemRow>, DbError> {
+    if recursive {
+        sqlx::query_as::<_, ContainerItemRow>(&format!(
+            "WITH RECURSIVE sub AS ( \
+               SELECT id, name, printf('%06d', position) AS sort_path \
+               FROM containers WHERE id = ? AND user_id = ? \
+               UNION ALL \
+               SELECT c.id, c.name, sub.sort_path || '/' || printf('%06d', c.position) \
+               FROM containers c JOIN sub ON c.parent_container_id = sub.id \
+               WHERE c.user_id = ? \
+             ) \
+             SELECT {ITEM_COLUMNS}, l.name AS list_name, l.container_id, sub.name AS container_name \
+             FROM items i \
+             JOIN lists l ON l.id = i.list_id \
+             JOIN sub ON sub.id = l.container_id \
+             WHERE l.user_id = ? AND l.archived = 0 \
+             ORDER BY sub.sort_path, l.position, i.position \
+             LIMIT ? OFFSET ?"
+        ))
+        .bind(container_id)
+        .bind(user_id)
+        .bind(user_id) // RECURSIVE sub: c.user_id filter
+        .bind(user_id) // outer WHERE l.user_id
+        .bind(limit as i64)
+        .bind(offset as i64)
+        .fetch_all(pool)
+        .await
+        .map_err(DbError::Sqlx)
+    } else {
+        sqlx::query_as::<_, ContainerItemRow>(&format!(
+            "SELECT {ITEM_COLUMNS}, l.name AS list_name, l.container_id, c.name AS container_name \
+             FROM items i \
+             JOIN lists l ON l.id = i.list_id \
+             JOIN containers c ON c.id = l.container_id \
+             WHERE l.container_id = ? AND l.user_id = ? AND l.archived = 0 \
+             ORDER BY l.position, i.position \
+             LIMIT ? OFFSET ?"
+        ))
+        .bind(container_id)
+        .bind(user_id)
+        .bind(limit as i64)
+        .bind(offset as i64)
+        .fetch_all(pool)
+        .await
+        .map_err(DbError::Sqlx)
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

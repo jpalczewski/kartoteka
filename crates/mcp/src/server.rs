@@ -35,7 +35,9 @@ use crate::tools::{
         CreateContainerParams, CreateContainersParams, CreateItemParams, CreateItemsParams,
         CreateListParams, CreateListsParams, UpdateItemParams,
     },
-    read::{GetContainerParams, GetItemParams, GetListParams, ListItemsParams},
+    read::{
+        GetContainerParams, GetItemParams, GetListParams, ListContainerItemsParams, ListItemsParams,
+    },
     relations::{AddRelationParams, RemoveRelationParams},
     search::SearchItemsParams,
     tags::{
@@ -474,6 +476,49 @@ impl KartotekaServer {
         self.json_result(
             domain::paging::Paged {
                 data: page,
+                next_cursor,
+                limit,
+            },
+            &locale,
+        )
+    }
+
+    #[rmcp::tool(
+        name = "list_container_items",
+        description = "mcp-tool-list_container_items-desc"
+    )]
+    async fn list_container_items(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<ListContainerItemsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let limit = domain::paging::clamp_limit(p.limit);
+        let offset: usize = p
+            .cursor
+            .as_deref()
+            .and_then(|c| c.parse().ok())
+            .unwrap_or(0);
+        let recursive = p.recursive.unwrap_or(false);
+        let mut rows = domain::items::list_for_container(
+            &self.pool,
+            &p.container_id,
+            &uid,
+            limit + 1,
+            offset,
+            recursive,
+        )
+        .await
+        .map_err(self.domain_err(&locale))?;
+        let next_cursor = if rows.len() > limit as usize {
+            rows.truncate(limit as usize);
+            Some((offset + limit as usize).to_string())
+        } else {
+            None
+        };
+        self.json_result(
+            domain::paging::Paged {
+                data: rows,
                 next_cursor,
                 limit,
             },

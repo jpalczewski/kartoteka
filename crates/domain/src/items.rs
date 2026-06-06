@@ -70,6 +70,16 @@ pub struct MoveItemRequest {
     pub list_id: Option<String>, // move to different list
 }
 
+// ── Container item type ───────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ContainerItem {
+    pub item: Item,
+    pub list_name: String,
+    pub container_id: String,
+    pub container_name: String,
+}
+
 // ── Conversion from db row ────────────────────────────────────────────────────
 
 fn row_to_item(row: db::types::ItemRow) -> Item {
@@ -129,6 +139,28 @@ pub async fn list_for_list(
 ) -> Result<Vec<Item>, DomainError> {
     let rows = db::items::list_for_list(pool, list_id, user_id).await?;
     Ok(rows.into_iter().map(row_to_item).collect())
+}
+
+#[tracing::instrument(skip(pool))]
+pub async fn list_for_container(
+    pool: &SqlitePool,
+    container_id: &str,
+    user_id: &str,
+    limit: u32,
+    offset: usize,
+    recursive: bool,
+) -> Result<Vec<ContainerItem>, DomainError> {
+    let rows = db::items::list_for_container(pool, container_id, user_id, limit, offset, recursive)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ContainerItem {
+            item: row_to_item(r.item),
+            list_name: r.list_name,
+            container_id: r.container_id,
+            container_name: r.container_name,
+        })
+        .collect())
 }
 
 #[tracing::instrument(skip(pool))]

@@ -24,3 +24,14 @@ pub struct GetContainerParams {
 pub struct GetItemParams {
     pub item_id: String,
 }
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ListContainerItemsParams {
+    pub container_id: String,
+    /// Include items from nested sub-containers (default false)
+    pub recursive: Option<bool>,
+    /// Opaque cursor from previous response; omit for first page
+    pub cursor: Option<String>,
+    /// Max items to return (1–500, default 100)
+    pub limit: Option<u32>,
+}

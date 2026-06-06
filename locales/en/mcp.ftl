@@ -83,6 +83,7 @@ mcp-err-bad-uri = Invalid resource URI: { $uri }.
 mcp-tool-list_lists-desc = List all your lists.
 mcp-tool-get_list-desc = Get details of a specific list by ID.
 mcp-tool-list_items-desc = List items in a list, with optional cursor-based pagination.
+mcp-tool-list_container_items-desc = List all items inside a container (folder/project) across all its lists, with cursor-based pagination. Use this to browse the full contents of a container in one call instead of fetching each list separately. Set recursive=true to also include items from nested sub-containers, traversed depth-first.
 mcp-tool-list_containers-desc = List all your containers.
 mcp-tool-get_container-desc = Get details of a specific container by ID.
 mcp-tool-list_tags-desc = List all your tags.
