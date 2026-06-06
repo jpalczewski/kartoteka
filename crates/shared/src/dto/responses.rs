@@ -83,6 +83,7 @@ pub struct PreviewItem {
     pub quantity: Option<i32>,
     pub unit: Option<String>,
     pub description: Option<String>,
+    #[serde(default)]
     pub has_comments: bool,
 }
 
