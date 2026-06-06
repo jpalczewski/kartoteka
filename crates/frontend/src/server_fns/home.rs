@@ -3,12 +3,8 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    super::utils::build_ancestors,
-    axum_login::AuthSession,
-    kartoteka_auth::KartotekaBackend,
-    kartoteka_domain as domain,
-    kartoteka_shared::types::{Container, Tag},
-    sqlx::SqlitePool,
+    super::utils::build_ancestors, axum_login::AuthSession, kartoteka_auth::KartotekaBackend,
+    kartoteka_domain as domain, kartoteka_shared::types::Tag, sqlx::SqlitePool,
 };
 
 /// Convert domain::lists::List to shared::types::List.
