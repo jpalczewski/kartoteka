@@ -62,3 +62,13 @@ tests/test-results-debug/
 *.log
 
 CLAUDE.local.md
+
+# Temp debug/analysis dumps (browser console, network, hydration captures)
+console-*.md
+network-*.md
+hydration-*.json
+page-*.json
+
+# Local ops scripts (zawierają URL-e infrastruktury)
+scripts/coolify-*.sh
+scripts/coolify-*.py
