@@ -79,7 +79,7 @@ pub fn ContainerPage() -> impl IntoView {
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            <Transition fallback=|| view! { <LoadingSpinner/> }>
+            <Suspense fallback=|| view! { <LoadingSpinner/> }>
                 {move || data_res.get().map(|result| match result {
                     Err(e) => view! {
                         <p class="text-error">"Błąd: " {e.to_string()}</p>
@@ -549,7 +549,7 @@ pub fn ContainerPage() -> impl IntoView {
                         }.into_any()
                     }
                 })}
-            </Transition>
+            </Suspense>
         </div>
     }
 }
