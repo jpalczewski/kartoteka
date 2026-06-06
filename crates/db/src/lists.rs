@@ -1,5 +1,5 @@
 use crate::DbError;
-use sqlx::{SqliteConnection, SqlitePool};
+use sqlx::{Sqlite, SqliteConnection, SqlitePool};
 use std::collections::HashSet;
 
 // ── Row types (internal to db crate) ────────────────────────────────────────
@@ -229,7 +229,7 @@ pub async fn get_create_item_context(
 }
 
 pub async fn find_id_by_name_in_scope(
-    pool: &SqlitePool,
+    executor: impl sqlx::Executor<'_, Database = Sqlite>,
     user_id: &str,
     name: &str,
     container_id: Option<&str>,
@@ -249,7 +249,7 @@ pub async fn find_id_by_name_in_scope(
     .bind(container_id)
     .bind(parent_list_id)
     .bind(exclude_id)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await
     .map_err(DbError::Sqlx)?;
     Ok(row.map(|(id,)| id))

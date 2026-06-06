@@ -170,7 +170,7 @@ pub async fn list_all_for_user(pool: &SqlitePool, user_id: &str) -> Result<Vec<I
 }
 
 pub async fn find_id_by_title_in_list(
-    pool: &SqlitePool,
+    executor: impl sqlx::Executor<'_, Database = Sqlite>,
     list_id: &str,
     title: &str,
     exclude_id: Option<&str>,
@@ -184,7 +184,7 @@ pub async fn find_id_by_title_in_list(
     .bind(list_id)
     .bind(title)
     .bind(exclude_id)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await
     .map_err(DbError::Sqlx)?;
     Ok(row.map(|(id,)| id))

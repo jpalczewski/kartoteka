@@ -938,7 +938,7 @@ impl KartotekaServer {
                 continue;
             }
             if let Some(eid) =
-                db::items::find_id_by_title_in_list(&self.pool, &p.list_id, &item.title, None)
+                db::items::find_id_by_title_in_list(&mut *tx, &p.list_id, &item.title, None)
                     .await
                     .map_err(self.db_err(&locale))?
             {
@@ -1059,7 +1059,7 @@ impl KartotekaServer {
                 continue;
             }
             if let Some(eid) = db::lists::find_id_by_name_in_scope(
-                &self.pool,
+                &mut *tx,
                 &uid,
                 &list.name,
                 container_id,
@@ -1443,11 +1443,27 @@ impl ServerHandler for KartotekaServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::items::CreateItemsInput;
+    use crate::tools::items::{CreateItemsInput, CreateListsInput, CreateListsParams};
     use kartoteka_db::lists::{InsertListInput, insert as insert_list};
     use kartoteka_db::test_helpers::create_test_user;
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
     use std::str::FromStr;
+
+    async fn single_conn_pool() -> SqlitePool {
+        let name = uuid::Uuid::new_v4().simple().to_string();
+        let url = format!("file:{name}?mode=memory&cache=shared");
+        let options = SqliteConnectOptions::from_str(&url)
+            .unwrap()
+            .create_if_missing(true)
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        kartoteka_db::run_migrations(&pool).await.unwrap();
+        pool
+    }
 
     /// Multi-connection in-memory pool for tests that hold a transaction while also
     /// querying the pool (which deadlocks on a single-connection pool).
@@ -1615,5 +1631,133 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count.0, 1, "only one item row should exist in the DB");
+    }
+
+    #[tokio::test]
+    async fn create_items_no_deadlock_single_conn() {
+        let pool = single_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list(&pool, &uid).await;
+        let server = test_server(pool);
+
+        let params = CreateItemsParams {
+            list_id: list_id.clone(),
+            items: vec![
+                CreateItemsInput {
+                    title: "Alpha".to_owned(),
+                    description: None,
+                    start_date: None,
+                    deadline: None,
+                    hard_deadline: None,
+                    start_time: None,
+                    deadline_time: None,
+                    quantity: None,
+                    actual_quantity: None,
+                    unit: None,
+                    estimated_duration: None,
+                },
+                CreateItemsInput {
+                    title: "Beta".to_owned(),
+                    description: None,
+                    start_date: None,
+                    deadline: None,
+                    hard_deadline: None,
+                    start_time: None,
+                    deadline_time: None,
+                    quantity: None,
+                    actual_quantity: None,
+                    unit: None,
+                    estimated_duration: None,
+                },
+            ],
+        };
+
+        let result = server
+            .create_items(Extension(parts_for_user(&uid)), Parameters(params))
+            .await
+            .unwrap();
+
+        let text = result
+            .content
+            .into_iter()
+            .find_map(|c| match c.raw {
+                rmcp::model::RawContent::Text(t) => Some(t.text),
+                _ => None,
+            })
+            .expect("text content");
+        let items: Vec<serde_json::Value> = serde_json::from_str(&text).unwrap();
+
+        assert_eq!(items.len(), 2);
+        assert!(items[0].get("existed").is_none());
+        assert!(items[1].get("existed").is_none());
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE list_id = ?")
+            .bind(&list_id)
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 2);
+    }
+
+    #[tokio::test]
+    async fn create_lists_no_deadlock_single_conn() {
+        let pool = single_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let server = test_server(pool);
+
+        let params = CreateListsParams {
+            lists: vec![
+                CreateListsInput {
+                    name: "List One".to_owned(),
+                    list_type: None,
+                    icon: None,
+                    description: None,
+                    features: None,
+                    container_id: None,
+                    container_ref: None,
+                    parent_list_id: None,
+                    parent_list_ref: None,
+                    client_ref: None,
+                },
+                CreateListsInput {
+                    name: "List Two".to_owned(),
+                    list_type: None,
+                    icon: None,
+                    description: None,
+                    features: None,
+                    container_id: None,
+                    container_ref: None,
+                    parent_list_id: None,
+                    parent_list_ref: None,
+                    client_ref: None,
+                },
+            ],
+        };
+
+        let result = server
+            .create_lists(Extension(parts_for_user(&uid)), Parameters(params))
+            .await
+            .unwrap();
+
+        let text = result
+            .content
+            .into_iter()
+            .find_map(|c| match c.raw {
+                rmcp::model::RawContent::Text(t) => Some(t.text),
+                _ => None,
+            })
+            .expect("text content");
+        let lists: Vec<serde_json::Value> = serde_json::from_str(&text).unwrap();
+
+        assert_eq!(lists.len(), 2);
+        assert!(lists[0].get("existed").is_none());
+        assert!(lists[1].get("existed").is_none());
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM lists WHERE user_id = ?")
+            .bind(&uid)
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 2);
     }
 }
