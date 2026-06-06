@@ -1,4 +1,5 @@
 common-loading = Wczytywanie...
+comments-section-title = Komentarze
 common-cancel = Anuluj
 common-delete = Usuń
 common-save = Zapisz
