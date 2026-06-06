@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0](https://github.com/jpalczewski/kartoteka/compare/v1.4.0...v1.5.0) (2026-06-06)
+
+
+### Features
+
+* **ui:** ancestor paths, item details, sublist breadcrumbs, smart redirect + hydration fix ([#224](https://github.com/jpalczewski/kartoteka/issues/224), [#225](https://github.com/jpalczewski/kartoteka/issues/225), [#232](https://github.com/jpalczewski/kartoteka/issues/232), [#233](https://github.com/jpalczewski/kartoteka/issues/233)) ([#252](https://github.com/jpalczewski/kartoteka/issues/252)) ([d7d39af](https://github.com/jpalczewski/kartoteka/commit/d7d39af107ae454c2862881ecb55a33ba83f5943))
+
+
+### Bug Fixes
+
+* **server:** reject file-like path segments before Leptos router ([#248](https://github.com/jpalczewski/kartoteka/issues/248)) ([360badc](https://github.com/jpalczewski/kartoteka/commit/360badc02e5701b107316a5316273f2386383449))
+
 ## [1.4.0](https://github.com/jpalczewski/kartoteka/compare/v1.3.4...v1.4.0) (2026-06-06)
 
 
