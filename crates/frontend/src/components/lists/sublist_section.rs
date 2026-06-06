@@ -2,7 +2,6 @@ use crate::app::{ToastContext, ToastKind};
 use crate::components::common::dnd::{DragHandleButton, ItemDropTargetMarker};
 use crate::components::items::item_row::ItemRow;
 use crate::components::lists::add_input::AddInput;
-use crate::context::GlobalRefresh;
 use crate::server_fns::items::{create_item, delete_item, get_list_data, move_item, toggle_item};
 use crate::state::dnd::{DndState, EntityKind, ItemDndState, ItemDropTarget};
 use kartoteka_shared::types::{Item, List};
@@ -11,42 +10,29 @@ use leptos::prelude::*;
 #[component]
 pub fn SublistSection(
     sublist: List,
+    /// Pre-fetched items from the parent's ListData — avoids nested Resource hydration.
+    initial_items: Vec<Item>,
     on_any_change: Callback<()>,
     #[prop(default = vec![])] move_targets: Vec<(String, String)>,
-    /// When provided, the sublist collapse header gains a list drag handle.
-    #[prop(optional)]
-    dnd_state: Option<RwSignal<DndState>>,
-    /// When provided, items inside the sublist gain drag handles + drop markers.
-    #[prop(optional)]
-    item_dnd_state: Option<RwSignal<ItemDndState>>,
-    /// Called when an item is dropped onto a reorder marker inside this sublist.
-    #[prop(optional)]
-    on_item_drop: Option<Callback<ItemDropTarget>>,
+    #[prop(optional)] dnd_state: Option<RwSignal<DndState>>,
+    #[prop(optional)] item_dnd_state: Option<RwSignal<ItemDndState>>,
+    #[prop(optional)] on_item_drop: Option<Callback<ItemDropTarget>>,
 ) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
-    let list_id = sublist.id.clone();
+    let list_id = StoredValue::new(sublist.id.clone());
     let list_name = sublist.name.clone();
 
-    let (refresh, set_refresh) = signal(0u32);
+    let items = RwSignal::new(initial_items);
 
-    let data_res = Resource::new(
-        {
-            let lid = list_id.clone();
-            move || (lid.clone(), refresh.get(), global_refresh.get())
-        },
-        |(id, _, _)| get_list_data(id),
-    );
-
-    let lid_add = list_id.clone();
     let on_add = Callback::new(move |title: String| {
-        let lid = lid_add.clone();
-        let notify = on_any_change;
+        let lid = list_id.get_value();
         leptos::task::spawn_local(async move {
-            match create_item(lid, title, None, None, None, None, None, None).await {
+            match create_item(lid.clone(), title, None, None, None, None, None, None).await {
                 Ok(_) => {
-                    set_refresh.update(|n| *n += 1);
-                    notify.run(());
+                    if let Ok(data) = get_list_data(lid).await {
+                        items.set(data.items);
+                    }
+                    on_any_change.run(());
                 }
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
@@ -54,12 +40,14 @@ pub fn SublistSection(
     });
 
     let on_toggle = Callback::new(move |item_id: String| {
-        let notify = on_any_change;
+        let lid = list_id.get_value();
         leptos::task::spawn_local(async move {
             match toggle_item(item_id).await {
                 Ok(_) => {
-                    set_refresh.update(|n| *n += 1);
-                    notify.run(());
+                    if let Ok(data) = get_list_data(lid).await {
+                        items.set(data.items);
+                    }
+                    on_any_change.run(());
                 }
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
@@ -67,21 +55,28 @@ pub fn SublistSection(
     });
 
     let on_delete = Callback::new(move |item_id: String| {
+        let lid = list_id.get_value();
         leptos::task::spawn_local(async move {
             match delete_item(item_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
+                Ok(_) => {
+                    if let Ok(data) = get_list_data(lid).await {
+                        items.set(data.items);
+                    }
+                }
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
         });
     });
 
     let on_move_item = Callback::new(move |(item_id, target_list_id): (String, String)| {
-        let notify = on_any_change;
+        let lid = list_id.get_value();
         leptos::task::spawn_local(async move {
             match move_item(item_id, target_list_id).await {
                 Ok(_) => {
-                    set_refresh.update(|n| *n += 1);
-                    notify.run(());
+                    if let Ok(data) = get_list_data(lid).await {
+                        items.set(data.items);
+                    }
+                    on_any_change.run(());
                 }
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
@@ -105,7 +100,7 @@ pub fn SublistSection(
                 })}
                 <span data-testid="sublist-name">{list_name}</span>
                 <a
-                    href=format!("/lists/{list_id}")
+                    href=format!("/lists/{}", sublist.id)
                     class="btn btn-ghost btn-xs ml-1"
                     title="Otwórz jako widok listy"
                     data-testid="sublist-open-link"
@@ -113,88 +108,90 @@ pub fn SublistSection(
                 >
                     "↗"
                 </a>
-                <Suspense>
-                    {move || data_res.get().and_then(|r| r.ok()).map(|data| {
-                        let done = data.items.iter().filter(|i| i.completed).count();
-                        let total = data.items.len();
-                        view! {
-                            <span class="text-sm text-base-content/60 ml-auto mr-4" data-testid="sublist-progress">
-                                {done} "/" {total}
-                            </span>
-                        }
-                    })}
-                </Suspense>
+                {move || {
+                    let current = items.get();
+                    let done = current.iter().filter(|i| i.completed).count();
+                    let total = current.len();
+                    view! {
+                        <span class="text-sm text-base-content/60 ml-auto mr-4" data-testid="sublist-progress">
+                            {done} "/" {total}
+                        </span>
+                    }
+                }}
             </div>
             <div class="collapse-content">
-                <Suspense fallback=|| view! { <p class="text-sm text-base-content/50">"Ładowanie..."</p> }>
-                    {move || data_res.get().map(|result| match result {
-                        Err(e) => view! {
-                            <p class="text-error text-sm">{e.to_string()}</p>
-                        }.into_any(),
-                        Ok(data) => {
-                            let items: Vec<Item> = {
-                                let mut v = data.items.clone();
-                                v.sort_by(|a, b| a.completed.cmp(&b.completed).then(a.position.cmp(&b.position)));
-                                v
-                            };
-                            let targets = move_targets_stored.get_value();
-                            view! {
-                                <div class="flex flex-col gap-1">
-                                    {items.into_iter().map(|item| {
-                                        let mt = targets.clone();
-                                        let iid = item.id.clone();
-                                        match item_dnd_state.zip(on_item_drop) {
-                                            Some((state, cb)) => {
-                                                let before_tgt = ItemDropTarget::before(sublist.id.clone(), iid);
-                                                view! {
-                                                    <ItemDropTargetMarker
-                                                        dnd_state=state
-                                                        target=before_tgt
-                                                        on_drop=cb
-                                                    />
-                                                    <ItemRow
-                                                        item=item
-                                                        on_toggle=on_toggle
-                                                        on_delete=on_delete
-                                                        move_targets=mt
-                                                        on_move=on_move_item
-                                                        dnd_state=state
-                                                    />
-                                                }.into_any()
-                                            }
-                                            None => view! {
+                {move || {
+                    let current = items.get();
+                    let mut sorted = current;
+                    sorted.sort_by(|a, b| {
+                        a.completed
+                            .cmp(&b.completed)
+                            .then(a.position.cmp(&b.position))
+                    });
+                    let targets = move_targets_stored.get_value();
+                    view! {
+                        <div class="flex flex-col gap-1">
+                            {sorted
+                                .into_iter()
+                                .map(|item| {
+                                    let mt = targets.clone();
+                                    let iid = item.id.clone();
+                                    match item_dnd_state.zip(on_item_drop) {
+                                        Some((state, cb)) => {
+                                            let before_tgt = ItemDropTarget::before(
+                                                sublist.id.clone(),
+                                                iid,
+                                            );
+                                            view! {
+                                                <ItemDropTargetMarker
+                                                    dnd_state=state
+                                                    target=before_tgt
+                                                    on_drop=cb
+                                                />
                                                 <ItemRow
                                                     item=item
                                                     on_toggle=on_toggle
                                                     on_delete=on_delete
                                                     move_targets=mt
                                                     on_move=on_move_item
+                                                    dnd_state=state
                                                 />
-                                            }.into_any(),
+                                            }
+                                            .into_any()
                                         }
-                                    }).collect::<Vec<_>>()}
-                                    {item_dnd_state.zip(on_item_drop).map(|(state, cb)| {
-                                        view! {
-                                            <ItemDropTargetMarker
-                                                dnd_state=state
-                                                target=ItemDropTarget::end(sublist.id.clone())
-                                                on_drop=cb
-                                                label="Upuść na koniec"
+                                        None => view! {
+                                            <ItemRow
+                                                item=item
+                                                on_toggle=on_toggle
+                                                on_delete=on_delete
+                                                move_targets=mt
+                                                on_move=on_move_item
                                             />
                                         }
-                                    })}
-                                    <div class="mt-2">
-                                        <AddInput
-                                            placeholder=Signal::derive(|| "Nowy element...".to_string())
-                                            button_label=Signal::derive(|| "Dodaj".to_string())
-                                            on_submit=on_add
-                                        />
-                                    </div>
-                                </div>
-                            }.into_any()
-                        }
-                    })}
-                </Suspense>
+                                        .into_any(),
+                                    }
+                                })
+                                .collect::<Vec<_>>()}
+                            {item_dnd_state.zip(on_item_drop).map(|(state, cb)| {
+                                view! {
+                                    <ItemDropTargetMarker
+                                        dnd_state=state
+                                        target=ItemDropTarget::end(sublist.id.clone())
+                                        on_drop=cb
+                                        label="Upuść na koniec"
+                                    />
+                                }
+                            })}
+                            <div class="mt-2">
+                                <AddInput
+                                    placeholder=Signal::derive(|| "Nowy element...".to_string())
+                                    button_label=Signal::derive(|| "Dodaj".to_string())
+                                    on_submit=on_add
+                                />
+                            </div>
+                        </div>
+                    }
+                }}
             </div>
         </div>
     }

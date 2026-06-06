@@ -1,15 +1,17 @@
-#[cfg(not(feature = "ssr"))]
-use kartoteka_shared::types::{Container, ContainerData, ContainerOption, CreateContainerRequest};
 #[cfg(feature = "ssr")]
 use kartoteka_shared::types::{
-    Container, ContainerData, ContainerOption, CreateContainerRequest, List, UpdateContainerRequest,
+    CommentsPayload, Container, ContainerData, ContainerOption, CreateContainerRequest, List,
+    UpdateContainerRequest,
 };
+#[cfg(not(feature = "ssr"))]
+use kartoteka_shared::types::{Container, ContainerData, ContainerOption, CreateContainerRequest};
 use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use super::utils::build_ancestors;
 #[cfg(feature = "ssr")]
 use {
+    crate::server_fns::comments::domain_comment_to_shared,
     crate::server_fns::home::domain_list_to_shared, axum_login::AuthSession,
     kartoteka_auth::KartotekaBackend, kartoteka_db, kartoteka_domain as domain, sqlx::SqlitePool,
 };
@@ -166,12 +168,16 @@ pub async fn get_container_data(container_id: String) -> Result<ContainerData, S
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
 
-    let (all_lists_res, all_containers_res) = tokio::join!(
+    let (all_lists_res, all_containers_res, comments_res, prefs_res) = tokio::join!(
         domain::lists::list_all(&pool, &user.id),
         domain::containers::list_all(&pool, &user.id),
+        domain::comments::list_for_entity(&pool, &user.id, "container", &container_id),
+        domain::preferences::get(&pool, &user.id),
     );
     let all_lists = all_lists_res.map_err(|e| ServerFnError::new(e.to_string()))?;
     let all_containers = all_containers_res.map_err(|e| ServerFnError::new(e.to_string()))?;
+    let raw_comments = comments_res.map_err(|e| ServerFnError::new(e.to_string()))?;
+    let prefs = prefs_res.map_err(|e| ServerFnError::new(e.to_string()))?;
 
     let lists: Vec<List> = all_lists
         .into_iter()
@@ -186,6 +192,13 @@ pub async fn get_container_data(container_id: String) -> Result<ContainerData, S
         lists,
         children,
         ancestors,
+        comments: CommentsPayload {
+            comments: raw_comments
+                .into_iter()
+                .map(|c| domain_comment_to_shared(c, &prefs.timezone))
+                .collect(),
+            current_user_id: user.id,
+        },
     })
 }
 

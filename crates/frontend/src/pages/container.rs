@@ -91,6 +91,7 @@ pub fn ContainerPage() -> impl IntoView {
                         let ancestors = data.ancestors.clone();
                         let lists = data.lists.clone();
                         let children = data.children.clone();
+                        let comments_payload = data.comments.clone();
                         let parent_id = data.container.parent_container_id.clone();
                         let current_id = data.container.id.clone();
                         let parent_name_sv = StoredValue::new(
@@ -543,6 +544,7 @@ pub fn ContainerPage() -> impl IntoView {
                                     <CommentSection
                                         entity_type="container"
                                         entity_id=container_id
+                                        initial_payload=comments_payload
                                     />
                                 </div>
                             </div>

@@ -6,12 +6,13 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
+    crate::server_fns::comments::domain_comment_to_shared,
     crate::server_fns::home::{domain_list_to_shared, domain_tag_to_shared},
     crate::server_fns::utils::format_datetime_in_tz,
     axum_login::AuthSession,
     kartoteka_auth::KartotekaBackend,
     kartoteka_db as db, kartoteka_domain as domain,
-    kartoteka_shared::types::ItemTagLink,
+    kartoteka_shared::types::{CommentsPayload, ItemTagLink},
     sqlx::SqlitePool,
 };
 
@@ -64,6 +65,7 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
         item_tag_links_res,
         all_tags_res,
         list_tag_links_res,
+        comments_res,
     ) = tokio::join!(
         async {
             domain::lists::get_one(&pool, &list_id, &user.id)
@@ -100,6 +102,11 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
                 .await
                 .map_err(|e| sfn_err!(e))
         },
+        async {
+            domain::comments::list_for_entity(&pool, &user.id, "list", &list_id)
+                .await
+                .map_err(|e| sfn_err!(e))
+        },
     );
     let list = list_res?.ok_or_else(|| ServerFnError::new("list not found".to_string()))?;
     let items = items_res?;
@@ -108,6 +115,7 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
     let raw_item_tag_links: Vec<(String, String)> = item_tag_links_res?;
     let all_domain_tags: Vec<domain::tags::Tag> = all_tags_res?;
     let raw_list_tag_links: Vec<(String, String)> = list_tag_links_res?;
+    let raw_comments = comments_res?;
 
     let tz = settings
         .iter()
@@ -138,6 +146,20 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
         None
     };
 
+    // Fetch items for each sublist sequentially (usually ≤3 sublists per list).
+    let mut sublist_items = std::collections::HashMap::new();
+    for sl in &sublists {
+        if let Ok(sl_items) = domain::items::list_for_list(&pool, &sl.id, &user.id).await {
+            sublist_items.insert(
+                sl.id.clone(),
+                sl_items
+                    .into_iter()
+                    .map(domain_item_to_shared)
+                    .collect::<Vec<_>>(),
+            );
+        }
+    }
+
     Ok(ListData {
         list: domain_list_to_shared(list),
         items: items.into_iter().map(domain_item_to_shared).collect(),
@@ -158,6 +180,14 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
         today_date,
         container_name,
         parent_list_name,
+        sublist_items,
+        comments: CommentsPayload {
+            comments: raw_comments
+                .into_iter()
+                .map(|c| domain_comment_to_shared(c, tz))
+                .collect(),
+            current_user_id: user.id,
+        },
     })
 }
 

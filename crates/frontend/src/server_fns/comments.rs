@@ -8,7 +8,7 @@ use {
 };
 
 #[cfg(feature = "ssr")]
-fn domain_comment_to_shared(c: domain::comments::Comment, tz: &str) -> Comment {
+pub(crate) fn domain_comment_to_shared(c: domain::comments::Comment, tz: &str) -> Comment {
     Comment {
         id: c.id,
         entity_type: c.entity_type,

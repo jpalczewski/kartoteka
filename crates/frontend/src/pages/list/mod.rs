@@ -318,6 +318,8 @@ pub fn ListPage() -> impl IntoView {
                         let created_at_local = data.created_at_local.clone();
                         let all_items = data.items.clone();
                         let sublists = data.sublists.clone();
+                        let sublist_items_map = data.sublist_items.clone();
+                        let comments_payload = data.comments.clone();
                         let parent_container_id = data.list.container_id.clone();
                         let current_list_id = data.list.id.clone();
                         let sublist_ids: Vec<String> = sublists.iter().map(|s| s.id.clone()).collect();
@@ -699,6 +701,7 @@ pub fn ListPage() -> impl IntoView {
                                                     <div class="flex flex-col gap-2 mb-2">
                                                         {sublists.into_iter().map(|sublist| {
                                                             let sid = sublist.id.clone();
+                                                            let sl_items = sublist_items_map.get(&sid).cloned().unwrap_or_default();
                                                             let mt: Vec<(String, String)> = targets
                                                                 .iter()
                                                                 .filter(|(tid, _)| tid != &sid && !sub_ids.iter().any(|s| s == tid && s == &sid))
@@ -707,6 +710,7 @@ pub fn ListPage() -> impl IntoView {
                                                             view! {
                                                                 <SublistSection
                                                                     sublist=sublist
+                                                                    initial_items=sl_items
                                                                     on_any_change=notify
                                                                     move_targets=mt
                                                                     dnd_state=dnd_state
@@ -899,6 +903,7 @@ pub fn ListPage() -> impl IntoView {
                                 <CommentSection
                                     entity_type="list"
                                     entity_id=Signal::derive(list_id)
+                                    initial_payload=comments_payload
                                 />
                             </div>
                         }.into_any()
