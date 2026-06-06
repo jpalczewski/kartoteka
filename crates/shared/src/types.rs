@@ -142,6 +142,7 @@ pub struct Container {
     pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub ancestors: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -308,6 +309,7 @@ pub struct ListData {
     pub today_date: String,
     /// Name of the parent container, if any — used for breadcrumbs.
     pub container_name: Option<String>,
+    pub parent_list_name: Option<String>,
 }
 
 /// Item enriched with its parent list's display name.

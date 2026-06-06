@@ -147,6 +147,7 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
             .collect(),
         today_date,
         container_name,
+        parent_list_name: None,
     })
 }
 
