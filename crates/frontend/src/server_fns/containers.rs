@@ -7,6 +7,8 @@ use kartoteka_shared::types::{
 use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
+use super::utils::build_ancestors;
+#[cfg(feature = "ssr")]
 use {
     crate::server_fns::home::domain_list_to_shared, axum_login::AuthSession,
     kartoteka_auth::KartotekaBackend, kartoteka_db, kartoteka_domain as domain, sqlx::SqlitePool,
@@ -266,23 +268,4 @@ fn build_path_label(container: &Container, all: &[Container]) -> String {
     parts.reverse();
     parts.push(container.name.clone());
     parts.join(" / ")
-}
-
-#[cfg(feature = "ssr")]
-fn build_ancestors(
-    container: &kartoteka_shared::types::Container,
-    all: &[kartoteka_shared::types::Container],
-) -> Vec<(String, String)> {
-    let mut result = Vec::new();
-    let mut current_parent = container.parent_container_id.as_deref();
-    for _ in 0..10 {
-        let Some(pid) = current_parent else { break };
-        let Some(parent) = all.iter().find(|c| c.id == pid) else {
-            break;
-        };
-        result.push((format!("/containers/{}", parent.id), parent.name.clone()));
-        current_parent = parent.parent_container_id.as_deref();
-    }
-    result.reverse();
-    result
 }
