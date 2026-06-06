@@ -50,11 +50,6 @@ build:
 deploy-preview:
     bash scripts/deploy-preview.sh
 
-# Pobierz logi z Coolify. Bez argumentów: lista aplikacji z UUID-ami.
-# Z UUID: just logs <uuid> [liczba-linii]
-logs *args:
-    bash scripts/coolify-logs.sh {{args}}
-
 # === QUALITY ===
 
 lint:
