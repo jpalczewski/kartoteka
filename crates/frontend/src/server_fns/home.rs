@@ -3,8 +3,12 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    axum_login::AuthSession, kartoteka_auth::KartotekaBackend, kartoteka_domain as domain,
-    kartoteka_shared::types::Tag, sqlx::SqlitePool,
+    super::utils::build_ancestors,
+    axum_login::AuthSession,
+    kartoteka_auth::KartotekaBackend,
+    kartoteka_domain as domain,
+    kartoteka_shared::types::{Container, Tag},
+    sqlx::SqlitePool,
 };
 
 /// Convert domain::lists::List to shared::types::List.
@@ -57,9 +61,31 @@ pub async fn get_home_data() -> Result<HomeData, ServerFnError> {
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    domain::home::query(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))
+
+    let (mut home, all_containers) = tokio::try_join!(
+        domain::home::query(&pool, &user.id),
+        domain::containers::list_all(&pool, &user.id),
+    )
+    .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+    home.pinned_containers = home
+        .pinned_containers
+        .into_iter()
+        .map(|c| {
+            let ancestors = build_ancestors(&c, &all_containers);
+            Container { ancestors, ..c }
+        })
+        .collect();
+    home.recent_containers = home
+        .recent_containers
+        .into_iter()
+        .map(|c| {
+            let ancestors = build_ancestors(&c, &all_containers);
+            Container { ancestors, ..c }
+        })
+        .collect();
+
+    Ok(home)
 }
 
 /// Archived lists for the home page archive section.
