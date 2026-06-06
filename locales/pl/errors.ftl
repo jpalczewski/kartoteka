@@ -1,4 +1,5 @@
 error-network = Błąd sieci: { $detail }
+error-prefix = Błąd:
 error-login-failed = Błąd logowania ({ $status })
 error-unauthorized = Brak dostępu
 error-not-found = Nie znaleziono

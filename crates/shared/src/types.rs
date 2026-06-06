@@ -417,6 +417,12 @@ pub struct Comment {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommentsPayload {
+    pub comments: Vec<Comment>,
+    pub current_user_id: String,
+}
+
 // --- Relations ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

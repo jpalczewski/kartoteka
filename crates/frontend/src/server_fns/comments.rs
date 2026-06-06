@@ -1,4 +1,4 @@
-use kartoteka_shared::types::Comment;
+use kartoteka_shared::types::{Comment, CommentsPayload};
 use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
@@ -26,7 +26,7 @@ fn domain_comment_to_shared(c: domain::comments::Comment, tz: &str) -> Comment {
 pub async fn get_comments(
     entity_type: String,
     entity_id: String,
-) -> Result<Vec<Comment>, ServerFnError> {
+) -> Result<CommentsPayload, ServerFnError> {
     let pool = expect_context::<SqlitePool>();
     let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
         .await
@@ -39,10 +39,13 @@ pub async fn get_comments(
         domain::preferences::get(&pool, &user.id),
     )
     .map_err(|e| ServerFnError::new(e.to_string()))?;
-    Ok(comments
-        .into_iter()
-        .map(|c| domain_comment_to_shared(c, &prefs.timezone))
-        .collect())
+    Ok(CommentsPayload {
+        comments: comments
+            .into_iter()
+            .map(|c| domain_comment_to_shared(c, &prefs.timezone))
+            .collect(),
+        current_user_id: user.id,
+    })
 }
 
 #[server(prefix = "/leptos")]
@@ -91,15 +94,4 @@ pub async fn remove_comment(comment_id: String) -> Result<(), ServerFnError> {
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
     Ok(())
-}
-
-#[server(prefix = "/leptos")]
-pub async fn get_current_user_id() -> Result<String, ServerFnError> {
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    Ok(user.id)
 }

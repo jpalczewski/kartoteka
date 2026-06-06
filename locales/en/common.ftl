@@ -1,4 +1,5 @@
 common-loading = Loading...
+comments-section-title = Comments
 common-cancel = Cancel
 common-delete = Delete
 common-save = Save
