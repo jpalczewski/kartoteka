@@ -1,3 +1,4 @@
+#[cfg(feature = "ssr")]
 pub(crate) use kartoteka_shared::date_utils::format_datetime_in_tz;
 
 #[cfg(any(feature = "ssr", test))]
@@ -75,5 +76,13 @@ mod tests {
                 ("/containers/b".to_string(), "Name b".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn missing_parent_in_all_stops_gracefully() {
+        let orphan = make_container("b", Some("nonexistent"));
+        let all = vec![orphan.clone()];
+        // Should return empty — parent not found, no panic
+        assert!(build_ancestors(&orphan, &all).is_empty());
     }
 }
