@@ -140,6 +140,15 @@ pub struct ItemRow {
 }
 
 #[derive(Debug, sqlx::FromRow)]
+pub struct ContainerItemRow {
+    #[sqlx(flatten)]
+    pub item: ItemRow,
+    pub list_name: String,
+    pub container_id: String,
+    pub container_name: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
 pub struct TagRow {
     pub id: String,
     pub user_id: String,

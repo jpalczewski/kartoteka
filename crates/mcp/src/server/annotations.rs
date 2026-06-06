@@ -10,6 +10,7 @@ const READ_ONLY: &[&str] = &[
     "list_lists",
     "get_list",
     "list_items",
+    "list_container_items",
     "list_containers",
     "get_container",
     "list_tags",

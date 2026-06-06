@@ -83,6 +83,7 @@ mcp-err-bad-uri = Nieprawidłowy URI zasobu: { $uri }.
 mcp-tool-list_lists-desc = Pobierz wszystkie listy.
 mcp-tool-get_list-desc = Pobierz szczegóły konkretnej listy po ID.
 mcp-tool-list_items-desc = Pobierz elementy listy z opcjonalną paginacją kursorową.
+mcp-tool-list_container_items-desc = Pobierz wszystkie elementy z kontenera (folderu/projektu) ze wszystkich jego list z paginacją kursorową. Używaj tego narzędzia, gdy chcesz przejrzeć całą zawartość kontenera jednym wywołaniem zamiast pobierać każdą listę osobno. Ustaw recursive=true, aby uwzględnić również elementy z zagnieżdżonych podkontenerów (przeszukiwanie depth-first).
 mcp-tool-list_containers-desc = Pobierz wszystkie kontenery.
 mcp-tool-get_container-desc = Pobierz szczegóły konkretnego kontenera po ID.
 mcp-tool-list_tags-desc = Pobierz wszystkie tagi.
