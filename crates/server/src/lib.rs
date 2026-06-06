@@ -15,6 +15,8 @@ pub mod time_entries;
 pub use error::AppError;
 pub use extractors::UserId;
 
+use std::sync::Arc;
+
 use axum::{
     Router,
     body::Body,
@@ -27,7 +29,11 @@ use kartoteka_mcp::McpI18n;
 use kartoteka_oauth::OAuthState;
 use leptos::prelude::*;
 use leptos_axum::{AxumRouteListing, LeptosRoutes, generate_route_list};
-use std::sync::Arc;
+use tower_http::{
+    LatencyUnit,
+    trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
+};
+use tracing::Level;
 
 /// Application state shared across all handlers.
 /// `axum_macros::FromRef` allows individual fields to be extracted as `State<T>`.
@@ -200,5 +206,14 @@ pub fn router(
         // Static asset serving from target/site
         .fallback(leptos_axum::file_and_error_handler::<AppState, _>(shell))
         .layer(auth_layer)
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .on_response(
+                    DefaultOnResponse::new()
+                        .level(Level::INFO)
+                        .latency_unit(LatencyUnit::Millis),
+                ),
+        )
         .with_state(state)
 }
