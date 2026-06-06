@@ -85,6 +85,12 @@ lists-collapse-all = Zwiń wszystkie
 lists-preview-open-full = Otwórz pełny widok
 lists-preview-new-item-placeholder = Nowy element...
 
+# UI przenoszenia listy / kontenera do rodzica
+lists-move-to-container = Przenieś do kontenera
+lists-detach-from-container = Odepnij od kontenera
+lists-move-to-parent = Wnieś do kontenera
+lists-detach-from-parent = Odepnij od rodzica
+
 # Toasty
 lists-toast-container-deleted = Kontener usunięty
 lists-toast-list-deleted = Lista usunięta

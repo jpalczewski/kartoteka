@@ -397,7 +397,7 @@ pub fn ListPage() -> impl IntoView {
                                                     <button
                                                         type="button"
                                                         class="btn btn-ghost btn-xs btn-circle text-error"
-                                                        title="Odepnij od kontenera"
+                                                        title=move_tr!("lists-detach-from-container")
                                                         on:click=move |_| {
                                                             let lid = list_id();
                                                             leptos::task::spawn_local(async move {
@@ -416,7 +416,7 @@ pub fn ListPage() -> impl IntoView {
                                                     <button
                                                         type="button"
                                                         class="btn btn-ghost btn-xs btn-square"
-                                                        title="Przenieś do kontenera"
+                                                        title=move_tr!("lists-move-to-container")
                                                         on:click=move |_| container_dropdown_open.update(|v| *v = !*v)
                                                     >{"📦"}</button>
                                                     <ContainerSelectorDropdown

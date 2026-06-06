@@ -85,6 +85,12 @@ lists-collapse-all = Collapse all
 lists-preview-open-full = Open full view
 lists-preview-new-item-placeholder = New item...
 
+# Container / parent move-detach UI
+lists-move-to-container = Move to container
+lists-detach-from-container = Detach from container
+lists-move-to-parent = Move to parent
+lists-detach-from-parent = Detach from parent
+
 # Toasts
 lists-toast-container-deleted = Container deleted
 lists-toast-list-deleted = List deleted

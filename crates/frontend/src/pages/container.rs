@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use leptos_fluent::I18n;
+use leptos_fluent::{I18n, move_tr};
 use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::app::{ToastContext, ToastKind};
@@ -391,7 +391,7 @@ pub fn ContainerPage() -> impl IntoView {
                                                         <button
                                                             type="button"
                                                             class="btn btn-ghost btn-xs btn-circle text-error"
-                                                            title="Odepnij od rodzica"
+                                                            title=move_tr!("lists-detach-from-parent")
                                                             on:click=move |_| {
                                                                 let cid = current_id_for_move_sv.get_value();
                                                                 leptos::task::spawn_local(async move {
@@ -410,7 +410,7 @@ pub fn ContainerPage() -> impl IntoView {
                                                         <button
                                                             type="button"
                                                             class="btn btn-ghost btn-sm btn-square"
-                                                            title="Wnieś do kontenera"
+                                                            title=move_tr!("lists-move-to-parent")
                                                             on:click=move |_| container_dropdown_open.update(|v| *v = !*v)
                                                         >{"📁"}</button>
                                                         <ContainerSelectorDropdown
