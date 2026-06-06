@@ -505,6 +505,14 @@ pub struct ContainerData {
     pub ancestors: Vec<(String, String)>,
 }
 
+/// A container option for move/reparent dropdowns with a pre-built display path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerOption {
+    pub id: String,
+    /// Human-readable path label, e.g. "Projekty / Kwiecień" — built server-side.
+    pub path_label: String,
+}
+
 // --- Templates ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

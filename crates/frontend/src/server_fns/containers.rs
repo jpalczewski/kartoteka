@@ -1,8 +1,8 @@
 #[cfg(not(feature = "ssr"))]
-use kartoteka_shared::types::{Container, ContainerData, CreateContainerRequest};
+use kartoteka_shared::types::{Container, ContainerData, ContainerOption, CreateContainerRequest};
 #[cfg(feature = "ssr")]
 use kartoteka_shared::types::{
-    Container, ContainerData, CreateContainerRequest, List, UpdateContainerRequest,
+    Container, ContainerData, ContainerOption, CreateContainerRequest, List, UpdateContainerRequest,
 };
 use leptos::prelude::*;
 
@@ -185,6 +185,87 @@ pub async fn get_container_data(container_id: String) -> Result<ContainerData, S
         children,
         ancestors,
     })
+}
+
+/// Returns containers available as move targets, with pre-built path labels.
+///
+/// - `exclude_subtree_of`: exclude this container and all its descendants (used when moving a
+///   container to avoid self-reference or cycles).
+/// - `folders_only`: when true, only return containers with `status IS NULL` (folders). Containers
+///   with a status are projects and cannot be parents of other containers per hierarchy rules.
+#[server(prefix = "/leptos")]
+pub async fn get_containers_for_move(
+    exclude_subtree_of: Option<String>,
+    folders_only: bool,
+) -> Result<Vec<ContainerOption>, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+
+    let all = domain::containers::list_all(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+    // BFS to collect the excluded subtree (self + all descendants).
+    let excluded: std::collections::HashSet<String> = if let Some(ref root_id) = exclude_subtree_of
+    {
+        let mut set = std::collections::HashSet::new();
+        set.insert(root_id.clone());
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for c in &all {
+                if !set.contains(&c.id) {
+                    if let Some(ref pid) = c.parent_container_id {
+                        if set.contains(pid) {
+                            set.insert(c.id.clone());
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+        set
+    } else {
+        std::collections::HashSet::new()
+    };
+
+    let mut options: Vec<ContainerOption> = all
+        .iter()
+        .filter(|c| !excluded.contains(&c.id))
+        .filter(|c| !folders_only || c.status.is_none())
+        .map(|c| {
+            let path_label = build_path_label(c, &all);
+            ContainerOption {
+                id: c.id.clone(),
+                path_label,
+            }
+        })
+        .collect();
+
+    options.sort_by(|a, b| a.path_label.cmp(&b.path_label));
+    Ok(options)
+}
+
+#[cfg(feature = "ssr")]
+fn build_path_label(container: &Container, all: &[Container]) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let mut current = container.parent_container_id.as_deref();
+    for _ in 0..10 {
+        let Some(pid) = current else { break };
+        let Some(parent) = all.iter().find(|c| c.id == pid) else {
+            break;
+        };
+        parts.push(parent.name.clone());
+        current = parent.parent_container_id.as_deref();
+    }
+    parts.reverse();
+    parts.push(container.name.clone());
+    parts.join(" / ")
 }
 
 #[cfg(feature = "ssr")]

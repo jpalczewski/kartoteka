@@ -1,11 +1,12 @@
 use leptos::prelude::*;
-use leptos_fluent::I18n;
+use leptos_fluent::{I18n, move_tr};
 use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::CommentSection;
 use crate::components::common::breadcrumbs::Breadcrumbs;
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
+use crate::components::common::container_selector_dropdown::ContainerSelectorDropdown;
 use crate::components::common::dnd::{DetachDropZone, ReorderDropTarget};
 use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
@@ -15,8 +16,8 @@ use crate::components::lists::{
 };
 use crate::context::GlobalRefresh;
 use crate::server_fns::containers::{
-    archive_container, create_container, delete_container, get_container_data, move_container,
-    rename_container, reorder_containers,
+    archive_container, create_container, delete_container, get_container_data,
+    get_containers_for_move, move_container, rename_container, reorder_containers,
 };
 use crate::server_fns::lists::{archive_list, create_list, delete_list, move_list, reorder_lists};
 use crate::state::dnd::{DndState, DropTarget, EntityKind};
@@ -45,6 +46,29 @@ pub fn ContainerPage() -> impl IntoView {
     let (refresh, set_refresh) = signal(0u32);
     let (expand_all, set_expand_all) = signal(false);
 
+    let container_dropdown_open = RwSignal::new(false);
+    // container_id in key_fn — Leptos tracks reactivity only in key_fn, not in the async block.
+    let containers_res = Resource::new(
+        move || (container_dropdown_open.get(), container_id.get()),
+        |(open, cid)| async move {
+            if open {
+                get_containers_for_move(Some(cid), true).await
+            } else {
+                Ok(vec![])
+            }
+        },
+    );
+    let on_move_container_to_parent = Callback::new(move |pid: String| {
+        let cid = container_id.get();
+        leptos::task::spawn_local(async move {
+            match move_container(cid, Some(pid)).await {
+                Ok(_) => global_refresh.bump(),
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
+            }
+            container_dropdown_open.set(false);
+        });
+    });
+
     let data_res = Resource::new(
         move || (container_id.get(), global_refresh.get(), refresh.get()),
         |(id, _, _)| get_container_data(id),
@@ -69,6 +93,10 @@ pub fn ContainerPage() -> impl IntoView {
                         let children = data.children.clone();
                         let parent_id = data.container.parent_container_id.clone();
                         let current_id = data.container.id.clone();
+                        let parent_name_sv = StoredValue::new(
+                            data.ancestors.last().map(|(_, n)| n.clone()),
+                        );
+                        let current_id_for_move_sv = StoredValue::new(data.container.id.clone());
                         let container_id_for_rename = data.container.id.clone();
                         let container_id_for_desc = data.container.id.clone();
                         let desc_for_rename = data.container.description.clone();
@@ -349,7 +377,51 @@ pub fn ContainerPage() -> impl IntoView {
                                             class="text-base-content/60 text-sm cursor-pointer hover:underline decoration-dotted"
                                         />
                                     </div>
-                                    <div class="flex gap-1">
+                                    <div class="flex gap-1 items-center">
+                                        // Reparent/detach UI
+                                        {move || {
+                                            let opts = containers_res.get().and_then(|r| r.ok()).unwrap_or_default();
+                                            if let Some(pname) = parent_name_sv.get_value() {
+                                                view! {
+                                                    <div class="flex items-center gap-1">
+                                                        <span class="text-xs text-base-content/60 flex items-center gap-1">
+                                                            "📁 "
+                                                            <span class="max-w-24 truncate">{pname}</span>
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            class="btn btn-ghost btn-xs btn-circle text-error"
+                                                            title=move_tr!("lists-detach-from-parent")
+                                                            on:click=move |_| {
+                                                                let cid = current_id_for_move_sv.get_value();
+                                                                leptos::task::spawn_local(async move {
+                                                                    match move_container(cid, None).await {
+                                                                        Ok(_) => global_refresh.bump(),
+                                                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                                                                    }
+                                                                });
+                                                            }
+                                                        >{"✕"}</button>
+                                                    </div>
+                                                }.into_any()
+                                            } else {
+                                                view! {
+                                                    <div class="relative">
+                                                        <button
+                                                            type="button"
+                                                            class="btn btn-ghost btn-sm btn-square"
+                                                            title=move_tr!("lists-move-to-parent")
+                                                            on:click=move |_| container_dropdown_open.update(|v| *v = !*v)
+                                                        >{"📁"}</button>
+                                                        <ContainerSelectorDropdown
+                                                            open=container_dropdown_open
+                                                            options=opts
+                                                            on_select=on_move_container_to_parent
+                                                        />
+                                                    </div>
+                                                }.into_any()
+                                            }
+                                        }}
                                         <button
                                             type="button"
                                             class="btn btn-ghost btn-sm"

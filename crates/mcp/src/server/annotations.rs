@@ -38,7 +38,13 @@ const ADDITIVE_WRITE: &[&str] = &[
     "save_as_template",
 ];
 
-const DESTRUCTIVE: &[&str] = &["update_item", "remove_relation", "stop_timer"];
+const DESTRUCTIVE: &[&str] = &[
+    "update_item",
+    "remove_relation",
+    "stop_timer",
+    "move_list_to_container",
+    "move_container_to_parent",
+];
 
 pub fn for_tool(name: &str) -> ToolAnnotations {
     let mut ann = ToolAnnotations::default();
