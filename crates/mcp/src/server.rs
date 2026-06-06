@@ -1214,6 +1214,11 @@ impl KartotekaServer {
         Parameters(p): Parameters<MoveListToContainerParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let (uid, locale) = self.auth(&parts)?;
+        if let Some(ref cid) = p.container_id {
+            domain::containers::get_one(&self.pool, cid, &uid)
+                .await
+                .map_err(self.domain_err(&locale))?;
+        }
         let position = db::lists::next_position(&self.pool, &uid, p.container_id.as_deref(), None)
             .await
             .map_err(self.db_err(&locale))?;
