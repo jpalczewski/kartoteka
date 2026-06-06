@@ -4,6 +4,7 @@ pub mod extractors;
 pub mod health;
 pub mod items;
 pub mod lists;
+mod middleware;
 pub mod relations;
 pub mod routes;
 pub mod search;
@@ -215,5 +216,8 @@ pub fn router(
                         .latency_unit(LatencyUnit::Millis),
                 ),
         )
+        .layer(axum::middleware::from_fn(
+            middleware::reject_file_like_paths,
+        ))
         .with_state(state)
 }
