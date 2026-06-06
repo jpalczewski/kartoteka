@@ -239,6 +239,7 @@ pub fn ListPage() -> impl IntoView {
 
     let confirm_action: RwSignal<Option<ConfirmAction>> = RwSignal::new(None);
     let confirm_list_name: RwSignal<String> = RwSignal::new(String::new());
+    let redirect_after_delete = StoredValue::new(String::from("/"));
 
     // ── DnD state + callbacks ─────────────────────────────────────
     let dnd_state: RwSignal<DndState> = RwSignal::new(DndState::default());
@@ -336,12 +337,26 @@ pub fn ListPage() -> impl IntoView {
                         let list_tag_ids = data.list_tag_ids.clone();
                         let today_date = data.today_date.clone();
                         let container_name_sv = StoredValue::new(data.container_name.clone());
-                        let breadcrumb_crumbs = if let Some(ref cname) = data.container_name {
+                        let mut breadcrumb_crumbs = vec![];
+                        if let Some(ref cname) = data.container_name {
                             let cid = data.list.container_id.clone().unwrap_or_default();
-                            vec![(format!("/containers/{cid}"), cname.clone())]
-                        } else {
-                            vec![]
+                            breadcrumb_crumbs.push((format!("/containers/{cid}"), cname.clone()));
+                        }
+                        if let Some(ref plid) = data.list.parent_list_id {
+                            breadcrumb_crumbs.push((
+                                format!("/lists/{plid}"),
+                                data.parent_list_name.clone().unwrap_or_default(),
+                            ));
+                        }
+                        let redirect_target = match (
+                            data.list.parent_list_id.as_deref(),
+                            data.list.container_id.as_deref(),
+                        ) {
+                            (Some(pid), _) => format!("/lists/{pid}"),
+                            (_, Some(cid)) => format!("/containers/{cid}"),
+                            _ => "/".to_string(),
                         };
+                        redirect_after_delete.set_value(redirect_target);
                         let breadcrumb_current = list_name.clone();
                         let current_features: Vec<String> = data
                             .list
@@ -932,13 +947,13 @@ pub fn ListPage() -> impl IntoView {
                             match action {
                                 ConfirmAction::Delete => leptos::task::spawn_local(async move {
                                     match delete_list(lid).await {
-                                        Ok(_) => nav2("/", Default::default()),
+                                        Ok(_) => nav2(&redirect_after_delete.get_value(), Default::default()),
                                         Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                     }
                                 }),
                                 ConfirmAction::Archive => leptos::task::spawn_local(async move {
                                     match archive_list(lid).await {
-                                        Ok(_) => nav2("/", Default::default()),
+                                        Ok(_) => nav2(&redirect_after_delete.get_value(), Default::default()),
                                         Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                     }
                                 }),
