@@ -50,6 +50,10 @@ build:
 deploy-preview:
     bash scripts/deploy-preview.sh
 
+# Pokaż logi z Coolify: just logs [prod|preview|develop] [lines] [filter]
+logs env="preview" lines="100" filter="":
+    bash scripts/coolify-logs.sh {{env}} {{lines}} {{filter}}
+
 # === QUALITY ===
 
 lint:
