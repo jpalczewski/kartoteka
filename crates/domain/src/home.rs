@@ -19,6 +19,7 @@ fn row_to_container(r: kartoteka_db::types::ContainerRow) -> Container {
         location_id: r.location_id,
         created_at: r.created_at,
         updated_at: r.updated_at,
+        ancestors: vec![],
     }
 }
 

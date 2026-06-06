@@ -239,6 +239,7 @@ pub fn ListPage() -> impl IntoView {
 
     let confirm_action: RwSignal<Option<ConfirmAction>> = RwSignal::new(None);
     let confirm_list_name: RwSignal<String> = RwSignal::new(String::new());
+    let redirect_after_delete = StoredValue::new(String::from("/"));
 
     // ── DnD state + callbacks ─────────────────────────────────────
     let dnd_state: RwSignal<DndState> = RwSignal::new(DndState::default());
@@ -299,7 +300,7 @@ pub fn ListPage() -> impl IntoView {
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            <Transition fallback=|| view! { <LoadingSpinner/> }>
+            <Suspense fallback=|| view! { <LoadingSpinner/> }>
                 {move || data_res.get().map(|result| match result {
                     Err(e) => view! {
                         <p class="text-error">"Błąd: " {e.to_string()}</p>
@@ -317,6 +318,8 @@ pub fn ListPage() -> impl IntoView {
                         let created_at_local = data.created_at_local.clone();
                         let all_items = data.items.clone();
                         let sublists = data.sublists.clone();
+                        let sublist_items_map = data.sublist_items.clone();
+                        let comments_payload = data.comments.clone();
                         let parent_container_id = data.list.container_id.clone();
                         let current_list_id = data.list.id.clone();
                         let sublist_ids: Vec<String> = sublists.iter().map(|s| s.id.clone()).collect();
@@ -336,12 +339,25 @@ pub fn ListPage() -> impl IntoView {
                         let list_tag_ids = data.list_tag_ids.clone();
                         let today_date = data.today_date.clone();
                         let container_name_sv = StoredValue::new(data.container_name.clone());
-                        let breadcrumb_crumbs = if let Some(ref cname) = data.container_name {
-                            let cid = data.list.container_id.clone().unwrap_or_default();
-                            vec![(format!("/containers/{cid}"), cname.clone())]
-                        } else {
-                            vec![]
+                        let mut breadcrumb_crumbs = vec![];
+                        if let (Some(cname), Some(cid)) = (&data.container_name, &data.list.container_id) {
+                            breadcrumb_crumbs.push((format!("/containers/{cid}"), cname.clone()));
+                        }
+                        if let Some(ref plid) = data.list.parent_list_id {
+                            breadcrumb_crumbs.push((
+                                format!("/lists/{plid}"),
+                                data.parent_list_name.clone().unwrap_or_default(),
+                            ));
+                        }
+                        let redirect_target = match (
+                            data.list.parent_list_id.as_deref(),
+                            data.list.container_id.as_deref(),
+                        ) {
+                            (Some(pid), _) => format!("/lists/{pid}"),
+                            (_, Some(cid)) => format!("/containers/{cid}"),
+                            _ => "/".to_string(),
                         };
+                        redirect_after_delete.set_value(redirect_target);
                         let breadcrumb_current = list_name.clone();
                         let current_features: Vec<String> = data
                             .list
@@ -685,6 +701,7 @@ pub fn ListPage() -> impl IntoView {
                                                     <div class="flex flex-col gap-2 mb-2">
                                                         {sublists.into_iter().map(|sublist| {
                                                             let sid = sublist.id.clone();
+                                                            let sl_items = sublist_items_map.get(&sid).cloned().unwrap_or_default();
                                                             let mt: Vec<(String, String)> = targets
                                                                 .iter()
                                                                 .filter(|(tid, _)| tid != &sid && !sub_ids.iter().any(|s| s == tid && s == &sid))
@@ -693,6 +710,7 @@ pub fn ListPage() -> impl IntoView {
                                                             view! {
                                                                 <SublistSection
                                                                     sublist=sublist
+                                                                    initial_items=sl_items
                                                                     on_any_change=notify
                                                                     move_targets=mt
                                                                     dnd_state=dnd_state
@@ -885,12 +903,13 @@ pub fn ListPage() -> impl IntoView {
                                 <CommentSection
                                     entity_type="list"
                                     entity_id=Signal::derive(list_id)
+                                    initial_payload=comments_payload
                                 />
                             </div>
                         }.into_any()
                     }
                 })}
-            </Transition>
+            </Suspense>
 
             {move || {
                 let action = confirm_action.get()?;
@@ -932,13 +951,13 @@ pub fn ListPage() -> impl IntoView {
                             match action {
                                 ConfirmAction::Delete => leptos::task::spawn_local(async move {
                                     match delete_list(lid).await {
-                                        Ok(_) => nav2("/", Default::default()),
+                                        Ok(_) => nav2(&redirect_after_delete.get_value(), Default::default()),
                                         Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                     }
                                 }),
                                 ConfirmAction::Archive => leptos::task::spawn_local(async move {
                                     match archive_list(lid).await {
-                                        Ok(_) => nav2("/", Default::default()),
+                                        Ok(_) => nav2(&redirect_after_delete.get_value(), Default::default()),
                                         Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                     }
                                 }),

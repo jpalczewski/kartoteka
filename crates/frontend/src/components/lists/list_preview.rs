@@ -153,30 +153,39 @@ pub fn ListPreview(
                                     {items.into_iter().map(|item| {
                                         let iid = item.id.clone();
                                         view! {
-                                            <div class="flex items-center gap-2 py-1">
+                                            <div class="flex items-start gap-2 py-1">
                                                 {has_checklist.then(|| view! {
                                                     <input
                                                         type="checkbox"
-                                                        class="checkbox checkbox-sm"
+                                                        class="checkbox checkbox-sm mt-0.5"
                                                         prop:checked=item.completed
                                                         on:change=move |_| on_toggle.run(iid.clone())
                                                     />
                                                 })}
-                                                <span
-                                                    class:line-through=move || has_checklist && item.completed
-                                                    class:opacity-50=move || has_checklist && item.completed
-                                                >
-                                                    {item.title.clone()}
-                                                </span>
-                                                {(has_quantity && item.quantity.is_some()).then(|| {
-                                                    let q = item.quantity.unwrap();
-                                                    let display = item.unit.as_deref()
-                                                        .map(|u| format!("{q} {u}"))
-                                                        .unwrap_or_else(|| format!("{q}×"));
-                                                    view! {
-                                                        <span class="text-xs text-base-content/50 ml-1">{display}</span>
-                                                    }
-                                                })}
+                                                <div class="flex-1 min-w-0">
+                                                    <div class="flex items-center gap-1">
+                                                        <span
+                                                            class:line-through=move || has_checklist && item.completed
+                                                            class:opacity-50=move || has_checklist && item.completed
+                                                        >
+                                                            {item.title.clone()}
+                                                        </span>
+                                                        {item.quantity.filter(|_| has_quantity).map(|q| {
+                                                            let display = item.unit.as_deref()
+                                                                .map(|u| format!("{q} {u}"))
+                                                                .unwrap_or_else(|| format!("{q}×"));
+                                                            view! {
+                                                                <span class="text-xs text-base-content/50 ml-1">{display}</span>
+                                                            }
+                                                        })}
+                                                        {item.has_comments.then(|| view! {
+                                                            <span class="text-xs text-base-content/40">{"💬"}</span>
+                                                        })}
+                                                    </div>
+                                                    {item.description.as_ref().map(|d| view! {
+                                                        <p class="text-xs text-base-content/50 truncate">{d.clone()}</p>
+                                                    })}
+                                                </div>
                                             </div>
                                         }
                                     }).collect::<Vec<_>>()}

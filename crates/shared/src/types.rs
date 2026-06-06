@@ -142,6 +142,7 @@ pub struct Container {
     pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub ancestors: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -308,6 +309,11 @@ pub struct ListData {
     pub today_date: String,
     /// Name of the parent container, if any — used for breadcrumbs.
     pub container_name: Option<String>,
+    pub parent_list_name: Option<String>,
+    /// Items for each sublist keyed by sublist ID — pre-fetched to avoid nested Resource hydration.
+    pub sublist_items: std::collections::HashMap<String, Vec<Item>>,
+    /// Comments for this list — pre-fetched to avoid nested Resource hydration.
+    pub comments: CommentsPayload,
 }
 
 /// Item enriched with its parent list's display name.
@@ -509,6 +515,8 @@ pub struct ContainerData {
     pub children: Vec<Container>,
     /// Ordered ancestor chain from root to parent: `(id, name)` pairs.
     pub ancestors: Vec<(String, String)>,
+    /// Comments for this container — pre-fetched to avoid nested Resource hydration.
+    pub comments: CommentsPayload,
 }
 
 /// A container option for move/reparent dropdowns with a pre-built display path.

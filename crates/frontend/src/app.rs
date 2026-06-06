@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use leptos_fluent::leptos_fluent;
 use leptos_router::{
+    SsrMode,
     components::{Outlet, ParentRoute, Route, Router, Routes},
     path,
 };
@@ -138,7 +139,7 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/login")   view=LoginPage/>
                         <Route path=path!("/signup")  view=SignupPage/>
                         <Route path=path!("/consent") view=OAuthConsentPage/>
-                        <ParentRoute path=path!("") view=AuthGuardLayout>
+                        <ParentRoute path=path!("") view=AuthGuardLayout ssr=SsrMode::Async>
                             <Route path=path!("/all")                       view=AllPage/>
                             <Route path=path!("/today")                     view=TodayPage/>
                             <Route path=path!("/time")                      view=TimePage/>

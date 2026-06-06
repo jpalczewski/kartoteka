@@ -280,6 +280,31 @@ pub async fn reset_list(id: String) -> Result<(), ServerFnError> {
     Ok(())
 }
 
+#[cfg(feature = "ssr")]
+async fn items_with_comments(
+    pool: &SqlitePool,
+    item_ids: &[String],
+) -> Result<std::collections::HashSet<String>, ServerFnError> {
+    if item_ids.is_empty() {
+        return Ok(std::collections::HashSet::new());
+    }
+    let placeholders = std::iter::repeat_n("?", item_ids.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT DISTINCT entity_id FROM comments \
+         WHERE entity_type = 'item' AND entity_id IN ({placeholders})"
+    );
+    let mut q = sqlx::query_scalar::<_, String>(&sql);
+    for id in item_ids {
+        q = q.bind(id.as_str());
+    }
+    q.fetch_all(pool)
+        .await
+        .map(|rows| rows.into_iter().collect())
+        .map_err(|e| ServerFnError::new(e.to_string()))
+}
+
 /// Fetch minimal item data for a list — used by container preview (lazy on expand).
 #[server(prefix = "/leptos")]
 pub async fn get_list_preview_items(list_id: String) -> Result<Vec<PreviewItem>, ServerFnError> {
@@ -293,14 +318,23 @@ pub async fn get_list_preview_items(list_id: String) -> Result<Vec<PreviewItem>,
     let items = domain::items::list_for_list(&pool, &list_id, &user.id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+    let item_ids: Vec<String> = items.iter().map(|i| i.id.clone()).collect();
+    let comment_ids = items_with_comments(&pool, &item_ids).await?;
+
     Ok(items
         .into_iter()
-        .map(|i| PreviewItem {
-            id: i.id,
-            title: i.title,
-            completed: i.completed,
-            quantity: i.quantity,
-            unit: i.unit,
+        .map(|i| {
+            let has_comments = comment_ids.contains(&i.id);
+            PreviewItem {
+                id: i.id,
+                title: i.title,
+                completed: i.completed,
+                quantity: i.quantity,
+                unit: i.unit,
+                description: i.description,
+                has_comments,
+            }
         })
         .collect())
 }

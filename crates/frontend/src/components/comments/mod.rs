@@ -8,23 +8,37 @@ use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::add_comment::AddComment;
 use crate::components::comments::comment_list::CommentList;
 use crate::server_fns::comments::{get_comments, remove_comment};
+use kartoteka_shared::types::CommentsPayload;
 
 #[component]
-pub fn CommentSection(entity_type: &'static str, entity_id: Signal<String>) -> impl IntoView {
+pub fn CommentSection(
+    entity_type: &'static str,
+    entity_id: Signal<String>,
+    #[prop(optional)] initial_payload: Option<CommentsPayload>,
+) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let (refresh, set_refresh) = signal(0u32);
 
-    let comments_res = Resource::new(
-        move || (entity_id.get(), refresh.get()),
-        move |(eid, _)| get_comments(entity_type.to_string(), eid),
-    );
+    // Initialized from pre-fetched data — avoids a nested Resource that breaks hydration.
+    let payload = RwSignal::new(initial_payload);
 
-    let on_added = Callback::new(move |_: ()| set_refresh.update(|n| *n += 1));
+    let on_added = Callback::new(move |_: ()| {
+        let eid = entity_id.get_untracked();
+        leptos::task::spawn_local(async move {
+            match get_comments(entity_type.to_string(), eid).await {
+                Ok(p) => payload.set(Some(p)),
+                Err(e) => leptos::logging::warn!("CommentSection refresh failed: {e}"),
+            }
+        });
+    });
 
     let on_delete = Callback::new(move |comment_id: String| {
+        let eid = entity_id.get_untracked();
         leptos::task::spawn_local(async move {
             match remove_comment(comment_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
+                Ok(_) => match get_comments(entity_type.to_string(), eid).await {
+                    Ok(p) => payload.set(Some(p)),
+                    Err(e) => leptos::logging::warn!("CommentSection refresh failed: {e}"),
+                },
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
         });
@@ -36,21 +50,18 @@ pub fn CommentSection(entity_type: &'static str, entity_id: Signal<String>) -> i
                 {move_tr!("comments-section-title")}
             </h3>
 
-            <Suspense fallback=|| view! { <span class="loading loading-dots loading-xs"></span> }>
-                {move || match comments_res.get() {
-                    Some(Ok(payload)) => view! {
-                        <CommentList
-                            comments=payload.comments
-                            current_user_id=payload.current_user_id
-                            on_delete=on_delete
-                        />
-                    }.into_any(),
-                    Some(Err(e)) => view! {
-                        <p class="text-error text-sm">{move_tr!("error-prefix")} " " {e.to_string()}</p>
-                    }.into_any(),
-                    None => view! {}.into_any(),
-                }}
-            </Suspense>
+            {move || match payload.get() {
+                Some(p) => view! {
+                    <CommentList
+                        comments=p.comments
+                        current_user_id=p.current_user_id
+                        on_delete=on_delete
+                    />
+                }.into_any(),
+                None => view! {
+                    <span class="loading loading-dots loading-xs"></span>
+                }.into_any(),
+            }}
 
             <AddComment
                 entity_type=Signal::derive(move || entity_type.to_string())

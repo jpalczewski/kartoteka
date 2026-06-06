@@ -35,6 +35,14 @@ pub fn ContainerCard(
     let cid_archive = container.id.clone();
     let cid_pin = container.id.clone();
     let name = container.name.clone();
+    let ancestor_path = (!container.ancestors.is_empty()).then(|| {
+        container
+            .ancestors
+            .iter()
+            .map(|(_, n)| n.as_str())
+            .collect::<Vec<_>>()
+            .join(" / ")
+    });
 
     let body = view! {
         <div
@@ -44,9 +52,12 @@ pub fn ContainerCard(
         >
             <div class="card-body p-4">
                 <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-2 min-w-0">
                         <span>{icon}</span>
-                        <span class="card-title text-base">{name}</span>
+                        <div class="min-w-0">
+                            <span class="card-title text-base">{name}</span>
+                            {ancestor_path.map(|path| view! { <p class="text-xs text-base-content/50 truncate">{path}</p> })}
+                        </div>
                     </div>
                     <div class="flex gap-1" on:click=move |ev| ev.stop_propagation()>
                         {on_pin.map(|cb| {
