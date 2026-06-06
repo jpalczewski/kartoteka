@@ -8,9 +8,13 @@ use axum::{
 /// Paths whose segments legitimately contain dots (e.g. /pkg/app-hash.js).
 const DOTTED_SEGMENT_ALLOWLIST: &[&str] = &["/pkg/"];
 
-/// Rejects requests where any URL path segment looks like a filename (contains a dot
+/// Rejects requests where a nested URL path segment looks like a filename (contains a dot
 /// but does not start with one). App-level IDs are UUIDs and never contain dots;
 /// static-file names always do. Short-circuits before Leptos SSR runs DB queries.
+///
+/// Root-level paths like `/favicon.ico` are left through — only nested segments
+/// (depth ≥ 2) are checked, so `/lists/installHook.js.map` is caught but `/favicon.ico`
+/// is not.
 pub async fn reject_file_like_paths(req: Request<Body>, next: Next) -> Response {
     let path = req.uri().path();
 
@@ -21,7 +25,15 @@ pub async fn reject_file_like_paths(req: Request<Body>, next: Next) -> Response 
         return next.run(req).await;
     }
 
-    if path.split('/').any(is_file_like_segment) {
+    // Skip the first non-empty segment so root-level static files (/favicon.ico,
+    // /robots.txt) pass through to the fallback handler.
+    let has_file_like_nested = path
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .skip(1)
+        .any(is_file_like_segment);
+
+    if has_file_like_nested {
         return StatusCode::NOT_FOUND.into_response();
     }
 
@@ -99,6 +111,23 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/pkg/app-abc123.js")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+    }
+
+    #[tokio::test]
+    async fn allows_root_level_favicon() {
+        let app = Router::new()
+            .route("/favicon.ico", get(dummy))
+            .layer(axum::middleware::from_fn(reject_file_like_paths));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/favicon.ico")
                     .body(Body::empty())
                     .unwrap(),
             )
