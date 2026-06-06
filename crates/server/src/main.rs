@@ -5,21 +5,28 @@ use tower_sessions_sqlx_store::SqliteStore;
 
 #[tokio::main]
 async fn main() {
-    let default_filter =
-        "kartoteka_server=debug,kartoteka_domain=debug,kartoteka_db=debug,tower_http=debug";
+    let app_env = std::env::var("APP_ENV").unwrap_or_default();
+    let default_filter = match app_env.as_str() {
+        "production" => "kartoteka_server=info,tower_http=info,sqlx=warn",
+        "preview" => "kartoteka_server=trace,tower_http=trace,sqlx=debug",
+        _ => "kartoteka_server=debug,tower_http=debug,sqlx=debug",
+    };
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| default_filter.into());
 
-    if std::env::var("APP_ENV").as_deref() == Ok("production") {
-        tracing_subscriber::fmt()
-            .with_env_filter(env_filter)
-            .json()
-            .init();
-    } else {
-        tracing_subscriber::fmt()
-            .with_env_filter(env_filter)
-            .pretty()
-            .init();
+    match app_env.as_str() {
+        "production" | "preview" => {
+            tracing_subscriber::fmt()
+                .with_env_filter(env_filter)
+                .json()
+                .init();
+        }
+        _ => {
+            tracing_subscriber::fmt()
+                .with_env_filter(env_filter)
+                .pretty()
+                .init();
+        }
     }
 
     let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://data.db".into());
