@@ -111,3 +111,11 @@ pub struct ParseLocationResponse {
     pub location_id: String,
     pub location: crate::models::Location,
 }
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HomeFilterResult {
+    /// IDs of lists matching the active tag filter.
+    pub matching_list_ids: Vec<String>,
+    /// IDs of tags that co-occur with the selected tags on matching lists/items.
+    pub related_tag_ids: Vec<String>,
+}
