@@ -1807,6 +1807,7 @@ version = "0.4.1"
 dependencies = [
  "chrono",
  "kartoteka-shared",
+ "log",
  "serde",
  "serde_json",
  "sqlx",
