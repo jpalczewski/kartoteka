@@ -3,8 +3,9 @@ use kartoteka_db::{
     self as db,
     tags::{InsertTagInput, UpdateTagInput},
 };
+use kartoteka_shared::{FilterMode, dto::responses::HomeFilterResult};
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{QueryBuilder, SqlitePool};
 use uuid::Uuid;
 
 // ── Public domain types ───────────────────────────────────────────────────────
@@ -62,7 +63,194 @@ fn row_to_tag(row: db::types::TagRow) -> Tag {
     }
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn push_ids<'a>(qb: &mut QueryBuilder<'a, sqlx::Sqlite>, ids: &'a [String]) {
+    let mut sep = qb.separated(", ");
+    for id in ids {
+        sep.push_bind(id);
+    }
+}
+
+fn dedup_strings(items: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    items
+        .into_iter()
+        .filter(|id| seen.insert(id.clone()))
+        .collect()
+}
+
 // ── Public functions ──────────────────────────────────────────────────────────
+
+async fn listwise_matching(
+    pool: &SqlitePool,
+    user_id: &str,
+    tag_ids: &[String],
+) -> Result<Vec<String>, DomainError> {
+    if tag_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut qb = QueryBuilder::<sqlx::Sqlite>::new(
+        "SELECT lt.list_id FROM list_tags lt \
+         JOIN lists l ON lt.list_id = l.id \
+         WHERE l.user_id = ",
+    );
+    qb.push_bind(user_id);
+    qb.push(" AND lt.tag_id IN (");
+    push_ids(&mut qb, tag_ids);
+    qb.push(") GROUP BY lt.list_id HAVING COUNT(DISTINCT lt.tag_id) = ");
+    qb.push_bind(tag_ids.len() as i64);
+    Ok(qb
+        .build_query_scalar()
+        .fetch_all(pool)
+        .await
+        .map_err(db::DbError::Sqlx)?)
+}
+
+async fn list_co_occurring_tags(
+    pool: &SqlitePool,
+    list_ids: &[String],
+    exclude_tag_ids: &[String],
+) -> Result<Vec<String>, DomainError> {
+    if list_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut qb = QueryBuilder::<sqlx::Sqlite>::new(
+        "SELECT DISTINCT tag_id FROM list_tags WHERE list_id IN (",
+    );
+    push_ids(&mut qb, list_ids);
+    qb.push(")");
+    if !exclude_tag_ids.is_empty() {
+        qb.push(" AND tag_id NOT IN (");
+        push_ids(&mut qb, exclude_tag_ids);
+        qb.push(")");
+    }
+    Ok(qb
+        .build_query_scalar()
+        .fetch_all(pool)
+        .await
+        .map_err(db::DbError::Sqlx)?)
+}
+
+async fn itemwise_matching(
+    pool: &SqlitePool,
+    user_id: &str,
+    tag_ids: &[String],
+) -> Result<Vec<String>, DomainError> {
+    if tag_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut qb = QueryBuilder::<sqlx::Sqlite>::new(
+        "SELECT list_id FROM (\
+            SELECT i.list_id, COUNT(DISTINCT it.tag_id) AS covered \
+            FROM items i \
+            JOIN item_tags it ON i.id = it.item_id \
+            JOIN lists l ON i.list_id = l.id \
+            WHERE l.user_id = ",
+    );
+    qb.push_bind(user_id);
+    qb.push(" AND it.tag_id IN (");
+    push_ids(&mut qb, tag_ids);
+    qb.push(") GROUP BY i.list_id) WHERE covered = ");
+    qb.push_bind(tag_ids.len() as i64);
+    Ok(qb
+        .build_query_scalar()
+        .fetch_all(pool)
+        .await
+        .map_err(db::DbError::Sqlx)?)
+}
+
+async fn container_ids_for_lists(
+    pool: &SqlitePool,
+    list_ids: &[String],
+) -> Result<Vec<String>, DomainError> {
+    if list_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut qb =
+        QueryBuilder::<sqlx::Sqlite>::new("SELECT DISTINCT container_id FROM lists WHERE id IN (");
+    push_ids(&mut qb, list_ids);
+    qb.push(") AND container_id IS NOT NULL");
+    Ok(qb
+        .build_query_scalar()
+        .fetch_all(pool)
+        .await
+        .map_err(db::DbError::Sqlx)?)
+}
+
+async fn item_co_occurring_tags(
+    pool: &SqlitePool,
+    list_ids: &[String],
+    exclude_tag_ids: &[String],
+) -> Result<Vec<String>, DomainError> {
+    if list_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut qb = QueryBuilder::<sqlx::Sqlite>::new(
+        "SELECT DISTINCT it.tag_id FROM item_tags it \
+         JOIN items i ON i.id = it.item_id \
+         WHERE i.list_id IN (",
+    );
+    push_ids(&mut qb, list_ids);
+    qb.push(")");
+    if !exclude_tag_ids.is_empty() {
+        qb.push(" AND it.tag_id NOT IN (");
+        push_ids(&mut qb, exclude_tag_ids);
+        qb.push(")");
+    }
+    Ok(qb
+        .build_query_scalar()
+        .fetch_all(pool)
+        .await
+        .map_err(db::DbError::Sqlx)?)
+}
+
+pub async fn filter_home_by_tags(
+    pool: &SqlitePool,
+    user_id: &str,
+    tag_ids: &[String],
+    mode: FilterMode,
+) -> Result<HomeFilterResult, DomainError> {
+    if tag_ids.is_empty() {
+        return Ok(HomeFilterResult::default());
+    }
+    match mode {
+        FilterMode::Listwise => {
+            let list_ids = listwise_matching(pool, user_id, tag_ids).await?;
+            let matching_container_ids = container_ids_for_lists(pool, &list_ids).await?;
+            let related_tag_ids = list_co_occurring_tags(pool, &list_ids, tag_ids).await?;
+            Ok(HomeFilterResult {
+                matching_list_ids: list_ids,
+                matching_container_ids,
+                related_tag_ids,
+            })
+        }
+        FilterMode::Itemwise => {
+            let list_ids = itemwise_matching(pool, user_id, tag_ids).await?;
+            let matching_container_ids = container_ids_for_lists(pool, &list_ids).await?;
+            let related_tag_ids = item_co_occurring_tags(pool, &list_ids, tag_ids).await?;
+            Ok(HomeFilterResult {
+                matching_list_ids: list_ids,
+                matching_container_ids,
+                related_tag_ids,
+            })
+        }
+        FilterMode::Joined => {
+            let list_ids_l = listwise_matching(pool, user_id, tag_ids).await?;
+            let list_ids_i = itemwise_matching(pool, user_id, tag_ids).await?;
+            let list_ids = dedup_strings(list_ids_l.iter().chain(list_ids_i.iter()).cloned());
+            let matching_container_ids = container_ids_for_lists(pool, &list_ids).await?;
+            let mut related = list_co_occurring_tags(pool, &list_ids_l, tag_ids).await?;
+            related.extend(item_co_occurring_tags(pool, &list_ids_i, tag_ids).await?);
+            let related_tag_ids = dedup_strings(related);
+            Ok(HomeFilterResult {
+                matching_list_ids: list_ids,
+                matching_container_ids,
+                related_tag_ids,
+            })
+        }
+    }
+}
 
 #[tracing::instrument(skip(pool))]
 pub async fn list_all(pool: &SqlitePool, user_id: &str) -> Result<Vec<Tag>, DomainError> {
@@ -748,5 +936,178 @@ mod tests {
             .await
             .is_ok()
         );
+    }
+
+    // ── filter_home_by_tags tests ─────────────────────────────────────────
+
+    async fn make_list(pool: &SqlitePool, uid: &str) -> String {
+        let lid = Uuid::new_v4().to_string();
+        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES (?, ?, 'L')")
+            .bind(&lid)
+            .bind(uid)
+            .execute(pool)
+            .await
+            .unwrap();
+        lid
+    }
+
+    async fn tag_list(pool: &SqlitePool, list_id: &str, tag_id: &str) {
+        sqlx::query("INSERT OR IGNORE INTO list_tags (list_id, tag_id) VALUES (?, ?)")
+            .bind(list_id)
+            .bind(tag_id)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    async fn tag_item(pool: &SqlitePool, item_id: &str, tag_id: &str) {
+        sqlx::query("INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)")
+            .bind(item_id)
+            .bind(tag_id)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    async fn make_item_in_list(pool: &SqlitePool, list_id: &str) -> String {
+        let iid = Uuid::new_v4().to_string();
+        sqlx::query("INSERT INTO items (id, list_id, title) VALUES (?, ?, 'I')")
+            .bind(&iid)
+            .bind(list_id)
+            .execute(pool)
+            .await
+            .unwrap();
+        iid
+    }
+
+    #[tokio::test]
+    async fn test_filter_listwise_single_tag() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let tag_a = make_tag(&pool, &uid, "A").await;
+        let tag_b = make_tag(&pool, &uid, "B").await;
+        let l1 = make_list(&pool, &uid).await;
+        let l2 = make_list(&pool, &uid).await;
+        tag_list(&pool, &l1, &tag_a.id).await;
+        tag_list(&pool, &l1, &tag_b.id).await;
+        tag_list(&pool, &l2, &tag_b.id).await;
+
+        let result = filter_home_by_tags(
+            &pool,
+            &uid,
+            std::slice::from_ref(&tag_a.id),
+            kartoteka_shared::FilterMode::Listwise,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.matching_list_ids, vec![l1.clone()]);
+        assert!(result.related_tag_ids.contains(&tag_b.id));
+        assert!(!result.related_tag_ids.contains(&tag_a.id));
+    }
+
+    #[tokio::test]
+    async fn test_filter_listwise_multi_tag_and() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let tag_a = make_tag(&pool, &uid, "A").await;
+        let tag_b = make_tag(&pool, &uid, "B").await;
+        let l1 = make_list(&pool, &uid).await;
+        let l2 = make_list(&pool, &uid).await;
+        tag_list(&pool, &l1, &tag_a.id).await;
+        tag_list(&pool, &l1, &tag_b.id).await;
+        tag_list(&pool, &l2, &tag_a.id).await;
+
+        let result = filter_home_by_tags(
+            &pool,
+            &uid,
+            &[tag_a.id.clone(), tag_b.id.clone()],
+            kartoteka_shared::FilterMode::Listwise,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.matching_list_ids, vec![l1]);
+    }
+
+    #[tokio::test]
+    async fn test_filter_itemwise_single_tag() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let tag_a = make_tag(&pool, &uid, "A").await;
+        let tag_b = make_tag(&pool, &uid, "B").await;
+        let l1 = make_list(&pool, &uid).await;
+        let l2 = make_list(&pool, &uid).await;
+        let i1 = make_item_in_list(&pool, &l1).await;
+        let i2 = make_item_in_list(&pool, &l2).await;
+        tag_item(&pool, &i1, &tag_a.id).await;
+        tag_item(&pool, &i1, &tag_b.id).await;
+        tag_item(&pool, &i2, &tag_b.id).await;
+
+        let result = filter_home_by_tags(
+            &pool,
+            &uid,
+            std::slice::from_ref(&tag_a.id),
+            kartoteka_shared::FilterMode::Itemwise,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.matching_list_ids, vec![l1.clone()]);
+        assert!(result.related_tag_ids.contains(&tag_b.id));
+    }
+
+    #[tokio::test]
+    async fn test_filter_itemwise_multi_tag_collective() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let tag_a = make_tag(&pool, &uid, "A").await;
+        let tag_b = make_tag(&pool, &uid, "B").await;
+        let l1 = make_list(&pool, &uid).await;
+        let l2 = make_list(&pool, &uid).await;
+        let i1 = make_item_in_list(&pool, &l1).await;
+        let i2 = make_item_in_list(&pool, &l1).await;
+        let i3 = make_item_in_list(&pool, &l2).await;
+        tag_item(&pool, &i1, &tag_a.id).await;
+        tag_item(&pool, &i2, &tag_b.id).await;
+        tag_item(&pool, &i3, &tag_a.id).await;
+
+        let result = filter_home_by_tags(
+            &pool,
+            &uid,
+            &[tag_a.id.clone(), tag_b.id.clone()],
+            kartoteka_shared::FilterMode::Itemwise,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.matching_list_ids, vec![l1]);
+    }
+
+    #[tokio::test]
+    async fn test_filter_joined_union() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let tag_a = make_tag(&pool, &uid, "A").await;
+        let l1 = make_list(&pool, &uid).await;
+        let l2 = make_list(&pool, &uid).await;
+        tag_list(&pool, &l1, &tag_a.id).await;
+        let i1 = make_item_in_list(&pool, &l2).await;
+        tag_item(&pool, &i1, &tag_a.id).await;
+
+        let result = filter_home_by_tags(
+            &pool,
+            &uid,
+            std::slice::from_ref(&tag_a.id),
+            kartoteka_shared::FilterMode::Joined,
+        )
+        .await
+        .unwrap();
+
+        let mut ids = result.matching_list_ids.clone();
+        ids.sort();
+        let mut expected = vec![l1, l2];
+        expected.sort();
+        assert_eq!(ids, expected);
     }
 }

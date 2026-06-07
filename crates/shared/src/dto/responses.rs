@@ -111,3 +111,10 @@ pub struct ParseLocationResponse {
     pub location_id: String,
     pub location: crate::models::Location,
 }
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HomeFilterResult {
+    pub matching_list_ids: Vec<String>,
+    pub matching_container_ids: Vec<String>,
+    pub related_tag_ids: Vec<String>,
+}

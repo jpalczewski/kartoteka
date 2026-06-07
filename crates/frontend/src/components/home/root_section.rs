@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use kartoteka_shared::types::{Container, List, ListTagLink, Tag};
 use leptos::prelude::*;
 
@@ -9,25 +11,30 @@ pub fn RootSection(
     root_lists: Vec<List>,
     all_tags: Vec<Tag>,
     all_links: Vec<ListTagLink>,
-    active_tag_filter: ReadSignal<Option<String>>,
+    matching_list_ids: Signal<Option<HashSet<String>>>,
+    matching_container_ids: Signal<Option<HashSet<String>>>,
     on_tag_toggle: Callback<(String, String)>,
     on_delete_list: Callback<String>,
     on_delete_container: Callback<String>,
     on_pin_container: Callback<String>,
 ) -> impl IntoView {
-    let filter = active_tag_filter.get_untracked();
+    let list_filter = matching_list_ids.get_untracked();
+    let container_filter = matching_container_ids.get_untracked();
     let filtered_lists: Vec<List> = root_lists
         .into_iter()
-        .filter(|l| match &filter {
-            None => true,
-            Some(tid) => all_links
-                .iter()
-                .any(|lnk| lnk.list_id == l.id && &lnk.tag_id == tid),
+        .filter(|l| list_filter.as_ref().is_none_or(|ids| ids.contains(&l.id)))
+        .collect();
+    let filtered_containers: Vec<Container> = root_containers
+        .into_iter()
+        .filter(|c| {
+            container_filter
+                .as_ref()
+                .is_none_or(|ids| ids.contains(&c.id))
         })
         .collect();
 
-    let has_containers = !root_containers.is_empty();
-    let total_visible = root_containers.len() + filtered_lists.len();
+    let has_containers = !filtered_containers.is_empty();
+    let total_visible = filtered_containers.len() + filtered_lists.len();
 
     view! {
         <div>
@@ -37,7 +44,7 @@ pub fn RootSection(
                 </h3>
             })}
             <div class="flex flex-col gap-3 mb-4">
-                {root_containers.into_iter().map(|c| {
+                {filtered_containers.into_iter().map(|c| {
                     let cid_del = c.id.clone();
                     let cid_pin = c.id.clone();
                     let del = on_delete_container.clone();

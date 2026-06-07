@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use kartoteka_shared::types::{Container, List, ListTagLink, Tag};
 use leptos::prelude::*;
 
@@ -9,22 +11,27 @@ pub fn RecentSection(
     recent_containers: Vec<Container>,
     all_tags: Vec<Tag>,
     all_links: Vec<ListTagLink>,
-    active_tag_filter: ReadSignal<Option<String>>,
+    matching_list_ids: Signal<Option<HashSet<String>>>,
+    matching_container_ids: Signal<Option<HashSet<String>>>,
     on_tag_toggle: Callback<(String, String)>,
     on_delete_list: Callback<String>,
 ) -> impl IntoView {
-    let filter = active_tag_filter.get_untracked();
+    let list_filter = matching_list_ids.get_untracked();
+    let container_filter = matching_container_ids.get_untracked();
     let filtered_lists: Vec<List> = recent_lists
         .into_iter()
-        .filter(|l| match &filter {
-            None => true,
-            Some(tid) => all_links
-                .iter()
-                .any(|lnk| lnk.list_id == l.id && &lnk.tag_id == tid),
+        .filter(|l| list_filter.as_ref().is_none_or(|ids| ids.contains(&l.id)))
+        .collect();
+    let filtered_containers: Vec<Container> = recent_containers
+        .into_iter()
+        .filter(|c| {
+            container_filter
+                .as_ref()
+                .is_none_or(|ids| ids.contains(&c.id))
         })
         .collect();
 
-    if filtered_lists.is_empty() && recent_containers.is_empty() {
+    if filtered_lists.is_empty() && filtered_containers.is_empty() {
         return view! {}.into_any();
     }
 
@@ -36,7 +43,7 @@ pub fn RecentSection(
             </div>
             <div class="collapse-content">
                 <div class="flex flex-col gap-3 pt-2">
-                    {recent_containers.into_iter().map(|c| {
+                    {filtered_containers.into_iter().map(|c| {
                         view! { <ContainerCard container=c /> }
                     }).collect::<Vec<_>>()}
                     {filtered_lists.into_iter().map(|list| {

@@ -198,13 +198,16 @@ pub async fn get_exclusive_type_tag_for_item(
 
 // ── Write queries ─────────────────────────────────────────────────────────────
 
-pub async fn find_id_by_name_in_scope(
-    pool: &SqlitePool,
+pub async fn find_id_by_name_in_scope<'c, E>(
+    executor: E,
     user_id: &str,
     name: &str,
     parent_tag_id: Option<&str>,
     exclude_id: Option<&str>,
-) -> Result<Option<String>, DbError> {
+) -> Result<Option<String>, DbError>
+where
+    E: sqlx::Executor<'c, Database = sqlx::Sqlite>,
+{
     let row: Option<(String,)> = sqlx::query_as(
         "SELECT id FROM tags \
          WHERE user_id = ? \
@@ -216,7 +219,7 @@ pub async fn find_id_by_name_in_scope(
     .bind(name)
     .bind(parent_tag_id)
     .bind(exclude_id)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await
     .map_err(DbError::Sqlx)?;
     Ok(row.map(|(id,)| id))

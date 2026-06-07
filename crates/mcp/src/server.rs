@@ -707,7 +707,7 @@ impl KartotekaServer {
                 continue;
             }
             if let Some(eid) = db::tags::find_id_by_name_in_scope(
-                &self.pool,
+                &mut *tx,
                 &uid,
                 &tag.name,
                 parent_id.as_deref(),
