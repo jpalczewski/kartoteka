@@ -4,6 +4,7 @@ pub mod date_utils;
 pub mod locale;
 pub mod tag_utils;
 pub use locale::Locale;
+pub use tag_utils::FilterMode;
 #[allow(dead_code)]
 pub(crate) mod deserializers;
 pub mod dto;

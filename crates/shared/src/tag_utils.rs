@@ -1,6 +1,17 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::types::Tag;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FilterMode {
+    #[default]
+    Listwise,
+    Itemwise,
+    Joined,
+}
 
 /// Returns the full ancestor path of a tag joined by `sep` (root → leaf).
 /// E.g. with sep `"\\"`: "Hobby\\Ogród\\Warzywa"
