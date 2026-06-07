@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0](https://github.com/jpalczewski/kartoteka/compare/v1.6.0...v1.7.0) (2026-06-07)
+
+
+### Features
+
+* **scripts:** add tests for docker log analysis scripts ([cec3dda](https://github.com/jpalczewski/kartoteka/commit/cec3dda23b63f2f43e401b71885c0422e94aac95))
+
+
+### Performance Improvements
+
+* **db:** add indexes for list name dedup and container item queries ([#257](https://github.com/jpalczewski/kartoteka/issues/257)) ([8a3b39e](https://github.com/jpalczewski/kartoteka/commit/8a3b39e546f8363bba2525368b37d7bbf1899da1))
+
 ## [1.6.0](https://github.com/jpalczewski/kartoteka/compare/v1.5.0...v1.6.0) (2026-06-07)
 
 
