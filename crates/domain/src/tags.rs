@@ -160,6 +160,24 @@ async fn itemwise_matching(
         .map_err(db::DbError::Sqlx)?)
 }
 
+async fn container_ids_for_lists(
+    pool: &SqlitePool,
+    list_ids: &[String],
+) -> Result<Vec<String>, DomainError> {
+    if list_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut qb =
+        QueryBuilder::<sqlx::Sqlite>::new("SELECT DISTINCT container_id FROM lists WHERE id IN (");
+    push_ids(&mut qb, list_ids);
+    qb.push(") AND container_id IS NOT NULL");
+    Ok(qb
+        .build_query_scalar()
+        .fetch_all(pool)
+        .await
+        .map_err(db::DbError::Sqlx)?)
+}
+
 async fn item_co_occurring_tags(
     pool: &SqlitePool,
     list_ids: &[String],
@@ -199,17 +217,21 @@ pub async fn filter_home_by_tags(
     match mode {
         FilterMode::Listwise => {
             let list_ids = listwise_matching(pool, user_id, tag_ids).await?;
+            let matching_container_ids = container_ids_for_lists(pool, &list_ids).await?;
             let related_tag_ids = list_co_occurring_tags(pool, &list_ids, tag_ids).await?;
             Ok(HomeFilterResult {
                 matching_list_ids: list_ids,
+                matching_container_ids,
                 related_tag_ids,
             })
         }
         FilterMode::Itemwise => {
             let list_ids = itemwise_matching(pool, user_id, tag_ids).await?;
+            let matching_container_ids = container_ids_for_lists(pool, &list_ids).await?;
             let related_tag_ids = item_co_occurring_tags(pool, &list_ids, tag_ids).await?;
             Ok(HomeFilterResult {
                 matching_list_ids: list_ids,
+                matching_container_ids,
                 related_tag_ids,
             })
         }
@@ -217,11 +239,13 @@ pub async fn filter_home_by_tags(
             let list_ids_l = listwise_matching(pool, user_id, tag_ids).await?;
             let list_ids_i = itemwise_matching(pool, user_id, tag_ids).await?;
             let list_ids = dedup_strings(list_ids_l.iter().chain(list_ids_i.iter()).cloned());
+            let matching_container_ids = container_ids_for_lists(pool, &list_ids).await?;
             let mut related = list_co_occurring_tags(pool, &list_ids_l, tag_ids).await?;
             related.extend(item_co_occurring_tags(pool, &list_ids_i, tag_ids).await?);
             let related_tag_ids = dedup_strings(related);
             Ok(HomeFilterResult {
                 matching_list_ids: list_ids,
+                matching_container_ids,
                 related_tag_ids,
             })
         }

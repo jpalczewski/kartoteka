@@ -120,6 +120,17 @@ fn HomeContent() -> impl IntoView {
         }
     });
 
+    let matching_container_ids = Signal::derive(move || {
+        if active_tags.get().is_empty() {
+            None
+        } else {
+            filter_res
+                .get()
+                .and_then(|r| r.ok())
+                .map(|r| r.matching_container_ids.into_iter().collect::<HashSet<_>>())
+        }
+    });
+
     let related_tag_ids = Signal::derive(move || {
         filter_res
             .get()
@@ -313,6 +324,7 @@ fn HomeContent() -> impl IntoView {
                                         all_tags=tags.clone()
                                         all_links=all_links.clone()
                                         matching_list_ids=matching_list_ids
+                                        matching_container_ids=matching_container_ids
                                         on_tag_toggle=on_tag_toggle
                                         on_delete_list=del_cb
                                         on_pin_container=on_pin_container
@@ -323,6 +335,7 @@ fn HomeContent() -> impl IntoView {
                                         all_tags=tags.clone()
                                         all_links=all_links.clone()
                                         matching_list_ids=matching_list_ids
+                                        matching_container_ids=matching_container_ids
                                         on_tag_toggle=on_tag_toggle
                                         on_delete_list=del_cb
                                     />
@@ -332,6 +345,7 @@ fn HomeContent() -> impl IntoView {
                                         all_tags=tags.clone()
                                         all_links=all_links.clone()
                                         matching_list_ids=matching_list_ids
+                                        matching_container_ids=matching_container_ids
                                         on_tag_toggle=on_tag_toggle
                                         on_delete_list=del_cb
                                         on_delete_container=on_delete_container

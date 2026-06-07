@@ -41,6 +41,45 @@ Crate `kartoteka-frontend` — komponenty, server functions, routing, i18n.
 - Layout routes z `<Outlet>`: używaj `<ParentRoute>`, nie `<Route children=...>`
 - `<Outlet>` renderuje dopasowane child route w miejscu wywołania
 
+## Pułapki reaktywności
+
+### Hydration: zasoby muszą być wewnątrz Transition/Suspense
+Tylko `Resource` odczytywane wewnątrz `<Suspense>` lub `<Transition>` są serializowane przez SSR i dostępne dla WASM podczas hydracji. Resource **poza** granicą → SSR renderuje dane, WASM widzi `None` → różnica DOM → `unreachable!()` panic w tachys.
+
+```rust
+// ŹLE: tags_res poza Transition — WASM crash przy hydracji
+<HomeTagFilterBar all_tags=all_tags_signal ... />
+
+// DOBRZE: owinięte w Transition → tags_res serializowany
+<Transition fallback=|| view! {}>
+    <HomeTagFilterBar all_tags=all_tags_signal ... />
+</Transition>
+```
+
+### Filtrowanie hierarchiczne — propaguj do wszystkich poziomów
+Gdy filtr (`matching_list_ids`) ma działać na listach **i** kontenerach, musi być propagowany do wszystkich poziomów. Pominięcie kontenera powoduje, że listy w nim schowane są niewidoczne przy filtrze.
+
+```rust
+// ŹLE: tylko listy filtrowane, kontenery zawsze widoczne
+let filtered_lists = lists.filter(|l| filter.contains(&l.id));
+// root_containers renderowane bez filtrowania ↑
+
+// DOBRZE: oba poziomy filtrowane z oddzielnych sygnałów
+let filtered_lists = lists.filter(|l| list_filter.contains(&l.id));
+let filtered_containers = containers.filter(|c| container_filter.contains(&c.id));
+```
+
+### `get_untracked()` w komponentach renderowanych przez rodzica
+Sygnał czytany przez `get_untracked()` nie śledzi zmian — ale jest OK jeśli **rodzic** wyraźnie czyta ten sygnał przez `get()` (co wymusza re-render komponentu dziecka). Wzorzec w home:
+
+```rust
+// W rodzicu (home.rs) — `get()` wymusza re-render gdy filter się zmienia
+let _matching = matching_list_ids.get();
+// Powyższe sprawia, że sekcje renderują się ponownie
+// Wewnątrz sekcji get_untracked() jest wtedy bezpieczne
+let filter = matching_list_ids.get_untracked();
+```
+
 ## i18n (leptos-fluent + Fluent)
 
 ### Użycie
