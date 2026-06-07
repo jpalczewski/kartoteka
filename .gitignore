@@ -72,3 +72,5 @@ page-*.json
 # Local ops scripts (zawierają URL-e infrastruktury)
 scripts/coolify-*.sh
 scripts/coolify-*.py
+scripts/.docker-env.local
+*.pyc

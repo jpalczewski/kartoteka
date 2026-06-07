@@ -73,15 +73,16 @@ pub async fn create_pool(url: &str) -> Result<SqlitePool, DbError> {
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)
         .synchronous(SqliteSynchronous::Normal)
-        .log_slow_statements(LevelFilter::Warn, Duration::from_millis(10));
+        .log_slow_statements(LevelFilter::Warn, Duration::from_millis(1))
+        // WAL allows concurrent reads; busy_timeout lets writers retry instead of
+        // returning SQLITE_BUSY immediately when another write holds the lock.
+        .busy_timeout(Duration::from_secs(5));
 
-    // SQLite is single-writer. SQLx docs canonical pattern:
-    // SqlitePoolOptions::new().max_connections(1).connect_with(options)
-    // Pre-opening connections (min_connections>0) opens them concurrently with
-    // migrations in the background, cached partial/empty schema views caused
-    // sporadic "no such table" errors on later requests.
+    // min_connections stays at 0 so the pool does not eagerly open connections beyond
+    // the first one. min_connections>0 would race with migrations: the extra connections
+    // open concurrently and see an empty schema before migrations finish.
     let pool = SqlitePoolOptions::new()
-        .max_connections(1)
+        .max_connections(5)
         .connect_with(options)
         .await?;
 

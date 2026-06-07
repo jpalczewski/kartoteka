@@ -48,6 +48,12 @@ CLOUDFLARE_ACCOUNT_ID=your-account-id
 HANKO_API_URL=https://your-project.hanko.io
 ```
 
+#### Optional env vars
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LOG_HEALTH_REQUESTS` | *(unset)* | Set to `true` to include `/health` polling in HTTP trace logs. Unset by default — Docker healthchecks fire every 30s and would flood logs. |
+
 ### D1
 
 The project uses three environments with separate D1 databases:

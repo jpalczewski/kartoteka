@@ -7,17 +7,18 @@ use tower_sessions_sqlx_store::SqliteStore;
 async fn main() {
     let app_env = std::env::var("APP_ENV").unwrap_or_default();
     let default_filter = match app_env.as_str() {
-        "production" => "kartoteka_server=info,tower_http=info,sqlx=warn",
-        "preview" => "kartoteka_server=trace,tower_http=trace,sqlx=debug",
-        _ => "kartoteka_server=debug,tower_http=debug,sqlx=debug",
+        "production" => "info,sqlx=warn",
+        "preview" => "debug,kartoteka_server=trace,tower_http=trace,sqlx=debug",
+        _ => "debug,kartoteka_server=debug,tower_http=debug,sqlx=debug",
     };
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| default_filter.into());
 
     match app_env.as_str() {
-        "production" | "preview" => {
+        "production" | "preview" | "develop" => {
             tracing_subscriber::fmt()
                 .with_env_filter(env_filter)
+                .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
                 .json()
                 .init();
         }
