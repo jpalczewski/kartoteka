@@ -1,7 +1,10 @@
+use log::LevelFilter;
+use sqlx::ConnectOptions;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{QueryBuilder, Sqlite};
 use std::collections::HashSet;
 use std::str::FromStr;
+use std::time::Duration;
 
 pub use sqlx::sqlite::SqlitePool;
 
@@ -69,7 +72,8 @@ pub async fn create_pool(url: &str) -> Result<SqlitePool, DbError> {
         .create_if_missing(true)
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)
-        .synchronous(SqliteSynchronous::Normal);
+        .synchronous(SqliteSynchronous::Normal)
+        .log_slow_statements(LevelFilter::Warn, Duration::from_millis(10));
 
     // SQLite is single-writer. SQLx docs canonical pattern:
     // SqlitePoolOptions::new().max_connections(1).connect_with(options)

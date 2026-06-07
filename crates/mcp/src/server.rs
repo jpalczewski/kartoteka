@@ -494,6 +494,7 @@ impl KartotekaServer {
         Parameters(p): Parameters<ListContainerItemsParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let (uid, locale) = self.auth(&parts)?;
+        tracing::debug!(container_id = %p.container_id, recursive = p.recursive.unwrap_or(false));
         let limit = domain::paging::clamp_limit(p.limit);
         let offset: usize = p
             .cursor
