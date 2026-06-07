@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use kartoteka_shared::types::{Container, List, ListTagLink, Tag};
 use leptos::prelude::*;
 
@@ -9,19 +11,14 @@ pub fn RecentSection(
     recent_containers: Vec<Container>,
     all_tags: Vec<Tag>,
     all_links: Vec<ListTagLink>,
-    active_tag_filter: ReadSignal<Option<String>>,
+    matching_list_ids: Signal<Option<HashSet<String>>>,
     on_tag_toggle: Callback<(String, String)>,
     on_delete_list: Callback<String>,
 ) -> impl IntoView {
-    let filter = active_tag_filter.get_untracked();
+    let filter = matching_list_ids.get_untracked();
     let filtered_lists: Vec<List> = recent_lists
         .into_iter()
-        .filter(|l| match &filter {
-            None => true,
-            Some(tid) => all_links
-                .iter()
-                .any(|lnk| lnk.list_id == l.id && &lnk.tag_id == tid),
-        })
+        .filter(|l| filter.as_ref().map_or(true, |ids| ids.contains(&l.id)))
         .collect();
 
     if filtered_lists.is_empty() && recent_containers.is_empty() {
