@@ -1,3 +1,4 @@
+use kartoteka_shared::tag_utils::build_ancestor_map;
 use kartoteka_shared::types::{CreateContainerRequest, CreateListRequest};
 use leptos::prelude::*;
 use leptos_fluent::{I18n, move_tr};
@@ -73,6 +74,15 @@ fn HomeContent() -> impl IntoView {
         move || (refresh.get(), global_refresh.get()),
         |_| get_list_tag_links(),
     );
+
+    // Precomputed once when tags load; stable across filter changes
+    let ancestor_map = Memo::new(move |_| {
+        tags_res
+            .get()
+            .and_then(|r| r.ok())
+            .map(|tags| build_ancestor_map(&tags, "\\"))
+            .unwrap_or_default()
+    });
 
     // ── Mutation callbacks ─────────────────────────────────────────────
 
@@ -205,15 +215,18 @@ fn HomeContent() -> impl IntoView {
             <Transition fallback=|| view! {}>
                 {move || tags_res.get().map(|result| match result {
                     Ok(tags) if !tags.is_empty() => {
+                        let paths = ancestor_map.get();
                         view! {
                             <div class="flex flex-wrap gap-1 mb-3">
                                 {tags.into_iter().map(|tag| {
                                     let tid = tag.id.clone();
+                                    let label = paths.get(&tid).cloned().unwrap_or_else(|| tag.name.clone());
                                     let is_active = active_tag_filter.get().as_deref() == Some(&tid);
                                     view! {
                                         <TagBadge
                                             tag=tag
                                             active=is_active
+                                            label=label
                                             on_click=Callback::new(move |id: String| {
                                                 set_active_tag_filter.update(|f| {
                                                     *f = if f.as_deref() == Some(&id) { None } else { Some(id) };
@@ -239,6 +252,7 @@ fn HomeContent() -> impl IntoView {
             // Main content: sections
             <Transition fallback=|| view! { <LoadingSpinner/> }>
                 {move || {
+                    let _active = active_tag_filter.get();
                     let home = home_res.get();
                     let links = tag_links_res.get();
                     let all_tags = tags_res.get();
@@ -267,7 +281,7 @@ fn HomeContent() -> impl IntoView {
                                         pinned_containers=data.pinned_containers.clone()
                                         all_tags=tags.clone()
                                         all_links=all_links.clone()
-                                        _active_tag_filter=active_tag_filter
+                                        active_tag_filter=active_tag_filter
                                         on_tag_toggle=on_tag_toggle
                                         on_delete_list=del_cb
                                         on_pin_container=on_pin_container

@@ -9,12 +9,23 @@ pub fn PinnedSection(
     pinned_containers: Vec<Container>,
     all_tags: Vec<Tag>,
     all_links: Vec<ListTagLink>,
-    _active_tag_filter: ReadSignal<Option<String>>,
+    active_tag_filter: ReadSignal<Option<String>>,
     on_tag_toggle: Callback<(String, String)>,
     on_delete_list: Callback<String>,
     on_pin_container: Callback<String>,
 ) -> impl IntoView {
-    if pinned_lists.is_empty() && pinned_containers.is_empty() {
+    let filter = active_tag_filter.get_untracked();
+    let filtered_lists: Vec<List> = pinned_lists
+        .into_iter()
+        .filter(|l| match &filter {
+            None => true,
+            Some(tid) => all_links
+                .iter()
+                .any(|lnk| lnk.list_id == l.id && &lnk.tag_id == tid),
+        })
+        .collect();
+
+    if filtered_lists.is_empty() && pinned_containers.is_empty() {
         return view! {}.into_any();
     }
 
@@ -36,7 +47,7 @@ pub fn PinnedSection(
                             />
                         }
                     }).collect::<Vec<_>>()}
-                    {pinned_lists.into_iter().map(|list| {
+                    {filtered_lists.into_iter().map(|list| {
                         let list_id = list.id.clone();
                         let tag_ids: Vec<String> = all_links.iter()
                             .filter(|l| l.list_id == list.id)
