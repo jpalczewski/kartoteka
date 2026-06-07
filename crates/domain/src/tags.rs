@@ -63,6 +63,23 @@ fn row_to_tag(row: db::types::TagRow) -> Tag {
     }
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn push_ids<'a>(qb: &mut QueryBuilder<'a, sqlx::Sqlite>, ids: &'a [String]) {
+    let mut sep = qb.separated(", ");
+    for id in ids {
+        sep.push_bind(id);
+    }
+}
+
+fn dedup_strings(items: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    items
+        .into_iter()
+        .filter(|id| seen.insert(id.clone()))
+        .collect()
+}
+
 // ── Public functions ──────────────────────────────────────────────────────────
 
 async fn listwise_matching(
@@ -80,10 +97,7 @@ async fn listwise_matching(
     );
     qb.push_bind(user_id);
     qb.push(" AND lt.tag_id IN (");
-    let mut sep = qb.separated(", ");
-    for tid in tag_ids {
-        sep.push_bind(tid);
-    }
+    push_ids(&mut qb, tag_ids);
     qb.push(") GROUP BY lt.list_id HAVING COUNT(DISTINCT lt.tag_id) = ");
     qb.push_bind(tag_ids.len() as i64);
     Ok(qb
@@ -104,17 +118,11 @@ async fn list_co_occurring_tags(
     let mut qb = QueryBuilder::<sqlx::Sqlite>::new(
         "SELECT DISTINCT tag_id FROM list_tags WHERE list_id IN (",
     );
-    let mut sep = qb.separated(", ");
-    for lid in list_ids {
-        sep.push_bind(lid);
-    }
+    push_ids(&mut qb, list_ids);
     qb.push(")");
     if !exclude_tag_ids.is_empty() {
         qb.push(" AND tag_id NOT IN (");
-        let mut sep2 = qb.separated(", ");
-        for tid in exclude_tag_ids {
-            sep2.push_bind(tid);
-        }
+        push_ids(&mut qb, exclude_tag_ids);
         qb.push(")");
     }
     Ok(qb
@@ -142,10 +150,7 @@ async fn itemwise_matching(
     );
     qb.push_bind(user_id);
     qb.push(" AND it.tag_id IN (");
-    let mut sep = qb.separated(", ");
-    for tid in tag_ids {
-        sep.push_bind(tid);
-    }
+    push_ids(&mut qb, tag_ids);
     qb.push(") GROUP BY i.list_id) WHERE covered = ");
     qb.push_bind(tag_ids.len() as i64);
     Ok(qb
@@ -168,17 +173,11 @@ async fn item_co_occurring_tags(
          JOIN items i ON i.id = it.item_id \
          WHERE i.list_id IN (",
     );
-    let mut sep = qb.separated(", ");
-    for lid in list_ids {
-        sep.push_bind(lid);
-    }
+    push_ids(&mut qb, list_ids);
     qb.push(")");
     if !exclude_tag_ids.is_empty() {
         qb.push(" AND it.tag_id NOT IN (");
-        let mut sep2 = qb.separated(", ");
-        for tid in exclude_tag_ids {
-            sep2.push_bind(tid);
-        }
+        push_ids(&mut qb, exclude_tag_ids);
         qb.push(")");
     }
     Ok(qb
@@ -217,24 +216,10 @@ pub async fn filter_home_by_tags(
         FilterMode::Joined => {
             let list_ids_l = listwise_matching(pool, user_id, tag_ids).await?;
             let list_ids_i = itemwise_matching(pool, user_id, tag_ids).await?;
-            let list_ids: Vec<String> = {
-                let mut seen = std::collections::HashSet::new();
-                list_ids_l
-                    .iter()
-                    .chain(list_ids_i.iter())
-                    .filter(|id| seen.insert(id.as_str()))
-                    .cloned()
-                    .collect()
-            };
+            let list_ids = dedup_strings(list_ids_l.iter().chain(list_ids_i.iter()).cloned());
             let mut related = list_co_occurring_tags(pool, &list_ids_l, tag_ids).await?;
             related.extend(item_co_occurring_tags(pool, &list_ids_i, tag_ids).await?);
-            let related_tag_ids: Vec<String> = {
-                let mut seen = std::collections::HashSet::new();
-                related
-                    .into_iter()
-                    .filter(|id| seen.insert(id.clone()))
-                    .collect()
-            };
+            let related_tag_ids = dedup_strings(related);
             Ok(HomeFilterResult {
                 matching_list_ids: list_ids,
                 related_tag_ids,
