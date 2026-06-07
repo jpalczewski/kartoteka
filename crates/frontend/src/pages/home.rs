@@ -261,15 +261,17 @@ fn HomeContent() -> impl IntoView {
                 }
             })}
 
-            // Tag filter bar
-            <HomeTagFilterBar
-                all_tags=all_tags_signal
-                ancestor_map=ancestor_map
-                active_tags=active_tags
-                filter_mode=filter_mode
-                related_tag_ids=related_tag_ids
-                is_loading=filter_loading
-            />
+            // Tag filter bar — inside Transition so tags_res is serialized for hydration
+            <Transition fallback=|| view! {}>
+                <HomeTagFilterBar
+                    all_tags=all_tags_signal
+                    ancestor_map=ancestor_map
+                    active_tags=active_tags
+                    filter_mode=filter_mode
+                    related_tag_ids=related_tag_ids
+                    is_loading=filter_loading
+                />
+            </Transition>
 
             // Create form
             <CreateEntityInput
