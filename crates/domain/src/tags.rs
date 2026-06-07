@@ -986,7 +986,7 @@ mod tests {
         let result = filter_home_by_tags(
             &pool,
             &uid,
-            &[tag_a.id.clone()],
+            std::slice::from_ref(&tag_a.id),
             kartoteka_shared::FilterMode::Listwise,
         )
         .await
@@ -1038,7 +1038,7 @@ mod tests {
         let result = filter_home_by_tags(
             &pool,
             &uid,
-            &[tag_a.id.clone()],
+            std::slice::from_ref(&tag_a.id),
             kartoteka_shared::FilterMode::Itemwise,
         )
         .await
@@ -1089,7 +1089,7 @@ mod tests {
         let result = filter_home_by_tags(
             &pool,
             &uid,
-            &[tag_a.id.clone()],
+            std::slice::from_ref(&tag_a.id),
             kartoteka_shared::FilterMode::Joined,
         )
         .await
