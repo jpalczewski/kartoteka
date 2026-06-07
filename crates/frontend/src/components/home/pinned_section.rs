@@ -19,7 +19,7 @@ pub fn PinnedSection(
     let filter = matching_list_ids.get_untracked();
     let filtered_lists: Vec<List> = pinned_lists
         .into_iter()
-        .filter(|l| filter.as_ref().map_or(true, |ids| ids.contains(&l.id)))
+        .filter(|l| filter.as_ref().is_none_or(|ids| ids.contains(&l.id)))
         .collect();
 
     if filtered_lists.is_empty() && pinned_containers.is_empty() {

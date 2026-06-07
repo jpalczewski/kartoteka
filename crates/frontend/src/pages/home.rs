@@ -1,5 +1,8 @@
+use std::collections::HashSet;
+
 use kartoteka_shared::tag_utils::build_ancestor_map;
 use kartoteka_shared::types::{CreateContainerRequest, CreateListRequest};
+use kartoteka_shared::{FilterMode, HomeFilterResult};
 use leptos::prelude::*;
 use leptos_fluent::{I18n, move_tr};
 
@@ -10,9 +13,9 @@ use crate::components::common::{
 };
 use crate::components::home::{
     pinned_section::PinnedSection, recent_section::RecentSection, root_section::RootSection,
+    tag_filter_bar::HomeTagFilterBar,
 };
 use crate::components::lists::create_entity_input::CreateEntityInput;
-use crate::components::tags::tag_badge::TagBadge;
 use crate::context::GlobalRefresh;
 use crate::pages::landing::LandingPage;
 use crate::server_fns::auth::get_auth_status;
@@ -20,7 +23,10 @@ use crate::server_fns::{
     containers::{archive_container, create_container, delete_container, toggle_container_pin},
     home::{get_archived_containers, get_archived_lists, get_home_data},
     lists::{archive_list, create_list, delete_list},
-    tags::{assign_tag_to_list, get_all_tags, get_list_tag_links, remove_tag_from_list},
+    tags::{
+        assign_tag_to_list, filter_home_by_tags, get_all_tags, get_list_tag_links,
+        remove_tag_from_list,
+    },
 };
 
 #[component]
@@ -50,8 +56,9 @@ fn HomeContent() -> impl IntoView {
     let (refresh, set_refresh) = signal(0u32);
     let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
 
-    // Tag filter — which tag_id is active (None = no filter)
-    let (active_tag_filter, set_active_tag_filter) = signal(Option::<String>::None);
+    // Multi-tag AND filter
+    let active_tags: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
+    let filter_mode: RwSignal<FilterMode> = RwSignal::new(FilterMode::default());
 
     // Pending delete state — (list_id, list_name)
     let pending_delete: RwSignal<Option<(String, String)>> = RwSignal::new(None);
@@ -83,6 +90,49 @@ fn HomeContent() -> impl IntoView {
             .map(|tags| build_ancestor_map(&tags, "\\"))
             .unwrap_or_default()
     });
+
+    let filter_res = Resource::new(
+        move || {
+            let mut tags: Vec<String> = active_tags.get().into_iter().collect();
+            tags.sort();
+            if tags.is_empty() {
+                None
+            } else {
+                Some((tags, filter_mode.get()))
+            }
+        },
+        |key| async move {
+            match key {
+                None => Ok(HomeFilterResult::default()),
+                Some((tags, mode)) => filter_home_by_tags(tags, mode).await,
+            }
+        },
+    );
+
+    let matching_list_ids = Signal::derive(move || {
+        if active_tags.get().is_empty() {
+            None
+        } else {
+            filter_res
+                .get()
+                .and_then(|r| r.ok())
+                .map(|r| r.matching_list_ids.into_iter().collect::<HashSet<_>>())
+        }
+    });
+
+    let related_tag_ids = Signal::derive(move || {
+        filter_res
+            .get()
+            .and_then(|r| r.ok())
+            .map(|r| r.related_tag_ids.into_iter().collect::<HashSet<_>>())
+            .unwrap_or_default()
+    });
+
+    let filter_loading =
+        Signal::derive(move || !active_tags.get().is_empty() && filter_res.get().is_none());
+
+    let all_tags_signal =
+        Signal::derive(move || tags_res.get().and_then(|r| r.ok()).unwrap_or_default());
 
     // ── Mutation callbacks ─────────────────────────────────────────────
 
@@ -212,35 +262,14 @@ fn HomeContent() -> impl IntoView {
             })}
 
             // Tag filter bar
-            <Transition fallback=|| view! {}>
-                {move || tags_res.get().map(|result| match result {
-                    Ok(tags) if !tags.is_empty() => {
-                        let paths = ancestor_map.get();
-                        view! {
-                            <div class="flex flex-wrap gap-1 mb-3">
-                                {tags.into_iter().map(|tag| {
-                                    let tid = tag.id.clone();
-                                    let label = paths.get(&tid).cloned().unwrap_or_else(|| tag.name.clone());
-                                    let is_active = active_tag_filter.get().as_deref() == Some(&tid);
-                                    view! {
-                                        <TagBadge
-                                            tag=tag
-                                            active=is_active
-                                            label=label
-                                            on_click=Callback::new(move |id: String| {
-                                                set_active_tag_filter.update(|f| {
-                                                    *f = if f.as_deref() == Some(&id) { None } else { Some(id) };
-                                                });
-                                            })
-                                        />
-                                    }
-                                }).collect::<Vec<_>>()}
-                            </div>
-                        }.into_any()
-                    }
-                    _ => view! {}.into_any(),
-                })}
-            </Transition>
+            <HomeTagFilterBar
+                all_tags=all_tags_signal
+                ancestor_map=ancestor_map
+                active_tags=active_tags
+                filter_mode=filter_mode
+                related_tag_ids=related_tag_ids
+                is_loading=filter_loading
+            />
 
             // Create form
             <CreateEntityInput
@@ -252,7 +281,7 @@ fn HomeContent() -> impl IntoView {
             // Main content: sections
             <Transition fallback=|| view! { <LoadingSpinner/> }>
                 {move || {
-                    let _active = active_tag_filter.get();
+                    let _matching = matching_list_ids.get();
                     let home = home_res.get();
                     let links = tag_links_res.get();
                     let all_tags = tags_res.get();
@@ -281,7 +310,7 @@ fn HomeContent() -> impl IntoView {
                                         pinned_containers=data.pinned_containers.clone()
                                         all_tags=tags.clone()
                                         all_links=all_links.clone()
-                                        active_tag_filter=active_tag_filter
+                                        matching_list_ids=matching_list_ids
                                         on_tag_toggle=on_tag_toggle
                                         on_delete_list=del_cb
                                         on_pin_container=on_pin_container
@@ -291,7 +320,7 @@ fn HomeContent() -> impl IntoView {
                                         recent_containers=data.recent_containers.clone()
                                         all_tags=tags.clone()
                                         all_links=all_links.clone()
-                                        active_tag_filter=active_tag_filter
+                                        matching_list_ids=matching_list_ids
                                         on_tag_toggle=on_tag_toggle
                                         on_delete_list=del_cb
                                     />
@@ -300,7 +329,7 @@ fn HomeContent() -> impl IntoView {
                                         root_lists=data.root_lists.clone()
                                         all_tags=tags.clone()
                                         all_links=all_links.clone()
-                                        active_tag_filter=active_tag_filter
+                                        matching_list_ids=matching_list_ids
                                         on_tag_toggle=on_tag_toggle
                                         on_delete_list=del_cb
                                         on_delete_container=on_delete_container

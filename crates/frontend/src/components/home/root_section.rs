@@ -20,7 +20,7 @@ pub fn RootSection(
     let filter = matching_list_ids.get_untracked();
     let filtered_lists: Vec<List> = root_lists
         .into_iter()
-        .filter(|l| filter.as_ref().map_or(true, |ids| ids.contains(&l.id)))
+        .filter(|l| filter.as_ref().is_none_or(|ids| ids.contains(&l.id)))
         .collect();
 
     let has_containers = !root_containers.is_empty();
