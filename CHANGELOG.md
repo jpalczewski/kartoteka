@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0](https://github.com/jpalczewski/kartoteka/compare/v1.5.0...v1.6.0) (2026-06-07)
+
+
+### Features
+
+* **ui:** faceted tag filtering with listwise/itemwise/joined modes ([#256](https://github.com/jpalczewski/kartoteka/issues/256)) ([1c4ccab](https://github.com/jpalczewski/kartoteka/commit/1c4ccab9389df1bf1c293a649cff865d69b21379))
+
+
+### Bug Fixes
+
+* **ui:** sublist title link unblocked from DaisyUI collapse input overlay ([#254](https://github.com/jpalczewski/kartoteka/issues/254)) ([e2a1cc6](https://github.com/jpalczewski/kartoteka/commit/e2a1cc6fa11628a3f16d6e63b4111ef378fc7cfd))
+
 ## [1.5.0](https://github.com/jpalczewski/kartoteka/compare/v1.4.0...v1.5.0) (2026-06-06)
 
 
