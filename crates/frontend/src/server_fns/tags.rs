@@ -398,3 +398,21 @@ pub async fn get_tag_detail_data(
         linked_lists,
     })
 }
+
+/// Filter home by selected tags. Returns matching list IDs and related tag IDs based on filter mode.
+#[server(prefix = "/leptos")]
+pub async fn filter_home_by_tags(
+    tag_ids: Vec<String>,
+    mode: kartoteka_shared::FilterMode,
+) -> Result<kartoteka_shared::HomeFilterResult, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    domain::tags::filter_home_by_tags(&pool, &user.id, &tag_ids, mode)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))
+}
