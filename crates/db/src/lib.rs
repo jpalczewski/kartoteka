@@ -78,9 +78,9 @@ pub async fn create_pool(url: &str) -> Result<SqlitePool, DbError> {
         // returning SQLITE_BUSY immediately when another write holds the lock.
         .busy_timeout(Duration::from_secs(5));
 
-    // min_connections stays at 0 (lazy): eager opening (min_connections>0) raced
-    // with migrations and caused sporadic "no such table" errors. Lazy opening is
-    // safe because connections are only acquired after migrations complete.
+    // min_connections stays at 0 so the pool does not eagerly open connections beyond
+    // the first one. min_connections>0 would race with migrations: the extra connections
+    // open concurrently and see an empty schema before migrations finish.
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
         .connect_with(options)
