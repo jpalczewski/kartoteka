@@ -176,7 +176,9 @@ pub fn router(
         StreamableHttpServerConfig::default().with_allowed_hosts(mcp_allowed_hosts),
     );
 
-    Router::new()
+    let log_health = std::env::var("LOG_HEALTH_REQUESTS").as_deref() == Ok("true");
+
+    let traced = Router::new()
         .nest(
             "/.well-known",
             kartoteka_oauth::well_known_routes().with_state(oauth_state.clone()),
@@ -201,7 +203,6 @@ pub fn router(
             "/leptos/{*fn_name}",
             axum::routing::get(server_fn_handler).post(server_fn_handler),
         )
-        .route("/health", axum::routing::get(health::health))
         // SSR page rendering for all Leptos routes (/, /today, /lists/:id, etc.)
         .leptos_routes_with_handler(routes, axum::routing::get(leptos_routes_handler))
         // Static asset serving from target/site
@@ -218,6 +219,18 @@ pub fn router(
         )
         .layer(axum::middleware::from_fn(
             middleware::reject_file_like_paths,
-        ))
-        .with_state(state)
+        ));
+
+    // /health is excluded from TraceLayer by default (polled every 30s by Docker).
+    // Set LOG_HEALTH_REQUESTS=true to include it in traces.
+    if log_health {
+        traced
+            .route("/health", axum::routing::get(health::health))
+            .with_state(state)
+    } else {
+        Router::new()
+            .route("/health", axum::routing::get(health::health))
+            .merge(traced)
+            .with_state(state)
+    }
 }

@@ -15,9 +15,10 @@ async fn main() {
         .unwrap_or_else(|_| default_filter.into());
 
     match app_env.as_str() {
-        "production" | "preview" => {
+        "production" | "preview" | "develop" => {
             tracing_subscriber::fmt()
                 .with_env_filter(env_filter)
+                .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
                 .json()
                 .init();
         }

@@ -73,7 +73,7 @@ pub async fn create_pool(url: &str) -> Result<SqlitePool, DbError> {
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)
         .synchronous(SqliteSynchronous::Normal)
-        .log_slow_statements(LevelFilter::Warn, Duration::from_millis(10));
+        .log_slow_statements(LevelFilter::Warn, Duration::from_millis(1));
 
     // SQLite is single-writer. SQLx docs canonical pattern:
     // SqlitePoolOptions::new().max_connections(1).connect_with(options)
