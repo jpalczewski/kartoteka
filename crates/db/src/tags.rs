@@ -135,6 +135,38 @@ pub async fn get_tags_for_item(
     .map_err(DbError::Sqlx)
 }
 
+#[derive(Debug, sqlx::FromRow)]
+pub struct ListItemTagRow {
+    pub item_id: String,
+    pub id: String,
+    pub name: String,
+    pub color: Option<String>,
+    pub parent_tag_id: Option<String>,
+}
+
+/// Returns all tags for items in a list in one query, grouped by item_id.
+#[tracing::instrument(skip(pool))]
+pub async fn get_tags_for_list_items(
+    pool: &SqlitePool,
+    list_id: &str,
+    user_id: &str,
+) -> Result<Vec<ListItemTagRow>, DbError> {
+    sqlx::query_as::<_, ListItemTagRow>(
+        "SELECT it.item_id, t.id, t.name, t.color, t.parent_tag_id \
+         FROM tags t \
+         JOIN item_tags it ON it.tag_id = t.id \
+         JOIN items i ON i.id = it.item_id \
+         JOIN lists l ON l.id = i.list_id \
+         WHERE i.list_id = ? AND l.user_id = ? \
+         ORDER BY t.name",
+    )
+    .bind(list_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn get_tags_for_list(
     pool: &SqlitePool,

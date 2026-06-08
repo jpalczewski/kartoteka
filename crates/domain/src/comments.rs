@@ -19,7 +19,7 @@ pub struct Comment {
     pub updated_at: String,
 }
 
-fn row_to_comment(row: db::types::CommentRow) -> Comment {
+pub(crate) fn row_to_comment(row: db::types::CommentRow) -> Comment {
     Comment {
         id: row.id,
         entity_type: row.entity_type,
@@ -60,6 +60,15 @@ async fn verify_entity_ownership(
 }
 
 // ── Orchestration ─────────────────────────────────────────────────────────────
+
+/// Fetches comments for an item without re-verifying ownership (caller already checked).
+pub(crate) async fn list_for_item_unchecked(
+    pool: &SqlitePool,
+    item_id: &str,
+) -> Result<Vec<Comment>, DomainError> {
+    let rows = db::comments::list_for_entity(pool, "item", item_id).await?;
+    Ok(rows.into_iter().map(row_to_comment).collect())
+}
 
 #[tracing::instrument(skip(pool))]
 pub async fn list_for_entity(
