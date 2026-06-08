@@ -4,6 +4,28 @@ use sqlx::SqlitePool;
 // ── Read queries ──────────────────────────────────────────────────────────────
 
 #[tracing::instrument(skip(pool))]
+pub async fn get_comments_for_list_items(
+    pool: &SqlitePool,
+    list_id: &str,
+    user_id: &str,
+) -> Result<Vec<CommentRow>, DbError> {
+    sqlx::query_as::<_, CommentRow>(
+        "SELECT c.id, c.entity_type, c.entity_id, c.content, c.author_type, c.author_name, \
+         c.user_id, c.created_at, c.updated_at \
+         FROM comments c \
+         JOIN items i ON i.id = c.entity_id AND c.entity_type = 'item' \
+         JOIN lists l ON l.id = i.list_id \
+         WHERE i.list_id = ? AND l.user_id = ? \
+         ORDER BY c.created_at ASC",
+    )
+    .bind(list_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)
+}
+
+#[tracing::instrument(skip(pool))]
 pub async fn list_for_entity(
     pool: &SqlitePool,
     entity_type: &str,

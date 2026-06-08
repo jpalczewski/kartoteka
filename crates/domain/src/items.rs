@@ -3,9 +3,18 @@ use kartoteka_db as db;
 use kartoteka_shared::types::FlexDate;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 // ── Public domain types ───────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItemTag {
+    pub id: String,
+    pub name: String,
+    pub color: Option<String>,
+    pub parent_tag_id: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
@@ -27,6 +36,10 @@ pub struct Item {
     pub location_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(default)]
+    pub tags: Vec<ItemTag>,
+    #[serde(default)]
+    pub comments: Vec<crate::comments::Comment>,
 }
 
 // ── Request types ─────────────────────────────────────────────────────────────
@@ -102,6 +115,26 @@ fn row_to_item(row: db::types::ItemRow) -> Item {
         location_id: row.location_id,
         created_at: row.created_at,
         updated_at: row.updated_at,
+        tags: vec![],
+        comments: vec![],
+    }
+}
+
+fn tag_row_to_item_tag(r: db::types::TagRow) -> ItemTag {
+    ItemTag {
+        id: r.id,
+        name: r.name,
+        color: r.color,
+        parent_tag_id: r.parent_tag_id,
+    }
+}
+
+fn list_item_tag_row_to_item_tag(r: db::tags::ListItemTagRow) -> ItemTag {
+    ItemTag {
+        id: r.id,
+        name: r.name,
+        color: r.color,
+        parent_tag_id: r.parent_tag_id,
     }
 }
 
@@ -137,8 +170,34 @@ pub async fn list_for_list(
     list_id: &str,
     user_id: &str,
 ) -> Result<Vec<Item>, DomainError> {
-    let rows = db::items::list_for_list(pool, list_id, user_id).await?;
-    Ok(rows.into_iter().map(row_to_item).collect())
+    let (rows, tag_rows, comment_rows) = tokio::try_join!(
+        db::items::list_for_list(pool, list_id, user_id),
+        db::tags::get_tags_for_list_items(pool, list_id, user_id),
+        db::comments::get_comments_for_list_items(pool, list_id, user_id),
+    )?;
+    let mut tags_map: HashMap<String, Vec<ItemTag>> = HashMap::new();
+    for r in tag_rows {
+        tags_map
+            .entry(r.item_id.clone())
+            .or_default()
+            .push(list_item_tag_row_to_item_tag(r));
+    }
+    let mut comments_map: HashMap<String, Vec<crate::comments::Comment>> = HashMap::new();
+    for r in comment_rows {
+        comments_map
+            .entry(r.entity_id.clone())
+            .or_default()
+            .push(crate::comments::row_to_comment(r));
+    }
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let mut item = row_to_item(row);
+            item.tags = tags_map.remove(&item.id).unwrap_or_default();
+            item.comments = comments_map.remove(&item.id).unwrap_or_default();
+            item
+        })
+        .collect())
 }
 
 #[tracing::instrument(skip(pool))]
@@ -169,9 +228,25 @@ pub async fn get_one(
     id: &str,
     user_id: &str,
 ) -> Result<Option<Item>, DomainError> {
-    Ok(db::items::get_one(pool, id, user_id)
-        .await?
-        .map(row_to_item))
+    let (item_opt, tag_rows, comments) = tokio::try_join!(
+        async {
+            db::items::get_one(pool, id, user_id)
+                .await
+                .map_err(DomainError::from)
+        },
+        async {
+            db::tags::get_tags_for_item(pool, id, user_id)
+                .await
+                .map_err(DomainError::from)
+        },
+        crate::comments::list_for_item_unchecked(pool, id),
+    )?;
+    Ok(item_opt.map(|row| {
+        let mut item = row_to_item(row);
+        item.tags = tag_rows.into_iter().map(tag_row_to_item_tag).collect();
+        item.comments = comments;
+        item
+    }))
 }
 
 #[tracing::instrument(skip(pool))]
@@ -1203,6 +1278,108 @@ mod tests {
             DomainError::AlreadyExists { id, .. } => assert_eq!(id, first.id),
             _ => panic!("expected AlreadyExists, got {err:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn get_one_includes_tags_and_comments() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &[]).await;
+        let item = create(&pool, &user_id, &list_id, &basic_req("Tagged item"))
+            .await
+            .unwrap();
+
+        let tag_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO tags (id, user_id, name, tag_type) VALUES (?, ?, 'Sprint', 'basic')",
+        )
+        .bind(&tag_id)
+        .bind(&user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)")
+            .bind(&item.id)
+            .bind(&tag_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        kartoteka_db::comments::insert(
+            &pool,
+            kartoteka_db::comments::InsertCommentInput {
+                id: &Uuid::new_v4().to_string(),
+                entity_type: "item",
+                entity_id: &item.id,
+                content: "test note",
+                author_type: "user",
+                author_name: None,
+                user_id: &user_id,
+            },
+        )
+        .await
+        .unwrap();
+
+        let found = get_one(&pool, &item.id, &user_id).await.unwrap().unwrap();
+        assert_eq!(found.tags.len(), 1);
+        assert_eq!(found.tags[0].name, "Sprint");
+        assert_eq!(found.comments.len(), 1);
+        assert_eq!(found.comments[0].content, "test note");
+    }
+
+    #[tokio::test]
+    async fn list_for_list_includes_tags_and_comments_per_item() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_list(&pool, &user_id, &[]).await;
+        let item_a = create(&pool, &user_id, &list_id, &basic_req("Item A"))
+            .await
+            .unwrap();
+        let item_b = create(&pool, &user_id, &list_id, &basic_req("Item B"))
+            .await
+            .unwrap();
+
+        let tag_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO tags (id, user_id, name, tag_type) VALUES (?, ?, 'Sprint', 'basic')",
+        )
+        .bind(&tag_id)
+        .bind(&user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)")
+            .bind(&item_a.id)
+            .bind(&tag_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        kartoteka_db::comments::insert(
+            &pool,
+            kartoteka_db::comments::InsertCommentInput {
+                id: &Uuid::new_v4().to_string(),
+                entity_type: "item",
+                entity_id: &item_b.id,
+                content: "only on B",
+                author_type: "user",
+                author_name: None,
+                user_id: &user_id,
+            },
+        )
+        .await
+        .unwrap();
+
+        let items = list_for_list(&pool, &list_id, &user_id).await.unwrap();
+        assert_eq!(items.len(), 2);
+        let a = items.iter().find(|i| i.id == item_a.id).unwrap();
+        let b = items.iter().find(|i| i.id == item_b.id).unwrap();
+        assert_eq!(a.tags.len(), 1);
+        assert_eq!(a.tags[0].name, "Sprint");
+        assert_eq!(a.comments.len(), 0);
+        assert_eq!(b.tags.len(), 0);
+        assert_eq!(b.comments.len(), 1);
+        assert_eq!(b.comments[0].content, "only on B");
     }
 
     #[tokio::test]
