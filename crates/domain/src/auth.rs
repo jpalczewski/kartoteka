@@ -1,8 +1,5 @@
 use crate::DomainError;
-use argon2::{
-    Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
-    password_hash::{SaltString, rand_core::OsRng},
-};
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use kartoteka_db as db;
 use serde::Serialize;
@@ -57,7 +54,11 @@ struct JwtClaims {
 #[tracing::instrument(skip(password))]
 pub async fn hash_password(password: String) -> Result<String, DomainError> {
     tokio::task::spawn_blocking(move || {
-        let salt = SaltString::generate(&mut OsRng);
+        let mut salt_bytes = [0u8; 16];
+        getrandom::fill(&mut salt_bytes)
+            .map_err(|e| DomainError::Internal(format!("getrandom: {e}")))?;
+        let salt = SaltString::encode_b64(&salt_bytes)
+            .map_err(|e| DomainError::Internal(format!("salt encode: {e}")))?;
         Argon2::default()
             .hash_password(password.as_bytes(), &salt)
             .map(|h| h.to_string())

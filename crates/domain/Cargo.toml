@@ -21,7 +21,7 @@ chrono-tz.workspace = true
 argon2.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
-rand_core = { version = "0.6", features = ["getrandom"] }
+getrandom = "0.4"
 rust_iso3166 = "0.1"
 once_cell.workspace = true
 totp-rs.workspace = true
