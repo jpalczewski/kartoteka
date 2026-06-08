@@ -27,18 +27,23 @@ pub async fn bearer_auth_middleware(
 
     let user_id = claims.sub;
 
-    let locale = kartoteka_db::preferences::get_locale(&state.pool, &user_id)
-        .await
-        .unwrap_or_else(|_| {
-            req.headers()
-                .get(header::ACCEPT_LANGUAGE)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.split(',').next())
-                .and_then(|v| v.split('-').next())
-                .map(|s| s.to_lowercase())
-                .filter(|s| s == "pl" || s == "en")
-                .unwrap_or_else(|| "en".into())
-        });
+    let locale = if !claims.locale.is_empty() {
+        claims.locale
+    } else {
+        // Backward compat: tokens issued before locale was embedded — query DB once.
+        kartoteka_db::preferences::get_locale(&state.pool, &user_id)
+            .await
+            .unwrap_or_else(|_| {
+                req.headers()
+                    .get(header::ACCEPT_LANGUAGE)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.split(',').next())
+                    .and_then(|v| v.split('-').next())
+                    .map(|s| s.to_lowercase())
+                    .filter(|s| s == "pl" || s == "en")
+                    .unwrap_or_else(|| "en".into())
+            })
+    };
 
     req.extensions_mut().insert(UserId(user_id));
     req.extensions_mut().insert(UserLocale(locale));
@@ -89,7 +94,7 @@ mod tests {
             signing_secret: secret.into(),
             public_base_url: "http://x".into(),
         };
-        let token = crate::storage::sign_access_token("u-1", "mcp", secret).unwrap();
+        let token = crate::storage::sign_access_token("u-1", "mcp", secret, "").unwrap();
         let req = Request::builder()
             .uri("/t")
             .header("authorization", format!("Bearer {token}"))
@@ -115,7 +120,7 @@ mod tests {
             signing_secret: secret.into(),
             public_base_url: "http://x".into(),
         };
-        let token = crate::storage::sign_access_token(&uid, "mcp", secret).unwrap();
+        let token = crate::storage::sign_access_token(&uid, "mcp", secret, "pl").unwrap();
         let req = Request::builder()
             .uri("/t")
             .header("authorization", format!("Bearer {token}"))
@@ -151,7 +156,7 @@ mod tests {
             signing_secret: secret.into(),
             public_base_url: "http://x".into(),
         };
-        let token = crate::storage::sign_access_token("u-1", "calendar", secret).unwrap();
+        let token = crate::storage::sign_access_token("u-1", "calendar", secret, "en").unwrap();
         let req = Request::builder()
             .uri("/t")
             .header("authorization", format!("Bearer {token}"))
