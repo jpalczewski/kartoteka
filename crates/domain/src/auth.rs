@@ -55,7 +55,7 @@ struct JwtClaims {
 pub async fn hash_password(password: String) -> Result<String, DomainError> {
     tokio::task::spawn_blocking(move || {
         let mut salt_bytes = [0u8; 16];
-        getrandom::getrandom(&mut salt_bytes)
+        getrandom::fill(&mut salt_bytes)
             .map_err(|e| DomainError::Internal(format!("getrandom: {e}")))?;
         let salt = SaltString::encode_b64(&salt_bytes)
             .map_err(|e| DomainError::Internal(format!("salt encode: {e}")))?;
