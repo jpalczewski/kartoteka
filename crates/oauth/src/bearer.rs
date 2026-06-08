@@ -5,7 +5,7 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use kartoteka_shared::auth_ctx::{UserId, UserLocale};
+use kartoteka_shared::auth_ctx::{UserId, UserLocale, UserTimezone};
 
 pub async fn bearer_auth_middleware(
     State(state): State<OAuthState>,
@@ -45,8 +45,18 @@ pub async fn bearer_auth_middleware(
             })
     };
 
+    let timezone = if !claims.timezone.is_empty() {
+        claims.timezone
+    } else {
+        // Backward compat: tokens issued before timezone was embedded — query DB once.
+        kartoteka_db::preferences::get_timezone(&state.pool, &user_id)
+            .await
+            .unwrap_or_else(|_| "UTC".to_string())
+    };
+
     req.extensions_mut().insert(UserId(user_id));
     req.extensions_mut().insert(UserLocale(locale));
+    req.extensions_mut().insert(UserTimezone(timezone));
 
     Ok(next.run(req).await)
 }
@@ -94,7 +104,7 @@ mod tests {
             signing_secret: secret.into(),
             public_base_url: "http://x".into(),
         };
-        let token = crate::storage::sign_access_token("u-1", "mcp", secret, "").unwrap();
+        let token = crate::storage::sign_access_token("u-1", "mcp", secret, "", "").unwrap();
         let req = Request::builder()
             .uri("/t")
             .header("authorization", format!("Bearer {token}"))
@@ -120,7 +130,8 @@ mod tests {
             signing_secret: secret.into(),
             public_base_url: "http://x".into(),
         };
-        let token = crate::storage::sign_access_token(&uid, "mcp", secret, "pl").unwrap();
+        let token =
+            crate::storage::sign_access_token(&uid, "mcp", secret, "pl", "Europe/Warsaw").unwrap();
         let req = Request::builder()
             .uri("/t")
             .header("authorization", format!("Bearer {token}"))
@@ -156,7 +167,8 @@ mod tests {
             signing_secret: secret.into(),
             public_base_url: "http://x".into(),
         };
-        let token = crate::storage::sign_access_token("u-1", "calendar", secret, "en").unwrap();
+        let token =
+            crate::storage::sign_access_token("u-1", "calendar", secret, "en", "UTC").unwrap();
         let req = Request::builder()
             .uri("/t")
             .header("authorization", format!("Bearer {token}"))

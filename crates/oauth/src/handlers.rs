@@ -308,11 +308,19 @@ async fn token_authorization_code(
         return Err(OAuthError::InvalidGrant("PKCE verification failed"));
     }
 
-    let locale = kartoteka_db::preferences::get_locale(&s.pool, &row.user_id)
-        .await
-        .unwrap_or_else(|_| "en".to_string());
-    let access_token =
-        storage::sign_access_token(&row.user_id, &row.scope, &s.signing_secret, &locale)?;
+    let (locale, timezone) = tokio::join!(
+        kartoteka_db::preferences::get_locale(&s.pool, &row.user_id),
+        kartoteka_db::preferences::get_timezone(&s.pool, &row.user_id),
+    );
+    let locale = locale.unwrap_or_else(|_| "en".to_string());
+    let timezone = timezone.unwrap_or_else(|_| "UTC".to_string());
+    let access_token = storage::sign_access_token(
+        &row.user_id,
+        &row.scope,
+        &s.signing_secret,
+        &locale,
+        &timezone,
+    )?;
     let (refresh_token, refresh_hash) = mint_refresh_token();
     let expires_at = Utc::now() + Duration::days(REFRESH_TTL_DAYS);
     oauth_refresh::insert(
@@ -355,11 +363,19 @@ async fn token_refresh(s: OAuthState, form: JsonValue) -> Result<Json<TokenRespo
         return Err(OAuthError::InvalidGrant("client_id mismatch"));
     }
 
-    let locale = kartoteka_db::preferences::get_locale(&s.pool, &row.user_id)
-        .await
-        .unwrap_or_else(|_| "en".to_string());
-    let access_token =
-        storage::sign_access_token(&row.user_id, &row.scope, &s.signing_secret, &locale)?;
+    let (locale, timezone) = tokio::join!(
+        kartoteka_db::preferences::get_locale(&s.pool, &row.user_id),
+        kartoteka_db::preferences::get_timezone(&s.pool, &row.user_id),
+    );
+    let locale = locale.unwrap_or_else(|_| "en".to_string());
+    let timezone = timezone.unwrap_or_else(|_| "UTC".to_string());
+    let access_token = storage::sign_access_token(
+        &row.user_id,
+        &row.scope,
+        &s.signing_secret,
+        &locale,
+        &timezone,
+    )?;
     let (new_refresh, new_hash) = mint_refresh_token();
 
     oauth_refresh::insert(

@@ -502,6 +502,18 @@ pub async fn list_all_for_user(pool: &SqlitePool, user_id: &str) -> Result<Vec<I
     Ok(rows.into_iter().map(row_to_item).collect())
 }
 
+/// Returns incomplete items with `deadline` strictly before `today` (YYYY-MM-DD).
+/// Use this from MCP handlers where today is pre-computed from the user's timezone.
+#[tracing::instrument(skip(pool))]
+pub async fn overdue_for(
+    pool: &SqlitePool,
+    user_id: &str,
+    today: &str,
+) -> Result<Vec<Item>, DomainError> {
+    let rows = db::items::overdue(pool, user_id, today).await?;
+    Ok(rows.into_iter().map(row_to_item).collect())
+}
+
 /// Returns incomplete items with `deadline` strictly before today in the user's timezone.
 /// Hard deadlines are intentionally excluded — overdue means a missed `deadline` date.
 #[tracing::instrument(skip(pool))]
@@ -513,8 +525,7 @@ pub async fn overdue(pool: &SqlitePool, user_id: &str) -> Result<Vec<Item>, Doma
         .date_naive()
         .format("%Y-%m-%d")
         .to_string();
-    let rows = db::items::overdue(pool, user_id, &today).await?;
-    Ok(rows.into_iter().map(row_to_item).collect())
+    overdue_for(pool, user_id, &today).await
 }
 
 // ── Integration tests ─────────────────────────────────────────────────────────

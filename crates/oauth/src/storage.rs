@@ -16,6 +16,10 @@ pub struct Claims {
     /// existed — bearer middleware falls back to a single DB lookup in that case.
     #[serde(default)]
     pub locale: String,
+    /// User timezone baked in at token issuance (IANA name, e.g. "Europe/Warsaw").
+    /// Empty string on legacy tokens — bearer middleware falls back to a DB lookup in that case.
+    #[serde(default)]
+    pub timezone: String,
 }
 
 pub fn sign_access_token(
@@ -23,6 +27,7 @@ pub fn sign_access_token(
     scope: &str,
     secret: &str,
     locale: &str,
+    timezone: &str,
 ) -> Result<String, jsonwebtoken::errors::Error> {
     let now = Utc::now();
     let claims = Claims {
@@ -32,6 +37,7 @@ pub fn sign_access_token(
         iat: now.timestamp() as usize,
         exp: (now + Duration::seconds(ACCESS_TOKEN_TTL_SECS)).timestamp() as usize,
         locale: locale.into(),
+        timezone: timezone.into(),
     };
     encode(
         &Header::new(Algorithm::HS256),
@@ -60,30 +66,38 @@ mod tests {
             "mcp",
             "secret-at-least-32-chars-long-padding",
             "pl",
+            "Europe/Warsaw",
         )
         .unwrap();
         let c = verify_access_token(&t, "secret-at-least-32-chars-long-padding").unwrap();
         assert_eq!(c.sub, "user-123");
         assert_eq!(c.scope, "mcp");
         assert_eq!(c.locale, "pl");
+        assert_eq!(c.timezone, "Europe/Warsaw");
         assert!(!c.jti.is_empty());
         assert!(c.exp > c.iat);
     }
 
     #[test]
     fn verify_rejects_wrong_secret() {
-        let t =
-            sign_access_token("u", "mcp", "secret-at-least-32-chars-long-padding", "en").unwrap();
+        let t = sign_access_token(
+            "u",
+            "mcp",
+            "secret-at-least-32-chars-long-padding",
+            "en",
+            "UTC",
+        )
+        .unwrap();
         assert!(verify_access_token(&t, "different-secret-also-32-chars-lngpad").is_err());
     }
 
     #[test]
-    fn legacy_token_without_locale_deserializes_with_empty_string() {
-        // Tokens issued before the locale field was added have no `locale` claim.
-        // #[serde(default)] must produce "" rather than a deserialization error.
+    fn legacy_token_without_locale_or_timezone_deserializes_with_empty_strings() {
+        // Tokens issued before locale/timezone fields were added produce "" via #[serde(default)].
         let legacy =
-            sign_access_token("u", "mcp", "secret-at-least-32-chars-long-padding", "").unwrap();
+            sign_access_token("u", "mcp", "secret-at-least-32-chars-long-padding", "", "").unwrap();
         let c = verify_access_token(&legacy, "secret-at-least-32-chars-long-padding").unwrap();
         assert_eq!(c.locale, "");
+        assert_eq!(c.timezone, "");
     }
 }
