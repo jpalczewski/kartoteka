@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0](https://github.com/jpalczewski/kartoteka/compare/v1.7.0...v1.8.0) (2026-06-08)
+
+
+### Features
+
+* **domain:** include tags and comments in get_item / list_items responses ([#269](https://github.com/jpalczewski/kartoteka/issues/269)) ([8bef209](https://github.com/jpalczewski/kartoteka/commit/8bef209297831e5c3f736e4c1d33c9d0686ea04d)), closes [#262](https://github.com/jpalczewski/kartoteka/issues/262)
+
+
+### Performance Improvements
+
+* **db:** add missing indexes for items/containers/users queries ([#274](https://github.com/jpalczewski/kartoteka/issues/274)) ([6353ad9](https://github.com/jpalczewski/kartoteka/commit/6353ad9ec868db862111af8a52763c679a73fc34))
+* **mcp:** embed timezone in JWT to eliminate per-request DB lookups ([#273](https://github.com/jpalczewski/kartoteka/issues/273)) ([8042b32](https://github.com/jpalczewski/kartoteka/commit/8042b32dcb8599098a0c7e2350a63435d3077f09))
+* **oauth:** embed locale in JWT to eliminate per-request DB lookups ([#264](https://github.com/jpalczewski/kartoteka/issues/264)) ([#271](https://github.com/jpalczewski/kartoteka/issues/271)) ([c6286d0](https://github.com/jpalczewski/kartoteka/commit/c6286d034b8205e53345282defecfafd8a992b5a))
+
 ## [1.7.0](https://github.com/jpalczewski/kartoteka/compare/v1.6.0...v1.7.0) (2026-06-07)
 
 
