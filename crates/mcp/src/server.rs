@@ -2,7 +2,7 @@ use http::request::Parts;
 use kartoteka_db::{self as db, lists::InsertListInput};
 use kartoteka_domain as domain;
 use kartoteka_shared::{
-    auth_ctx::{UserId, UserLocale},
+    auth_ctx::{UserId, UserLocale, UserTimezone},
     types::{CreateContainerRequest, MoveContainerRequest},
 };
 use rmcp::{
@@ -113,6 +113,14 @@ impl KartotekaServer {
     /// straight to a localized `ErrorData` so handlers can `?` it directly.
     fn auth(&self, parts: &Parts) -> Result<(String, String), ErrorData> {
         Self::extract_user_id_and_locale(parts).map_err(|e| self.map_err(e, "en"))
+    }
+
+    fn timezone(parts: &Parts) -> String {
+        parts
+            .extensions
+            .get::<UserTimezone>()
+            .map(|t| t.0.clone())
+            .unwrap_or_else(|| "UTC".to_string())
     }
 
     /// Closure factory that maps a `DomainError` to localized `ErrorData`.
@@ -454,6 +462,7 @@ impl KartotekaServer {
         Parameters(p): Parameters<ListItemsParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let (uid, locale) = self.auth(&parts)?;
+        let tz = Self::timezone(&parts);
         let all = domain::items::list_for_list(&self.pool, &p.list_id, &uid)
             .await
             .map_err(self.domain_err(&locale))?;
@@ -468,6 +477,7 @@ impl KartotekaServer {
             .skip(offset)
             .take(limit as usize)
             .cloned()
+            .map(|i| localize_item(i, &tz))
             .collect();
         let next_cursor = if offset + page.len() < all.len() {
             Some((offset + page.len()).to_string())
@@ -494,6 +504,7 @@ impl KartotekaServer {
         Parameters(p): Parameters<ListContainerItemsParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let (uid, locale) = self.auth(&parts)?;
+        let tz = Self::timezone(&parts);
         tracing::debug!(container_id = %p.container_id, recursive = p.recursive.unwrap_or(false));
         let limit = domain::paging::clamp_limit(p.limit);
         let offset: usize = p
@@ -518,6 +529,13 @@ impl KartotekaServer {
         } else {
             None
         };
+        let rows: Vec<_> = rows
+            .into_iter()
+            .map(|mut i| {
+                i.item = localize_item(i.item, &tz);
+                i
+            })
+            .collect();
         self.json_result(
             domain::paging::Paged {
                 data: rows,
@@ -798,9 +816,12 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
     ) -> Result<CallToolResult, ErrorData> {
         let (uid, locale) = self.auth(&parts)?;
-        let data = domain::items::by_date(&self.pool, &uid, "today")
+        let tz = Self::timezone(&parts);
+        let today = today_in_tz(&tz);
+        let data = domain::items::by_date(&self.pool, &uid, &today)
             .await
             .map_err(self.domain_err(&locale))?;
+        let data: Vec<_> = data.into_iter().map(|i| localize_item(i, &tz)).collect();
         self.json_result(data, &locale)
     }
 
@@ -826,6 +847,7 @@ impl KartotekaServer {
         Parameters(p): Parameters<GetItemParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let (uid, locale) = self.auth(&parts)?;
+        let tz = Self::timezone(&parts);
         let data = domain::items::get_one(&self.pool, &p.item_id, &uid)
             .await
             .map_err(self.domain_err(&locale))?
@@ -835,7 +857,7 @@ impl KartotekaServer {
                     &locale,
                 )
             })?;
-        self.json_result(data, &locale)
+        self.json_result(localize_item(data, &tz), &locale)
     }
 
     #[rmcp::tool(name = "list_templates", description = "mcp-tool-list_templates-desc")]
@@ -856,9 +878,12 @@ impl KartotekaServer {
         Extension(parts): Extension<Parts>,
     ) -> Result<CallToolResult, ErrorData> {
         let (uid, locale) = self.auth(&parts)?;
-        let data = domain::items::overdue(&self.pool, &uid)
+        let tz = Self::timezone(&parts);
+        let today = today_in_tz(&tz);
+        let data = domain::items::overdue_for(&self.pool, &uid, &today)
             .await
             .map_err(self.domain_err(&locale))?;
+        let data: Vec<_> = data.into_iter().map(|i| localize_item(i, &tz)).collect();
         self.json_result(data, &locale)
     }
 
@@ -1366,6 +1391,11 @@ impl ServerHandler for KartotekaServer {
             .get::<UserLocale>()
             .map(|l| l.0.clone())
             .unwrap_or_else(|| "en".to_string());
+        let timezone = context
+            .extensions
+            .get::<UserTimezone>()
+            .map(|t| t.0.clone())
+            .unwrap_or_else(|| "UTC".to_string());
 
         let parsed = parse_uri(&request.uri).map_err(|_| {
             ErrorData::invalid_params(
@@ -1421,9 +1451,14 @@ impl ServerHandler for KartotekaServer {
                 serde_json::to_value(data).map_err(to_internal)?
             }
             ResourceUri::Today => {
-                let data = domain::items::by_date(&self.pool, &user_id, "today")
+                let today = today_in_tz(&timezone);
+                let data = domain::items::by_date(&self.pool, &user_id, &today)
                     .await
                     .map_err(self.domain_err(&locale))?;
+                let data: Vec<_> = data
+                    .into_iter()
+                    .map(|i| localize_item(i, &timezone))
+                    .collect();
                 serde_json::to_value(data).map_err(to_internal)?
             }
             ResourceUri::TimeSummary => {
@@ -1439,6 +1474,21 @@ impl ServerHandler for KartotekaServer {
             request.uri,
         )]))
     }
+}
+
+fn today_in_tz(tz_str: &str) -> String {
+    let tz: chrono_tz::Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
+    chrono::Utc::now()
+        .with_timezone(&tz)
+        .date_naive()
+        .format("%Y-%m-%d")
+        .to_string()
+}
+
+fn localize_item(mut item: domain::items::Item, tz: &str) -> domain::items::Item {
+    item.created_at = kartoteka_shared::date_utils::format_datetime_in_tz(&item.created_at, tz);
+    item.updated_at = kartoteka_shared::date_utils::format_datetime_in_tz(&item.updated_at, tz);
+    item
 }
 
 #[cfg(test)]

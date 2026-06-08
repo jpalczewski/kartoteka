@@ -5,3 +5,6 @@ pub struct UserId(pub String);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UserLocale(pub String);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UserTimezone(pub String);
