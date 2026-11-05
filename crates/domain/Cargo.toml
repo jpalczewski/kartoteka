@@ -19,16 +19,12 @@ tracing.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 argon2.workspace = true
-async-trait.workspace = true
 tokio.workspace = true
 getrandom = "0.4"
 rust_iso3166 = "0.1"
 once_cell.workspace = true
 totp-rs.workspace = true
 jsonwebtoken.workspace = true
-
-[package.metadata.cargo-machete]
-ignored = ["async-trait"]
 
 [dev-dependencies]
 tokio.workspace = true

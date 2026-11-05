@@ -6,6 +6,10 @@ unsound = "workspace"
 ignore = [
     # rsa crate: Marvin Attack timing side-channel, no patch available upstream
     "RUSTSEC-2023-0071",
+    # crypto-bigint 0.5: timing variability, fix only in 0.7. Pulled by p256/p384 via
+    # jsonwebtoken `rust_crypto` (no newer release drops it). We sign/verify HS256 only,
+    # so the ECDSA code paths are never executed.
+    "RUSTSEC-2026-0387",
 ]
 
 [licenses]

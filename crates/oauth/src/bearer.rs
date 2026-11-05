@@ -1,4 +1,7 @@
-use crate::{OAuthState, storage};
+use crate::{
+    OAuthState,
+    storage::{self, Claims},
+};
 use axum::{
     extract::State,
     http::{StatusCode, header},
@@ -11,19 +14,11 @@ pub async fn bearer_auth_middleware(
     State(state): State<OAuthState>,
     mut req: axum::extract::Request,
     next: Next,
-) -> Result<Response, Response> {
-    let hdr = req.headers().get(header::AUTHORIZATION);
-    let token = hdr
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .ok_or_else(|| unauthorized(&state.public_base_url))?;
-
-    let claims = storage::verify_access_token(token, &state.signing_secret)
-        .map_err(|_| unauthorized(&state.public_base_url))?;
-
-    if claims.scope != "mcp" {
-        return Err((StatusCode::FORBIDDEN, "forbidden: wrong scope").into_response());
-    }
+) -> Response {
+    let claims = match authenticate(&req, &state.signing_secret) {
+        Ok(claims) => claims,
+        Err(rejection) => return rejection.into_response(&state.public_base_url),
+    };
 
     let user_id = claims.sub;
 
@@ -58,7 +53,38 @@ pub async fn bearer_auth_middleware(
     req.extensions_mut().insert(UserLocale(locale));
     req.extensions_mut().insert(UserTimezone(timezone));
 
-    Ok(next.run(req).await)
+    next.run(req).await
+}
+
+enum Rejection {
+    Unauthorized,
+    WrongScope,
+}
+
+impl Rejection {
+    fn into_response(self, base: &str) -> Response {
+        match self {
+            Self::Unauthorized => unauthorized(base),
+            Self::WrongScope => (StatusCode::FORBIDDEN, "forbidden: wrong scope").into_response(),
+        }
+    }
+}
+
+fn authenticate(req: &axum::extract::Request, secret: &str) -> Result<Claims, Rejection> {
+    let token = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .ok_or(Rejection::Unauthorized)?;
+
+    let claims =
+        storage::verify_access_token(token, secret).map_err(|_| Rejection::Unauthorized)?;
+
+    if claims.scope != "mcp" {
+        return Err(Rejection::WrongScope);
+    }
+    Ok(claims)
 }
 
 fn unauthorized(base: &str) -> Response {

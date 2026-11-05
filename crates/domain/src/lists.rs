@@ -39,9 +39,9 @@ impl ListType {
     }
 }
 
-impl TryFrom<&str> for ListType {
-    type Error = DomainError;
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
+impl std::str::FromStr for ListType {
+    type Err = DomainError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "checklist" => Ok(ListType::Checklist),
             "shopping" => Ok(ListType::Shopping),
@@ -212,7 +212,7 @@ pub async fn create(
     )?;
 
     let list_type_str = req.list_type.as_deref().unwrap_or("checklist");
-    let list_type = ListType::try_from(list_type_str)?;
+    let list_type: ListType = list_type_str.parse()?;
 
     let feature_names: Vec<String> = if req.features.is_empty() {
         list_type
