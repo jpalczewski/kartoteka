@@ -24,7 +24,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Headroom for the release target dir (server + WASM); the preinstalled SDKs are not needed.
       - name: Free disk space
