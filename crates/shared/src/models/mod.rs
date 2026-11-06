@@ -3,6 +3,7 @@ pub mod invitation_code;
 pub mod item;
 pub mod list;
 pub mod location;
+pub mod reminders;
 pub mod search;
 pub mod user;
 
@@ -11,5 +12,6 @@ pub use invitation_code::*;
 pub use item::*;
 pub use list::*;
 pub use location::*;
+pub use reminders::*;
 pub use search::*;
 pub use user::*;
