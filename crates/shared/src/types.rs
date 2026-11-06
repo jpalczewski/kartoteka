@@ -328,6 +328,12 @@ pub struct DateItem {
     pub list_type: String,
 }
 
+impl From<DateItem> for Item {
+    fn from(di: DateItem) -> Self {
+        di.item
+    }
+}
+
 /// Items for a Today page: today's items and items with past-due deadlines.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TodayData {

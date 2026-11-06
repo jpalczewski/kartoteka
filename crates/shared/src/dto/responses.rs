@@ -1,5 +1,6 @@
 use crate::Locale;
-use crate::models::{Container, Item, List, ListFeature};
+use crate::models::{Container, List, ListFeature};
+use crate::types::Item;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

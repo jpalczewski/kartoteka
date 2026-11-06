@@ -90,10 +90,10 @@ pub fn is_overdue(item: &crate::Item, today: &str, now_time: &str) -> bool {
     if item.completed {
         return false;
     }
-    match item.deadline.as_deref() {
+    match flex_date_string(&item.deadline) {
         None => false,
-        Some(d) if d < today => true,
-        Some(d) if d == today => match item.deadline_time.as_deref() {
+        Some(d) if d.as_str() < today => true,
+        Some(d) if d.as_str() == today => match item.deadline_time.as_deref() {
             Some(t) if !t.is_empty() => t < now_time,
             _ => false,
         },
@@ -118,14 +118,21 @@ pub fn is_upcoming(item: &crate::Item, today: &str, now_time: &str) -> bool {
     !item.completed && !is_overdue(item, today, now_time)
 }
 
+/// Render a flex date as it is stored ("YYYY-MM-DD", "YYYY-Www", "YYYY-MM")
+fn flex_date_string(date: &Option<crate::types::FlexDate>) -> Option<String> {
+    date.as_ref().map(ToString::to_string)
+}
+
 /// Sort items by deadline (earliest first, items without deadline last)
 pub fn sort_by_deadline(items: &mut [crate::Item]) {
-    items.sort_by(|a, b| match (&a.deadline, &b.deadline) {
-        (Some(da), Some(db)) => da.cmp(db),
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => std::cmp::Ordering::Equal,
-    });
+    items.sort_by(
+        |a, b| match (flex_date_string(&a.deadline), flex_date_string(&b.deadline)) {
+            (Some(da), Some(db)) => da.cmp(&db),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        },
+    );
 }
 
 /// Format a UTC datetime string ("YYYY-MM-DD HH:MM:SS") as "DD.MM.YYYY HH:MM" in the given timezone.
@@ -256,73 +263,50 @@ mod tests {
         assert_eq!(end_date.weekday(), chrono::Weekday::Sun);
     }
 
-    #[test]
-    fn test_is_overdue_past_deadline() {
-        let item = crate::Item {
-            id: "1".into(),
+    fn test_item(
+        title: &str,
+        deadline: Option<&str>,
+        deadline_time: Option<&str>,
+        completed: bool,
+    ) -> crate::types::Item {
+        crate::types::Item {
+            id: title.to_string(),
             list_id: "l1".into(),
-            title: "t".into(),
+            title: title.to_string(),
             description: None,
-            completed: false,
+            completed,
             position: 0,
             quantity: None,
             actual_quantity: None,
             unit: None,
             start_date: None,
             start_time: None,
-            deadline: Some("2026-03-28".into()),
-            deadline_time: None,
+            deadline: deadline.map(|d| d.parse().expect("valid flex date")),
+            deadline_time: deadline_time.map(String::from),
             hard_deadline: None,
+            estimated_duration: None,
+            location_id: None,
             created_at: "2026-03-01".into(),
             updated_at: "2026-03-01".into(),
-        };
+        }
+    }
+
+    #[test]
+    fn test_is_overdue_past_deadline() {
+        let item = test_item("t", Some("2026-03-28"), None, false);
         assert!(is_overdue(&item, "2026-03-29", "12:00"));
     }
 
     #[test]
     fn test_is_overdue_same_day_with_time() {
-        let item = crate::Item {
-            id: "1".into(),
-            list_id: "l1".into(),
-            title: "t".into(),
-            description: None,
-            completed: false,
-            position: 0,
-            quantity: None,
-            actual_quantity: None,
-            unit: None,
-            start_date: None,
-            start_time: None,
-            deadline: Some("2026-03-29".into()),
-            deadline_time: Some("10:00".into()),
-            hard_deadline: None,
-            created_at: "2026-03-01".into(),
-            updated_at: "2026-03-01".into(),
-        };
+        let item = test_item("t", Some("2026-03-29"), Some("10:00"), false);
         assert!(is_overdue(&item, "2026-03-29", "12:00"));
         assert!(!is_overdue(&item, "2026-03-29", "09:00"));
     }
 
     #[test]
     fn test_is_overdue_completed_not_overdue() {
-        let item = crate::Item {
-            id: "1".into(),
-            list_id: "l1".into(),
-            title: "t".into(),
-            description: None,
-            completed: true,
-            position: 0,
-            quantity: None,
-            actual_quantity: None,
-            unit: None,
-            start_date: None,
-            start_time: None,
-            deadline: Some("2026-03-28".into()),
-            deadline_time: None,
-            hard_deadline: None,
-            created_at: "2026-03-01".into(),
-            updated_at: "2026-03-01".into(),
-        };
+        let item = test_item("t", Some("2026-03-28"), None, true);
         assert!(!is_overdue(&item, "2026-03-29", "12:00"));
     }
 
@@ -348,89 +332,21 @@ mod tests {
 
     #[test]
     fn test_is_upcoming() {
-        let item = crate::Item {
-            id: "1".into(),
-            list_id: "l1".into(),
-            title: "t".into(),
-            description: None,
-            completed: false,
-            position: 0,
-            quantity: None,
-            actual_quantity: None,
-            unit: None,
-            start_date: None,
-            start_time: None,
-            deadline: Some("2026-03-30".into()),
-            deadline_time: None,
-            hard_deadline: None,
-            created_at: "2026-03-01".into(),
-            updated_at: "2026-03-01".into(),
-        };
+        let item = test_item("t", Some("2026-03-30"), None, false);
         assert!(is_upcoming(&item, "2026-03-29", "12:00"));
     }
 
     #[test]
     fn test_sort_by_deadline() {
         let mut items = vec![
-            crate::Item {
-                id: "1".into(),
-                list_id: "l".into(),
-                title: "no deadline".into(),
-                description: None,
-                completed: false,
-                position: 0,
-                quantity: None,
-                actual_quantity: None,
-                unit: None,
-                start_date: None,
-                start_time: None,
-                deadline: None,
-                deadline_time: None,
-                hard_deadline: None,
-                created_at: "".into(),
-                updated_at: "".into(),
-            },
-            crate::Item {
-                id: "2".into(),
-                list_id: "l".into(),
-                title: "early".into(),
-                description: None,
-                completed: false,
-                position: 0,
-                quantity: None,
-                actual_quantity: None,
-                unit: None,
-                start_date: None,
-                start_time: None,
-                deadline: Some("2026-03-01".into()),
-                deadline_time: None,
-                hard_deadline: None,
-                created_at: "".into(),
-                updated_at: "".into(),
-            },
-            crate::Item {
-                id: "3".into(),
-                list_id: "l".into(),
-                title: "late".into(),
-                description: None,
-                completed: false,
-                position: 0,
-                quantity: None,
-                actual_quantity: None,
-                unit: None,
-                start_date: None,
-                start_time: None,
-                deadline: Some("2026-03-15".into()),
-                deadline_time: None,
-                hard_deadline: None,
-                created_at: "".into(),
-                updated_at: "".into(),
-            },
+            test_item("no deadline", None, None, false),
+            test_item("early", Some("2026-03-01"), None, false),
+            test_item("late", Some("2026-03-15"), None, false),
         ];
         sort_by_deadline(&mut items);
-        assert_eq!(items[0].id, "2"); // earliest deadline first
-        assert_eq!(items[1].id, "3");
-        assert_eq!(items[2].id, "1"); // no deadline last
+        assert_eq!(items[0].title, "early"); // earliest deadline first
+        assert_eq!(items[1].title, "late");
+        assert_eq!(items[2].title, "no deadline"); // no deadline last
     }
 
     #[test]

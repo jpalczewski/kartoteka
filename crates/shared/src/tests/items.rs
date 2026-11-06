@@ -6,6 +6,7 @@ use crate::dto::requests::{
     SetItemPlacementRequest, SetItemsCompletedRequest,
 };
 use crate::models::*;
+use crate::types::{DateItem, Item};
 use crate::validation::{
     DateValidationError, TimeValidationError, validate_business_date, validate_hhmm_time,
 };
@@ -210,7 +211,7 @@ fn set_items_completed_request_accepts_valid_payload() {
 
 #[test]
 fn date_item_to_item_conversion() {
-    let di = DateItem {
+    let item = Item {
         id: "i1".into(),
         list_id: "l1".into(),
         title: "Buy milk".into(),
@@ -222,46 +223,52 @@ fn date_item_to_item_conversion() {
         unit: Some("szt".into()),
         start_date: None,
         start_time: None,
-        deadline: Some("2024-12-31".into()),
+        deadline: Some("2024-12-31".parse().unwrap()),
         deadline_time: None,
         hard_deadline: None,
+        estimated_duration: None,
         location_id: None,
         created_at: "2024-01-01".into(),
         updated_at: "2024-01-01".into(),
+    };
+    let di = DateItem {
+        item,
         list_name: "Shopping".into(),
         list_type: "zakupy".into(),
-        date_type: Some("deadline".into()),
     };
     let item: Item = di.into();
     assert_eq!(item.id, "i1");
     assert_eq!(item.quantity, Some(2));
-    assert_eq!(item.deadline, Some("2024-12-31".into()));
+    assert_eq!(item.deadline, Some("2024-12-31".parse().unwrap()));
 }
 
-// --- Full Item deserialization with D1-style floats ---
+// --- Item deserialization ---
 
 #[test]
-fn item_deserialize_d1_booleans() {
+fn item_deserializes_canonical_payload() {
     let json = r#"{
         "id": "abc",
         "list_id": "l1",
         "title": "Test",
         "description": null,
-        "completed": 1.0,
+        "completed": true,
         "position": 0,
         "quantity": null,
         "actual_quantity": null,
         "unit": null,
         "start_date": null,
         "start_time": null,
-        "deadline": null,
+        "deadline": "2024-12-31",
         "deadline_time": null,
         "hard_deadline": null,
+        "estimated_duration": null,
+        "location_id": null,
         "created_at": "2024-01-01",
         "updated_at": "2024-01-01"
     }"#;
     let item: Item = serde_json::from_str(json).unwrap();
     assert!(item.completed);
+    assert_eq!(item.deadline, Some("2024-12-31".parse().unwrap()));
 }
 
 // --- DaySummary with D1 floats ---
@@ -275,30 +282,34 @@ fn day_summary_deserialize() {
 }
 
 #[test]
-fn date_item_deserializes_numeric_completed_and_missing_date_type() {
+fn date_item_deserializes_nested_item() {
     let json = r#"{
-        "id": "abc",
-        "list_id": "l1",
-        "title": "Test",
-        "description": null,
-        "completed": 1,
-        "position": 0,
-        "quantity": null,
-        "actual_quantity": null,
-        "unit": null,
-        "start_date": null,
-        "start_time": null,
-        "deadline": null,
-        "deadline_time": null,
-        "hard_deadline": null,
-        "created_at": "2024-01-01",
-        "updated_at": "2024-01-01",
-        "list_name": "Lista",
-        "list_type": "checklist"
+        "item": {
+            "id": "abc",
+            "list_id": "l1",
+            "title": "Test",
+            "description": null,
+            "completed": true,
+            "position": 0,
+            "quantity": null,
+            "actual_quantity": null,
+            "unit": null,
+            "start_date": null,
+            "start_time": null,
+            "deadline": null,
+            "deadline_time": null,
+            "hard_deadline": null,
+            "estimated_duration": null,
+            "location_id": null,
+            "created_at": "2024-01-01",
+            "updated_at": "2024-01-01"
+        },
+        "list_name": "Lista"
     }"#;
     let item: DateItem = serde_json::from_str(json).unwrap();
-    assert!(item.completed);
-    assert!(item.date_type.is_none());
+    assert!(item.item.completed);
+    assert_eq!(item.list_name, "Lista");
+    assert_eq!(item.list_type, "");
 }
 
 #[test]

@@ -14,6 +14,9 @@ pub use dto::*;
 pub mod models;
 pub use models::*;
 pub mod types;
+// Canonical item types live in `types` (they mirror the server's domain types and are what
+// the frontend deserializes). Re-exported here so `kartoteka_shared::Item` keeps working.
+pub use types::{DateItem, Item};
 pub(crate) mod validation;
 
 use serde::{Deserialize, Deserializer, Serialize};
@@ -223,27 +226,6 @@ impl List {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Item {
-    pub id: String,
-    pub list_id: String,
-    pub title: String,
-    pub description: Option<String>,
-    #[serde(deserialize_with = "bool_from_number")]
-    pub completed: bool,
-    pub position: i32,
-    pub quantity: Option<i32>,
-    pub actual_quantity: Option<i32>,
-    pub unit: Option<String>,
-    pub start_date: Option<String>,
-    pub start_time: Option<String>,
-    pub deadline: Option<String>,
-    pub deadline_time: Option<String>,
-    pub hard_deadline: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
 // === Request DTOs ===
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -269,36 +251,6 @@ pub struct FeatureConfigRequest {
 
 fn default_config() -> serde_json::Value {
     serde_json::json!({})
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateItemRequest {
-    pub title: String,
-    pub description: Option<String>,
-    pub quantity: Option<i32>,
-    pub unit: Option<String>,
-    pub start_date: Option<String>,
-    pub start_time: Option<String>,
-    pub deadline: Option<String>,
-    pub deadline_time: Option<String>,
-    pub hard_deadline: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct UpdateItemRequest {
-    pub title: Option<String>,
-    pub description: Option<String>,
-    pub completed: Option<bool>,
-    pub position: Option<i32>,
-    pub quantity: Option<i32>,
-    pub actual_quantity: Option<i32>,
-    pub unit: Option<String>,
-    pub start_date: Option<Option<String>>,
-    pub start_time: Option<Option<String>>,
-    pub deadline: Option<Option<String>>,
-    pub deadline_time: Option<Option<String>>,
-    pub hard_deadline: Option<Option<String>>,
-    pub location_id: Option<Option<String>>,
 }
 
 /// Response from GET /api/lists/:list_id/items/:id — item + list context in one call.
@@ -356,33 +308,6 @@ pub struct ListTagLink {
     pub tag_id: String,
 }
 
-// === Cross-list query types ===
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DateItem {
-    pub id: String,
-    pub list_id: String,
-    pub title: String,
-    pub description: Option<String>,
-    #[serde(deserialize_with = "bool_from_number")]
-    pub completed: bool,
-    pub position: i32,
-    pub quantity: Option<i32>,
-    pub actual_quantity: Option<i32>,
-    pub unit: Option<String>,
-    pub start_date: Option<String>,
-    pub start_time: Option<String>,
-    pub deadline: Option<String>,
-    pub deadline_time: Option<String>,
-    pub hard_deadline: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-    pub list_name: String,
-    pub list_type: String,
-    #[serde(default)]
-    pub date_type: Option<String>,
-}
-
 // === Calendar types ===
 
 fn u32_from_number<'de, D: Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
@@ -406,29 +331,6 @@ pub struct DaySummary {
 pub struct DayItems {
     pub date: String,
     pub items: Vec<DateItem>,
-}
-
-impl From<DateItem> for Item {
-    fn from(di: DateItem) -> Self {
-        Item {
-            id: di.id,
-            list_id: di.list_id,
-            title: di.title,
-            description: di.description,
-            completed: di.completed,
-            position: di.position,
-            quantity: di.quantity,
-            actual_quantity: di.actual_quantity,
-            unit: di.unit,
-            start_date: di.start_date,
-            start_time: di.start_time,
-            deadline: di.deadline,
-            deadline_time: di.deadline_time,
-            hard_deadline: di.hard_deadline,
-            created_at: di.created_at,
-            updated_at: di.updated_at,
-        }
-    }
 }
 
 #[cfg(test)]
