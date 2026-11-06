@@ -51,6 +51,10 @@ web-sys = { version = "0.3" }
 console_error_panic_hook = { version = "0.1" }
 axum-macros = { version = "0.5" }
 
+# Line tables keep backtraces readable while making debug and test binaries much smaller to link.
+[profile.dev]
+debug = "line-tables-only"
+
 [[workspace.metadata.leptos]]
 name = "kartoteka"
 bin-package = "kartoteka-server"

@@ -14,8 +14,4 @@ docker buildx build \
   --push \
   .
 
-echo "→ Triggering Coolify deploy..."
-curl -fsSL -X GET "$COOLIFY_WEBHOOK_PREVIEW" \
-  -H "Authorization: Bearer $COOLIFY_TOKEN"
-
-echo "✓ Done: $IMAGE deployed."
+echo "✓ Done: $IMAGE pushed."

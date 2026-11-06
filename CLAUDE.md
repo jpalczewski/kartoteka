@@ -71,12 +71,12 @@ Projekt używa szybko ewoluujących bibliotek (Leptos 0.8, DaisyUI 5, rmcp). Prz
 
 ## Deployment
 
-- **Główna aplikacja**: Docker (`Dockerfile`: node css-builder → rust nightly builder → debian-slim runtime). Deploy na **Coolify** przez `docker-build-deploy` workflow (release-please → tag → deploy)
+- **Główna aplikacja**: binarka i site budowane natywnie w CI (`docker-build.yml`, `cargo leptos build --release`), pakowane przez `Dockerfile.runtime` i wypychane do GHCR: `:develop` (push na develop), `:preview` (PR), `:latest` + tag wersji (release-please). Repo nie robi deploya; `Dockerfile` (pełny multi-stage) zostaje do buildów lokalnych
 - Preview: `just deploy-preview` (AMD64 build via Colima)
 
 ## CI/CD
 
-- `.github/workflows/`: `ci.yml` (fmt→check→clippy→deny→machete→test), `docker-build-deploy.yml`, `docker-preview.yml`, `security-audit.yml` (weekly), `codeql.yml`, `release-please.yml`, `claude-code-review.yml`, `deps-outdated.yml`
+- `.github/workflows/`: `ci.yml` (fmt, clippy+testy w jednym jobie z `rust-cache` i `mold`, deny, machete; wszystko na `ubuntu-24.04`), `docker-build.yml` (reusable), `docker-dev.yml`, `docker-preview.yml`, `security-audit.yml` (weekly), `codeql.yml`, `release-please.yml`, `claude-code-review.yml`, `deps-outdated.yml`
 - Workspace lints w `Cargo.toml` — clippy correctness=deny, suspicious/complexity/perf/style=warn
 - `deny.toml` — licencje, advisories, supply chain
 - Lokalne sprawdzenie: `just ci`

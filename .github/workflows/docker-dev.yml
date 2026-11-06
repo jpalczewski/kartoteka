@@ -13,11 +13,8 @@ permissions:
   packages: write
 
 jobs:
-  build-deploy:
-    uses: ./.github/workflows/docker-build-deploy.yml
+  build:
+    uses: ./.github/workflows/docker-build.yml
     with:
       image_tag: develop
       cargo_profile: release
-    secrets:
-      coolify_webhook: ${{ secrets.COOLIFY_WEBHOOK_DEV }}
-      coolify_token: ${{ secrets.COOLIFY_TOKEN }}

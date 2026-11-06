@@ -13,12 +13,9 @@ permissions:
   packages: write
 
 jobs:
-  build-deploy:
+  build:
     if: github.event.pull_request.head.repo.full_name == github.repository
-    uses: ./.github/workflows/docker-build-deploy.yml
+    uses: ./.github/workflows/docker-build.yml
     with:
       image_tag: preview
       cargo_profile: release
-    secrets:
-      coolify_webhook: ${{ secrets.COOLIFY_WEBHOOK_PREVIEW }}
-      coolify_token: ${{ secrets.COOLIFY_TOKEN }}

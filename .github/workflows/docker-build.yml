@@ -19,27 +19,28 @@ on:
 
 jobs:
   build:
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
-    env:
-      CARGO_TARGET_DIR: /home/github-runner/.cache/kartoteka/target
     steps:
       - uses: actions/checkout@v6
 
-      - name: Setup Rust
-        run: |
-          command -v rustup || \
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
-          . "$HOME/.cargo/env"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          rustup show
+      # Headroom for the release target dir (server + WASM); the preinstalled SDKs are not needed.
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
 
+      - name: Install the pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: docker-${{ inputs.cargo_profile }}
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
+
+      - uses: cargo-bins/cargo-binstall@851112458b5f28a29e5bc14a690c3f283d9dcc6f # v1.26.2
       - name: Install cargo-leptos
-        run: |
-          cargo leptos --version 2>/dev/null | grep -q '0.3.5' || \
-            cargo install cargo-leptos --version 0.3.5 --locked
+        run: cargo binstall -y --locked cargo-leptos@0.3.5
 
       - uses: actions/setup-node@v6
         with:
@@ -64,10 +65,12 @@ jobs:
         run: |
           rm -rf dist && mkdir -p dist/site dist/locales
           PROFILE_DIR=$([ "$CARGO_PROFILE" = "release" ] && echo "release" || echo "debug")
-          cp "${CARGO_TARGET_DIR}/${PROFILE_DIR}/kartoteka" dist/kartoteka
-          cp "${CARGO_TARGET_DIR}/${PROFILE_DIR}/hash.txt" dist/hash.txt
+          cp "target/${PROFILE_DIR}/kartoteka" dist/kartoteka
+          cp "target/${PROFILE_DIR}/hash.txt" dist/hash.txt
           cp -r target/site/. dist/site/
           cp -r locales/. dist/locales/
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
@@ -97,7 +100,6 @@ jobs:
         run: |
           TAG_ARGS=$(echo "$TAGS" | tr ',' '\n' | sed 's/^/--tag /' | tr '\n' ' ')
           docker buildx build \
-            --builder persistent \
             --file Dockerfile.runtime \
             --push \
             $TAG_ARGS \

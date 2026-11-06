@@ -6,9 +6,10 @@ on:
   pull_request:
     branches: [develop]
 
+# A new push to the same PR supersedes the running one; runs on develop always finish.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,7 +17,7 @@ env:
 jobs:
   fmt:
     name: Formatting
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -24,26 +25,33 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
-  check-clippy:
-    name: Check & Clippy
-    runs-on: ubuntu-latest
+  # Clippy and tests in ONE job: the toolchain is installed once and the debug `target/` is shared,
+  # instead of two runners each paying for a cold build. The cache is written only on develop;
+  # PRs restore it read-only.
+  check:
+    name: Clippy & Tests
+    runs-on: ubuntu-24.04
+    env:
+      # Many large test binaries: link them with mold instead of GNU ld.
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=mold
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install mold
+        run: sudo apt-get install -y mold
+      - name: Install the pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          components: clippy
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: workspace
-      - name: Cargo check
-        run: cargo check --workspace --exclude kartoteka-frontend
+          shared-key: check
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
       - name: Clippy
         run: cargo clippy --workspace --exclude kartoteka-frontend -- -D warnings
+      - name: Tests
+        run: cargo test --workspace
 
   deny:
     name: Deny (licenses & advisories)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: EmbarkStudios/cargo-deny-action@v2
@@ -53,7 +61,7 @@ jobs:
 
   machete:
     name: Unused dependencies
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     continue-on-error: true
     steps:
       - uses: actions/checkout@v6
@@ -79,19 +87,3 @@ jobs:
           else
             echo "No unused dependencies found." >> "$GITHUB_STEP_SUMMARY"
           fi
-
-  test:
-    name: Tests
-    runs-on: [self-hosted, linux]
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push'
-    needs: check-clippy
-    env:
-      CARGO_TARGET_DIR: /home/github-runner/.cache/kartoteka/target
-    steps:
-      - uses: actions/checkout@v6
-      - name: Setup Rust
-        run: |
-          . "$HOME/.cargo/env"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          rustup show
-      - run: cargo test --workspace

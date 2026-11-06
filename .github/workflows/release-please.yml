@@ -46,11 +46,8 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: ./.github/workflows/docker-build-deploy.yml
+    uses: ./.github/workflows/docker-build.yml
     with:
       image_tag: latest
       cargo_profile: release
       extra_tags: ${{ needs.release-please.outputs.tag_name }}
-    secrets:
-      coolify_webhook: ${{ secrets.COOLIFY_WEBHOOK_PROD }}
-      coolify_token: ${{ secrets.COOLIFY_TOKEN }}
