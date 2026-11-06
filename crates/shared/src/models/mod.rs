@@ -5,7 +5,6 @@ pub mod list;
 pub mod location;
 pub mod search;
 pub mod settings;
-pub mod tag;
 pub mod user;
 
 pub use container::*;
@@ -15,5 +14,4 @@ pub use list::*;
 pub use location::*;
 pub use search::*;
 pub use settings::*;
-pub use tag::*;
 pub use user::*;

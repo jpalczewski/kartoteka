@@ -17,8 +17,8 @@ pub mod types;
 // Canonical item types live in `types` (they mirror the server's domain types and are what
 // the frontend deserializes). Re-exported here so `kartoteka_shared::Item` keeps working.
 pub use types::{
-    Container, CreateContainerRequest, CreateListRequest, DateItem, HomeData, Item, List,
-    ListFeature, MoveContainerRequest, UpdateContainerRequest,
+    Container, CreateContainerRequest, CreateListRequest, DateItem, HomeData, Item, ItemTagLink,
+    List, ListFeature, ListTagLink, MoveContainerRequest, Tag, UpdateContainerRequest,
 };
 pub(crate) mod validation;
 
@@ -49,54 +49,6 @@ pub struct UserSetting {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpsertSettingRequest {
     pub value: serde_json::Value,
-}
-
-// === Tag types ===
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Tag {
-    pub id: String,
-    pub user_id: String,
-    pub name: String,
-    pub color: String,
-    pub parent_tag_id: Option<String>,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateTagRequest {
-    pub name: String,
-    pub color: String,
-    pub parent_tag_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateTagRequest {
-    pub name: Option<String>,
-    pub color: Option<String>,
-    pub parent_tag_id: Option<Option<String>>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MergeTagRequest {
-    pub target_tag_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TagAssignment {
-    pub tag_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ItemTagLink {
-    pub item_id: String,
-    pub tag_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ListTagLink {
-    pub list_id: String,
-    pub tag_id: String,
 }
 
 // === Calendar types ===
