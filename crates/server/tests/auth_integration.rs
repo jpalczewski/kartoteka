@@ -39,12 +39,19 @@ fn extract_session_cookie(response: &axum::http::Response<Body>) -> Option<Strin
 }
 
 /// Generate the current TOTP code for a base32 secret.
-/// Uses the same TOTP::new signature as domain::auth::make_totp (None issuer, empty account_name).
+/// Mirrors domain::auth::make_totp (SHA-1, 6 digits, skew 1, 30s step).
 fn generate_totp_code(secret_b32: &str) -> String {
-    use totp_rs::{Algorithm, Secret, TOTP};
-    let bytes = Secret::Encoded(secret_b32.to_string()).to_bytes().unwrap();
-    let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, bytes, None, String::new()).unwrap();
-    totp.generate_current().unwrap()
+    use totp_rs::{Algorithm, Builder, Secret};
+    let secret = Secret::try_from_base32(secret_b32).unwrap();
+    let totp = Builder::new()
+        .with_algorithm(Algorithm::SHA1)
+        .with_digits(6)
+        .with_skew(1)
+        .with_step_duration(30)
+        .with_secret(secret)
+        .build()
+        .unwrap();
+    totp.generate_current().to_string()
 }
 
 /// Register a user and return the session cookie after login.

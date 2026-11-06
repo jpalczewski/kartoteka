@@ -5,7 +5,7 @@ use kartoteka_db as db;
 use serde::Serialize;
 use sqlx::SqlitePool;
 use std::collections::HashSet;
-use totp_rs::{Algorithm as TotpAlgorithm, Secret, TOTP};
+use totp_rs::{Algorithm as TotpAlgorithm, Builder as TotpBuilder, Secret, Totp};
 
 /// TOTP setup result — secret for manual entry, URL for QR code.
 #[derive(Debug, Clone, Serialize)]
@@ -84,11 +84,16 @@ pub async fn verify_password(password: String, hash: String) -> Result<bool, Dom
     .map_err(|e| DomainError::Internal(format!("spawn_blocking: {e}")))?
 }
 
-fn make_totp(secret_b32: &str) -> Result<TOTP, DomainError> {
-    let bytes = Secret::Encoded(secret_b32.to_string())
-        .to_bytes()
+fn make_totp(secret_b32: &str) -> Result<Totp, DomainError> {
+    let secret = Secret::try_from_base32(secret_b32)
         .map_err(|e| DomainError::Internal(format!("totp secret decode: {e}")))?;
-    TOTP::new(TotpAlgorithm::SHA1, 6, 1, 30, bytes, None, String::new())
+    TotpBuilder::new()
+        .with_algorithm(TotpAlgorithm::SHA1)
+        .with_digits(6)
+        .with_skew(1)
+        .with_step_duration(30)
+        .with_secret(secret)
+        .build()
         .map_err(|e| DomainError::Internal(format!("totp init: {e}")))
 }
 
@@ -192,22 +197,21 @@ pub async fn setup_totp(
     user_id: &str,
     email: &str,
 ) -> Result<TotpSetup, DomainError> {
-    let secret = Secret::generate_secret();
-    let bytes = secret
-        .to_bytes()
-        .map_err(|e| DomainError::Internal(format!("totp generate: {e}")))?;
-    let totp = TOTP::new(
-        TotpAlgorithm::SHA1,
-        6,
-        1,
-        30,
-        bytes,
-        Some("Kartoteka".to_string()),
-        email.to_string(),
-    )
-    .map_err(|e| DomainError::Internal(format!("totp init: {e}")))?;
-    let secret_b32 = totp.get_secret_base32();
-    let url = totp.get_url();
+    let secret = Secret::generate();
+    let totp = TotpBuilder::new()
+        .with_algorithm(TotpAlgorithm::SHA1)
+        .with_digits(6)
+        .with_skew(1)
+        .with_step_duration(30)
+        .with_secret(secret)
+        .with_issuer(Some("Kartoteka"))
+        .with_account_name(email)
+        .build()
+        .map_err(|e| DomainError::Internal(format!("totp init: {e}")))?;
+    let secret_b32 = totp.secret().to_base32();
+    let url = totp
+        .to_url()
+        .map_err(|e| DomainError::Internal(format!("totp url: {e}")))?;
     db::totp::upsert(pool, user_id, &secret_b32).await?;
     Ok(TotpSetup {
         secret: secret_b32,
@@ -226,10 +230,7 @@ pub async fn verify_totp_setup(
         .await?
         .ok_or(DomainError::NotFound("totp_secret"))?;
     let totp = make_totp(&row.secret)?;
-    let valid = totp
-        .check_current(code)
-        .map_err(|e| DomainError::Internal(format!("system time: {e}")))?;
-    if !valid {
+    if totp.check_current(code).is_none() {
         return Err(DomainError::Validation("invalid_totp_code"));
     }
     db::totp::mark_verified(pool, user_id).await?;
@@ -255,10 +256,7 @@ pub async fn check_totp_code(
         _ => return Ok(false),
     };
     let totp = make_totp(&row.secret)?;
-    let valid = totp
-        .check_current(code)
-        .map_err(|e| DomainError::Internal(format!("system time: {e}")))?;
-    if !valid {
+    if totp.check_current(code).is_none() {
         return Ok(false);
     }
 
@@ -506,21 +504,45 @@ mod tests {
             .unwrap();
         let setup = setup_totp(&pool, &user.id, &user.email).await.unwrap();
         assert!(!setup.secret.is_empty());
-        assert!(setup.otpauth_url.starts_with("otpauth://totp/"));
-        assert!(setup.otpauth_url.contains("Kartoteka"));
+        assert!(setup.otpauth_url.starts_with("otpauth://totp/Kartoteka:"));
+        assert!(setup.otpauth_url.contains("issuer=Kartoteka"));
+        assert!(
+            setup
+                .otpauth_url
+                .contains(&format!("secret={}", setup.secret))
+        );
+    }
+
+    #[test]
+    fn make_totp_round_trips_stored_base32_secret() {
+        // Secrets written by earlier totp-rs 5.x releases are uppercase, unpadded
+        // RFC 4648 base32; they must keep decoding to the same bytes and
+        // re-encode to the identical string, otherwise existing 2FA enrolments
+        // would stop verifying.
+        let stored = "OBWGC2LOFVZXI4TJNZTS243FMNZGK5BNGEZDG";
+        let totp = make_totp(stored).unwrap();
+        assert_eq!(totp.secret().to_base32(), stored);
+        assert_eq!(totp.secret().as_bytes().len(), 23);
     }
 
     #[tokio::test]
     async fn verify_totp_setup_marks_verified() {
-        use totp_rs::{Algorithm, Secret, TOTP};
+        use totp_rs::{Algorithm, Builder, Secret};
         let pool = test_pool().await;
         let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
         let setup = setup_totp(&pool, &user.id, &user.email).await.unwrap();
-        let bytes = Secret::Encoded(setup.secret.clone()).to_bytes().unwrap();
-        let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, bytes, None, String::new()).unwrap();
-        let code = totp.generate_current().unwrap();
+        let secret = Secret::try_from_base32(setup.secret.clone()).unwrap();
+        let totp = Builder::new()
+            .with_algorithm(Algorithm::SHA1)
+            .with_digits(6)
+            .with_skew(1)
+            .with_step_duration(30)
+            .with_secret(secret)
+            .build()
+            .unwrap();
+        let code = totp.generate_current().to_string();
         verify_totp_setup(&pool, &user.id, &code).await.unwrap();
         assert!(is_totp_enabled(&pool, &user.id).await.unwrap());
     }
@@ -540,15 +562,22 @@ mod tests {
 
     #[tokio::test]
     async fn disable_totp_removes_secret() {
-        use totp_rs::{Algorithm, Secret, TOTP};
+        use totp_rs::{Algorithm, Builder, Secret};
         let pool = test_pool().await;
         let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
         let setup = setup_totp(&pool, &user.id, &user.email).await.unwrap();
-        let bytes = Secret::Encoded(setup.secret).to_bytes().unwrap();
-        let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, bytes, None, String::new()).unwrap();
-        let code = totp.generate_current().unwrap();
+        let secret = Secret::try_from_base32(setup.secret).unwrap();
+        let totp = Builder::new()
+            .with_algorithm(Algorithm::SHA1)
+            .with_digits(6)
+            .with_skew(1)
+            .with_step_duration(30)
+            .with_secret(secret)
+            .build()
+            .unwrap();
+        let code = totp.generate_current().to_string();
         verify_totp_setup(&pool, &user.id, &code).await.unwrap();
         disable_totp(&pool, &user.id).await.unwrap();
         assert!(!is_totp_enabled(&pool, &user.id).await.unwrap());
@@ -582,7 +611,7 @@ mod tests {
         let code = make_totp(&setup.secret)
             .unwrap()
             .generate_current()
-            .unwrap();
+            .to_string();
         assert!(check_totp_code(&pool, &user.id, &code).await.unwrap());
         assert!(
             !check_totp_code(&pool, &user.id, &code).await.unwrap(),
