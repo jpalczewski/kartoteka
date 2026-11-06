@@ -34,7 +34,7 @@ tower-sessions = "0.14"
 tower-sessions-sqlx-store = { version = "0.15", features = ["sqlite"] }
 argon2 = "0.5"
 time = "0.3"
-tower-http = { version = "0.6", features = ["trace", "cors"] }
+tower-http = { version = "0.7", features = ["trace", "cors"] }
 async-trait = "0.1"
 tower = { version = "0.5", features = ["util"] }
 totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
