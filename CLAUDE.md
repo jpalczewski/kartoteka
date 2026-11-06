@@ -47,7 +47,7 @@ just test-e2e     # Playwright (wymaga running just dev)
 just lint         # Clippy + fmt check
 just fmt          # cargo fmt
 just ci           # fmt + lint + audit + machete + test
-just deploy-preview  # build AMD64 obraz lokalnie + deploy preview
+just deploy-preview  # build AMD64 obraz lokalnie + push :preview do GHCR (bez deploya)
 ```
 
 ### Build frontend+server (Leptos SSR)
@@ -72,7 +72,7 @@ Projekt używa szybko ewoluujących bibliotek (Leptos 0.8, DaisyUI 5, rmcp). Prz
 ## Deployment
 
 - **Główna aplikacja**: binarka i site budowane natywnie w CI (`docker-build.yml`, `cargo leptos build --release`), pakowane przez `Dockerfile.runtime` i wypychane do GHCR: `:develop` (push na develop), `:preview` (PR), `:latest` + tag wersji (release-please). Repo nie robi deploya; `Dockerfile` (pełny multi-stage) zostaje do buildów lokalnych
-- Preview: `just deploy-preview` (AMD64 build via Colima)
+- Preview: `just deploy-preview` (AMD64 build via Colima, tylko push do GHCR)
 
 ## CI/CD
 
