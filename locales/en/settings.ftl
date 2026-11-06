@@ -26,6 +26,7 @@ settings-calendar-never-used = never
 settings-calendar-revoke = Revoke
 settings-calendar-reminders-title = Default reminders
 settings-calendar-reminders-description = Alarms added to calendar events. Up to 5 reminders per field.
+settings-calendar-reminders-allday-hint = For items without a time, reminders count back from midnight of that day: “1 h” before a deadline fires at 23:00 the day before.
 settings-calendar-reminders-start = Start date
 settings-calendar-reminders-deadline = Deadline
 settings-calendar-reminders-hard-deadline = Hard deadline
