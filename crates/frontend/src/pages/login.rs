@@ -40,16 +40,8 @@ pub fn LoginPage() -> impl IntoView {
                 {
                     #[cfg(target_arch = "wasm32")]
                     if let Some(win) = web_sys::window() {
-                        let raw = rt_dest.as_deref().unwrap_or("/");
-                        let dest = if raw.starts_with('/')
-                            && !raw.starts_with("//")
-                            && !raw.starts_with("/\\")
-                            && !raw.contains(':')
-                        {
-                            raw
-                        } else {
-                            "/"
-                        };
+                        let dest =
+                            kartoteka_shared::safe_return_to(rt_dest.as_deref().unwrap_or("/"));
                         let _ = win.location().set_href(dest);
                     }
                 }

@@ -72,6 +72,7 @@ use kartoteka_shared::constants::{
     SESSION_MAX_2FA_ATTEMPTS, SESSION_PENDING_2FA_ATTEMPTS_KEY, SESSION_PENDING_USER_KEY,
     SESSION_RETURN_TO_KEY,
 };
+use kartoteka_shared::safe_return_to;
 
 /// Extract a bearer token from the Authorization header.
 fn extract_bearer_token(headers: &axum::http::HeaderMap) -> Option<&str> {
@@ -332,7 +333,11 @@ pub async fn verify_2fa(
     {
         tracing::warn!("failed to remove {SESSION_PENDING_2FA_ATTEMPTS_KEY} from session: {e}");
     }
-    let return_to: Option<String> = session.remove(SESSION_RETURN_TO_KEY).await.unwrap_or(None);
+    let return_to: Option<String> = session
+        .remove::<String>(SESSION_RETURN_TO_KEY)
+        .await
+        .unwrap_or(None)
+        .map(|rt| safe_return_to(&rt).to_owned());
 
     if let Err(e) = auth_session.login(&user).await {
         tracing::error!("session write failed during 2fa login: {e}");
