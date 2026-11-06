@@ -13,7 +13,7 @@ kartoteka-domain = { path = "../domain" }
 kartoteka-db     = { path = "../db" }
 
 base64 = "0.22"
-rmcp = { version = "1.7", features = ["server", "transport-streamable-http-server", "transport-worker", "macros"] }
+rmcp = { version = "3.8", features = ["server", "transport-streamable-http-server", "transport-worker", "macros"] }
 schemars = "1"
 sqlx = { workspace = true }
 serde = { version = "1", features = ["derive"] }
