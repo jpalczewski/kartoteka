@@ -1,37 +1,6 @@
 use crate::deserializers::{default_config, double_option};
-use crate::models::{ContainerStatus, ListFeature};
+use crate::models::ListFeature;
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateContainerRequest {
-    pub name: String,
-    pub status: Option<ContainerStatus>,
-    pub parent_container_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateContainerRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(
-        default,
-        deserialize_with = "double_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub description: Option<Option<String>>,
-    #[serde(
-        default,
-        deserialize_with = "double_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub status: Option<Option<ContainerStatus>>,
-    #[serde(
-        default,
-        deserialize_with = "double_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub location_id: Option<Option<String>>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MoveListRequest {
@@ -55,11 +24,6 @@ impl SetListPlacementRequest {
         }
         Ok(())
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MoveContainerRequest {
-    pub parent_container_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

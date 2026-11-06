@@ -1,4 +1,5 @@
-use crate::deserializers::{bool_from_number, u32_from_number};
+use crate::deserializers::u32_from_number;
+use crate::types::Container;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -7,23 +8,6 @@ pub enum ContainerStatus {
     Active,
     Done,
     Paused,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Container {
-    pub id: String,
-    pub user_id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub status: Option<ContainerStatus>,
-    pub parent_container_id: Option<String>,
-    pub position: i32,
-    #[serde(deserialize_with = "bool_from_number")]
-    pub pinned: bool,
-    pub last_opened_at: Option<String>,
-    pub location_id: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

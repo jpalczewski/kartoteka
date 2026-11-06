@@ -1,19 +1,4 @@
-use crate::dto::requests::{
-    UpdateContainerRequest, UpdateItemRequest, UpdateListRequest, UpdateTagRequest,
-};
-
-#[test]
-fn update_container_request_omits_missing_optional_fields() {
-    let req = UpdateContainerRequest {
-        name: Some("Projekt".into()),
-        description: None,
-        status: None,
-        location_id: None,
-    };
-
-    let json = serde_json::to_value(&req).unwrap();
-    assert_eq!(json, serde_json::json!({ "name": "Projekt" }));
-}
+use crate::dto::requests::{UpdateItemRequest, UpdateListRequest, UpdateTagRequest};
 
 #[test]
 fn update_list_request_preserves_explicit_null_for_nullable_fields() {

@@ -1,6 +1,6 @@
 use crate::Locale;
-use crate::models::{Container, List, ListFeature};
-use crate::types::Item;
+use crate::models::ListFeature;
+use crate::types::{Container, Item, List};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,23 +86,6 @@ pub struct PreviewItem {
     pub description: Option<String>,
     #[serde(default)]
     pub has_comments: bool,
-}
-
-/// Response from GET /api/home — matches actual API shape
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HomeData {
-    #[serde(default)]
-    pub pinned_lists: Vec<List>,
-    #[serde(default)]
-    pub pinned_containers: Vec<Container>,
-    #[serde(default)]
-    pub recent_lists: Vec<List>,
-    #[serde(default)]
-    pub recent_containers: Vec<Container>,
-    #[serde(default)]
-    pub root_containers: Vec<Container>,
-    #[serde(default)]
-    pub root_lists: Vec<List>,
 }
 
 // ── Location responses ────────────────────────────────────────────────────────
