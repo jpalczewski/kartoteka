@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0](https://github.com/jpalczewski/kartoteka/compare/v1.7.0...v1.8.0) (2026-11-06)
+
+
+### Features
+
+* **domain:** include tags and comments in get_item / list_items responses ([#269](https://github.com/jpalczewski/kartoteka/issues/269)) ([8bef209](https://github.com/jpalczewski/kartoteka/commit/8bef209297831e5c3f736e4c1d33c9d0686ea04d)), closes [#262](https://github.com/jpalczewski/kartoteka/issues/262)
+
+
+### Bug Fixes
+
+* **auth:** require a TOTP code to disable 2FA ([#318](https://github.com/jpalczewski/kartoteka/issues/318)) ([3920a98](https://github.com/jpalczewski/kartoteka/commit/3920a9856b1a38b9cac34af140c8a3622d634774)), closes [#118](https://github.com/jpalczewski/kartoteka/issues/118)
+* **ci:** restore green develop (clippy, advisories, unused deps) ([#313](https://github.com/jpalczewski/kartoteka/issues/313)) ([455d6d6](https://github.com/jpalczewski/kartoteka/commit/455d6d68c7277434ec149380d75de8c097c64441))
+* exact match for short search tokens, i18n and notes items on /all ([#315](https://github.com/jpalczewski/kartoteka/issues/315)) ([2a285f4](https://github.com/jpalczewski/kartoteka/commit/2a285f4fb5bdcb443dfc9f1f896a6cbefa2604f1))
+* **frontend:** render guarded routes once by using ProtectedParentRoute ([#320](https://github.com/jpalczewski/kartoteka/issues/320)) ([70a6cc6](https://github.com/jpalczewski/kartoteka/commit/70a6cc680771de6f2a40478ceff37b5446aaf2b0)), closes [#218](https://github.com/jpalczewski/kartoteka/issues/218)
+* harden login redirect and enforce list parent ownership ([#316](https://github.com/jpalczewski/kartoteka/issues/316)) ([403c21c](https://github.com/jpalczewski/kartoteka/commit/403c21c7d854e6576653e52dc0b8b498c73f73a5))
+* **mcp:** make next_cursor an opaque token ([#317](https://github.com/jpalczewski/kartoteka/issues/317)) ([e933e80](https://github.com/jpalczewski/kartoteka/commit/e933e807daa6834a2c3d93ac0b9b215f3e16c0a6)), closes [#238](https://github.com/jpalczewski/kartoteka/issues/238)
+
+
+### Performance Improvements
+
+* **db:** add missing indexes for items/containers/users queries ([#274](https://github.com/jpalczewski/kartoteka/issues/274)) ([6353ad9](https://github.com/jpalczewski/kartoteka/commit/6353ad9ec868db862111af8a52763c679a73fc34))
+* **mcp:** embed timezone in JWT to eliminate per-request DB lookups ([#273](https://github.com/jpalczewski/kartoteka/issues/273)) ([8042b32](https://github.com/jpalczewski/kartoteka/commit/8042b32dcb8599098a0c7e2350a63435d3077f09))
+* **oauth:** embed locale in JWT to eliminate per-request DB lookups ([#264](https://github.com/jpalczewski/kartoteka/issues/264)) ([#271](https://github.com/jpalczewski/kartoteka/issues/271)) ([c6286d0](https://github.com/jpalczewski/kartoteka/commit/c6286d034b8205e53345282defecfafd8a992b5a))
+
 ## [1.7.0](https://github.com/jpalczewski/kartoteka/compare/v1.6.0...v1.7.0) (2026-06-07)
 
 
