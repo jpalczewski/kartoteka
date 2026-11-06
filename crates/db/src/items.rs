@@ -41,6 +41,23 @@ pub struct UpdateItemInput {
     pub location_id: Option<Option<String>>,
 }
 
+/// One item rendered into an iCal feed, with its list name for the summary/description.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct CalendarFeedItemRow {
+    pub id: String,
+    pub list_id: String,
+    pub list_name: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub completed: bool,
+    pub start_date: Option<String>,
+    pub start_time: Option<String>,
+    pub deadline: Option<String>,
+    pub deadline_time: Option<String>,
+    pub hard_deadline: Option<String>,
+    pub updated_at: String,
+}
+
 // ── Column list constant ──────────────────────────────────────────────────────
 
 const ITEM_COLUMNS: &str = "i.id, i.list_id, i.title, i.description, i.completed, i.position, \
@@ -164,6 +181,41 @@ pub async fn list_all_for_user(pool: &SqlitePool, user_id: &str) -> Result<Vec<I
          ORDER BY l.position, i.position"
     ))
     .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)
+}
+
+/// Items for the iCal feed: all of the user's dated items (archived lists excluded),
+/// optionally narrowed to a single list, with at least one date on or after `from_date`.
+/// Completed items are included so subscribers see the whole picture.
+#[tracing::instrument(skip(pool))]
+pub async fn for_calendar_feed(
+    pool: &SqlitePool,
+    user_id: &str,
+    list_id: Option<&str>,
+    from_date: &str,
+) -> Result<Vec<CalendarFeedItemRow>, DbError> {
+    sqlx::query_as::<_, CalendarFeedItemRow>(
+        "SELECT i.id, i.list_id, l.name AS list_name, i.title, i.description, i.completed, \
+         i.start_date, i.start_time, i.deadline, i.deadline_time, i.hard_deadline, i.updated_at \
+         FROM items i \
+         JOIN lists l ON l.id = i.list_id \
+         WHERE l.user_id = ? AND l.archived = 0 \
+           AND (? IS NULL OR i.list_id = ?) \
+           AND ( \
+                (i.start_date IS NOT NULL AND i.start_date >= ?) \
+             OR (i.deadline IS NOT NULL AND i.deadline >= ?) \
+             OR (i.hard_deadline IS NOT NULL AND i.hard_deadline >= ?) \
+           ) \
+         ORDER BY COALESCE(i.start_date, i.deadline, i.hard_deadline), i.position",
+    )
+    .bind(user_id)
+    .bind(list_id)
+    .bind(list_id)
+    .bind(from_date)
+    .bind(from_date)
+    .bind(from_date)
     .fetch_all(pool)
     .await
     .map_err(DbError::Sqlx)
@@ -979,5 +1031,224 @@ mod tests {
             .await
             .unwrap();
         assert!(found.is_none());
+    }
+
+    // ── for_calendar_feed ─────────────────────────────────────────────────────
+
+    /// Insert an item with optional dates; `pos` defaults to 0.
+    async fn make_dated_item(
+        pool: &SqlitePool,
+        list_id: &str,
+        title: &str,
+        start_date: Option<&str>,
+        deadline: Option<&str>,
+        hard_deadline: Option<&str>,
+    ) -> ItemRow {
+        insert(
+            pool,
+            &InsertItemInput {
+                id: uuid::Uuid::new_v4().to_string(),
+                list_id: list_id.to_string(),
+                position: 0,
+                title: title.to_string(),
+                start_date: start_date.map(str::to_string),
+                deadline: deadline.map(str::to_string),
+                hard_deadline: hard_deadline.map(str::to_string),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn setup_named_list(pool: &SqlitePool, user_id: &str, name: &str) -> String {
+        let list_id = uuid::Uuid::new_v4().to_string();
+        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES (?, ?, ?)")
+            .bind(&list_id)
+            .bind(user_id)
+            .bind(name)
+            .execute(pool)
+            .await
+            .unwrap();
+        list_id
+    }
+
+    #[tokio::test]
+    async fn feed_includes_item_fields_and_list_name() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = setup_named_list(&pool, &uid, "Groceries").await;
+        let item =
+            make_dated_item(&pool, &list_id, "Buy milk", Some("2026-05-01"), None, None).await;
+
+        let rows = for_calendar_feed(&pool, &uid, None, "2026-01-01")
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row.id, item.id);
+        assert_eq!(row.list_id, list_id);
+        assert_eq!(row.list_name, "Groceries");
+        assert_eq!(row.title, "Buy milk");
+        assert!(!row.completed);
+        assert_eq!(row.start_date.as_deref(), Some("2026-05-01"));
+        assert!(row.deadline.is_none());
+        assert!(!row.updated_at.is_empty());
+    }
+
+    #[tokio::test]
+    async fn feed_scopes_to_user() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let other = create_test_user(&pool).await;
+        let list_id = setup_list(&pool, &uid).await;
+        let other_list = setup_list(&pool, &other).await;
+        make_dated_item(&pool, &list_id, "Mine", None, Some("2026-05-01"), None).await;
+        make_dated_item(&pool, &other_list, "Theirs", None, Some("2026-05-01"), None).await;
+
+        let rows = for_calendar_feed(&pool, &uid, None, "2026-01-01")
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "Mine");
+    }
+
+    #[tokio::test]
+    async fn feed_scopes_to_list() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list1 = setup_list(&pool, &uid).await;
+        let list2 = setup_list(&pool, &uid).await;
+        make_dated_item(&pool, &list1, "In list 1", None, Some("2026-05-01"), None).await;
+        make_dated_item(&pool, &list2, "In list 2", None, Some("2026-05-02"), None).await;
+
+        let rows = for_calendar_feed(&pool, &uid, Some(&list1), "2026-01-01")
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "In list 1");
+    }
+
+    #[tokio::test]
+    async fn feed_filters_by_from_date() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = setup_list(&pool, &uid).await;
+        make_dated_item(&pool, &list_id, "Old", None, Some("2025-12-31"), None).await;
+        make_dated_item(
+            &pool,
+            &list_id,
+            "On boundary",
+            None,
+            Some("2026-01-01"),
+            None,
+        )
+        .await;
+        make_dated_item(&pool, &list_id, "Future", None, Some("2026-06-01"), None).await;
+
+        let rows = for_calendar_feed(&pool, &uid, None, "2026-01-01")
+            .await
+            .unwrap();
+        let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(titles, vec!["On boundary", "Future"]);
+    }
+
+    #[tokio::test]
+    async fn feed_matches_any_of_the_three_dates() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = setup_list(&pool, &uid).await;
+        make_dated_item(&pool, &list_id, "By start", Some("2026-03-01"), None, None).await;
+        make_dated_item(
+            &pool,
+            &list_id,
+            "By deadline",
+            None,
+            Some("2026-03-02"),
+            None,
+        )
+        .await;
+        make_dated_item(&pool, &list_id, "By hard", None, None, Some("2026-03-03")).await;
+
+        let rows = for_calendar_feed(&pool, &uid, None, "2026-01-01")
+            .await
+            .unwrap();
+        let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(titles, vec!["By start", "By deadline", "By hard"]);
+    }
+
+    #[tokio::test]
+    async fn feed_excludes_items_without_dates() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = setup_list(&pool, &uid).await;
+        make_item(&pool, &list_id, "Undated", 0).await;
+        make_dated_item(&pool, &list_id, "Dated", None, Some("2026-05-01"), None).await;
+
+        let rows = for_calendar_feed(&pool, &uid, None, "2026-01-01")
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "Dated");
+    }
+
+    #[tokio::test]
+    async fn feed_includes_completed_items() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = setup_list(&pool, &uid).await;
+        let item = make_dated_item(&pool, &list_id, "Done", None, Some("2026-05-01"), None).await;
+        set_completed(&pool, &item.id, true).await.unwrap();
+
+        let rows = for_calendar_feed(&pool, &uid, None, "2026-01-01")
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].completed);
+    }
+
+    #[tokio::test]
+    async fn feed_excludes_archived_lists() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = setup_list(&pool, &uid).await;
+        let archived_id = setup_list(&pool, &uid).await;
+        sqlx::query("UPDATE lists SET archived = 1 WHERE id = ?")
+            .bind(&archived_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        make_dated_item(&pool, &list_id, "Active", None, Some("2026-05-01"), None).await;
+        make_dated_item(
+            &pool,
+            &archived_id,
+            "Archived",
+            None,
+            Some("2026-05-02"),
+            None,
+        )
+        .await;
+
+        let rows = for_calendar_feed(&pool, &uid, None, "2026-01-01")
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "Active");
+    }
+
+    #[tokio::test]
+    async fn feed_ordered_by_earliest_date_then_position() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = setup_list(&pool, &uid).await;
+        make_dated_item(&pool, &list_id, "Later", None, None, Some("2026-09-01")).await;
+        make_dated_item(&pool, &list_id, "Sooner", Some("2026-02-01"), None, None).await;
+        make_dated_item(&pool, &list_id, "Middle", None, Some("2026-04-01"), None).await;
+
+        let rows = for_calendar_feed(&pool, &uid, None, "2026-01-01")
+            .await
+            .unwrap();
+        let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(titles, vec!["Sooner", "Middle", "Later"]);
     }
 }

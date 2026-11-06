@@ -31,6 +31,7 @@ pub(crate) async fn find_owned_ids_in(
 }
 
 pub mod auth_methods;
+pub mod calendar_tokens;
 pub mod comments;
 pub mod containers;
 pub mod home;
