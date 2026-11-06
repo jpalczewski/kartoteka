@@ -39,7 +39,7 @@ axum-login = { workspace = true, optional = true }
 sqlx = { workspace = true, optional = true }
 kartoteka-domain = { path = "../domain", optional = true }
 kartoteka-auth = { path = "../auth", optional = true }
-rust_iso3166 = { version = "0.1", optional = true }
+rust_iso3166 = { version = "0.2", optional = true }
 kartoteka-db = { path = "../db", optional = true }
 kartoteka-oauth = { path = "../oauth", optional = true }
 tower-sessions = { workspace = true, optional = true }
