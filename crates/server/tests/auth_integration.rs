@@ -531,7 +531,10 @@ async fn delete_totp_disables_2fa() {
                 .method("DELETE")
                 .uri("/auth/totp")
                 .header("cookie", &cookie)
-                .body(Body::empty())
+                .header("content-type", "application/json")
+                .body(json_body(serde_json::json!({
+                    "code": generate_totp_code(&secret),
+                })))
                 .unwrap(),
         )
         .await
@@ -558,6 +561,117 @@ async fn delete_totp_disables_2fa() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["status"], "ok");
+}
+
+/// Register a user, log in, set up and verify TOTP. Returns (app, cookie, secret).
+async fn register_login_and_enable_totp(
+    email: &str,
+    password: &str,
+) -> (axum::Router, String, String) {
+    let app = test_app().await;
+    let cookie = register_and_login(app.clone(), email, password).await;
+
+    let setup_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/totp/setup")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let setup_body = axum::body::to_bytes(setup_resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let secret = serde_json::from_slice::<serde_json::Value>(&setup_body).unwrap()["secret"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let verify_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/totp/verify")
+                .header("cookie", &cookie)
+                .header("content-type", "application/json")
+                .body(json_body(serde_json::json!({
+                    "code": generate_totp_code(&secret),
+                })))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(verify_resp.status(), StatusCode::OK);
+
+    (app, cookie, secret)
+}
+
+#[tokio::test]
+async fn delete_totp_with_wrong_code_returns_422() {
+    let (app, cookie, _secret) =
+        register_login_and_enable_totp("delete-wrong@test.com", "pass123").await;
+
+    let del_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/auth/totp")
+                .header("cookie", &cookie)
+                .header("content-type", "application/json")
+                .body(json_body(serde_json::json!({"code": "000000"})))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(del_resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    // 2FA must still be required after a failed disable attempt.
+    let login_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/login")
+                .header("content-type", "application/json")
+                .body(json_body(
+                    serde_json::json!({"email": "delete-wrong@test.com", "password": "pass123"}),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(login_resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(login_resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["status"], "2fa_required");
+}
+
+#[tokio::test]
+async fn delete_totp_without_body_is_rejected() {
+    let (app, cookie, _secret) =
+        register_login_and_enable_totp("delete-nobody@test.com", "pass123").await;
+
+    let del_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/auth/totp")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(del_resp.status().is_client_error());
 }
 
 // ── C3 tests: Bearer JWT tokens ──────────────────────────────────────────
@@ -941,4 +1055,48 @@ async fn bearer_non_full_scope_rejected_on_api_routes() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+// ── SSR auth guard (#218) ─────────────────────────────────────────────────
+
+async fn get_page(
+    app: axum::Router,
+    uri: &str,
+    cookie: Option<&str>,
+) -> axum::http::Response<Body> {
+    let mut req = Request::builder()
+        .method("GET")
+        .uri(uri)
+        .header("accept", "text/html");
+    if let Some(cookie) = cookie {
+        req = req.header("cookie", cookie);
+    }
+    app.oneshot(req.body(Body::empty()).unwrap()).await.unwrap()
+}
+
+#[tokio::test]
+async fn guarded_page_without_session_redirects_to_login_with_return_to() {
+    let app = test_app().await;
+    let response = get_page(app, "/lists/abc?tab=1", None).await;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        response.headers().get("location").unwrap(),
+        "/login?return_to=%2Flists%2Fabc%3Ftab%3D1"
+    );
+}
+
+#[tokio::test]
+async fn guarded_page_with_session_renders() {
+    let app = test_app().await;
+    let cookie = register_and_login(app.clone(), "guard@example.com", TEST_PW).await;
+    let response = get_page(app, "/all", Some(&cookie)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.headers().get("location").is_none());
+}
+
+#[tokio::test]
+async fn public_page_without_session_is_not_redirected() {
+    let app = test_app().await;
+    let response = get_page(app, "/login", None).await;
+    assert_eq!(response.status(), StatusCode::OK);
 }

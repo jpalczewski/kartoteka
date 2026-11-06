@@ -1893,6 +1893,7 @@ name = "kartoteka-mcp"
 version = "0.4.1"
 dependencies = [
  "async-trait",
+ "base64",
  "chrono",
  "chrono-tz",
  "fluent-bundle",

@@ -494,11 +494,7 @@ impl KartotekaServer {
             .await
             .map_err(self.domain_err(&locale))?;
         let limit = domain::paging::clamp_limit(p.limit);
-        let offset: usize = p
-            .cursor
-            .as_deref()
-            .and_then(|c| c.parse().ok())
-            .unwrap_or(0);
+        let offset = decode_cursor(p.cursor.as_deref());
         let page: Vec<_> = all
             .iter()
             .skip(offset)
@@ -507,7 +503,7 @@ impl KartotekaServer {
             .map(|i| localize_item(i, &tz))
             .collect();
         let next_cursor = if offset + page.len() < all.len() {
-            Some((offset + page.len()).to_string())
+            Some(encode_cursor(offset + page.len()))
         } else {
             None
         };
@@ -534,11 +530,7 @@ impl KartotekaServer {
         let tz = Self::timezone(&parts);
         tracing::debug!(container_id = %p.container_id, recursive = p.recursive.unwrap_or(false));
         let limit = domain::paging::clamp_limit(p.limit);
-        let offset: usize = p
-            .cursor
-            .as_deref()
-            .and_then(|c| c.parse().ok())
-            .unwrap_or(0);
+        let offset = decode_cursor(p.cursor.as_deref());
         let recursive = p.recursive.unwrap_or(false);
         let mut rows = domain::items::list_for_container(
             &self.pool,
@@ -552,7 +544,7 @@ impl KartotekaServer {
         .map_err(self.domain_err(&locale))?;
         let next_cursor = if rows.len() > limit as usize {
             rows.truncate(limit as usize);
-            Some((offset + limit as usize).to_string())
+            Some(encode_cursor(offset + limit as usize))
         } else {
             None
         };
@@ -1522,6 +1514,36 @@ fn today_in_tz(tz_str: &str) -> String {
         .to_string()
 }
 
+/// Encode a pagination offset as an opaque cursor.
+///
+/// The cursor is `URL_SAFE_NO_PAD` base64 of `o:<offset>`, so clients must not
+/// interpret or construct it themselves; they only echo it back.
+fn encode_cursor(offset: usize) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!("o:{offset}"))
+}
+
+/// Decode a cursor produced by [`encode_cursor`], falling back to offset 0.
+///
+/// Anything that is not one of our own cursors (absent, invalid base64, invalid
+/// UTF-8, missing `o:` prefix, non-numeric payload) is treated as "start over".
+fn decode_cursor(cursor: Option<&str>) -> usize {
+    use base64::Engine as _;
+    let Some(cursor) = cursor else {
+        return 0;
+    };
+    let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(cursor) else {
+        return 0;
+    };
+    let Ok(text) = String::from_utf8(bytes) else {
+        return 0;
+    };
+    let Some(rest) = text.strip_prefix("o:") else {
+        return 0;
+    };
+    rest.parse().unwrap_or(0)
+}
+
 fn localize_item(mut item: domain::items::Item, tz: &str) -> domain::items::Item {
     item.created_at = kartoteka_shared::date_utils::format_datetime_in_tz(&item.created_at, tz);
     item.updated_at = kartoteka_shared::date_utils::format_datetime_in_tz(&item.updated_at, tz);
@@ -1608,6 +1630,33 @@ mod tests {
         .unwrap();
         tx.commit().await.unwrap();
         id
+    }
+
+    #[test]
+    fn cursor_round_trips_offsets() {
+        for offset in [0, 3, 100] {
+            assert_eq!(decode_cursor(Some(&encode_cursor(offset))), offset);
+        }
+    }
+
+    #[test]
+    fn decode_missing_cursor_starts_at_zero() {
+        assert_eq!(decode_cursor(None), 0);
+    }
+
+    #[test]
+    fn decode_legacy_plain_number_is_rejected() {
+        assert_eq!(decode_cursor(Some("3")), 0);
+    }
+
+    #[test]
+    fn decode_garbage_is_rejected() {
+        assert_eq!(decode_cursor(Some("!!!")), 0);
+    }
+
+    #[test]
+    fn encoded_cursor_is_opaque() {
+        assert!(!encode_cursor(100).contains("100"));
     }
 
     #[test]

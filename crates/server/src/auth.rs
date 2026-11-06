@@ -383,13 +383,17 @@ pub async fn totp_verify_setup(
     Ok(Json(serde_json::json!({"status": "ok"})))
 }
 
-/// DELETE /auth/totp (authenticated)
+/// DELETE /auth/totp (authenticated) — body: {"code": "123456"}
 #[tracing::instrument(skip_all, fields(action = "totp_delete"))]
 pub async fn totp_delete(
     auth_session: AuthSession,
     State(state): State<AppState>,
+    Json(req): Json<TotpCodeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let user = auth_session.user.ok_or(AppError::Unauthorized)?;
+    if !kartoteka_domain::auth::check_totp_code(&state.pool, &user.id, &req.code).await? {
+        return Err(AppError::Validation("invalid_totp_code".into()));
+    }
     kartoteka_domain::auth::disable_totp(&state.pool, &user.id).await?;
     Ok(Json(serde_json::json!({"status": "ok"})))
 }

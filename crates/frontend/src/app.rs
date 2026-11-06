@@ -2,11 +2,12 @@ use leptos::prelude::*;
 use leptos_fluent::leptos_fluent;
 use leptos_router::{
     SsrMode,
-    components::{Outlet, ParentRoute, Route, Router, Routes},
+    components::{Outlet, ProtectedParentRoute, Route, Router, Routes},
+    hooks::use_location,
     path,
 };
 
-use crate::components::common::require_auth::RequireAuth;
+use crate::components::common::loading::LoadingSpinner;
 use crate::components::nav::Nav;
 use crate::components::toast_container::ToastContainer;
 use crate::pages::{
@@ -25,6 +26,7 @@ use crate::pages::{
     time::TimePage,
     today::TodayPage,
 };
+use crate::server_fns::auth::get_auth_status;
 use crate::server_fns::settings::get_user_locale_sf;
 
 // ── Toast context ──────────────────────────────────────────────────────────────
@@ -98,11 +100,19 @@ fn I18nProvider(children: Children) -> impl IntoView {
     }
 }
 
-// ── AuthGuardLayout ────────────────────────────────────────────────────────────
+// ── Auth guard ─────────────────────────────────────────────────────────────────
 
-#[component]
-fn AuthGuardLayout() -> impl IntoView {
-    view! { <RequireAuth><Outlet/></RequireAuth> }
+/// Login URL that brings the user back to the current page after signing in.
+fn login_redirect_path() -> String {
+    let location = use_location();
+    let mut path = location.pathname.get_untracked();
+    // `search` comes without the leading `?`.
+    let search = location.search.get_untracked();
+    if !search.is_empty() {
+        path.push('?');
+        path.push_str(&search);
+    }
+    format!("/login?return_to={}", urlencoding::encode(&path))
 }
 
 // ── App ────────────────────────────────────────────────────────────────────────
@@ -111,6 +121,10 @@ fn AuthGuardLayout() -> impl IntoView {
 pub fn App() -> impl IntoView {
     provide_context(ToastContext::new());
     provide_context(crate::context::GlobalRefresh::new());
+
+    // Created once for the whole app so guarded routes are instantiated a single time
+    // per render (#218). Login and logout both reload the page, which re-creates it.
+    let auth = Resource::new(|| (), |_| get_auth_status());
 
     // Signal to e2e tests that WASM hydration is complete.
     // Deferred so the Router and route components finish attaching event handlers.
@@ -139,7 +153,14 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/login")   view=LoginPage/>
                         <Route path=path!("/signup")  view=SignupPage/>
                         <Route path=path!("/consent") view=OAuthConsentPage/>
-                        <ParentRoute path=path!("") view=AuthGuardLayout ssr=SsrMode::Async>
+                        <ProtectedParentRoute
+                            path=path!("")
+                            view=Outlet
+                            ssr=SsrMode::Async
+                            condition=move || auth.get().map(|r| r.unwrap_or(false))
+                            redirect_path=login_redirect_path
+                            fallback=|| view! { <LoadingSpinner/> }
+                        >
                             <Route path=path!("/all")                       view=AllPage/>
                             <Route path=path!("/today")                     view=TodayPage/>
                             <Route path=path!("/time")                      view=TimePage/>
@@ -154,7 +175,7 @@ pub fn App() -> impl IntoView {
                             <Route path=path!("/lists/:list_id/items/:id")  view=ItemDetailPage/>
                             <Route path=path!("/lists/:id")                 view=ListPage/>
                             <Route path=path!("/containers/:id")            view=ContainerPage/>
-                        </ParentRoute>
+                        </ProtectedParentRoute>
                     </Routes>
                 </main>
             </Router>
