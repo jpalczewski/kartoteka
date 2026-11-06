@@ -515,6 +515,32 @@ pub struct TokenCreated {
     pub scope: String,
 }
 
+// --- Calendar feed tokens ---
+
+/// Metadata for a calendar subscription token (the token itself is NOT included —
+/// returned only at creation).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CalendarTokenInfo {
+    pub id: String,
+    pub name: String,
+    /// `None` means the subscription covers all of the user's lists.
+    pub list_id: Option<String>,
+    /// Name of the scoped list, resolved for display.
+    pub list_name: Option<String>,
+    pub last_used_at: Option<String>,
+    pub created_at: String,
+}
+
+/// Returned once when a calendar token is created. Show `token` to the user and
+/// discard — only its hash is stored, so it can never be shown again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CalendarTokenCreatedDto {
+    pub id: String,
+    pub name: String,
+    pub token: String,
+    pub list_id: Option<String>,
+}
+
 // --- Tag detail ---
 
 /// Tag header + lists linked to this tag.
