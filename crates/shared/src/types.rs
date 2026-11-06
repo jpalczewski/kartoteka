@@ -316,12 +316,16 @@ pub struct ListData {
     pub comments: CommentsPayload,
 }
 
-/// Item enriched with its parent list's display name.
-/// Used in Today and CalendarDay pages where items from multiple lists are shown together.
+/// Item enriched with its parent list's display name and type.
+/// Used in Today, CalendarDay and All pages where items from multiple lists are shown together.
+/// `list_type` lets the UI adapt rendering per list type (e.g. notes/log items have no checkbox
+/// and show their description instead).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DateItem {
     pub item: Item,
     pub list_name: String,
+    #[serde(default)]
+    pub list_type: String,
 }
 
 /// Items for a Today page: today's items and items with past-due deadlines.

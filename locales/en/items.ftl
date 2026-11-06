@@ -30,3 +30,11 @@ item-tags-section = Tags
 # Metadata
 item-created-label = Created:
 item-updated-label = Updated:
+
+# All items page
+all-title = All Items
+all-empty = No items.
+all-completed-count = { $progress } completed
+all-hide-completed = Hide completed
+all-all-completed = All items completed — uncheck the filter to see them.
+all-loading-error = Error: { $detail }

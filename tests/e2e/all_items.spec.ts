@@ -43,13 +43,39 @@ async function createListWithItems(page: Page, listName: string, items: string[]
   }
 }
 
+async function createNotesListWithDescribedItem(
+  page: Page,
+  listName: string,
+  itemTitle: string,
+  description: string,
+) {
+  await page.goto("/");
+  await page.waitForSelector("[data-hydrated]");
+  await page.getByLabel("Notes").check();
+  await page.fill('input[placeholder="Nazwa listy..."]', listName);
+  await page.locator('button:has-text("Utwórz")').first().click();
+  const card = page.locator('[data-testid="list-card"]').filter({ hasText: listName });
+  await card.waitFor({ timeout: 5000 });
+  await card.locator('[data-testid="list-card-title"]').click();
+  await page.waitForURL(/\/lists\/.+/);
+
+  await page.fill('input[placeholder="Nowy element..."]', itemTitle);
+  await page.click('button:has-text("Dodaj")');
+  await page.getByText(itemTitle, { exact: true }).waitFor();
+
+  await page.getByText(itemTitle, { exact: true }).click();
+  await page.waitForURL(/\/lists\/.+\/items\/.+/);
+  await page.locator('[data-testid="item-detail-description"]').fill(description);
+  await page.locator('[data-testid="item-detail-save"]').click();
+}
+
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 test("all items page shows empty state with no items", async ({ page, context }) => {
   await setup(page, context);
   await page.goto("/all");
   await page.waitForSelector("[data-hydrated]");
-  await expect(page.locator('text=Brak elementów')).toBeVisible();
+  await expect(page.locator('text=No items.')).toBeVisible();
 });
 
 // ── Displays items ────────────────────────────────────────────────────────────
@@ -118,7 +144,7 @@ test("all completed + hide filter shows helpful message", async ({ page, context
   await expect(page.locator('[data-testid="all-completion-count"]')).toContainText("1/1");
 
   await page.locator('[data-testid="hide-completed-toggle"]').click();
-  await expect(page.locator('text=Wszystkie elementy ukończone')).toBeVisible();
+  await expect(page.locator('text=All items completed')).toBeVisible();
 });
 
 // ── Item link navigates to detail ─────────────────────────────────────────────
@@ -132,4 +158,26 @@ test("clicking item title on all page navigates to item detail", async ({ page, 
   await page.locator('text=Detail Link Item').click();
 
   await expect(page).toHaveURL(/\/lists\/.+\/items\/.+/);
+});
+
+// ── Notes list items ──────────────────────────────────────────────────────────
+
+test("notes items have no checkbox and show their description", async ({ page, context }) => {
+  await setup(page, context);
+  await createNotesListWithDescribedItem(
+    page,
+    "Notes List",
+    "Notes Item",
+    "A note body that must be visible",
+  );
+
+  await page.goto("/all");
+  await page.waitForSelector("[data-hydrated]");
+
+  await expect(page.locator('text=Notes Item')).toBeVisible();
+  await expect(page.locator('[data-testid="all-item-toggle"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="all-item-description"]')).toBeVisible();
+  await expect(page.locator('[data-testid="all-item-description"]')).toContainText(
+    "A note body that must be visible",
+  );
 });

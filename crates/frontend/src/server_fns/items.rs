@@ -607,22 +607,45 @@ fn empty_as_none(s: String) -> Option<String> {
 }
 
 #[cfg(feature = "ssr")]
-fn build_list_names(lists: Vec<domain::lists::List>) -> std::collections::HashMap<String, String> {
-    lists.into_iter().map(|l| (l.id, l.name)).collect()
+#[derive(Debug, Clone)]
+pub(crate) struct ListMeta {
+    pub(crate) name: String,
+    pub(crate) list_type: String,
 }
 
 #[cfg(feature = "ssr")]
-fn items_to_date_items(
+pub(crate) fn build_list_meta(
+    lists: Vec<domain::lists::List>,
+) -> std::collections::HashMap<String, ListMeta> {
+    lists
+        .into_iter()
+        .map(|l| {
+            (
+                l.id,
+                ListMeta {
+                    name: l.name,
+                    list_type: l.list_type,
+                },
+            )
+        })
+        .collect()
+}
+
+#[cfg(feature = "ssr")]
+pub(crate) fn items_to_date_items(
     items: Vec<domain::items::Item>,
-    list_names: &std::collections::HashMap<String, String>,
+    list_meta: &std::collections::HashMap<String, ListMeta>,
 ) -> Vec<DateItem> {
     items
         .into_iter()
         .map(|item| {
-            let list_name = list_names.get(&item.list_id).cloned().unwrap_or_default();
+            let meta = list_meta.get(&item.list_id);
             DateItem {
                 item: domain_item_to_shared(item),
-                list_name,
+                list_name: meta.map(|m| m.name.clone()).unwrap_or_default(),
+                list_type: meta
+                    .map(|m| m.list_type.clone())
+                    .unwrap_or_else(|| "checklist".to_string()),
             }
         })
         .collect()
@@ -661,12 +684,12 @@ pub async fn get_today_data() -> Result<TodayData, ServerFnError> {
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
 
-    let list_names = build_list_names(all_lists);
+    let list_meta = build_list_meta(all_lists);
 
     Ok(TodayData {
         today_date,
-        today: items_to_date_items(today_items, &list_names),
-        overdue: items_to_date_items(overdue_items, &list_names),
+        today: items_to_date_items(today_items, &list_meta),
+        overdue: items_to_date_items(overdue_items, &list_meta),
     })
 }
 
@@ -688,8 +711,8 @@ pub async fn get_items_by_date(date: String) -> Result<Vec<DateItem>, ServerFnEr
     let all_lists = domain::lists::list_all(&pool, &user.id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let list_names = build_list_names(all_lists);
-    Ok(items_to_date_items(items, &list_names))
+    let list_meta = build_list_meta(all_lists);
+    Ok(items_to_date_items(items, &list_meta))
 }
 
 /// Fetch all items for the current user, enriched with list names.
@@ -710,8 +733,8 @@ pub async fn get_all_items() -> Result<Vec<DateItem>, ServerFnError> {
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
 
-    let list_names = build_list_names(all_lists);
-    Ok(items_to_date_items(items, &list_names))
+    let list_meta = build_list_meta(all_lists);
+    Ok(items_to_date_items(items, &list_meta))
 }
 
 /// Fetch items for each day of the week containing `start_date` (Mon–Sun).
@@ -738,7 +761,7 @@ pub async fn get_calendar_week(start_date: String) -> Result<Vec<CalendarWeekDay
     let all_lists = domain::lists::list_all(&pool, &user.id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let list_names = build_list_names(all_lists);
+    let list_meta = build_list_meta(all_lists);
 
     let mut days = Vec::with_capacity(7);
     for d in week_dates {
@@ -748,7 +771,7 @@ pub async fn get_calendar_week(start_date: String) -> Result<Vec<CalendarWeekDay
             .map_err(|e| ServerFnError::new(e.to_string()))?;
         days.push(CalendarWeekDay {
             date: date_str,
-            items: items_to_date_items(items, &list_names),
+            items: items_to_date_items(items, &list_meta),
         });
     }
     Ok(days)

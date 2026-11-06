@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::components::A;
 
 use kartoteka_shared::types::DateItem;
@@ -29,21 +30,28 @@ pub fn AllPage() -> impl IntoView {
         <div class="container mx-auto max-w-2xl p-4">
             <Suspense fallback=|| view! { <LoadingSpinner/> }>
                 {move || all_res.get().map(|result| match result {
-                    Err(e) => view! {
-                        <p class="text-error">"Error: " {e.to_string()}</p>
-                    }.into_any(),
+                    Err(e) => {
+                        let detail = e.to_string();
+                        view! {
+                            <p class="text-error">
+                                {move_tr!("all-loading-error", { "detail" => detail.clone() })}
+                            </p>
+                        }.into_any()
+                    },
                     Ok(items) => {
                         let total = items.len();
                         let completed_count = items.iter().filter(|di| di.item.completed).count();
+                        let progress = format!("{completed_count}/{total}");
                         let has_items = !items.is_empty();
 
                         view! {
                             <div>
                                 <div class="flex items-center justify-between mb-6">
-                                    <h1 class="text-2xl font-bold">"All Items"</h1>
+                                    <h1 class="text-2xl font-bold">{move_tr!("all-title")}</h1>
                                 </div>
 
                                 {move || {
+                                    let progress = progress.clone();
                                     let visible_items: Vec<DateItem> = items
                                         .iter()
                                         .filter(|di| show_completed.get() || !di.item.completed)
@@ -53,7 +61,7 @@ pub fn AllPage() -> impl IntoView {
                                     if !has_items {
                                         view! {
                                             <p class="text-center text-base-content/50 py-12">
-                                                "Brak elementów."
+                                                {move_tr!("all-empty")}
                                             </p>
                                         }.into_any()
                                     } else {
@@ -64,10 +72,10 @@ pub fn AllPage() -> impl IntoView {
                                             <div>
                                                 <div class="flex items-center justify-between mb-2">
                                                     <span class="text-sm text-base-content/60" data-testid="all-completion-count">
-                                                        {completed_count} "/" {total} " ukończone"
+                                                        {move_tr!("all-completed-count", { "progress" => progress.clone() })}
                                                     </span>
                                                     <label class="flex items-center gap-2 cursor-pointer select-none">
-                                                        <span class="text-xs text-base-content/50">"Ukryj ukończone"</span>
+                                                        <span class="text-xs text-base-content/50">{move_tr!("all-hide-completed")}</span>
                                                         <input
                                                             type="checkbox"
                                                             class="toggle toggle-xs"
@@ -81,7 +89,7 @@ pub fn AllPage() -> impl IntoView {
                                                 {if all_hidden {
                                                     view! {
                                                         <div class="text-center text-base-content/50 py-4">
-                                                            "Wszystkie elementy ukończone — odznacz filtr aby je zobaczyć."
+                                                            {move_tr!("all-all-completed")}
                                                         </div>
                                                     }.into_any()
                                                 } else {
@@ -98,6 +106,11 @@ pub fn AllPage() -> impl IntoView {
             </Suspense>
         </div>
     }
+}
+
+/// Notes and log lists have no completion concept, so their items must not render a checkbox.
+fn shows_checkbox(list_type: &str) -> bool {
+    !matches!(list_type, "notes" | "log")
 }
 
 fn render_groups(
@@ -123,30 +136,61 @@ fn render_groups(
                             let deadline = date_item.item.deadline
                                 .as_ref()
                                 .map(|d| d.to_string());
+                            let checkbox = shows_checkbox(&date_item.list_type);
+                            let description = if checkbox {
+                                None
+                            } else {
+                                date_item.item.description.clone().filter(|d| !d.trim().is_empty())
+                            };
+                            let title_class = if completed {
+                                "flex-1 text-sm text-base-content/50 line-through"
+                            } else {
+                                "flex-1 text-sm text-base-content hover:text-primary"
+                            };
+                            let desc_title_class = if completed {
+                                "text-sm text-base-content/50 line-through"
+                            } else {
+                                "text-sm text-base-content hover:text-primary"
+                            };
 
-                            view! {
-                                <div class="flex items-center gap-3 p-2 bg-base-200 rounded-lg">
-                                    <input
-                                        type="checkbox"
-                                        class="checkbox checkbox-sm checkbox-primary"
-                                        data-testid="all-item-toggle"
-                                        checked=completed
-                                        on:change=move |_| on_toggle(item_id.clone())
-                                    />
-                                    <A
-                                        href=href
-                                        attr:class=move || if completed {
-                                            "flex-1 text-sm text-base-content/50 line-through"
-                                        } else {
-                                            "flex-1 text-sm text-base-content hover:text-primary"
-                                        }
-                                    >
-                                        {title}
-                                    </A>
-                                    {deadline.map(|d| view! {
-                                        <span class="text-xs text-error/70">{d}</span>
-                                    })}
-                                </div>
+                            match description {
+                                Some(description) => view! {
+                                    <div class="flex items-start gap-3 p-2 bg-base-200 rounded-lg">
+                                        <div class="flex-1 min-w-0">
+                                            <A href=href attr:class=desc_title_class>
+                                                {title}
+                                            </A>
+                                            <p
+                                                class="text-xs text-base-content/60 line-clamp-2"
+                                                data-testid="all-item-description"
+                                            >
+                                                {description}
+                                            </p>
+                                        </div>
+                                        {deadline.map(|d| view! {
+                                            <span class="text-xs text-error/70">{d}</span>
+                                        })}
+                                    </div>
+                                }.into_any(),
+                                None => view! {
+                                    <div class="flex items-center gap-3 p-2 bg-base-200 rounded-lg">
+                                        {checkbox.then(|| view! {
+                                            <input
+                                                type="checkbox"
+                                                class="checkbox checkbox-sm checkbox-primary"
+                                                data-testid="all-item-toggle"
+                                                checked=completed
+                                                on:change=move |_| on_toggle(item_id.clone())
+                                            />
+                                        })}
+                                        <A href=href attr:class=title_class>
+                                            {title}
+                                        </A>
+                                        {deadline.map(|d| view! {
+                                            <span class="text-xs text-error/70">{d}</span>
+                                        })}
+                                    </div>
+                                }.into_any(),
                             }
                         }).collect_view()}
                     </div>
@@ -154,4 +198,18 @@ fn render_groups(
             }
         })
         .collect_view()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shows_checkbox;
+
+    #[test]
+    fn checkbox_only_for_completable_list_types() {
+        assert!(shows_checkbox("checklist"));
+        assert!(shows_checkbox("shopping"));
+        assert!(shows_checkbox("schedule"));
+        assert!(!shows_checkbox("log"));
+        assert!(!shows_checkbox("notes"));
+    }
 }

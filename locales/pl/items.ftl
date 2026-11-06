@@ -30,3 +30,11 @@ item-tags-section = Tagi
 # Metadane
 item-created-label = Utworzono:
 item-updated-label = Zaktualizowano:
+
+# Strona wszystkich elementów
+all-title = Wszystkie elementy
+all-empty = Brak elementów.
+all-completed-count = { $progress } ukończone
+all-hide-completed = Ukryj ukończone
+all-all-completed = Wszystkie elementy ukończone — odznacz filtr aby je zobaczyć.
+all-loading-error = Błąd: { $detail }

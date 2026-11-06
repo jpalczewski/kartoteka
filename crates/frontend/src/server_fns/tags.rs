@@ -4,7 +4,7 @@ use leptos::prelude::*;
 #[cfg(feature = "ssr")]
 use {
     crate::server_fns::home::{domain_list_to_shared, domain_tag_to_shared},
-    crate::server_fns::items::domain_item_to_shared,
+    crate::server_fns::items::{build_list_meta, items_to_date_items},
     axum_login::AuthSession,
     kartoteka_auth::KartotekaBackend,
     kartoteka_db as db, kartoteka_domain as domain,
@@ -295,20 +295,14 @@ pub async fn get_tag_items(
     let all_lists = domain::lists::list_all(&pool, &user.id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let list_names: std::collections::HashMap<String, String> =
-        all_lists.into_iter().map(|l| (l.id, l.name)).collect();
+    let list_meta = build_list_meta(all_lists);
 
-    Ok(all_items
+    let matching_items: Vec<domain::items::Item> = all_items
         .into_iter()
         .filter(|i| matching_item_ids.contains(&i.id))
-        .map(|item| {
-            let list_name = list_names.get(&item.list_id).cloned().unwrap_or_default();
-            DateItem {
-                item: domain_item_to_shared(item),
-                list_name,
-            }
-        })
-        .collect())
+        .collect();
+
+    Ok(items_to_date_items(matching_items, &list_meta))
 }
 
 /// Update tag color.
