@@ -440,11 +440,18 @@ pub async fn get_item(item_id: String) -> Result<Item, ServerFnError> {
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    domain::items::get_one(&pool, &item_id, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
+    let (item, prefs) = tokio::try_join!(
+        domain::items::get_one(&pool, &item_id, &user.id),
+        domain::preferences::get(&pool, &user.id),
+    )
+    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let mut item = item
         .map(Item::from)
-        .ok_or_else(|| ServerFnError::new("item not found".to_string()))
+        .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
+    // Display-only fields: shown on the item page in the user's timezone.
+    item.created_at = format_datetime_in_tz(&item.created_at, &prefs.timezone);
+    item.updated_at = format_datetime_in_tz(&item.updated_at, &prefs.timezone);
+    Ok(item)
 }
 
 /// Update only the description of an item. Pass empty string to clear.
