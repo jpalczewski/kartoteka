@@ -1,364 +1,456 @@
+//! Database-backed tests for calendar tokens, reminder defaults and feed assembly.
+
 use super::*;
-use chrono::Offset as _;
-use chrono_tz::{Europe, Tz};
+use crate::DomainError;
+use kartoteka_db::test_helpers::{create_test_user, test_pool};
+use kartoteka_shared::ReminderDefaults;
+use sqlx::SqlitePool;
+use uuid::Uuid;
 
-const UPDATED_AT: &str = "2024-05-01 08:00:00";
-const ITEM_ID: &str = "11111111-1111-1111-1111-111111111111";
+/// Far future, so items are always inside the feed's "last 30 days" window.
+const FUTURE: &str = "2999-01-01";
 
-fn base_item() -> FeedItem {
-    FeedItem {
-        id: ITEM_ID.to_string(),
-        list_name: "Praca".to_string(),
-        title: "Zadanie".to_string(),
-        description: None,
-        completed: false,
-        start_date: None,
-        start_time: None,
-        deadline: None,
-        deadline_time: None,
-        hard_deadline: None,
-        updated_at: UPDATED_AT.to_string(),
+async fn create_list(pool: &SqlitePool, user_id: &str, name: &str) -> String {
+    let list_id = Uuid::new_v4().to_string();
+    sqlx::query("INSERT INTO lists (id, user_id, name) VALUES (?, ?, ?)")
+        .bind(&list_id)
+        .bind(user_id)
+        .bind(name)
+        .execute(pool)
+        .await
+        .unwrap();
+    list_id
+}
+
+async fn create_sublist(pool: &SqlitePool, user_id: &str, name: &str, parent_id: &str) -> String {
+    let list_id = create_list(pool, user_id, name).await;
+    sqlx::query("UPDATE lists SET parent_list_id = ? WHERE id = ?")
+        .bind(parent_id)
+        .bind(&list_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    list_id
+}
+
+async fn create_item(pool: &SqlitePool, list_id: &str, title: &str) -> String {
+    let item_id = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO items (id, list_id, title, start_date) VALUES (?, ?, ?, ?) \
+         RETURNING id",
+    )
+    .bind(&item_id)
+    .bind(list_id)
+    .bind(title)
+    .bind(FUTURE)
+    .execute(pool)
+    .await
+    .unwrap();
+    item_id
+}
+
+#[tokio::test]
+async fn created_token_is_43_chars_and_produces_a_feed() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, "Groceries").await;
+    create_item(&pool, &list_id, "Buy milk").await;
+
+    let created = create_token(&pool, &uid, "My feed", None).await.unwrap();
+    assert_eq!(created.token.len(), 43);
+    assert_eq!(created.name, "My feed");
+    assert!(created.list_id.is_none());
+
+    let feed = feed_for_token(&pool, &created.token)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(feed.body.contains("Buy milk"), "body:\n{}", feed.body);
+    assert!(feed.body.contains("X-WR-CALNAME:Kartoteka"));
+    assert!(feed.etag.starts_with('"') && feed.etag.ends_with('"'));
+}
+
+#[tokio::test]
+async fn revoked_token_returns_none() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let created = create_token(&pool, &uid, "Feed", None).await.unwrap();
+    assert!(
+        feed_for_token(&pool, &created.token)
+            .await
+            .unwrap()
+            .is_some()
+    );
+
+    revoke_token(&pool, &uid, &created.id).await.unwrap();
+    assert!(
+        feed_for_token(&pool, &created.token)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn revoke_foreign_token_returns_not_found() {
+    let pool = test_pool().await;
+    let owner = create_test_user(&pool).await;
+    let other = create_test_user(&pool).await;
+    let created = create_token(&pool, &owner, "Feed", None).await.unwrap();
+
+    let err = revoke_token(&pool, &other, &created.id).await.unwrap_err();
+    assert!(matches!(err, DomainError::NotFound("calendar_token")));
+    assert!(
+        feed_for_token(&pool, &created.token)
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn malformed_token_returns_none() {
+    let pool = test_pool().await;
+    assert!(feed_for_token(&pool, "").await.unwrap().is_none());
+    assert!(feed_for_token(&pool, "too-short").await.unwrap().is_none());
+    // 43 characters, but not from the base64url alphabet.
+    let illegal = "!".repeat(43);
+    assert!(feed_for_token(&pool, &illegal).await.unwrap().is_none());
+    // 44 characters is one too many.
+    let long = "a".repeat(44);
+    assert!(feed_for_token(&pool, &long).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn random_well_formed_token_returns_none() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    create_token(&pool, &uid, "Feed", None).await.unwrap();
+
+    let random = "A".repeat(43);
+    assert!(feed_for_token(&pool, &random).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn list_scoped_token_covers_list_and_direct_sublists_only() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let parent = create_list(&pool, &uid, "Parent").await;
+    let child = create_sublist(&pool, &uid, "Child", &parent).await;
+    let grandchild = create_sublist(&pool, &uid, "Grandchild", &child).await;
+    let unrelated = create_list(&pool, &uid, "Unrelated").await;
+
+    create_item(&pool, &parent, "In parent").await;
+    create_item(&pool, &child, "In child").await;
+    create_item(&pool, &grandchild, "In grandchild").await;
+    create_item(&pool, &unrelated, "In unrelated").await;
+
+    let created = create_token(&pool, &uid, "Parent feed", Some(&parent))
+        .await
+        .unwrap();
+    assert_eq!(created.list_id.as_deref(), Some(parent.as_str()));
+
+    let feed = feed_for_token(&pool, &created.token)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(feed.body.contains("X-WR-CALNAME:Parent"));
+    assert!(feed.body.contains("In parent"));
+    assert!(feed.body.contains("In child"));
+    assert!(!feed.body.contains("In grandchild"));
+    assert!(!feed.body.contains("In unrelated"));
+}
+
+#[tokio::test]
+async fn foreign_list_returns_not_found() {
+    let pool = test_pool().await;
+    let owner = create_test_user(&pool).await;
+    let other = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &owner, "Owner list").await;
+
+    let err = create_token(&pool, &other, "Feed", Some(&list_id))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, DomainError::NotFound("list")));
+
+    let missing = Uuid::new_v4().to_string();
+    let err = create_token(&pool, &other, "Feed", Some(&missing))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, DomainError::NotFound("list")));
+}
+
+#[tokio::test]
+async fn empty_name_is_rejected() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    for name in ["", "   ", "\t\n"] {
+        let err = create_token(&pool, &uid, name, None).await.unwrap_err();
+        assert!(
+            matches!(err, DomainError::Validation("calendar_token_name_empty")),
+            "unexpected error for {name:?}: {err:?}"
+        );
     }
 }
 
-fn render(items: &[FeedItem], reminders: &ReminderDefaults) -> String {
-    render_feed("Moja lista", items, Europe::Warsaw, reminders)
-}
+#[tokio::test]
+async fn token_name_is_trimmed_and_length_limited() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
 
-fn events(feed: &str) -> Vec<&str> {
-    feed.split("BEGIN:VEVENT").skip(1).collect()
-}
-
-fn only_event(feed: &str) -> String {
-    let events = events(feed);
-    assert_eq!(events.len(), 1, "expected exactly one VEVENT in:\n{feed}");
-    events[0].to_string()
-}
-
-/// Properties of the component itself, ignoring nested `VALARM` children.
-fn lines<'a>(block: &'a str, key: &str) -> Vec<&'a str> {
-    let head = block.split("BEGIN:VALARM").next().unwrap_or(block);
-    head.lines().filter(|line| line.starts_with(key)).collect()
-}
-
-#[test]
-fn calendar_header_is_complete_and_valid() {
-    let feed = render(&[], &ReminderDefaults::default());
-    assert!(feed.starts_with("BEGIN:VCALENDAR\r\n"));
-    assert!(feed.ends_with("END:VCALENDAR\r\n"));
-    assert_eq!(lines(&feed, "VERSION:"), vec!["VERSION:2.0"]);
-    assert_eq!(lines(&feed, "PRODID:").len(), 1);
-    assert_eq!(
-        lines(&feed, "X-WR-CALNAME:"),
-        vec!["X-WR-CALNAME:Moja lista"]
-    );
-    assert_eq!(
-        lines(&feed, "X-WR-TIMEZONE:"),
-        vec!["X-WR-TIMEZONE:Europe/Warsaw"]
-    );
-    assert_eq!(
-        lines(&feed, "REFRESH-INTERVAL"),
-        vec!["REFRESH-INTERVAL;VALUE=DURATION:PT1H"]
-    );
-    assert_eq!(
-        lines(&feed, "X-PUBLISHED-TTL:"),
-        vec!["X-PUBLISHED-TTL:PT1H"]
-    );
-    assert!(events(&feed).is_empty());
-}
-
-#[test]
-fn all_day_event_uses_next_day_as_end() {
-    let item = FeedItem {
-        hard_deadline: Some("2024-05-07".to_string()),
-        ..base_item()
-    };
-    let event = only_event(&render(&[item], &ReminderDefaults::default()));
-    assert_eq!(
-        lines(&event, "DTSTART"),
-        vec!["DTSTART;VALUE=DATE:20240507"]
-    );
-    assert_eq!(lines(&event, "DTEND"), vec!["DTEND;VALUE=DATE:20240508"]);
-}
-
-#[test]
-fn timed_event_is_utc_and_lasts_thirty_minutes() {
-    let item = FeedItem {
-        start_date: Some("2024-05-06".to_string()),
-        start_time: Some("09:30:00".to_string()),
-        ..base_item()
-    };
-    let event = only_event(&render(&[item], &ReminderDefaults::default()));
-    assert_eq!(lines(&event, "DTSTART"), vec!["DTSTART:20240506T073000Z"]);
-    assert_eq!(lines(&event, "DTEND"), vec!["DTEND:20240506T080000Z"]);
-}
-
-#[test]
-fn invalid_time_falls_back_to_all_day() {
-    let item = FeedItem {
-        deadline: Some("2024-05-07".to_string()),
-        deadline_time: Some("25:99".to_string()),
-        ..base_item()
-    };
-    let event = only_event(&render(&[item], &ReminderDefaults::default()));
-    assert_eq!(
-        lines(&event, "DTSTART"),
-        vec!["DTSTART;VALUE=DATE:20240507"]
-    );
-    assert!(lines(&event, "DTEND")[0].contains("VALUE=DATE"));
-}
-
-#[test]
-fn dst_gap_wall_clock_moves_to_earliest_valid_instant() {
-    // 2024-03-31 02:30 does not exist in Europe/Warsaw (clocks jump to 03:00).
-    let item = FeedItem {
-        deadline: Some("2024-03-31".to_string()),
-        deadline_time: Some("02:30".to_string()),
-        ..base_item()
-    };
-    let event = only_event(&render(&[item], &ReminderDefaults::default()));
-    assert_eq!(lines(&event, "DTSTART"), vec!["DTSTART:20240331T010000Z"]);
-}
-
-#[test]
-fn dst_ambiguity_resolves_to_earliest_instant() {
-    let naive = NaiveDate::from_ymd_opt(2024, 10, 27)
-        .unwrap()
-        .and_hms_opt(2, 30, 0)
+    let created = create_token(&pool, &uid, "  Trimmed  ", None)
+        .await
         .unwrap();
-    let resolved = resolve_local(Europe::Warsaw, naive).unwrap();
-    // First occurrence is still on summer time (+02:00), the second one is +01:00.
-    assert_eq!(resolved.offset().fix().local_minus_utc(), 2 * 3600);
-    assert_eq!(resolved.naive_local(), naive);
+    assert_eq!(created.name, "Trimmed");
 
-    // The rendered event is the first occurrence, in UTC.
-    let item = FeedItem {
-        deadline: Some("2024-10-27".to_string()),
-        deadline_time: Some("02:30".to_string()),
-        ..base_item()
-    };
-    let event = only_event(&render(&[item], &ReminderDefaults::default()));
-    assert_eq!(lines(&event, "DTSTART"), vec!["DTSTART:20241027T003000Z"]);
-}
-
-#[test]
-fn one_item_produces_three_events_with_distinct_uids() {
-    let item = FeedItem {
-        start_date: Some("2024-05-06".to_string()),
-        deadline: Some("2024-05-07".to_string()),
-        hard_deadline: Some("2024-05-10".to_string()),
-        ..base_item()
-    };
-    let feed = render(&[item], &ReminderDefaults::default());
-    let events = events(&feed);
-    assert_eq!(events.len(), 3);
-
-    let uids: Vec<&str> = events
-        .iter()
-        .flat_map(|event| lines(event, "UID:"))
-        .collect();
-    assert_eq!(
-        uids,
-        vec![
-            format!("UID:{ITEM_ID}-start@kartoteka"),
-            format!("UID:{ITEM_ID}-deadline@kartoteka"),
-            format!("UID:{ITEM_ID}-hard@kartoteka"),
-        ]
-    );
-
-    let summaries: Vec<&str> = events
-        .iter()
-        .flat_map(|event| lines(event, "SUMMARY:"))
-        .collect();
-    assert_eq!(
-        summaries,
-        vec!["SUMMARY:Zadanie", "SUMMARY:⏰ Zadanie", "SUMMARY:‼ Zadanie"]
-    );
-}
-
-#[test]
-fn missing_dates_produce_no_events() {
-    let feed = render(&[base_item()], &ReminderDefaults::default());
-    assert!(events(&feed).is_empty());
-}
-
-#[test]
-fn completed_items_get_a_check_mark_and_no_alarms() {
-    let item = FeedItem {
-        completed: true,
-        deadline: Some("2024-05-07".to_string()),
-        hard_deadline: Some("2024-05-10".to_string()),
-        ..base_item()
-    };
-    let feed = render(&[item], &ReminderDefaults::default());
-    assert!(!feed.contains("BEGIN:VALARM"));
-    assert!(!feed.contains("TRIGGER"));
-    let summaries: Vec<&str> = events(&feed)
-        .iter()
-        .flat_map(|event| lines(event, "SUMMARY:"))
-        .collect();
-    assert_eq!(
-        summaries,
-        vec!["SUMMARY:✓ ⏰ Zadanie", "SUMMARY:✓ ‼ Zadanie"]
-    );
-}
-
-#[test]
-fn reminders_follow_defaults_per_date_field() {
-    let item = FeedItem {
-        start_date: Some("2024-05-06".to_string()),
-        deadline: Some("2024-05-07".to_string()),
-        hard_deadline: Some("2024-05-10".to_string()),
-        ..base_item()
-    };
-    let feed = render(&[item], &ReminderDefaults::default());
-    let triggers: Vec<&str> = feed
-        .lines()
-        .filter(|line| line.starts_with("TRIGGER"))
-        .collect();
-    // start_date: none, deadline: 60, hard_deadline: 1440 and 60.
-    assert_eq!(
-        triggers,
-        vec!["TRIGGER:-PT60M", "TRIGGER:-PT1440M", "TRIGGER:-PT60M"]
-    );
-
-    let alarms: Vec<&str> = feed
-        .lines()
-        .filter(|line| line.starts_with("ACTION:"))
-        .collect();
-    assert_eq!(alarms, vec!["ACTION:DISPLAY"; 3]);
-
-    // Every alarm repeats the event summary as its description.
-    let descriptions: Vec<&str> = feed
-        .lines()
-        .filter(|line| line.starts_with("DESCRIPTION:⏰"))
-        .collect();
-    assert_eq!(descriptions.len(), 1);
-}
-
-#[test]
-fn custom_reminders_are_rendered_for_every_date_field() {
-    let reminders = ReminderDefaults {
-        start_date: vec![10, 0],
-        deadline: vec![],
-        hard_deadline: vec![40320],
-    };
-    let item = FeedItem {
-        start_date: Some("2024-05-06".to_string()),
-        deadline: Some("2024-05-07".to_string()),
-        hard_deadline: Some("2024-05-10".to_string()),
-        ..base_item()
-    };
-    let feed = render(&[item], &reminders);
-    let triggers: Vec<&str> = feed
-        .lines()
-        .filter(|line| line.starts_with("TRIGGER"))
-        .collect();
-    assert_eq!(
-        triggers,
-        vec!["TRIGGER:-PT10M", "TRIGGER:-PT0M", "TRIGGER:-PT40320M"]
-    );
-    assert_eq!(feed.matches("BEGIN:VALARM").count(), 3);
-}
-
-#[test]
-fn text_values_are_escaped() {
-    let item = FeedItem {
-        title: "Zakupy, mleko; chleb\nmasło".to_string(),
-        description: Some("Linia 1\nLinia 2".to_string()),
-        start_date: Some("2024-05-06".to_string()),
-        ..base_item()
-    };
-    let feed = render(&[item], &ReminderDefaults::default());
-    assert!(
-        feed.contains("SUMMARY:Zakupy\\, mleko\\; chleb\\nmasło\r\n"),
-        "{feed}"
-    );
-    assert!(
-        feed.contains("DESCRIPTION:List: Praca\\n\\nLinia 1\\nLinia 2\r\n"),
-        "{feed}"
-    );
-}
-
-#[test]
-fn description_contains_list_name() {
-    let event = only_event(&render(
-        &[FeedItem {
-            start_date: Some("2024-05-06".to_string()),
-            ..base_item()
-        }],
-        &ReminderDefaults::default(),
+    let too_long = "x".repeat(101);
+    let err = create_token(&pool, &uid, &too_long, None)
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        DomainError::Validation("calendar_token_name_too_long")
     ));
-    assert_eq!(
-        lines(&event, "DESCRIPTION"),
-        vec!["DESCRIPTION:List: Praca"]
+
+    let edge = "y".repeat(100);
+    create_token(&pool, &uid, &edge, None).await.unwrap();
+}
+
+#[tokio::test]
+async fn token_limit_is_twenty_per_user() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let other = create_test_user(&pool).await;
+
+    for index in 0..20 {
+        create_token(&pool, &uid, &format!("Feed {index}"), None)
+            .await
+            .unwrap();
+    }
+    let err = create_token(&pool, &uid, "One too many", None)
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        DomainError::Validation("calendar_token_limit")
+    ));
+
+    // The limit is per user.
+    create_token(&pool, &other, "Other feed", None)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn list_tokens_returns_only_owned_tokens() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let other = create_test_user(&pool).await;
+    create_token(&pool, &uid, "Mine A", None).await.unwrap();
+    create_token(&pool, &uid, "Mine B", None).await.unwrap();
+    create_token(&pool, &other, "Theirs", None).await.unwrap();
+
+    let tokens = list_tokens(&pool, &uid).await.unwrap();
+    assert_eq!(tokens.len(), 2);
+    assert!(tokens.iter().all(|token| token.user_id == uid));
+}
+
+#[tokio::test]
+async fn stored_token_is_a_hash_not_the_secret() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let created = create_token(&pool, &uid, "Feed", None).await.unwrap();
+
+    let hashes: Vec<(String,)> = sqlx::query_as("SELECT token_hash FROM calendar_tokens")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(hashes.len(), 1);
+    let hash = &hashes[0].0;
+    assert_eq!(hash.len(), 64);
+    assert!(
+        hash.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    );
+    assert_ne!(hash, &created.token);
+}
+
+#[tokio::test]
+async fn feed_marks_completed_items() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, "Sprint").await;
+    let item_id = create_item(&pool, &list_id, "Ship release").await;
+    sqlx::query("UPDATE items SET completed = 1 WHERE id = ?")
+        .bind(&item_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let created = create_token(&pool, &uid, "Feed", None).await.unwrap();
+    let feed = feed_for_token(&pool, &created.token)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        feed.body.contains("SUMMARY:✓ Ship release"),
+        "body:\n{}",
+        feed.body
     );
 }
 
-#[test]
-fn invalid_dates_are_skipped_without_panicking() {
-    let item = FeedItem {
-        start_date: Some("not-a-date".to_string()),
-        deadline: Some("2024-02-31".to_string()),
-        hard_deadline: Some("2024-05-10".to_string()),
-        ..base_item()
+#[tokio::test]
+async fn etag_is_stable_for_same_data_and_changes_with_items() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, "Groceries").await;
+    create_item(&pool, &list_id, "Buy milk").await;
+
+    let created = create_token(&pool, &uid, "Feed", None).await.unwrap();
+    let first = feed_for_token(&pool, &created.token)
+        .await
+        .unwrap()
+        .unwrap();
+    let second = feed_for_token(&pool, &created.token)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.etag, second.etag);
+    assert_eq!(first.body, second.body);
+    assert_eq!(first.etag.len(), 34);
+
+    create_item(&pool, &list_id, "Buy bread").await;
+    let third = feed_for_token(&pool, &created.token)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(first.etag, third.etag);
+}
+
+#[tokio::test]
+async fn touch_last_used_is_recorded_on_feed_access() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let created = create_token(&pool, &uid, "Feed", None).await.unwrap();
+    feed_for_token(&pool, &created.token).await.unwrap();
+
+    let (last_used_at,): (Option<String>,) =
+        sqlx::query_as("SELECT last_used_at FROM calendar_tokens WHERE id = ?")
+            .bind(&created.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(last_used_at.is_some());
+}
+
+#[tokio::test]
+async fn feed_uses_the_users_timezone() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    kartoteka_db::preferences::set_timezone(&pool, &uid, "Europe/Warsaw")
+        .await
+        .unwrap();
+    let created = create_token(&pool, &uid, "Feed", None).await.unwrap();
+
+    let feed = feed_for_token(&pool, &created.token)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(feed.body.contains("X-WR-TIMEZONE:Europe/Warsaw"));
+}
+
+#[tokio::test]
+async fn reminder_defaults_roundtrip() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+
+    let custom = ReminderDefaults {
+        start_date: vec![15],
+        deadline: vec![120, 30],
+        hard_deadline: vec![2880],
     };
-    let feed = render(&[item], &ReminderDefaults::default());
-    let events = events(&feed);
-    assert_eq!(events.len(), 1);
+    set_reminder_defaults(&pool, &uid, &custom).await.unwrap();
+    assert_eq!(get_reminder_defaults(&pool, &uid).await.unwrap(), custom);
+}
+
+#[tokio::test]
+async fn missing_reminder_defaults_return_the_default_set() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
     assert_eq!(
-        lines(events[0], "UID:"),
-        vec![format!("UID:{ITEM_ID}-hard@kartoteka")]
+        get_reminder_defaults(&pool, &uid).await.unwrap(),
+        ReminderDefaults::default()
     );
 }
 
-#[test]
-fn timestamps_come_from_updated_at() {
-    let item = FeedItem {
-        hard_deadline: Some("2024-05-10".to_string()),
-        updated_at: "2024-05-01 08:00:00".to_string(),
-        ..base_item()
-    };
-    let event = only_event(&render(&[item], &ReminderDefaults::default()));
-    assert_eq!(lines(&event, "DTSTAMP:"), vec!["DTSTAMP:20240501T080000Z"]);
+#[tokio::test]
+async fn unparsable_reminder_defaults_return_the_default_set() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    kartoteka_db::settings::set(
+        &pool,
+        &uid,
+        kartoteka_shared::constants::REMINDER_DEFAULTS_KEY,
+        "not json",
+    )
+    .await
+    .unwrap();
     assert_eq!(
-        lines(&event, "LAST-MODIFIED:"),
-        vec!["LAST-MODIFIED:20240501T080000Z"]
+        get_reminder_defaults(&pool, &uid).await.unwrap(),
+        ReminderDefaults::default()
     );
 }
 
-#[test]
-fn rendering_is_deterministic() {
-    let items = vec![
-        FeedItem {
-            start_date: Some("2024-05-06".to_string()),
-            start_time: Some("09:30".to_string()),
-            deadline: Some("2024-05-07".to_string()),
-            hard_deadline: Some("2024-05-10".to_string()),
-            description: Some("Opis".to_string()),
-            ..base_item()
-        },
-        FeedItem {
-            id: "22222222-2222-2222-2222-222222222222".to_string(),
-            title: "Drugie".to_string(),
-            deadline: Some("2024-05-08".to_string()),
-            ..base_item()
-        },
-    ];
-    let reminders = ReminderDefaults::default();
-    let first = render(&items, &reminders);
-    let second = render(&items, &reminders);
-    assert_eq!(first, second);
+#[tokio::test]
+async fn invalid_reminder_defaults_are_rejected() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+
+    let too_many = ReminderDefaults {
+        start_date: vec![1, 2, 3, 4, 5, 6],
+        deadline: Vec::new(),
+        hard_deadline: Vec::new(),
+    };
+    let err = set_reminder_defaults(&pool, &uid, &too_many)
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        DomainError::Validation("invalid_reminder_defaults")
+    ));
+
+    let too_late = ReminderDefaults {
+        start_date: Vec::new(),
+        deadline: vec![40_321],
+        hard_deadline: Vec::new(),
+    };
+    let err = set_reminder_defaults(&pool, &uid, &too_late)
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        DomainError::Validation("invalid_reminder_defaults")
+    ));
 }
 
-#[test]
-fn timezone_name_and_zone_are_reflected() {
-    let item = FeedItem {
-        deadline: Some("2024-05-07".to_string()),
-        deadline_time: Some("12:00".to_string()),
-        ..base_item()
+#[tokio::test]
+async fn feed_applies_stored_reminders() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, "Groceries").await;
+    create_item(&pool, &list_id, "Buy milk").await;
+
+    let custom = ReminderDefaults {
+        start_date: vec![15],
+        deadline: Vec::new(),
+        hard_deadline: Vec::new(),
     };
-    let feed = render_feed("Moja lista", &[item], Tz::UTC, &ReminderDefaults::default());
-    assert!(feed.contains("X-WR-TIMEZONE:UTC\r\n"));
-    assert!(feed.contains("DTSTART:20240507T120000Z\r\n"));
+    set_reminder_defaults(&pool, &uid, &custom).await.unwrap();
+
+    let created = create_token(&pool, &uid, "Feed", None).await.unwrap();
+    let feed = feed_for_token(&pool, &created.token)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(feed.body.contains("TRIGGER:-PT15M"), "body:\n{}", feed.body);
 }

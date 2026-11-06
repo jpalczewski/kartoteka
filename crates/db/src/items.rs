@@ -187,8 +187,9 @@ pub async fn list_all_for_user(pool: &SqlitePool, user_id: &str) -> Result<Vec<I
 }
 
 /// Items for the iCal feed: all of the user's dated items (archived lists excluded),
-/// optionally narrowed to a single list, with at least one date on or after `from_date`.
-/// Completed items are included so subscribers see the whole picture.
+/// optionally narrowed to a single list plus its direct sublists, with at least one date
+/// on or after `from_date`. Completed items are included so subscribers see the whole
+/// picture.
 #[tracing::instrument(skip(pool))]
 pub async fn for_calendar_feed(
     pool: &SqlitePool,
@@ -202,7 +203,7 @@ pub async fn for_calendar_feed(
          FROM items i \
          JOIN lists l ON l.id = i.list_id \
          WHERE l.user_id = ? AND l.archived = 0 \
-           AND (? IS NULL OR i.list_id = ?) \
+           AND (? IS NULL OR i.list_id = ? OR l.parent_list_id = ?) \
            AND ( \
                 (i.start_date IS NOT NULL AND i.start_date >= ?) \
              OR (i.deadline IS NOT NULL AND i.deadline >= ?) \
@@ -211,6 +212,7 @@ pub async fn for_calendar_feed(
          ORDER BY COALESCE(i.start_date, i.deadline, i.hard_deadline), i.position",
     )
     .bind(user_id)
+    .bind(list_id)
     .bind(list_id)
     .bind(list_id)
     .bind(from_date)
@@ -1127,6 +1129,55 @@ mod tests {
             .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].title, "In list 1");
+    }
+
+    #[tokio::test]
+    async fn feed_list_scope_includes_direct_sublists() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let parent = setup_list(&pool, &uid).await;
+        let child = setup_named_list(&pool, &uid, "Child").await;
+        sqlx::query("UPDATE lists SET parent_list_id = ? WHERE id = ?")
+            .bind(&parent)
+            .bind(&child)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let grandchild = setup_named_list(&pool, &uid, "Grandchild").await;
+        sqlx::query("UPDATE lists SET parent_list_id = ? WHERE id = ?")
+            .bind(&child)
+            .bind(&grandchild)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let unrelated = setup_list(&pool, &uid).await;
+
+        make_dated_item(&pool, &parent, "In parent", None, Some("2026-05-01"), None).await;
+        make_dated_item(&pool, &child, "In child", None, Some("2026-05-02"), None).await;
+        make_dated_item(
+            &pool,
+            &grandchild,
+            "In grandchild",
+            None,
+            Some("2026-05-03"),
+            None,
+        )
+        .await;
+        make_dated_item(
+            &pool,
+            &unrelated,
+            "Unrelated",
+            None,
+            Some("2026-05-04"),
+            None,
+        )
+        .await;
+
+        let rows = for_calendar_feed(&pool, &uid, Some(&parent), "2026-01-01")
+            .await
+            .unwrap();
+        let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(titles, vec!["In parent", "In child"]);
     }
 
     #[tokio::test]

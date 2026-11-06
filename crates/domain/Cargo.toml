@@ -26,6 +26,8 @@ once_cell.workspace = true
 totp-rs.workspace = true
 jsonwebtoken.workspace = true
 icalendar = { version = "0.17", default-features = false }
+sha2 = "0.11"
+base64 = "0.22"
 
 [dev-dependencies]
 tokio.workspace = true
