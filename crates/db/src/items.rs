@@ -200,19 +200,17 @@ const ITEM_INSERT_COLUMNS: &str = "id, list_id, position, title, description, qu
 
 /// The single item INSERT used by every write path.
 ///
-/// `RETURNING` cannot use `i.`-prefixed names, so the returned column list is
-/// spelled out (it mirrors [`ITEM_COLUMNS`]).
+/// The placeholders are derived from [`ITEM_INSERT_COLUMNS`] and the returned
+/// columns from [`ITEM_COLUMNS`] (without the `i.` alias, which `RETURNING`
+/// does not accept), so neither list is spelled out twice.
 async fn insert_row<'e, E>(executor: E, input: &InsertItemInput) -> Result<ItemRow, DbError>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {
+    let placeholders = vec!["?"; ITEM_INSERT_COLUMNS.split(',').count()].join(", ");
+    let returning = ITEM_COLUMNS.replace("i.", "");
     sqlx::query_as::<_, ItemRow>(&format!(
-        "INSERT INTO items ({ITEM_INSERT_COLUMNS}) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
-         RETURNING id, list_id, title, description, completed, position, \
-                   quantity, actual_quantity, unit, start_date, start_time, \
-                   deadline, deadline_time, hard_deadline, estimated_duration, \
-                   location_id, created_at, updated_at"
+        "INSERT INTO items ({ITEM_INSERT_COLUMNS}) VALUES ({placeholders}) RETURNING {returning}"
     ))
     .bind(&input.id)
     .bind(&input.list_id)
