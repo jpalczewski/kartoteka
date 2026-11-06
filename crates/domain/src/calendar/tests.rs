@@ -82,21 +82,15 @@ fn all_day_event_uses_next_day_as_end() {
 }
 
 #[test]
-fn timed_event_uses_timezone_and_lasts_thirty_minutes() {
+fn timed_event_is_utc_and_lasts_thirty_minutes() {
     let item = FeedItem {
         start_date: Some("2024-05-06".to_string()),
         start_time: Some("09:30:00".to_string()),
         ..base_item()
     };
     let event = only_event(&render(&[item], &ReminderDefaults::default()));
-    assert_eq!(
-        lines(&event, "DTSTART"),
-        vec!["DTSTART;TZID=Europe/Warsaw:20240506T093000"]
-    );
-    assert_eq!(
-        lines(&event, "DTEND"),
-        vec!["DTEND;TZID=Europe/Warsaw:20240506T100000"]
-    );
+    assert_eq!(lines(&event, "DTSTART"), vec!["DTSTART:20240506T073000Z"]);
+    assert_eq!(lines(&event, "DTEND"), vec!["DTEND:20240506T080000Z"]);
 }
 
 #[test]
@@ -123,10 +117,7 @@ fn dst_gap_wall_clock_moves_to_earliest_valid_instant() {
         ..base_item()
     };
     let event = only_event(&render(&[item], &ReminderDefaults::default()));
-    assert_eq!(
-        lines(&event, "DTSTART"),
-        vec!["DTSTART;TZID=Europe/Warsaw:20240331T030000"]
-    );
+    assert_eq!(lines(&event, "DTSTART"), vec!["DTSTART:20240331T010000Z"]);
 }
 
 #[test]
@@ -140,17 +131,14 @@ fn dst_ambiguity_resolves_to_earliest_instant() {
     assert_eq!(resolved.offset().fix().local_minus_utc(), 2 * 3600);
     assert_eq!(resolved.naive_local(), naive);
 
-    // The rendered event keeps the wall-clock time and the zone.
+    // The rendered event is the first occurrence, in UTC.
     let item = FeedItem {
         deadline: Some("2024-10-27".to_string()),
         deadline_time: Some("02:30".to_string()),
         ..base_item()
     };
     let event = only_event(&render(&[item], &ReminderDefaults::default()));
-    assert_eq!(
-        lines(&event, "DTSTART"),
-        vec!["DTSTART;TZID=Europe/Warsaw:20241027T023000"]
-    );
+    assert_eq!(lines(&event, "DTSTART"), vec!["DTSTART:20241027T003000Z"]);
 }
 
 #[test]
@@ -372,5 +360,5 @@ fn timezone_name_and_zone_are_reflected() {
     };
     let feed = render_feed("Moja lista", &[item], Tz::UTC, &ReminderDefaults::default());
     assert!(feed.contains("X-WR-TIMEZONE:UTC\r\n"));
-    assert!(feed.contains("DTSTART;TZID=UTC:20240507T120000\r\n"));
+    assert!(feed.contains("DTSTART:20240507T120000Z\r\n"));
 }

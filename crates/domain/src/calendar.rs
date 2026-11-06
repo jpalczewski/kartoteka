@@ -8,8 +8,7 @@
 use chrono::{DateTime, Duration, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use icalendar::{
-    Alarm, Calendar, CalendarDateTime, Component, DatePerhapsTime, Event, EventLike, Parameter,
-    Property, Trigger,
+    Alarm, Calendar, Component, DatePerhapsTime, Event, EventLike, Parameter, Property, Trigger,
 };
 use kartoteka_shared::ReminderDefaults;
 
@@ -92,7 +91,7 @@ impl Kind {
 /// Renders a complete `VCALENDAR` document with one `VEVENT` per present date
 /// field (an item can therefore produce up to three events).
 ///
-/// Local times are interpreted in `tz`; a wall-clock time that does not exist
+/// Local times are interpreted in `tz` and written as UTC; a wall-clock time that does not exist
 /// (DST gap) is moved to the earliest valid instant, an ambiguous one resolves
 /// to its first occurrence. Unparseable dates are skipped silently.
 pub fn render_feed(
@@ -147,9 +146,10 @@ fn build_event(item: &FeedItem, kind: Kind, tz: Tz, reminders: &ReminderDefaults
     {
         Some(start) => {
             let end = start + Duration::minutes(TIMED_EVENT_MINUTES);
+            // Emitted in UTC: a TZID would require a matching VTIMEZONE block.
             event
-                .starts(local_datetime(tz, start.naive_local()))
-                .ends(local_datetime(tz, end.naive_local()));
+                .starts(start.with_timezone(&Utc))
+                .ends(end.with_timezone(&Utc));
         }
         None => {
             event
@@ -206,14 +206,6 @@ fn display_alarm(
     alarm.add_property("DTSTAMP", stamp.format(ICAL_UTC_FORMAT).to_string());
     alarm.add_property("UID", format!("{uid_base}-alarm{}@kartoteka", index + 1));
     alarm.done()
-}
-
-fn local_datetime(tz: Tz, date_time: NaiveDateTime) -> DatePerhapsTime {
-    CalendarDateTime::WithTimezone {
-        date_time,
-        tzid: tz.name().to_owned(),
-    }
-    .into()
 }
 
 /// Resolves a wall-clock time in `tz`, preferring the earliest valid instant.
