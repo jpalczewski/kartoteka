@@ -1,4 +1,5 @@
 use kartoteka_mcp::McpI18n;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_sessions::{Expiry, SessionManagerLayer};
 use tower_sessions_sqlx_store::SqliteStore;
@@ -84,5 +85,11 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .unwrap_or_else(|e| panic!("failed to bind {bind_addr}: {e}"));
-    axum::serve(listener, app).await.expect("server error");
+    axum::serve(
+        listener,
+        // Peer addresses feed the /cal rate limiter's IP fallback.
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .expect("server error");
 }

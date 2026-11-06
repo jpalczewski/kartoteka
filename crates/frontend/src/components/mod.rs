@@ -6,6 +6,7 @@ pub mod items;
 pub mod lists;
 pub mod nav;
 pub mod relations;
+pub mod settings;
 pub mod tags;
 pub mod time_entries;
 pub mod toast_container;

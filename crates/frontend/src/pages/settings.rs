@@ -3,6 +3,7 @@ use leptos_fluent::I18n;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::loading::LoadingSpinner;
+use crate::components::settings::calendar_feed::CalendarFeedSettings;
 use crate::context::GlobalRefresh;
 use crate::server_fns::locations::get_countries;
 use crate::server_fns::settings::{
@@ -241,6 +242,9 @@ pub fn SettingsPage() -> impl IntoView {
                                         }.into_any()
                                     }}
                                 </div>
+
+                                // --- Calendar subscription ---
+                                <CalendarFeedSettings/>
 
                                 // --- Admin section ---
                                 {if is_admin {

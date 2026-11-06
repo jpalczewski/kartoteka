@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod calendar_feed;
 pub mod comments;
 pub mod containers;
 pub mod home;

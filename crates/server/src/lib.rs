@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod calendar_feed;
 pub mod error;
 pub mod extractors;
 pub mod health;
@@ -32,7 +33,7 @@ use leptos::prelude::*;
 use leptos_axum::{AxumRouteListing, LeptosRoutes, generate_route_list};
 use tower_http::{
     LatencyUnit,
-    trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
+    trace::{DefaultOnResponse, TraceLayer},
 };
 use tracing::Level;
 
@@ -197,6 +198,9 @@ pub fn router(
                 .service(mcp_service),
         )
         .nest("/auth", auth::auth_router())
+        // Public iCal feed — no session, authenticated by the token in the path and
+        // rate limited per client IP. Mounted outside /api on purpose.
+        .nest("/cal", calendar_feed::router())
         .nest("/api", routes::routes(state.clone()))
         // Server functions: /leptos/{fn_name} (avoids conflict with /api/* REST routes)
         .route(
@@ -219,7 +223,7 @@ pub fn router(
         .layer(auth_layer)
         .layer(
             TraceLayer::new_for_http()
-                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .make_span_with(middleware::RedactingMakeSpan::new(Level::INFO))
                 .on_response(
                     DefaultOnResponse::new()
                         .level(Level::INFO)

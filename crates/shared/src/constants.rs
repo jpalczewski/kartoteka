@@ -17,3 +17,6 @@ pub const DATE_TYPE_HARD_DEADLINE: &str = "hard_deadline";
 pub const SETTING_MCP_AUTO_ENABLE_FEATURES: &str = "mcp_auto_enable_features";
 
 pub const INSTANCE_SETTING_REGISTRATION_MODE: &str = "registration_mode";
+
+// JSON-encoded `ReminderDefaults` in `user_settings`.
+pub const REMINDER_DEFAULTS_KEY: &str = "reminder_defaults";

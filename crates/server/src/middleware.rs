@@ -1,12 +1,20 @@
 use axum::{
     body::Body,
-    http::{Request, StatusCode},
+    http::{Request, StatusCode, Uri},
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use tower_http::trace::MakeSpan;
+use tracing::{Level, Span};
 
 /// Paths whose segments legitimately contain dots (e.g. /pkg/app-hash.js).
-const DOTTED_SEGMENT_ALLOWLIST: &[&str] = &["/pkg/"];
+/// `/cal/` serves `/cal/{token}/feed.ics`, whose last segment is a filename.
+const DOTTED_SEGMENT_ALLOWLIST: &[&str] = &["/pkg/", "/cal/"];
+
+/// Prefix of the public calendar feed route — everything after it is secret.
+const CAL_PREFIX: &str = "/cal/";
+/// Replacement for the redacted path segment.
+const REDACTED_SEGMENT: &str = "[redacted]";
 
 /// Rejects requests where a nested URL path segment looks like a filename (contains a dot
 /// but does not start with one). App-level IDs are UUIDs and never contain dots;
@@ -44,6 +52,74 @@ pub async fn reject_file_like_paths(req: Request<Body>, next: Next) -> Response 
 /// Segments starting with `.` are directory names like `.well-known`, not files.
 fn is_file_like_segment(segment: &str) -> bool {
     !segment.is_empty() && !segment.starts_with('.') && segment.contains('.')
+}
+
+/// Request span for [`crate::router`]: the same INFO-level fields as
+/// `DefaultMakeSpan` (`method`, `uri`, `version`), but with the calendar feed
+/// token redacted from the URI.
+///
+/// `TraceLayer` records the full URI, and `/cal/{token}/feed.ics` carries a
+/// bearer-equivalent secret in the path — logging it would hand out feed access
+/// to anyone with log access.
+#[derive(Debug, Clone, Copy)]
+pub struct RedactingMakeSpan {
+    level: Level,
+}
+
+impl Default for RedactingMakeSpan {
+    fn default() -> Self {
+        Self { level: Level::INFO }
+    }
+}
+
+impl RedactingMakeSpan {
+    pub const fn new(level: Level) -> Self {
+        Self { level }
+    }
+}
+
+impl<B> MakeSpan<B> for RedactingMakeSpan {
+    fn make_span(&mut self, request: &Request<B>) -> Span {
+        let uri = redact_uri(request.uri());
+        let method = request.method();
+        let version = request.version();
+        // `tracing` needs a literal level per macro, hence the dispatch.
+        match self.level {
+            Level::ERROR => {
+                tracing::error_span!("request", method = %method, uri = %uri, version = ?version)
+            }
+            Level::WARN => {
+                tracing::warn_span!("request", method = %method, uri = %uri, version = ?version)
+            }
+            Level::INFO => {
+                tracing::info_span!("request", method = %method, uri = %uri, version = ?version)
+            }
+            Level::DEBUG => {
+                tracing::debug_span!("request", method = %method, uri = %uri, version = ?version)
+            }
+            Level::TRACE => {
+                tracing::trace_span!("request", method = %method, uri = %uri, version = ?version)
+            }
+        }
+    }
+}
+
+/// The URI as logged: identical to the request URI, except that the calendar
+/// token is replaced — `/cal/{token}/feed.ics` becomes `/cal/[redacted]/feed.ics`.
+pub fn redact_uri(uri: &Uri) -> String {
+    let Some(rest) = uri.path().strip_prefix(CAL_PREFIX) else {
+        return uri.to_string();
+    };
+    let tail = match rest.split_once('/') {
+        Some((_, tail)) => format!("/{tail}"),
+        None => String::new(),
+    };
+    let mut redacted = format!("{CAL_PREFIX}{REDACTED_SEGMENT}{tail}");
+    if let Some(query) = uri.query() {
+        redacted.push('?');
+        redacted.push_str(query);
+    }
+    redacted
 }
 
 #[cfg(test)]
@@ -134,6 +210,49 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), 200);
+    }
+
+    #[tokio::test]
+    async fn allows_calendar_feed_path() {
+        let app = Router::new()
+            .route("/cal/{token}/feed.ics", get(dummy))
+            .layer(axum::middleware::from_fn(reject_file_like_paths));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/cal/abc/feed.ics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+    }
+
+    #[test]
+    fn redacts_calendar_token_in_uri() {
+        let uri: axum::http::Uri = "/cal/AbC-123_xyz/feed.ics".parse().unwrap();
+        assert_eq!(redact_uri(&uri), "/cal/[redacted]/feed.ics");
+    }
+
+    #[test]
+    fn redacts_token_and_keeps_query() {
+        let uri: axum::http::Uri = "/cal/secret/feed.ics?refresh=1".parse().unwrap();
+        assert_eq!(redact_uri(&uri), "/cal/[redacted]/feed.ics?refresh=1");
+    }
+
+    #[test]
+    fn redacts_token_without_tail() {
+        let uri: axum::http::Uri = "/cal/secret".parse().unwrap();
+        assert_eq!(redact_uri(&uri), "/cal/[redacted]");
+    }
+
+    #[test]
+    fn leaves_other_uris_untouched() {
+        for raw in ["/api/lists?archived=true", "/health", "/pkg/app-abc.js"] {
+            let uri: axum::http::Uri = raw.parse().unwrap();
+            assert_eq!(redact_uri(&uri), raw);
+        }
     }
 
     #[tokio::test]
