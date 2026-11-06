@@ -42,7 +42,7 @@ jobs:
       - name: Install cargo-leptos
         run: cargo binstall -y --locked cargo-leptos@0.3.5
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
 
