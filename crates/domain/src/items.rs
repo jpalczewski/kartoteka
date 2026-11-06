@@ -95,28 +95,56 @@ pub struct ContainerItem {
 
 // ── Conversion from db row ────────────────────────────────────────────────────
 
-fn row_to_item(row: db::types::ItemRow) -> Item {
-    Item {
-        id: row.id,
-        list_id: row.list_id,
-        title: row.title,
-        description: row.description,
-        completed: row.completed,
-        position: row.position,
-        quantity: row.quantity,
-        actual_quantity: row.actual_quantity,
-        unit: row.unit,
-        start_date: row.start_date,
-        start_time: row.start_time,
-        deadline: row.deadline,
-        deadline_time: row.deadline_time,
-        hard_deadline: row.hard_deadline,
-        estimated_duration: row.estimated_duration,
-        location_id: row.location_id,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-        tags: vec![],
-        comments: vec![],
+impl From<db::types::ItemRow> for Item {
+    fn from(row: db::types::ItemRow) -> Self {
+        Self {
+            id: row.id,
+            list_id: row.list_id,
+            title: row.title,
+            description: row.description,
+            completed: row.completed,
+            position: row.position,
+            quantity: row.quantity,
+            actual_quantity: row.actual_quantity,
+            unit: row.unit,
+            start_date: row.start_date,
+            start_time: row.start_time,
+            deadline: row.deadline,
+            deadline_time: row.deadline_time,
+            hard_deadline: row.hard_deadline,
+            estimated_duration: row.estimated_duration,
+            location_id: row.location_id,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            tags: vec![],
+            comments: vec![],
+        }
+    }
+}
+
+/// The single place mapping a domain item to its serialized counterpart.
+impl From<Item> for kartoteka_shared::types::Item {
+    fn from(item: Item) -> Self {
+        Self {
+            id: item.id,
+            list_id: item.list_id,
+            title: item.title,
+            description: item.description,
+            completed: item.completed,
+            position: item.position,
+            quantity: item.quantity,
+            actual_quantity: item.actual_quantity,
+            unit: item.unit,
+            start_date: item.start_date,
+            start_time: item.start_time,
+            deadline: item.deadline,
+            deadline_time: item.deadline_time,
+            hard_deadline: item.hard_deadline,
+            estimated_duration: item.estimated_duration,
+            location_id: item.location_id,
+            created_at: item.created_at,
+            updated_at: item.updated_at,
+        }
     }
 }
 
@@ -192,7 +220,7 @@ pub async fn list_for_list(
     Ok(rows
         .into_iter()
         .map(|row| {
-            let mut item = row_to_item(row);
+            let mut item = Item::from(row);
             item.tags = tags_map.remove(&item.id).unwrap_or_default();
             item.comments = comments_map.remove(&item.id).unwrap_or_default();
             item
@@ -214,7 +242,7 @@ pub async fn list_for_container(
     Ok(rows
         .into_iter()
         .map(|r| ContainerItem {
-            item: row_to_item(r.item),
+            item: r.item.into(),
             list_name: r.list_name,
             container_id: r.container_id,
             container_name: r.container_name,
@@ -242,7 +270,7 @@ pub async fn get_one(
         crate::comments::list_for_item_unchecked(pool, id),
     )?;
     Ok(item_opt.map(|row| {
-        let mut item = row_to_item(row);
+        let mut item = Item::from(row);
         item.tags = tag_rows.into_iter().map(tag_row_to_item_tag).collect();
         item.comments = comments;
         item
@@ -301,7 +329,7 @@ pub async fn create(
     )
     .await?;
 
-    Ok(row_to_item(row))
+    Ok(row.into())
 }
 
 #[tracing::instrument(skip(pool))]
@@ -312,10 +340,7 @@ pub async fn update(
     req: &UpdateItemRequest,
 ) -> Result<Option<Item>, DomainError> {
     // Phase 1: READ
-    let current = match db::items::get_one(pool, id, user_id)
-        .await?
-        .map(row_to_item)
-    {
+    let current = match db::items::get_one(pool, id, user_id).await?.map(Item::from) {
         Some(i) => i,
         None => return Ok(None),
     };
@@ -365,10 +390,7 @@ pub async fn update(
     if !found {
         return Ok(None);
     }
-    let item = match db::items::get_one(pool, id, user_id)
-        .await?
-        .map(row_to_item)
-    {
+    let item = match db::items::get_one(pool, id, user_id).await?.map(Item::from) {
         Some(i) => i,
         None => return Ok(None),
     };
@@ -377,9 +399,7 @@ pub async fn update(
         if let (Some(actual), Some(qty)) = (item.actual_quantity, item.quantity) {
             if rules::items::should_auto_complete(actual, qty) {
                 db::items::set_completed(pool, id, true).await?;
-                return Ok(db::items::get_one(pool, id, user_id)
-                    .await?
-                    .map(row_to_item));
+                return Ok(db::items::get_one(pool, id, user_id).await?.map(Item::from));
             }
         }
     }
@@ -399,7 +419,7 @@ pub async fn toggle_complete(
 ) -> Result<Option<Item>, DomainError> {
     // Phase 1 READ: check current state
     let item = match db::items::get_one(pool, id, user_id).await? {
-        Some(row) => row_to_item(row),
+        Some(row) => Item::from(row),
         None => return Ok(None),
     };
 
@@ -420,9 +440,7 @@ pub async fn toggle_complete(
     if !found {
         return Ok(None);
     }
-    Ok(db::items::get_one(pool, id, user_id)
-        .await?
-        .map(row_to_item))
+    Ok(db::items::get_one(pool, id, user_id).await?.map(Item::from))
 }
 
 #[tracing::instrument(skip(pool))]
@@ -433,10 +451,7 @@ pub async fn move_item(
     req: &MoveItemRequest,
 ) -> Result<Option<Item>, DomainError> {
     // Phase 1 READ: get current item + validate target list if provided
-    let current = match db::items::get_one(pool, id, user_id)
-        .await?
-        .map(row_to_item)
-    {
+    let current = match db::items::get_one(pool, id, user_id).await?.map(Item::from) {
         Some(i) => i,
         None => return Ok(None),
     };
@@ -460,9 +475,7 @@ pub async fn move_item(
     if !found {
         return Ok(None);
     }
-    Ok(db::items::get_one(pool, id, user_id)
-        .await?
-        .map(row_to_item))
+    Ok(db::items::get_one(pool, id, user_id).await?.map(Item::from))
 }
 
 #[tracing::instrument(skip(pool))]
@@ -483,7 +496,7 @@ pub async fn by_date(
         date.to_string()
     };
     let rows = db::items::by_date(pool, user_id, &resolved).await?;
-    Ok(rows.into_iter().map(row_to_item).collect())
+    Ok(rows.into_iter().map(Item::from).collect())
 }
 
 #[tracing::instrument(skip(pool))]
@@ -493,13 +506,13 @@ pub async fn calendar(
     year_month: &str,
 ) -> Result<Vec<Item>, DomainError> {
     let rows = db::items::calendar(pool, user_id, year_month).await?;
-    Ok(rows.into_iter().map(row_to_item).collect())
+    Ok(rows.into_iter().map(Item::from).collect())
 }
 
 #[tracing::instrument(skip(pool))]
 pub async fn list_all_for_user(pool: &SqlitePool, user_id: &str) -> Result<Vec<Item>, DomainError> {
     let rows = db::items::list_all_for_user(pool, user_id).await?;
-    Ok(rows.into_iter().map(row_to_item).collect())
+    Ok(rows.into_iter().map(Item::from).collect())
 }
 
 /// Returns incomplete items with `deadline` strictly before `today` (YYYY-MM-DD).
@@ -511,7 +524,7 @@ pub async fn overdue_for(
     today: &str,
 ) -> Result<Vec<Item>, DomainError> {
     let rows = db::items::overdue(pool, user_id, today).await?;
-    Ok(rows.into_iter().map(row_to_item).collect())
+    Ok(rows.into_iter().map(Item::from).collect())
 }
 
 /// Returns incomplete items with `deadline` strictly before today in the user's timezone.

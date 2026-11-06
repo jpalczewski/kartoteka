@@ -16,31 +16,6 @@ use {
     sqlx::SqlitePool,
 };
 
-/// Convert domain::items::Item to shared::types::Item.
-#[cfg(feature = "ssr")]
-pub(crate) fn domain_item_to_shared(item: domain::items::Item) -> Item {
-    Item {
-        id: item.id,
-        list_id: item.list_id,
-        title: item.title,
-        description: item.description,
-        completed: item.completed,
-        position: item.position,
-        quantity: item.quantity,
-        actual_quantity: item.actual_quantity,
-        unit: item.unit,
-        start_date: item.start_date,
-        start_time: item.start_time,
-        deadline: item.deadline,
-        deadline_time: item.deadline_time,
-        hard_deadline: item.hard_deadline,
-        estimated_duration: item.estimated_duration,
-        location_id: item.location_id,
-        created_at: item.created_at,
-        updated_at: item.updated_at,
-    }
-}
-
 /// Fetch list header + items + direct sublists in one call.
 #[server(prefix = "/leptos")]
 pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
@@ -152,17 +127,14 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
         if let Ok(sl_items) = domain::items::list_for_list(&pool, &sl.id, &user.id).await {
             sublist_items.insert(
                 sl.id.clone(),
-                sl_items
-                    .into_iter()
-                    .map(domain_item_to_shared)
-                    .collect::<Vec<_>>(),
+                sl_items.into_iter().map(Item::from).collect::<Vec<_>>(),
             );
         }
     }
 
     Ok(ListData {
         list: domain_list_to_shared(list),
-        items: items.into_iter().map(domain_item_to_shared).collect(),
+        items: items.into_iter().map(Item::from).collect(),
         sublists: sublists.into_iter().map(domain_list_to_shared).collect(),
         created_at_local,
         item_tag_links: raw_item_tag_links
@@ -235,7 +207,7 @@ pub async fn create_item(
     )
     .await
     .map_err(|e| ServerFnError::new(e.to_string()))?;
-    Ok(domain_item_to_shared(item))
+    Ok(item.into())
 }
 
 /// Toggle completed state of an item. Returns the updated item.
@@ -251,7 +223,7 @@ pub async fn toggle_item(item_id: String) -> Result<Option<Item>, ServerFnError>
     let result = domain::items::toggle_complete(&pool, &user.id, &item_id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
-    Ok(result.map(domain_item_to_shared))
+    Ok(result.map(Item::from))
 }
 
 /// Rewrite item positions in `list_id` according to `item_ids`. Ids not in
@@ -349,7 +321,7 @@ pub async fn move_item(item_id: String, target_list_id: String) -> Result<Item, 
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
-    Ok(domain_item_to_shared(item))
+    Ok(item.into())
 }
 
 /// Delete an item by id.
@@ -412,7 +384,7 @@ pub async fn update_actual_quantity(
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
-    Ok(domain_item_to_shared(item))
+    Ok(item.into())
 }
 
 /// Update quantity, actual_quantity and unit of an item.
@@ -455,7 +427,7 @@ pub async fn update_item_quantity(
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
-    Ok(domain_item_to_shared(item))
+    Ok(item.into())
 }
 
 /// Fetch a single item by id.
@@ -471,7 +443,7 @@ pub async fn get_item(item_id: String) -> Result<Item, ServerFnError> {
     domain::items::get_one(&pool, &item_id, &user.id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?
-        .map(domain_item_to_shared)
+        .map(Item::from)
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))
 }
 
@@ -511,7 +483,7 @@ pub async fn update_item_description(
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
-    Ok(domain_item_to_shared(item))
+    Ok(item.into())
 }
 
 /// Update date fields of an item.
@@ -554,7 +526,7 @@ pub async fn update_item_dates(
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
-    Ok(domain_item_to_shared(item))
+    Ok(item.into())
 }
 
 /// Update title and description of an item.
@@ -598,7 +570,7 @@ pub async fn update_item(
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
-    Ok(domain_item_to_shared(item))
+    Ok(item.into())
 }
 
 #[cfg(feature = "ssr")]
@@ -641,7 +613,7 @@ pub(crate) fn items_to_date_items(
         .map(|item| {
             let meta = list_meta.get(&item.list_id);
             DateItem {
-                item: domain_item_to_shared(item),
+                item: item.into(),
                 list_name: meta.map(|m| m.name.clone()).unwrap_or_default(),
                 list_type: meta
                     .map(|m| m.list_type.clone())
