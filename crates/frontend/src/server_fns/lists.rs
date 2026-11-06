@@ -214,6 +214,14 @@ pub async fn reorder_lists(
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    domain::lists::ensure_placement_owned(
+        &pool,
+        &user.id,
+        container_id.as_deref(),
+        parent_list_id.as_deref(),
+    )
+    .await
+    .map_err(|e| ServerFnError::new(e.to_string()))?;
     for (pos, id) in list_ids.iter().enumerate() {
         kartoteka_db::lists::move_list(
             &pool,

@@ -192,12 +192,46 @@ pub async fn sublists(
     rows.into_iter().map(row_to_list).collect()
 }
 
+/// Verify that an optional `parent_list_id` / `container_id` pair refers to
+/// entities owned by `user_id`.
+///
+/// `create` and `move_list` persist these ids verbatim, so without this check a
+/// caller could nest their list under another user's list or container.
+#[tracing::instrument(skip(pool))]
+pub async fn ensure_placement_owned(
+    pool: &SqlitePool,
+    user_id: &str,
+    container_id: Option<&str>,
+    parent_list_id: Option<&str>,
+) -> Result<(), DomainError> {
+    if let Some(parent_id) = parent_list_id {
+        db::lists::get_one(pool, parent_id, user_id)
+            .await?
+            .ok_or(DomainError::NotFound("list"))?;
+    }
+    if let Some(container_id) = container_id {
+        db::containers::get_one(pool, container_id, user_id)
+            .await?
+            .ok_or(DomainError::NotFound("container"))?;
+    }
+    Ok(())
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn create(
     pool: &SqlitePool,
     user_id: &str,
     req: &CreateListRequest,
 ) -> Result<List, DomainError> {
+    // Phase 1: READ / THINK — the parent list and container must belong to the caller.
+    ensure_placement_owned(
+        pool,
+        user_id,
+        req.container_id.as_deref(),
+        req.parent_list_id.as_deref(),
+    )
+    .await?;
+
     DomainError::ensure_unique(
         db::lists::find_id_by_name_in_scope(
             pool,
@@ -374,6 +408,14 @@ pub async fn move_list(
         Some(c) => c,
         None => return Ok(None),
     };
+    // The destination container / parent list must belong to the caller.
+    ensure_placement_owned(
+        pool,
+        user_id,
+        req.container_id.as_deref(),
+        req.parent_list_id.as_deref(),
+    )
+    .await?;
     DomainError::ensure_unique(
         db::lists::find_id_by_name_in_scope(
             pool,
@@ -786,6 +828,166 @@ mod tests {
             )
             .await
             .is_ok()
+        );
+    }
+
+    async fn make_container(pool: &SqlitePool, user_id: &str, name: &str) -> String {
+        crate::containers::create(
+            pool,
+            user_id,
+            &kartoteka_shared::types::CreateContainerRequest {
+                name: name.to_string(),
+                icon: None,
+                description: None,
+                status: None,
+                parent_container_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    #[tokio::test]
+    async fn create_sublist_under_own_list_ok() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let parent = create(&pool, &uid, &checklist_req("Parent")).await.unwrap();
+
+        let mut req = checklist_req("Child");
+        req.parent_list_id = Some(parent.id.clone());
+        let child = create(&pool, &uid, &req).await.unwrap();
+        assert_eq!(child.parent_list_id.as_deref(), Some(parent.id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn create_sublist_under_other_users_list_is_rejected() {
+        let pool = test_pool().await;
+        let owner = create_test_user(&pool).await;
+        let intruder = create_test_user(&pool).await;
+        let parent = create(&pool, &owner, &checklist_req("Parent"))
+            .await
+            .unwrap();
+
+        let mut req = checklist_req("Child");
+        req.parent_list_id = Some(parent.id.clone());
+        let err = create(&pool, &intruder, &req).await.unwrap_err();
+        assert!(matches!(err, DomainError::NotFound("list")), "got {err:?}");
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM lists WHERE user_id = ?")
+            .bind(&intruder)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 0);
+    }
+
+    #[tokio::test]
+    async fn create_in_own_container_ok() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let container_id = make_container(&pool, &uid, "Box").await;
+
+        let mut req = checklist_req("Inside");
+        req.container_id = Some(container_id.clone());
+        let list = create(&pool, &uid, &req).await.unwrap();
+        assert_eq!(list.container_id.as_deref(), Some(container_id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn create_in_other_users_container_is_rejected() {
+        let pool = test_pool().await;
+        let owner = create_test_user(&pool).await;
+        let intruder = create_test_user(&pool).await;
+        let container_id = make_container(&pool, &owner, "Box").await;
+
+        let mut req = checklist_req("Inside");
+        req.container_id = Some(container_id);
+        let err = create(&pool, &intruder, &req).await.unwrap_err();
+        assert!(
+            matches!(err, DomainError::NotFound("container")),
+            "got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn move_list_under_own_list_ok() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let parent = create(&pool, &uid, &checklist_req("Parent")).await.unwrap();
+        let child = create(&pool, &uid, &checklist_req("Child")).await.unwrap();
+
+        let moved = move_list(
+            &pool,
+            &child.id,
+            &uid,
+            &MoveListRequest {
+                position: 0,
+                container_id: None,
+                parent_list_id: Some(parent.id.clone()),
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(moved.parent_list_id.as_deref(), Some(parent.id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn move_list_under_other_users_list_is_rejected() {
+        let pool = test_pool().await;
+        let owner = create_test_user(&pool).await;
+        let intruder = create_test_user(&pool).await;
+        let parent = create(&pool, &owner, &checklist_req("Parent"))
+            .await
+            .unwrap();
+        let list = create(&pool, &intruder, &checklist_req("Mine"))
+            .await
+            .unwrap();
+
+        let err = move_list(
+            &pool,
+            &list.id,
+            &intruder,
+            &MoveListRequest {
+                position: 0,
+                container_id: None,
+                parent_list_id: Some(parent.id.clone()),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, DomainError::NotFound("list")), "got {err:?}");
+
+        let unchanged = get_one(&pool, &list.id, &intruder).await.unwrap().unwrap();
+        assert!(unchanged.parent_list_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn move_list_into_other_users_container_is_rejected() {
+        let pool = test_pool().await;
+        let owner = create_test_user(&pool).await;
+        let intruder = create_test_user(&pool).await;
+        let container_id = make_container(&pool, &owner, "Box").await;
+        let list = create(&pool, &intruder, &checklist_req("Mine"))
+            .await
+            .unwrap();
+
+        let err = move_list(
+            &pool,
+            &list.id,
+            &intruder,
+            &MoveListRequest {
+                position: 0,
+                container_id: Some(container_id),
+                parent_list_id: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(err, DomainError::NotFound("container")),
+            "got {err:?}"
         );
     }
 }

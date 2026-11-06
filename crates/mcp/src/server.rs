@@ -195,6 +195,33 @@ impl KartotekaServer {
         }
         Ok(())
     }
+
+    /// Verify every id in `ids` belongs to `uid`. `kind_label` appears in the
+    /// error message so callers can distinguish list references.
+    async fn ensure_lists_owned(
+        &self,
+        uid: &str,
+        ids: &[&str],
+        kind_label: &str,
+        locale: &str,
+    ) -> Result<(), ErrorData> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let mut unique: Vec<&str> = ids.to_vec();
+        unique.sort_unstable();
+        unique.dedup();
+        let owned = db::lists::find_owned_ids(&self.pool, uid, &unique)
+            .await
+            .map_err(self.db_err(locale))?;
+        if unique.iter().any(|id| !owned.contains(*id)) {
+            return Err(self.map_err(
+                McpError::BadRequest(format!("one or more {kind_label} values not found")),
+                locale,
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[tool_router]
@@ -1021,6 +1048,16 @@ impl KartotekaServer {
         self.ensure_containers_owned(&uid, &container_ids, "container_id", &locale)
             .await?;
 
+        // Literal parent_list_id values must belong to the caller. Parent refs
+        // resolved within this batch point at rows created by this same user.
+        let parent_list_ids: Vec<&str> = p
+            .lists
+            .iter()
+            .filter_map(|l| l.parent_list_id.as_deref())
+            .collect();
+        self.ensure_lists_owned(&uid, &parent_list_ids, "parent_list_id", &locale)
+            .await?;
+
         // Pre-fetch next_position per (container_id, parent_list_id) scope so
         // batch creates don't collide with existing rows. Entries that resolve
         // their parent via *_ref point at brand-new rows whose default base 0
@@ -1810,5 +1847,88 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count.0, 2);
+    }
+
+    fn single_list_params(name: &str, parent_list_id: Option<String>) -> CreateListsParams {
+        CreateListsParams {
+            lists: vec![CreateListsInput {
+                name: name.to_owned(),
+                list_type: None,
+                icon: None,
+                description: None,
+                features: None,
+                container_id: None,
+                container_ref: None,
+                parent_list_id,
+                parent_list_ref: None,
+                client_ref: None,
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn create_lists_under_own_parent_list_ok() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let parent = insert_test_list(&pool, &uid).await;
+        let server = test_server(pool);
+
+        let result = server
+            .create_lists(
+                Extension(parts_for_user(&uid)),
+                Parameters(single_list_params("Child", Some(parent.clone()))),
+            )
+            .await
+            .unwrap();
+        let text = result
+            .content
+            .into_iter()
+            .find_map(|c| match c.raw {
+                rmcp::model::RawContent::Text(t) => Some(t.text),
+                _ => None,
+            })
+            .expect("text content");
+        let lists: Vec<serde_json::Value> = serde_json::from_str(&text).unwrap();
+        let child_id = lists[0]["id"].as_str().unwrap();
+
+        let row: (Option<String>,) =
+            sqlx::query_as("SELECT parent_list_id FROM lists WHERE id = ?")
+                .bind(child_id)
+                .fetch_one(&server.pool)
+                .await
+                .unwrap();
+        assert_eq!(row.0.as_deref(), Some(parent.as_str()));
+    }
+
+    #[tokio::test]
+    async fn create_lists_with_other_users_parent_list_is_rejected() {
+        let pool = multi_conn_pool().await;
+        let owner = create_test_user(&pool).await;
+        let intruder = create_test_user(&pool).await;
+        let foreign_parent = insert_test_list(&pool, &owner).await;
+        let server = test_server(pool);
+
+        let err = match server
+            .create_lists(
+                Extension(parts_for_user(&intruder)),
+                Parameters(single_list_params("Child", Some(foreign_parent))),
+            )
+            .await
+        {
+            Ok(_) => panic!("create_lists must reject a foreign parent_list_id"),
+            Err(e) => e,
+        };
+        assert!(
+            err.message.contains("parent_list_id"),
+            "unexpected message: {}",
+            err.message
+        );
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM lists WHERE user_id = ?")
+            .bind(&intruder)
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 0);
     }
 }
