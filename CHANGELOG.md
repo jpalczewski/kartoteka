@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0](https://github.com/jpalczewski/kartoteka/compare/v1.8.0...v1.9.0) (2026-11-06)
+
+
+### Features
+
+* iCal feed with token-based auth and reminder defaults ([#330](https://github.com/jpalczewski/kartoteka/issues/330)) ([9df8583](https://github.com/jpalczewski/kartoteka/commit/9df85830f4d862f39440e5656e9bc01e1eab7ca6))
+
 ## [1.8.0](https://github.com/jpalczewski/kartoteka/compare/v1.7.0...v1.8.0) (2026-11-06)
 
 
