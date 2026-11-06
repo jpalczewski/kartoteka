@@ -942,3 +942,47 @@ async fn bearer_non_full_scope_rejected_on_api_routes() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
+
+// ── SSR auth guard (#218) ─────────────────────────────────────────────────
+
+async fn get_page(
+    app: axum::Router,
+    uri: &str,
+    cookie: Option<&str>,
+) -> axum::http::Response<Body> {
+    let mut req = Request::builder()
+        .method("GET")
+        .uri(uri)
+        .header("accept", "text/html");
+    if let Some(cookie) = cookie {
+        req = req.header("cookie", cookie);
+    }
+    app.oneshot(req.body(Body::empty()).unwrap()).await.unwrap()
+}
+
+#[tokio::test]
+async fn guarded_page_without_session_redirects_to_login_with_return_to() {
+    let app = test_app().await;
+    let response = get_page(app, "/lists/abc?tab=1", None).await;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        response.headers().get("location").unwrap(),
+        "/login?return_to=%2Flists%2Fabc%3Ftab%3D1"
+    );
+}
+
+#[tokio::test]
+async fn guarded_page_with_session_renders() {
+    let app = test_app().await;
+    let cookie = register_and_login(app.clone(), "guard@example.com", TEST_PW).await;
+    let response = get_page(app, "/all", Some(&cookie)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.headers().get("location").is_none());
+}
+
+#[tokio::test]
+async fn public_page_without_session_is_not_redirected() {
+    let app = test_app().await;
+    let response = get_page(app, "/login", None).await;
+    assert_eq!(response.status(), StatusCode::OK);
+}
