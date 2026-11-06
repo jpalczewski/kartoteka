@@ -1,5 +1,5 @@
 use crate::McpI18n;
-use rmcp::model::{Annotated, RawResource, RawResourceTemplate};
+use rmcp::model::{Resource, ResourceTemplate};
 
 // Re-export types the server needs
 pub use rmcp::model::{
@@ -77,21 +77,11 @@ pub fn parse(uri: &str) -> Result<ResourceUri, ParseError> {
     })
 }
 
-pub fn static_resources(i18n: &McpI18n, locale: &str) -> Vec<rmcp::model::Resource> {
+pub fn static_resources(i18n: &McpI18n, locale: &str) -> Vec<Resource> {
     let mk = |uri: &str, name: &str, key: &str| {
-        Annotated::new(
-            RawResource {
-                uri: uri.into(),
-                name: name.into(),
-                title: None,
-                description: Some(i18n.translate(locale, key)),
-                mime_type: Some("application/json".into()),
-                size: None,
-                icons: None,
-                meta: None,
-            },
-            None,
-        )
+        Resource::new(uri, name)
+            .with_description(i18n.translate(locale, key))
+            .with_mime_type("application/json")
     };
     vec![
         mk("kartoteka://lists", "lists", "mcp-res-lists-desc"),
@@ -109,19 +99,11 @@ pub fn static_resources(i18n: &McpI18n, locale: &str) -> Vec<rmcp::model::Resour
     ]
 }
 
-pub fn resource_templates(i18n: &McpI18n, locale: &str) -> Vec<rmcp::model::ResourceTemplate> {
+pub fn resource_templates(i18n: &McpI18n, locale: &str) -> Vec<ResourceTemplate> {
     let mk = |uri: &str, name: &str, key: &str| {
-        Annotated::new(
-            RawResourceTemplate {
-                uri_template: uri.into(),
-                name: name.into(),
-                title: None,
-                description: Some(i18n.translate(locale, key)),
-                mime_type: Some("application/json".into()),
-                icons: None,
-            },
-            None,
-        )
+        ResourceTemplate::new(uri, name)
+            .with_description(i18n.translate(locale, key))
+            .with_mime_type("application/json")
     };
     vec![
         mk(

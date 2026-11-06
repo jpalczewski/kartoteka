@@ -13,9 +13,10 @@ use rmcp::{
         wrapper::Parameters,
     },
     model::{
-        CallToolRequestParams, CallToolResult, Content, ListResourceTemplatesResult,
-        ListResourcesResult, ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams,
-        ReadResourceResult, ResourceContents, ServerCapabilities, ServerInfo,
+        CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
+        ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
+        ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, ResourceContents,
+        ServerCapabilities, ServerConfig,
     },
     service::RequestContext,
     tool_router,
@@ -163,9 +164,9 @@ impl KartotekaServer {
     ) -> Result<CallToolResult, ErrorData> {
         let v =
             serde_json::to_value(value).map_err(|e| self.map_err(McpError::Serde(e), locale))?;
-        Ok(CallToolResult::success(vec![Content::json(v).map_err(
-            |e| ErrorData::invalid_request(e.to_string(), None),
-        )?]))
+        Ok(CallToolResult::success(vec![
+            ContentBlock::json(v).map_err(|e| ErrorData::invalid_request(e.to_string(), None))?,
+        ]))
     }
 
     /// Verify every id in `ids` belongs to `uid`. `kind_label` appears in the
@@ -1319,24 +1320,26 @@ impl KartotekaServer {
 // ── ServerHandler impl ────────────────────────────────────────────────────────
 
 impl ServerHandler for KartotekaServer {
-    fn get_info(&self) -> ServerInfo {
-        let mut info = ServerInfo::default();
-        info.server_info = rmcp::model::Implementation::new("kartoteka", env!("CARGO_PKG_VERSION"));
-        info.capabilities = ServerCapabilities::builder()
-            .enable_tools()
-            .enable_resources()
-            .build();
-        info.instructions = Some(
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .build(),
+        )
+        .with_server_info(rmcp::model::Implementation::new(
+            "kartoteka",
+            env!("CARGO_PKG_VERSION"),
+        ))
+        .with_instructions(
             "Kartoteka is a personal task and list manager. \
             Start every session by calling list_lists to orient yourself — \
             you need list IDs for most item operations. \
             Use search_items to find items by keyword before acting on them. \
             When adding comments: omit author_name to write in the user's voice; \
             set author_name to your name (e.g. \"Claude\") for your own observations. \
-            Prefer get_today and list_overdue to surface what needs attention now."
-                .into(),
-        );
-        info
+            Prefer get_today and list_overdue to surface what needs attention now.",
+        )
     }
 
     async fn list_tools(
@@ -1364,7 +1367,7 @@ impl ServerHandler for KartotekaServer {
         &self,
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, ErrorData> {
+    ) -> Result<CallToolResponse, ErrorData> {
         let tcc = ToolCallContext::new(self, request, context);
         self.tool_router.call(tcc).await
     }
@@ -1379,11 +1382,9 @@ impl ServerHandler for KartotekaServer {
             .get::<UserLocale>()
             .map(|l| l.0.clone())
             .unwrap_or_else(|| "en".to_string());
-        Ok(ListResourcesResult {
-            resources: crate::resources::static_resources(&self.i18n, &locale),
-            next_cursor: None,
-            meta: None,
-        })
+        Ok(ListResourcesResult::with_all_items(
+            crate::resources::static_resources(&self.i18n, &locale),
+        ))
     }
 
     async fn list_resource_templates(
@@ -1396,18 +1397,16 @@ impl ServerHandler for KartotekaServer {
             .get::<UserLocale>()
             .map(|l| l.0.clone())
             .unwrap_or_else(|| "en".to_string());
-        Ok(ListResourceTemplatesResult {
-            resource_templates: crate::resources::resource_templates(&self.i18n, &locale),
-            next_cursor: None,
-            meta: None,
-        })
+        Ok(ListResourceTemplatesResult::with_all_items(
+            crate::resources::resource_templates(&self.i18n, &locale),
+        ))
     }
 
     async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
         context: RequestContext<RoleServer>,
-    ) -> Result<ReadResourceResult, ErrorData> {
+    ) -> Result<ReadResourceResponse, ErrorData> {
         use crate::resources::{ResourceUri, parse as parse_uri};
 
         let user_id = context
@@ -1498,10 +1497,12 @@ impl ServerHandler for KartotekaServer {
             }
         };
 
-        Ok(ReadResourceResult::new(vec![ResourceContents::text(
-            serde_json::to_string_pretty(&json).unwrap_or_default(),
-            request.uri,
-        )]))
+        Ok(ReadResourceResponse::Complete(ReadResourceResult::new(
+            vec![ResourceContents::text(
+                serde_json::to_string_pretty(&json).unwrap_or_default(),
+                request.uri,
+            )],
+        )))
     }
 }
 
@@ -1736,8 +1737,8 @@ mod tests {
         let text = result
             .content
             .into_iter()
-            .find_map(|c| match c.raw {
-                rmcp::model::RawContent::Text(t) => Some(t.text),
+            .find_map(|c| match c {
+                ContentBlock::Text(t) => Some(t.text),
                 _ => None,
             })
             .expect("text content");
@@ -1817,8 +1818,8 @@ mod tests {
         let text = result
             .content
             .into_iter()
-            .find_map(|c| match c.raw {
-                rmcp::model::RawContent::Text(t) => Some(t.text),
+            .find_map(|c| match c {
+                ContentBlock::Text(t) => Some(t.text),
                 _ => None,
             })
             .expect("text content");
@@ -1879,8 +1880,8 @@ mod tests {
         let text = result
             .content
             .into_iter()
-            .find_map(|c| match c.raw {
-                rmcp::model::RawContent::Text(t) => Some(t.text),
+            .find_map(|c| match c {
+                ContentBlock::Text(t) => Some(t.text),
                 _ => None,
             })
             .expect("text content");
@@ -1932,8 +1933,8 @@ mod tests {
         let text = result
             .content
             .into_iter()
-            .find_map(|c| match c.raw {
-                rmcp::model::RawContent::Text(t) => Some(t.text),
+            .find_map(|c| match c {
+                ContentBlock::Text(t) => Some(t.text),
                 _ => None,
             })
             .expect("text content");
