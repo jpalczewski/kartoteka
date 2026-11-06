@@ -2,7 +2,7 @@ use crate::{
     DbError,
     types::{ContainerItemRow, ItemRow},
 };
-use sqlx::{QueryBuilder, Sqlite, SqliteConnection, SqlitePool};
+use sqlx::{Sqlite, SqliteConnection, SqlitePool};
 
 // ── Input types ───────────────────────────────────────────────────────────────
 
@@ -192,18 +192,28 @@ pub async fn find_id_by_title_in_list(
 
 // ── Write queries ─────────────────────────────────────────────────────────────
 
-#[tracing::instrument(skip(pool))]
-pub async fn insert(pool: &SqlitePool, input: &InsertItemInput) -> Result<ItemRow, DbError> {
-    sqlx::query_as::<_, ItemRow>(
-        "INSERT INTO items (id, list_id, position, title, description, quantity, actual_quantity, \
-                            unit, start_date, start_time, deadline, deadline_time, hard_deadline, \
-                            estimated_duration) \
+/// Columns written by every item INSERT. A new item column only needs an entry
+/// here (plus the matching `InsertItemInput` field and bind in [`insert_row`]).
+const ITEM_INSERT_COLUMNS: &str = "id, list_id, position, title, description, quantity, \
+     actual_quantity, unit, start_date, start_time, deadline, deadline_time, \
+     hard_deadline, estimated_duration";
+
+/// The single item INSERT used by every write path.
+///
+/// `RETURNING` cannot use `i.`-prefixed names, so the returned column list is
+/// spelled out (it mirrors [`ITEM_COLUMNS`]).
+async fn insert_row<'e, E>(executor: E, input: &InsertItemInput) -> Result<ItemRow, DbError>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
+    sqlx::query_as::<_, ItemRow>(&format!(
+        "INSERT INTO items ({ITEM_INSERT_COLUMNS}) \
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
          RETURNING id, list_id, title, description, completed, position, \
                    quantity, actual_quantity, unit, start_date, start_time, \
                    deadline, deadline_time, hard_deadline, estimated_duration, \
-                   location_id, created_at, updated_at",
-    )
+                   location_id, created_at, updated_at"
+    ))
     .bind(&input.id)
     .bind(&input.list_id)
     .bind(input.position)
@@ -218,46 +228,26 @@ pub async fn insert(pool: &SqlitePool, input: &InsertItemInput) -> Result<ItemRo
     .bind(&input.deadline_time)
     .bind(&input.hard_deadline)
     .bind(input.estimated_duration)
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await
     .map_err(DbError::Sqlx)
 }
 
-/// Batch-insert multiple items in a single multi-row VALUES statement.
-/// SQLite limits bound parameters to 999; with 14 columns per item that's 71 rows.
-/// Inputs are chunked automatically so callers don't need to worry about the limit.
+#[tracing::instrument(skip(pool))]
+pub async fn insert(pool: &SqlitePool, input: &InsertItemInput) -> Result<ItemRow, DbError> {
+    let mut conn = pool.acquire().await.map_err(DbError::Sqlx)?;
+    insert_row(&mut *conn, input).await
+}
+
+/// Insert multiple items through the shared INSERT.
+/// The caller provides the transaction, so the whole batch stays atomic.
 #[tracing::instrument(skip(conn, inputs), fields(count = inputs.len()))]
 pub async fn insert_many_in_tx(
     conn: &mut SqliteConnection,
     inputs: &[InsertItemInput],
 ) -> Result<(), DbError> {
-    const CHUNK: usize = 64; // 64 × 14 = 896 params, safely under 999
-    for chunk in inputs.chunks(CHUNK) {
-        let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new(
-            "INSERT INTO items (id, list_id, position, title, description, quantity, \
-             actual_quantity, unit, start_date, start_time, deadline, deadline_time, \
-             hard_deadline, estimated_duration) ",
-        );
-        qb.push_values(chunk, |mut b, i| {
-            b.push_bind(&i.id)
-                .push_bind(&i.list_id)
-                .push_bind(i.position)
-                .push_bind(&i.title)
-                .push_bind(&i.description)
-                .push_bind(i.quantity)
-                .push_bind(i.actual_quantity)
-                .push_bind(&i.unit)
-                .push_bind(&i.start_date)
-                .push_bind(&i.start_time)
-                .push_bind(&i.deadline)
-                .push_bind(&i.deadline_time)
-                .push_bind(&i.hard_deadline)
-                .push_bind(i.estimated_duration);
-        });
-        qb.build()
-            .execute(&mut *conn)
-            .await
-            .map_err(DbError::Sqlx)?;
+    for input in inputs {
+        insert_row(&mut *conn, input).await?;
     }
     Ok(())
 }
@@ -268,29 +258,7 @@ pub async fn insert_in_tx(
     conn: &mut SqliteConnection,
     input: &InsertItemInput,
 ) -> Result<(), DbError> {
-    sqlx::query(
-        "INSERT INTO items (id, list_id, position, title, description, quantity, actual_quantity, \
-                            unit, start_date, start_time, deadline, deadline_time, hard_deadline, \
-                            estimated_duration) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(&input.id)
-    .bind(&input.list_id)
-    .bind(input.position)
-    .bind(&input.title)
-    .bind(&input.description)
-    .bind(input.quantity)
-    .bind(input.actual_quantity)
-    .bind(&input.unit)
-    .bind(&input.start_date)
-    .bind(&input.start_time)
-    .bind(&input.deadline)
-    .bind(&input.deadline_time)
-    .bind(&input.hard_deadline)
-    .bind(input.estimated_duration)
-    .execute(&mut *conn)
-    .await
-    .map_err(DbError::Sqlx)?;
+    insert_row(&mut *conn, input).await?;
     Ok(())
 }
 
