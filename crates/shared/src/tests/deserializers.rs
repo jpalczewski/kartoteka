@@ -1,4 +1,4 @@
-use crate::models::list::ListFeature;
+use crate::types::ListFeature;
 use serde::Deserialize;
 
 // --- bool_from_number (D1 returns booleans as 0.0/1.0) ---
@@ -79,18 +79,18 @@ struct FeatWrap {
 
 #[test]
 fn features_from_json_string() {
-    let json = r#"{"f": "[{\"name\":\"quantity\",\"config\":{}}]"}"#;
+    let json = r#"{"f": "[{\"feature_name\":\"quantity\",\"config\":{}}]"}"#;
     let t: FeatWrap = serde_json::from_str(json).unwrap();
     assert_eq!(t.f.len(), 1);
-    assert_eq!(t.f[0].name, "quantity");
+    assert_eq!(t.f[0].feature_name, "quantity");
 }
 
 #[test]
 fn features_from_json_array() {
-    let json = r#"{"f": [{"name":"deadlines","config":{}}]}"#;
+    let json = r#"{"f": [{"feature_name":"deadlines","config":{}}]}"#;
     let t: FeatWrap = serde_json::from_str(json).unwrap();
     assert_eq!(t.f.len(), 1);
-    assert_eq!(t.f[0].name, "deadlines");
+    assert_eq!(t.f[0].feature_name, "deadlines");
 }
 
 #[test]

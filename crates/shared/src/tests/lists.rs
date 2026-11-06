@@ -1,9 +1,10 @@
 use crate::constants::{FEATURE_DEADLINES, FEATURE_QUANTITY};
 use crate::dto::requests::{
-    CreateListRequest, FeatureConfigRequest, MoveListRequest, ReorderContainersRequest,
-    SetListPlacementRequest, SetTagLinksRequest, TagLinkAction, UpdateListRequest,
+    FeatureConfigRequest, MoveListRequest, ReorderContainersRequest, SetListPlacementRequest,
+    SetTagLinksRequest, TagLinkAction, UpdateListRequest,
 };
-use crate::models::*;
+use crate::models::DateField;
+use crate::types::{CreateListRequest, List, ListFeature};
 
 // --- List::has_feature ---
 
@@ -13,21 +14,22 @@ fn list_has_feature() {
         id: "1".into(),
         user_id: "u1".into(),
         name: "test".into(),
+        icon: None,
         description: None,
         list_type: "shopping".into(),
         parent_list_id: None,
         position: 0,
         archived: false,
-        features: vec![ListFeature {
-            name: FEATURE_QUANTITY.into(),
-            config: serde_json::json!({}),
-        }],
         container_id: None,
         pinned: false,
         last_opened_at: None,
         location_id: None,
         created_at: "2024-01-01".into(),
         updated_at: "2024-01-01".into(),
+        features: vec![ListFeature {
+            feature_name: FEATURE_QUANTITY.into(),
+            config: serde_json::json!({}),
+        }],
     };
     assert!(list.has_feature(FEATURE_QUANTITY));
     assert!(!list.has_feature(FEATURE_DEADLINES));
@@ -130,8 +132,10 @@ fn set_list_placement_request_allows_root_target() {
 fn create_list_request_rejects_two_targets() {
     let req = CreateListRequest {
         name: "Test".into(),
-        list_type: "checklist".into(),
-        features: None,
+        list_type: Some("checklist".into()),
+        icon: None,
+        description: None,
+        features: vec![],
         parent_list_id: Some("parent".into()),
         container_id: Some("container".into()),
     };
@@ -145,8 +149,10 @@ fn create_list_request_rejects_two_targets() {
 fn create_list_request_allows_parent_list_id() {
     let req = CreateListRequest {
         name: "Sublist".into(),
-        list_type: "custom".into(),
-        features: None,
+        list_type: Some("custom".into()),
+        icon: None,
+        description: None,
+        features: vec![],
         parent_list_id: Some("parent".into()),
         container_id: None,
     };
@@ -229,17 +235,18 @@ fn date_field_serde() {
 
 #[cfg(test)]
 mod list_feature_tests {
-    use crate::models::list::ListFeature;
+    use crate::types::ListFeature;
     use serde_json::json;
 
     #[test]
     fn list_feature_roundtrip() {
         let f = ListFeature {
-            name: "deadlines".into(),
+            feature_name: "deadlines".into(),
             config: json!({"has_deadline": true}),
         };
         let s = serde_json::to_string(&f).unwrap();
         let back: ListFeature = serde_json::from_str(&s).unwrap();
-        assert_eq!(f, back);
+        assert_eq!(back.feature_name, f.feature_name);
+        assert_eq!(back.config, f.config);
     }
 }

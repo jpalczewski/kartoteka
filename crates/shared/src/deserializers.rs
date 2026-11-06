@@ -31,7 +31,7 @@ pub(crate) fn u32_from_number<'de, D: Deserializer<'de>>(d: D) -> Result<u32, D:
 
 pub(crate) fn features_from_json<'de, D: Deserializer<'de>>(
     d: D,
-) -> Result<Vec<crate::models::list::ListFeature>, D::Error> {
+) -> Result<Vec<crate::types::ListFeature>, D::Error> {
     let v = serde_json::Value::deserialize(d)?;
     match v {
         serde_json::Value::String(s) => serde_json::from_str(&s).map_err(serde::de::Error::custom),

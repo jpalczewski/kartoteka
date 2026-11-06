@@ -1,5 +1,4 @@
 use crate::deserializers::{default_config, double_option};
-use crate::models::ListFeature;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,24 +35,6 @@ impl ReorderContainersRequest {
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.container_ids.is_empty() {
             return Err("container_ids must not be empty");
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateListRequest {
-    pub name: String,
-    pub list_type: String,
-    pub features: Option<Vec<ListFeature>>,
-    pub parent_list_id: Option<String>,
-    pub container_id: Option<String>,
-}
-
-impl CreateListRequest {
-    pub fn validate_placement(&self) -> Result<(), &'static str> {
-        if self.parent_list_id.is_some() && self.container_id.is_some() {
-            return Err("parent_list_id and container_id are mutually exclusive");
         }
         Ok(())
     }

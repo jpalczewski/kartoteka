@@ -267,6 +267,15 @@ pub struct CreateListRequest {
     pub features: Vec<String>,
 }
 
+impl CreateListRequest {
+    pub fn validate_placement(&self) -> Result<(), &'static str> {
+        if self.parent_list_id.is_some() && self.container_id.is_some() {
+            return Err("parent_list_id and container_id are mutually exclusive");
+        }
+        Ok(())
+    }
+}
+
 /// Shared Item type for server function return values.
 /// Mirrors domain::items::Item — kept in shared so WASM hydrate build can deserialize.
 #[derive(Debug, Clone, Serialize, Deserialize)]

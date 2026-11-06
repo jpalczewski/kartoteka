@@ -1,12 +1,4 @@
-use crate::deserializers::{bool_from_number, features_from_json};
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ListFeature {
-    pub name: String,
-    #[serde(default)]
-    pub config: serde_json::Value,
-}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -39,35 +31,5 @@ impl DateField {
             Self::Deadline => "deadline",
             Self::HardDeadline => "hard_deadline",
         }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct List {
-    pub id: String,
-    pub user_id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub list_type: String,
-    pub parent_list_id: Option<String>,
-    pub position: i32,
-    #[serde(deserialize_with = "bool_from_number")]
-    pub archived: bool,
-    #[serde(default, deserialize_with = "features_from_json")]
-    pub features: Vec<ListFeature>,
-    #[serde(default)]
-    pub container_id: Option<String>,
-    #[serde(default, deserialize_with = "bool_from_number")]
-    pub pinned: bool,
-    #[serde(default)]
-    pub last_opened_at: Option<String>,
-    pub location_id: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-impl List {
-    pub fn has_feature(&self, name: &str) -> bool {
-        self.features.iter().any(|f| f.name == name)
     }
 }
