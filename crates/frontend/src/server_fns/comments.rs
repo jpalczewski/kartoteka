@@ -3,8 +3,8 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    crate::server_fns::utils::format_datetime_in_tz, axum_login::AuthSession,
-    kartoteka_auth::KartotekaBackend, kartoteka_domain as domain, sqlx::SqlitePool,
+    crate::server_fns::utils::{SfnResultExt, format_datetime_in_tz, require_user},
+    kartoteka_domain as domain,
 };
 
 #[cfg(feature = "ssr")]
@@ -27,18 +27,12 @@ pub async fn get_comments(
     entity_type: String,
     entity_id: String,
 ) -> Result<CommentsPayload, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     let (comments, prefs) = tokio::try_join!(
         domain::comments::list_for_entity(&pool, &user.id, &entity_type, &entity_id),
         domain::preferences::get(&pool, &user.id),
     )
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    .sfn()?;
     Ok(CommentsPayload {
         comments: comments
             .into_iter()
@@ -57,13 +51,7 @@ pub async fn add_comment(
     if content.trim().is_empty() {
         return Err(ServerFnError::new("comment cannot be empty".to_string()));
     }
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     let comment = domain::comments::create(
         &pool,
         &user.id,
@@ -74,24 +62,16 @@ pub async fn add_comment(
         None,
     )
     .await
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let prefs = domain::preferences::get(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    .sfn()?;
+    let prefs = domain::preferences::get(&pool, &user.id).await.sfn()?;
     Ok(domain_comment_to_shared(comment, &prefs.timezone))
 }
 
 #[server(prefix = "/leptos")]
 pub async fn remove_comment(comment_id: String) -> Result<(), ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     domain::comments::delete(&pool, &user.id, &comment_id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
     Ok(())
 }

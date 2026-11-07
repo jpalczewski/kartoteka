@@ -1,14 +1,8 @@
 use super::*;
-use kartoteka_db::test_helpers::{create_test_user, test_pool};
+use kartoteka_db::test_helpers::{create_test_list, create_test_tag, create_test_user, test_pool};
 
 async fn create_list(pool: &SqlitePool, user_id: &str, features: &[&str]) -> String {
-    let list_id = Uuid::new_v4().to_string();
-    sqlx::query("INSERT INTO lists (id, user_id, name) VALUES (?, ?, 'Test List')")
-        .bind(&list_id)
-        .bind(user_id)
-        .execute(pool)
-        .await
-        .unwrap();
+    let list_id = create_test_list(pool, user_id).await;
     if !features.is_empty() {
         let obj: serde_json::Map<String, serde_json::Value> = features
             .iter()
@@ -766,13 +760,7 @@ async fn get_one_includes_tags_and_comments() {
         .await
         .unwrap();
 
-    let tag_id = Uuid::new_v4().to_string();
-    sqlx::query("INSERT INTO tags (id, user_id, name, tag_type) VALUES (?, ?, 'Sprint', 'basic')")
-        .bind(&tag_id)
-        .bind(&user_id)
-        .execute(&pool)
-        .await
-        .unwrap();
+    let tag_id = create_test_tag(&pool, &user_id, "Sprint").await;
     sqlx::query("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)")
         .bind(&item.id)
         .bind(&tag_id)
@@ -814,13 +802,7 @@ async fn list_for_list_includes_tags_and_comments_per_item() {
         .await
         .unwrap();
 
-    let tag_id = Uuid::new_v4().to_string();
-    sqlx::query("INSERT INTO tags (id, user_id, name, tag_type) VALUES (?, ?, 'Sprint', 'basic')")
-        .bind(&tag_id)
-        .bind(&user_id)
-        .execute(&pool)
-        .await
-        .unwrap();
+    let tag_id = create_test_tag(&pool, &user_id, "Sprint").await;
     sqlx::query("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)")
         .bind(&item_a.id)
         .bind(&tag_id)

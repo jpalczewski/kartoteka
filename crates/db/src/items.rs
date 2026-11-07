@@ -291,19 +291,6 @@ pub async fn insert(pool: &SqlitePool, input: &InsertItemInput) -> Result<ItemRo
     insert_row(&mut *conn, input).await
 }
 
-/// Insert multiple items through the shared INSERT.
-/// The caller provides the transaction, so the whole batch stays atomic.
-#[tracing::instrument(skip(conn, inputs), fields(count = inputs.len()))]
-pub async fn insert_many_in_tx(
-    conn: &mut SqliteConnection,
-    inputs: &[InsertItemInput],
-) -> Result<(), DbError> {
-    for input in inputs {
-        insert_row(&mut *conn, input).await?;
-    }
-    Ok(())
-}
-
 /// Same INSERT as `insert` but operates on an existing transaction connection.
 #[tracing::instrument(skip(conn))]
 pub async fn insert_in_tx(
@@ -600,19 +587,8 @@ pub async fn list_for_container(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{create_test_user, test_pool};
+    use crate::test_helpers::{create_test_list, create_test_user, test_pool};
     use sqlx::SqlitePool;
-
-    async fn setup_list(pool: &SqlitePool, user_id: &str) -> String {
-        let list_id = uuid::Uuid::new_v4().to_string();
-        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES (?, ?, 'Test List')")
-            .bind(&list_id)
-            .bind(user_id)
-            .execute(pool)
-            .await
-            .unwrap();
-        list_id
-    }
 
     async fn make_item(pool: &SqlitePool, list_id: &str, title: &str, pos: i32) -> ItemRow {
         insert(
@@ -633,7 +609,7 @@ mod tests {
     async fn insert_returning_gives_item() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
 
         let item = insert(
             &pool,
@@ -663,7 +639,7 @@ mod tests {
     async fn list_for_list_ordered_by_position() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
 
         make_item(&pool, &list_id, "Second", 1).await;
         make_item(&pool, &list_id, "First", 0).await;
@@ -688,7 +664,7 @@ mod tests {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
         let other_user = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
 
         let item = make_item(&pool, &list_id, "My item", 0).await;
 
@@ -700,7 +676,7 @@ mod tests {
     async fn by_date_matches_deadline() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
 
         let item_id = uuid::Uuid::new_v4().to_string();
         insert(
@@ -748,7 +724,7 @@ mod tests {
     async fn calendar_matches_month_prefix() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
 
         let item_id = uuid::Uuid::new_v4().to_string();
         insert(
@@ -796,7 +772,7 @@ mod tests {
     async fn update_coalesce_only_changes_provided_fields() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
 
         let item_id = uuid::Uuid::new_v4().to_string();
         let item = insert(
@@ -847,7 +823,7 @@ mod tests {
     async fn update_nullable_field_to_none_clears_it() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
 
         let item_id = uuid::Uuid::new_v4().to_string();
         insert(
@@ -895,7 +871,7 @@ mod tests {
     async fn toggle_complete_flips() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
 
         let item = make_item(&pool, &list_id, "Toggle me", 0).await;
         assert!(!item.completed);
@@ -913,7 +889,7 @@ mod tests {
     async fn delete_removes_item() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
 
         let item = make_item(&pool, &list_id, "Doomed", 0).await;
 
@@ -928,7 +904,7 @@ mod tests {
     async fn move_item_updates_position() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
 
         let item = make_item(&pool, &list_id, "Move me", 0).await;
         assert_eq!(item.position, 0);
@@ -1045,11 +1021,23 @@ mod tests {
         assert!(items.is_empty(), "should not see other user's items");
     }
 
+    /// Insert several items through the shared INSERT. Test-only: no production
+    /// path needs a batch insert, so this lives next to the tests that use it.
+    async fn insert_many_in_tx(
+        conn: &mut SqliteConnection,
+        inputs: &[InsertItemInput],
+    ) -> Result<(), DbError> {
+        for input in inputs {
+            insert_row(&mut *conn, input).await?;
+        }
+        Ok(())
+    }
+
     #[tokio::test]
     async fn insert_many_in_tx_inserts_all_in_order() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &uid).await;
+        let list_id = create_test_list(&pool, &uid).await;
 
         let inputs: Vec<InsertItemInput> = (0..5)
             .map(|i| InsertItemInput {
@@ -1077,7 +1065,7 @@ mod tests {
     async fn insert_many_in_tx_empty_is_noop() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &uid).await;
+        let list_id = create_test_list(&pool, &uid).await;
 
         let mut tx = pool.begin().await.unwrap();
         insert_many_in_tx(&mut tx, &[]).await.unwrap();
@@ -1091,7 +1079,7 @@ mod tests {
     async fn find_by_title_exact_match() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &uid).await;
+        let list_id = create_test_list(&pool, &uid).await;
         let item = make_item(&pool, &list_id, "Buy milk", 0).await;
         let found = find_id_by_title_in_list(&pool, &list_id, "Buy milk", None)
             .await
@@ -1103,7 +1091,7 @@ mod tests {
     async fn find_by_title_case_insensitive() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &uid).await;
+        let list_id = create_test_list(&pool, &uid).await;
         let item = make_item(&pool, &list_id, "Buy Milk", 0).await;
         let found = find_id_by_title_in_list(&pool, &list_id, "buy milk", None)
             .await
@@ -1115,7 +1103,7 @@ mod tests {
     async fn find_by_title_excludes_self() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &uid).await;
+        let list_id = create_test_list(&pool, &uid).await;
         let item = make_item(&pool, &list_id, "Buy milk", 0).await;
         let found = find_id_by_title_in_list(&pool, &list_id, "Buy milk", Some(&item.id))
             .await
@@ -1127,8 +1115,8 @@ mod tests {
     async fn find_by_title_different_list_not_found() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list1 = setup_list(&pool, &uid).await;
-        let list2 = setup_list(&pool, &uid).await;
+        let list1 = create_test_list(&pool, &uid).await;
+        let list2 = create_test_list(&pool, &uid).await;
         make_item(&pool, &list1, "Buy milk", 0).await;
         let found = find_id_by_title_in_list(&pool, &list2, "Buy milk", None)
             .await
@@ -1204,8 +1192,8 @@ mod tests {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
         let other = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &uid).await;
-        let other_list = setup_list(&pool, &other).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let other_list = create_test_list(&pool, &other).await;
         make_dated_item(&pool, &list_id, "Mine", None, Some("2026-05-01"), None).await;
         make_dated_item(&pool, &other_list, "Theirs", None, Some("2026-05-01"), None).await;
 
@@ -1220,8 +1208,8 @@ mod tests {
     async fn feed_scopes_to_list() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list1 = setup_list(&pool, &uid).await;
-        let list2 = setup_list(&pool, &uid).await;
+        let list1 = create_test_list(&pool, &uid).await;
+        let list2 = create_test_list(&pool, &uid).await;
         make_dated_item(&pool, &list1, "In list 1", None, Some("2026-05-01"), None).await;
         make_dated_item(&pool, &list2, "In list 2", None, Some("2026-05-02"), None).await;
 
@@ -1236,7 +1224,7 @@ mod tests {
     async fn feed_list_scope_includes_direct_sublists() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let parent = setup_list(&pool, &uid).await;
+        let parent = create_test_list(&pool, &uid).await;
         let child = setup_named_list(&pool, &uid, "Child").await;
         sqlx::query("UPDATE lists SET parent_list_id = ? WHERE id = ?")
             .bind(&parent)
@@ -1251,7 +1239,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        let unrelated = setup_list(&pool, &uid).await;
+        let unrelated = create_test_list(&pool, &uid).await;
 
         make_dated_item(&pool, &parent, "In parent", None, Some("2026-05-01"), None).await;
         make_dated_item(&pool, &child, "In child", None, Some("2026-05-02"), None).await;
@@ -1285,7 +1273,7 @@ mod tests {
     async fn feed_filters_by_from_date() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &uid).await;
+        let list_id = create_test_list(&pool, &uid).await;
         make_dated_item(&pool, &list_id, "Old", None, Some("2025-12-31"), None).await;
         make_dated_item(
             &pool,
@@ -1309,7 +1297,7 @@ mod tests {
     async fn feed_matches_any_of_the_three_dates() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &uid).await;
+        let list_id = create_test_list(&pool, &uid).await;
         make_dated_item(&pool, &list_id, "By start", Some("2026-03-01"), None, None).await;
         make_dated_item(
             &pool,
@@ -1333,7 +1321,7 @@ mod tests {
     async fn feed_excludes_items_without_dates() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &uid).await;
+        let list_id = create_test_list(&pool, &uid).await;
         make_item(&pool, &list_id, "Undated", 0).await;
         make_dated_item(&pool, &list_id, "Dated", None, Some("2026-05-01"), None).await;
 
@@ -1348,7 +1336,7 @@ mod tests {
     async fn feed_includes_completed_items() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &uid).await;
+        let list_id = create_test_list(&pool, &uid).await;
         let item = make_dated_item(&pool, &list_id, "Done", None, Some("2026-05-01"), None).await;
         set_completed(&pool, &item.id, true).await.unwrap();
 
@@ -1363,8 +1351,8 @@ mod tests {
     async fn feed_excludes_archived_lists() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &uid).await;
-        let archived_id = setup_list(&pool, &uid).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let archived_id = create_test_list(&pool, &uid).await;
         sqlx::query("UPDATE lists SET archived = 1 WHERE id = ?")
             .bind(&archived_id)
             .execute(&pool)
@@ -1392,7 +1380,7 @@ mod tests {
     async fn feed_ordered_by_earliest_date_then_position() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &uid).await;
+        let list_id = create_test_list(&pool, &uid).await;
         make_dated_item(&pool, &list_id, "Later", None, None, Some("2026-09-01")).await;
         make_dated_item(&pool, &list_id, "Sooner", Some("2026-02-01"), None, None).await;
         make_dated_item(&pool, &list_id, "Middle", None, Some("2026-04-01"), None).await;

@@ -4,6 +4,10 @@ use crate::{
 };
 use sqlx::SqlitePool;
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const LOCATION_COLS: &str = "id, user_id, name, alias, region, address, type AS \"type\", country_id, parent_id, lat, lon, created_at";
+
 pub async fn list_countries(pool: &SqlitePool) -> Result<Vec<CountryRow>, DbError> {
     Ok(
         sqlx::query_as::<_, CountryRow>("SELECT id, iso_code FROM countries ORDER BY iso_code")
@@ -53,10 +57,9 @@ pub async fn get_location(
     id: &str,
     user_id: &str,
 ) -> Result<Option<LocationRow>, DbError> {
-    Ok(sqlx::query_as::<_, LocationRow>(
-        "SELECT id, user_id, name, alias, region, address, type AS \"type\", country_id, parent_id, lat, lon, created_at \
-         FROM locations WHERE id = ? AND user_id = ?",
-    )
+    Ok(sqlx::query_as::<_, LocationRow>(&format!(
+        "SELECT {LOCATION_COLS} FROM locations WHERE id = ? AND user_id = ?"
+    ))
     .bind(id)
     .bind(user_id)
     .fetch_optional(pool)
@@ -64,10 +67,9 @@ pub async fn get_location(
 }
 
 pub async fn list_locations(pool: &SqlitePool, user_id: &str) -> Result<Vec<LocationRow>, DbError> {
-    Ok(sqlx::query_as::<_, LocationRow>(
-        "SELECT id, user_id, name, alias, region, address, type AS \"type\", country_id, parent_id, lat, lon, created_at \
-         FROM locations WHERE user_id = ? ORDER BY type, name",
-    )
+    Ok(sqlx::query_as::<_, LocationRow>(&format!(
+        "SELECT {LOCATION_COLS} FROM locations WHERE user_id = ? ORDER BY type, name"
+    ))
     .bind(user_id)
     .fetch_all(pool)
     .await?)
@@ -132,21 +134,19 @@ pub async fn find_city(
     region: Option<&str>,
 ) -> Result<Vec<LocationRow>, DbError> {
     Ok(match region {
-        Some(r) => sqlx::query_as::<_, LocationRow>(
-            "SELECT id, user_id, name, alias, region, address, type AS \"type\", country_id, parent_id, lat, lon, created_at \
-             FROM locations WHERE user_id = ? AND country_id = ? AND type = 'city' \
-             AND LOWER(name) = LOWER(?) AND LOWER(COALESCE(region,'')) = LOWER(?)",
-        )
+        Some(r) => sqlx::query_as::<_, LocationRow>(&format!(
+            "SELECT {LOCATION_COLS} FROM locations WHERE user_id = ? AND country_id = ? AND type = 'city' \
+             AND LOWER(name) = LOWER(?) AND LOWER(COALESCE(region,'')) = LOWER(?)"
+        ))
         .bind(user_id)
         .bind(country_id)
         .bind(name)
         .bind(r)
         .fetch_all(pool)
         .await?,
-        None => sqlx::query_as::<_, LocationRow>(
-            "SELECT id, user_id, name, alias, region, address, type AS \"type\", country_id, parent_id, lat, lon, created_at \
-             FROM locations WHERE user_id = ? AND country_id = ? AND type = 'city' AND LOWER(name) = LOWER(?)",
-        )
+        None => sqlx::query_as::<_, LocationRow>(&format!(
+            "SELECT {LOCATION_COLS} FROM locations WHERE user_id = ? AND country_id = ? AND type = 'city' AND LOWER(name) = LOWER(?)"
+        ))
         .bind(user_id)
         .bind(country_id)
         .bind(name)
@@ -160,31 +160,13 @@ pub async fn find_by_alias(
     user_id: &str,
     alias: &str,
 ) -> Result<Option<LocationRow>, DbError> {
-    Ok(sqlx::query_as::<_, LocationRow>(
-        "SELECT id, user_id, name, alias, region, address, type AS \"type\", country_id, parent_id, lat, lon, created_at \
-         FROM locations WHERE user_id = ? AND LOWER(alias) = LOWER(?)",
-    )
+    Ok(sqlx::query_as::<_, LocationRow>(&format!(
+        "SELECT {LOCATION_COLS} FROM locations WHERE user_id = ? AND LOWER(alias) = LOWER(?)"
+    ))
     .bind(user_id)
     .bind(alias)
     .fetch_optional(pool)
     .await?)
-}
-
-pub async fn subtree_location_ids(
-    pool: &SqlitePool,
-    root_id: &str,
-) -> Result<Vec<String>, DbError> {
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "WITH subtree AS ( \
-             SELECT id FROM locations WHERE id = ? \
-             UNION ALL \
-             SELECT l.id FROM locations l JOIN subtree s ON l.parent_id = s.id \
-         ) SELECT id FROM subtree",
-    )
-    .bind(root_id)
-    .fetch_all(pool)
-    .await?;
-    Ok(rows.into_iter().map(|(id,)| id).collect())
 }
 
 #[derive(Debug)]
@@ -215,6 +197,24 @@ mod tests {
     use super::*;
     use crate::test_helpers::{create_test_user, test_pool};
     use uuid::Uuid;
+
+    /// All location ids in the subtree rooted at `root_id`. Test-only helper.
+    async fn subtree_location_ids(
+        pool: &SqlitePool,
+        root_id: &str,
+    ) -> Result<Vec<String>, DbError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "WITH subtree AS ( \
+                 SELECT id FROM locations WHERE id = ? \
+                 UNION ALL \
+                 SELECT l.id FROM locations l JOIN subtree s ON l.parent_id = s.id \
+             ) SELECT id FROM subtree",
+        )
+        .bind(root_id)
+        .fetch_all(pool)
+        .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
 
     #[tokio::test]
     async fn countries_seeded() {

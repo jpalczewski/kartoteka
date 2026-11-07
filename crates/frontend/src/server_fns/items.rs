@@ -8,24 +8,15 @@ use leptos::prelude::*;
 use {
     crate::server_fns::comments::domain_comment_to_shared,
     crate::server_fns::home::{domain_list_to_shared, domain_tag_to_shared},
-    crate::server_fns::utils::format_datetime_in_tz,
-    axum_login::AuthSession,
-    kartoteka_auth::KartotekaBackend,
+    crate::server_fns::utils::{SfnResultExt, format_datetime_in_tz, require_user},
     kartoteka_db as db, kartoteka_domain as domain,
     kartoteka_shared::types::{CommentsPayload, ItemTagLink},
-    sqlx::SqlitePool,
 };
 
 /// Fetch list header + items + direct sublists in one call.
 #[server(prefix = "/leptos")]
 pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
 
     // Record the open so the home page "recent" section can list it. Best-effort:
     // a failure here must not break the page.
@@ -33,11 +24,6 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
         leptos::logging::warn!("failed to touch list last_opened_at: {e}");
     }
 
-    macro_rules! sfn_err {
-        ($e:expr) => {
-            ServerFnError::new($e.to_string())
-        };
-    }
     let (
         list_res,
         items_res,
@@ -51,42 +37,34 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
         async {
             domain::lists::get_one(&pool, &list_id, &user.id)
                 .await
-                .map_err(|e| sfn_err!(e))
+                .sfn()
         },
         async {
             domain::items::list_for_list(&pool, &list_id, &user.id)
                 .await
-                .map_err(|e| sfn_err!(e))
+                .sfn()
         },
         async {
             domain::lists::sublists(&pool, &list_id, &user.id)
                 .await
-                .map_err(|e| sfn_err!(e))
+                .sfn()
         },
-        async {
-            domain::settings::list_all(&pool, &user.id)
-                .await
-                .map_err(|e| sfn_err!(e))
-        },
+        async { domain::settings::list_all(&pool, &user.id).await.sfn() },
         async {
             db::tags::get_item_tags_for_list(&pool, &list_id, &user.id)
                 .await
-                .map_err(|e| sfn_err!(e))
+                .sfn()
         },
-        async {
-            domain::tags::list_all(&pool, &user.id)
-                .await
-                .map_err(|e| sfn_err!(e))
-        },
+        async { domain::tags::list_all(&pool, &user.id).await.sfn() },
         async {
             db::tags::get_all_list_tag_links(&pool, &user.id)
                 .await
-                .map_err(|e| sfn_err!(e))
+                .sfn()
         },
         async {
             domain::comments::list_for_entity(&pool, &user.id, "list", &list_id)
                 .await
-                .map_err(|e| sfn_err!(e))
+                .sfn()
         },
     );
     let list = list_res?.ok_or_else(|| ServerFnError::new("list not found".to_string()))?;
@@ -186,13 +164,7 @@ pub async fn create_item(
     if title.trim().is_empty() {
         return Err(ServerFnError::new("title cannot be empty".to_string()));
     }
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     let desc = description.filter(|d| !d.trim().is_empty());
     let opt_date = |s: Option<String>| s.and_then(empty_as_none);
     let item = domain::items::create(
@@ -214,23 +186,17 @@ pub async fn create_item(
         },
     )
     .await
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    .sfn()?;
     Ok(item.into())
 }
 
 /// Toggle completed state of an item. Returns the updated item.
 #[server(prefix = "/leptos")]
 pub async fn toggle_item(item_id: String) -> Result<Option<Item>, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     let result = domain::items::toggle_complete(&pool, &user.id, &item_id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
     Ok(result.map(Item::from))
 }
 
@@ -239,16 +205,10 @@ pub async fn toggle_item(item_id: String) -> Result<Option<Item>, ServerFnError>
 /// position. The whole rewrite runs in one domain transaction.
 #[server(prefix = "/leptos")]
 pub async fn reorder_items(list_id: String, item_ids: Vec<String>) -> Result<(), ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     domain::items::reorder(&pool, &user.id, &list_id, &item_ids)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))
+        .sfn()
 }
 
 /// Cross-list item move: put `item_id` into `target_list_id` right before
@@ -261,13 +221,7 @@ pub async fn set_item_placement(
     target_list_id: String,
     before_item_id: Option<String>,
 ) -> Result<(), ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     domain::items::place(
         &pool,
         &user.id,
@@ -276,22 +230,16 @@ pub async fn set_item_placement(
         before_item_id.as_deref(),
     )
     .await
-    .map_err(|e| ServerFnError::new(e.to_string()))
+    .sfn()
 }
 
 /// Move an item to a different list (appended at the end of the target list).
 #[server(prefix = "/leptos")]
 pub async fn move_item(item_id: String, target_list_id: String) -> Result<Item, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     let ctx = kartoteka_db::lists::get_create_item_context(&pool, &target_list_id, &user.id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .sfn()?
         .ok_or_else(|| ServerFnError::new("target list not found".to_string()))?;
     let req = domain::items::MoveItemRequest {
         position: ctx.next_position as i32,
@@ -299,7 +247,7 @@ pub async fn move_item(item_id: String, target_list_id: String) -> Result<Item, 
     };
     let item = domain::items::move_item(&pool, &user.id, &item_id, &req)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .sfn()?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
     Ok(item.into())
 }
@@ -307,16 +255,10 @@ pub async fn move_item(item_id: String, target_list_id: String) -> Result<Item, 
 /// Delete an item by id.
 #[server(prefix = "/leptos")]
 pub async fn delete_item(item_id: String) -> Result<(), ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     let deleted = domain::items::delete(&pool, &user.id, &item_id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
     if !deleted {
         return Err(ServerFnError::new("item not found".to_string()));
     }
@@ -330,16 +272,10 @@ pub async fn update_actual_quantity(
     item_id: String,
     new_actual: i32,
 ) -> Result<Item, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     let current = domain::items::get_one(&pool, &item_id, &user.id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .sfn()?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
     let auto_complete = current
         .quantity
@@ -362,7 +298,7 @@ pub async fn update_actual_quantity(
     };
     let item = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .sfn()?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
     Ok(item.into())
 }
@@ -376,13 +312,7 @@ pub async fn update_item_quantity(
     actual_quantity: Option<i32>,
     unit: String,
 ) -> Result<Item, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     let unit_val = if unit.trim().is_empty() {
         None
     } else {
@@ -405,7 +335,7 @@ pub async fn update_item_quantity(
     };
     let item = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .sfn()?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
     Ok(item.into())
 }
@@ -416,19 +346,13 @@ pub async fn update_item_quantity(
 /// detail page renders them during SSR and hydrates without a nested fetch.
 #[server(prefix = "/leptos")]
 pub async fn get_item_detail(item_id: String) -> Result<ItemDetailData, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     let (item, comments, prefs) = tokio::try_join!(
         domain::items::get_one(&pool, &item_id, &user.id),
         domain::comments::list_for_entity(&pool, &user.id, "item", &item_id),
         domain::preferences::get(&pool, &user.id),
     )
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    .sfn()?;
     let mut item = item
         .map(Item::from)
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
@@ -453,13 +377,7 @@ pub async fn update_item_description(
     item_id: String,
     description: String,
 ) -> Result<Item, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     let req = domain::items::UpdateItemRequest {
         title: None,
         description: Some(if description.trim().is_empty() {
@@ -481,7 +399,7 @@ pub async fn update_item_description(
     };
     let item = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .sfn()?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
     Ok(item.into())
 }
@@ -497,13 +415,7 @@ pub async fn update_item_dates(
     deadline_time: Option<String>,
     hard_deadline: Option<String>,
 ) -> Result<Item, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
 
     let to_field = |s: Option<String>| s.map(empty_as_none);
 
@@ -524,7 +436,7 @@ pub async fn update_item_dates(
     };
     let item = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .sfn()?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
     Ok(item.into())
 }
@@ -540,13 +452,7 @@ pub async fn update_item(
     if title.trim().is_empty() {
         return Err(ServerFnError::new("title cannot be empty".to_string()));
     }
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     let req = domain::items::UpdateItemRequest {
         title: Some(title),
         description: Some(if description.trim().is_empty() {
@@ -568,7 +474,7 @@ pub async fn update_item(
     };
     let item = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .sfn()?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
     Ok(item.into())
 }
@@ -627,29 +533,17 @@ pub(crate) fn items_to_date_items(
 /// (incomplete items with deadline before today), both enriched with list names.
 #[server(prefix = "/leptos")]
 pub async fn get_today_data() -> Result<TodayData, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
 
     // Resolve today's date in the user's timezone first (shared with list grouping).
-    let today_date = domain::items::user_today(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let today_date = domain::items::user_today(&pool, &user.id).await.sfn()?;
 
     // Pass resolved date string (not "today") to avoid double timezone resolution inside domain
     let today_items = domain::items::by_date(&pool, &user.id, &today_date)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let overdue_items = domain::items::overdue(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let all_lists = domain::lists::list_all(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
+    let overdue_items = domain::items::overdue(&pool, &user.id).await.sfn()?;
+    let all_lists = domain::lists::list_all(&pool, &user.id).await.sfn()?;
 
     let list_meta = build_list_meta(all_lists);
 
@@ -664,20 +558,10 @@ pub async fn get_today_data() -> Result<TodayData, ServerFnError> {
 /// enriched with list names. Pass a "YYYY-MM-DD" string.
 #[server(prefix = "/leptos")]
 pub async fn get_items_by_date(date: String) -> Result<Vec<DateItem>, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
 
-    let items = domain::items::by_date(&pool, &user.id, &date)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let all_lists = domain::lists::list_all(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let items = domain::items::by_date(&pool, &user.id, &date).await.sfn()?;
+    let all_lists = domain::lists::list_all(&pool, &user.id).await.sfn()?;
     let list_meta = build_list_meta(all_lists);
     Ok(items_to_date_items(items, &list_meta))
 }
@@ -685,20 +569,12 @@ pub async fn get_items_by_date(date: String) -> Result<Vec<DateItem>, ServerFnEr
 /// Fetch all items for the current user, enriched with list names.
 #[server(prefix = "/leptos")]
 pub async fn get_all_items() -> Result<Vec<DateItem>, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
 
     let items = domain::items::list_all_for_user(&pool, &user.id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let all_lists = domain::lists::list_all(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
+    let all_lists = domain::lists::list_all(&pool, &user.id).await.sfn()?;
 
     let list_meta = build_list_meta(all_lists);
     Ok(items_to_date_items(items, &list_meta))
@@ -711,13 +587,7 @@ pub async fn get_calendar_week(start_date: String) -> Result<Vec<CalendarWeekDay
     use chrono::{Datelike, Duration, NaiveDate};
     use std::str::FromStr;
 
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
 
     let date = NaiveDate::from_str(&start_date)
         .map_err(|_| ServerFnError::new("invalid date".to_string()))?;
@@ -725,9 +595,7 @@ pub async fn get_calendar_week(start_date: String) -> Result<Vec<CalendarWeekDay
 
     let week_dates: Vec<NaiveDate> = (0..7).map(|i| monday + Duration::days(i)).collect();
 
-    let all_lists = domain::lists::list_all(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let all_lists = domain::lists::list_all(&pool, &user.id).await.sfn()?;
     let list_meta = build_list_meta(all_lists);
 
     let mut days = Vec::with_capacity(7);
@@ -735,7 +603,7 @@ pub async fn get_calendar_week(start_date: String) -> Result<Vec<CalendarWeekDay
         let date_str = d.format("%Y-%m-%d").to_string();
         let items = domain::items::by_date(&pool, &user.id, &date_str)
             .await
-            .map_err(|e| ServerFnError::new(e.to_string()))?;
+            .sfn()?;
         days.push(CalendarWeekDay {
             date: date_str,
             items: items_to_date_items(items, &list_meta),
@@ -751,19 +619,11 @@ pub async fn get_calendar_month(year_month: String) -> Result<CalendarMonthData,
     use chrono::{Datelike, NaiveDate};
     use kartoteka_shared::types::{CalendarDay, FlexDate};
 
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
 
     // Resolve empty string → current month in user's timezone
     let ym = if year_month.is_empty() {
-        let prefs = domain::preferences::get(&pool, &user.id)
-            .await
-            .map_err(|e| ServerFnError::new(e.to_string()))?;
+        let prefs = domain::preferences::get(&pool, &user.id).await.sfn()?;
         let tz: chrono_tz::Tz = prefs.timezone.parse().unwrap_or(chrono_tz::UTC);
         chrono::Utc::now()
             .with_timezone(&tz)
@@ -798,9 +658,7 @@ pub async fn get_calendar_month(year_month: String) -> Result<CalendarMonthData,
     let days_in_month = next_month_first.signed_duration_since(first_day).num_days() as u8;
 
     // Fetch items for this month
-    let items = domain::items::calendar(&pool, &user.id, &ym)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let items = domain::items::calendar(&pool, &user.id, &ym).await.sfn()?;
 
     // Compute per-day counts: each item counted once per Day-precision date field
     let mut day_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();

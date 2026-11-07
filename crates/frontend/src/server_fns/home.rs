@@ -3,8 +3,9 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    super::utils::build_ancestors, axum_login::AuthSession, kartoteka_auth::KartotekaBackend,
-    kartoteka_domain as domain, kartoteka_shared::types::Tag, sqlx::SqlitePool,
+    super::utils::{SfnResultExt, build_ancestors, require_user},
+    kartoteka_domain as domain,
+    kartoteka_shared::types::Tag,
 };
 
 /// Convert domain::lists::List to shared::types::List.
@@ -50,19 +51,13 @@ pub(crate) fn domain_tag_to_shared(t: domain::tags::Tag) -> Tag {
 /// Home page data: 6 sections (pinned/recent/root for both containers and lists).
 #[server(prefix = "/leptos")]
 pub async fn get_home_data() -> Result<HomeData, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
 
     let (mut home, all_containers) = tokio::try_join!(
         domain::home::query(&pool, &user.id),
         domain::containers::list_all(&pool, &user.id),
     )
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    .sfn()?;
 
     home.pinned_containers = home
         .pinned_containers
@@ -87,30 +82,16 @@ pub async fn get_home_data() -> Result<HomeData, ServerFnError> {
 /// Archived lists for the home page archive section.
 #[server(prefix = "/leptos")]
 pub async fn get_archived_lists() -> Result<Vec<List>, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    let lists = domain::lists::list_archived(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let (pool, user) = require_user().await?;
+    let lists = domain::lists::list_archived(&pool, &user.id).await.sfn()?;
     Ok(lists.into_iter().map(domain_list_to_shared).collect())
 }
 
 /// Archived containers for the home page archive section.
 #[server(prefix = "/leptos")]
 pub async fn get_archived_containers() -> Result<Vec<Container>, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     domain::containers::list_archived(&pool, &user.id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))
+        .sfn()
 }

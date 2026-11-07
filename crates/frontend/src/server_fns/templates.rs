@@ -4,8 +4,8 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    axum_login::AuthSession, kartoteka_auth::KartotekaBackend, kartoteka_domain as domain,
-    sqlx::SqlitePool,
+    crate::server_fns::utils::{SfnResultExt, require_user},
+    kartoteka_domain as domain,
 };
 
 #[cfg(feature = "ssr")]
@@ -36,17 +36,9 @@ fn domain_tmpl_to_shared(t: domain::templates::TemplateWithItems) -> TemplateWit
 
 #[server(prefix = "/leptos")]
 pub async fn get_templates() -> Result<Vec<TemplateWithItems>, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
 
-    let templates = domain::templates::list(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let templates = domain::templates::list(&pool, &user.id).await.sfn()?;
 
     Ok(templates.into_iter().map(domain_tmpl_to_shared).collect())
 }
@@ -59,34 +51,22 @@ pub async fn create_template_from_list(
     if name.trim().is_empty() {
         return Err(ServerFnError::new("name cannot be empty".to_string()));
     }
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
 
     let template = domain::templates::create_from_list(&pool, &user.id, &list_id, &name)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
 
     Ok(domain_tmpl_to_shared(template))
 }
 
 #[server(prefix = "/leptos")]
 pub async fn delete_template(id: String) -> Result<(), ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
 
     let deleted = domain::templates::delete(&pool, &user.id, &id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
 
     if !deleted {
         return Err(ServerFnError::new("template not found".to_string()));

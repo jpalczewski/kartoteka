@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "ssr")]
 use {
+    crate::server_fns::utils::{SfnResultExt, current_user},
     axum_login::AuthSession,
     kartoteka_auth::{KartotekaBackend, LoginCredentials},
     kartoteka_domain as domain,
@@ -24,12 +25,7 @@ pub enum LoginOutcome {
 /// Current user's display name — used by the navbar.
 #[server(prefix = "/leptos")]
 pub async fn get_nav_data() -> Result<String, ServerFnError> {
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let user = current_user().await?;
     Ok(user.name.unwrap_or(user.email))
 }
 
@@ -56,18 +52,16 @@ pub async fn do_login(
     let user = auth
         .authenticate(credentials)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .sfn()?
         .ok_or_else(|| ServerFnError::new("invalid credentials".to_string()))?;
 
-    let totp_enabled = domain::auth::is_totp_enabled(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let totp_enabled = domain::auth::is_totp_enabled(&pool, &user.id).await.sfn()?;
 
     if totp_enabled {
         session
             .insert(SESSION_PENDING_USER_KEY, &user.id)
             .await
-            .map_err(|e| ServerFnError::new(e.to_string()))?;
+            .sfn()?;
         if let Some(rt) = return_to.as_deref() {
             let safe = safe_return_to(rt);
             if safe != "/" {
@@ -77,9 +71,7 @@ pub async fn do_login(
         return Ok(LoginOutcome::TwoFaRequired);
     }
 
-    auth.login(&user)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    auth.login(&user).await.sfn()?;
 
     let redirect_to = return_to.as_deref().map_or("/", safe_return_to);
     leptos_axum::redirect(redirect_to);
@@ -102,12 +94,12 @@ pub async fn do_verify_2fa(code: String) -> Result<(), ServerFnError> {
     let user_id: String = session
         .get(SESSION_PENDING_USER_KEY)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .sfn()?
         .ok_or_else(|| ServerFnError::new("no_pending_2fa".to_string()))?;
 
     let valid = domain::auth::check_totp_code(&pool, &user_id, &code)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
 
     if !valid {
         let attempts: u32 = session
@@ -132,7 +124,7 @@ pub async fn do_verify_2fa(code: String) -> Result<(), ServerFnError> {
 
     let user = kartoteka_auth::get_user_by_id(&pool, &user_id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .sfn()?
         .ok_or_else(|| ServerFnError::new("user_not_found".to_string()))?;
 
     let return_to: Option<String> = session.remove(SESSION_RETURN_TO_KEY).await.unwrap_or(None);
@@ -141,9 +133,7 @@ pub async fn do_verify_2fa(code: String) -> Result<(), ServerFnError> {
         .remove::<u32>(SESSION_PENDING_2FA_ATTEMPTS_KEY)
         .await;
 
-    auth.login(&user)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    auth.login(&user).await.sfn()?;
 
     let redirect_to = return_to.as_deref().map_or("/", safe_return_to);
     leptos_axum::redirect(redirect_to);
@@ -157,9 +147,7 @@ pub async fn do_logout() -> Result<(), ServerFnError> {
         .await
         .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
 
-    auth.logout()
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    auth.logout().await.sfn()?;
 
     leptos_axum::redirect("/login");
     Ok(())
@@ -179,7 +167,7 @@ pub async fn do_register(
 
     domain::auth::register(&pool, &email, &password, name.as_deref())
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
 
     let credentials = LoginCredentials { email, password };
     match auth.authenticate(credentials).await {

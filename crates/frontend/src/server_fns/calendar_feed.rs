@@ -10,27 +10,19 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    crate::server_fns::utils::format_datetime_in_tz, axum_login::AuthSession,
-    kartoteka_auth::KartotekaBackend, kartoteka_domain as domain, sqlx::SqlitePool,
+    crate::server_fns::utils::{SfnResultExt, format_datetime_in_tz, require_user},
+    kartoteka_domain as domain,
 };
 
 /// List the current user's calendar subscription tokens, with the scoped list's
 /// name resolved for display.
 #[server(prefix = "/leptos")]
 pub async fn list_calendar_tokens_sf() -> Result<Vec<CalendarTokenInfo>, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    let rows = domain::calendar::list_tokens(&pool, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let (pool, user) = require_user().await?;
+    let rows = domain::calendar::list_tokens(&pool, &user.id).await.sfn()?;
     let tz = domain::preferences::get(&pool, &user.id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .sfn()?
         .timezone;
 
     let mut tokens = Vec::with_capacity(rows.len());
@@ -40,7 +32,7 @@ pub async fn list_calendar_tokens_sf() -> Result<Vec<CalendarTokenInfo>, ServerF
         let list_name = match row.list_id.as_deref() {
             Some(list_id) => domain::lists::get_one(&pool, list_id, &user.id)
                 .await
-                .map_err(|e| ServerFnError::new(e.to_string()))?
+                .sfn()?
                 .map(|list| list.name),
             None => None,
         };
@@ -63,16 +55,10 @@ pub async fn create_calendar_token_sf(
     name: String,
     list_id: Option<String>,
 ) -> Result<CalendarTokenCreatedDto, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     let created = domain::calendar::create_token(&pool, &user.id, &name, list_id.as_deref())
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
     Ok(CalendarTokenCreatedDto {
         id: created.id,
         name: created.name,
@@ -85,45 +71,27 @@ pub async fn create_calendar_token_sf(
 /// feed URL stops receiving updates.
 #[server(prefix = "/leptos")]
 pub async fn revoke_calendar_token_sf(id: String) -> Result<(), ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     domain::calendar::revoke_token(&pool, &user.id, &id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))
+        .sfn()
 }
 
 /// The current user's default reminders (minutes before each date field).
 #[server(prefix = "/leptos")]
 pub async fn get_reminder_defaults_sf() -> Result<ReminderDefaults, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     domain::calendar::get_reminder_defaults(&pool, &user.id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))
+        .sfn()
 }
 
 /// Persist the default reminders. The domain validates the shape (at most 5
 /// offsets per field, each at most 28 days).
 #[server(prefix = "/leptos")]
 pub async fn set_reminder_defaults_sf(value: ReminderDefaults) -> Result<(), ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     domain::calendar::set_reminder_defaults(&pool, &user.id, &value)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))
+        .sfn()
 }

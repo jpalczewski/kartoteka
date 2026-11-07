@@ -7,7 +7,7 @@ const TAG_COLS: &str =
     "id, user_id, name, icon, color, parent_tag_id, tag_type, metadata, created_at";
 
 /// Prefixed version for JOIN queries where tags is aliased as `t`.
-const TAG_COLS_T: &str = "t.id, t.user_id, t.name, t.icon, t.color, t.parent_tag_id, t.tag_type, t.metadata, t.created_at";
+pub(crate) const TAG_COLS_T: &str = "t.id, t.user_id, t.name, t.icon, t.color, t.parent_tag_id, t.tag_type, t.metadata, t.created_at";
 
 // ── Input types ───────────────────────────────────────────────────────────────
 
@@ -258,6 +258,14 @@ where
 
 #[tracing::instrument(skip(pool))]
 pub async fn insert(pool: &SqlitePool, input: &InsertTagInput) -> Result<TagRow, DbError> {
+    insert_row(pool, input).await
+}
+
+/// The single tag INSERT used by every write path.
+async fn insert_row<'e, E>(executor: E, input: &InsertTagInput) -> Result<TagRow, DbError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     sqlx::query_as::<_, TagRow>(&format!(
         "INSERT INTO tags (id, user_id, name, icon, color, parent_tag_id, tag_type, metadata) \
          VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
@@ -271,30 +279,18 @@ pub async fn insert(pool: &SqlitePool, input: &InsertTagInput) -> Result<TagRow,
     .bind(&input.parent_tag_id)
     .bind(&input.tag_type)
     .bind(&input.metadata)
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await
     .map_err(DbError::Sqlx)
 }
 
+/// Same INSERT as `insert` but operates on an existing transaction connection.
 #[tracing::instrument(skip(conn))]
 pub async fn insert_in_tx(
     conn: &mut SqliteConnection,
     input: &InsertTagInput,
 ) -> Result<(), DbError> {
-    sqlx::query(
-        "INSERT INTO tags (id, user_id, name, icon, color, parent_tag_id, tag_type, metadata) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(&input.id)
-    .bind(&input.user_id)
-    .bind(&input.name)
-    .bind(&input.icon)
-    .bind(&input.color)
-    .bind(&input.parent_tag_id)
-    .bind(&input.tag_type)
-    .bind(&input.metadata)
-    .execute(&mut *conn)
-    .await?;
+    insert_row(&mut *conn, input).await?;
     Ok(())
 }
 

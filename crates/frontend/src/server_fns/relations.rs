@@ -3,8 +3,8 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    axum_login::AuthSession, kartoteka_auth::KartotekaBackend, kartoteka_domain as domain,
-    sqlx::SqlitePool,
+    crate::server_fns::utils::{SfnResultExt, require_user},
+    kartoteka_domain as domain,
 };
 
 #[cfg(feature = "ssr")]
@@ -28,16 +28,10 @@ pub async fn get_relations(
     entity_type: String,
     entity_id: String,
 ) -> Result<Vec<Relation>, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     let rels = domain::relations::get_for_entity(&pool, &user.id, &entity_type, &entity_id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
     Ok(rels.into_iter().map(domain_rel_to_shared).collect())
 }
 
@@ -50,13 +44,7 @@ pub async fn add_relation(
     to_id: String,
     relation_type: String,
 ) -> Result<Relation, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     let rel = domain::relations::create(
         &pool,
         &user.id,
@@ -67,22 +55,16 @@ pub async fn add_relation(
         &relation_type,
     )
     .await
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    .sfn()?;
     Ok(domain_rel_to_shared(rel))
 }
 
 /// Remove a relation by id.
 #[server(prefix = "/leptos")]
 pub async fn remove_relation(relation_id: String) -> Result<(), ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    let (pool, user) = require_user().await?;
     domain::relations::delete(&pool, &user.id, &relation_id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
     Ok(())
 }
