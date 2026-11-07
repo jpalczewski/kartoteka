@@ -101,40 +101,16 @@ pub async fn delete(pool: &SqlitePool, relation_id: &str, user_id: &str) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{create_test_user, test_pool};
+    use crate::test_helpers::{create_test_item, create_test_list, create_test_user, test_pool};
     use uuid::Uuid;
-
-    async fn insert_test_list(pool: &SqlitePool, user_id: &str) -> String {
-        let id = Uuid::new_v4().to_string();
-        sqlx::query(
-            "INSERT INTO lists (id, user_id, name, list_type) VALUES (?, ?, 'Test List', 'checklist')",
-        )
-        .bind(&id)
-        .bind(user_id)
-        .execute(pool)
-        .await
-        .expect("insert_test_list");
-        id
-    }
-
-    async fn insert_test_item(pool: &SqlitePool, list_id: &str) -> String {
-        let id = Uuid::new_v4().to_string();
-        sqlx::query("INSERT INTO items (id, list_id, title) VALUES (?, ?, 'Test Item')")
-            .bind(&id)
-            .bind(list_id)
-            .execute(pool)
-            .await
-            .expect("insert_test_item");
-        id
-    }
 
     #[tokio::test]
     async fn insert_returns_relation() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &user_id).await;
-        let item_a = insert_test_item(&pool, &list_id).await;
-        let item_b = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
+        let item_a = create_test_item(&pool, &list_id).await;
+        let item_b = create_test_item(&pool, &list_id).await;
         let rel_id = Uuid::new_v4().to_string();
 
         let row = insert(
@@ -162,10 +138,10 @@ mod tests {
     async fn list_for_entity_returns_both_directions() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &user_id).await;
-        let item_a = insert_test_item(&pool, &list_id).await;
-        let item_b = insert_test_item(&pool, &list_id).await;
-        let item_c = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
+        let item_a = create_test_item(&pool, &list_id).await;
+        let item_b = create_test_item(&pool, &list_id).await;
+        let item_c = create_test_item(&pool, &list_id).await;
 
         insert(
             &pool,
@@ -207,9 +183,9 @@ mod tests {
     async fn get_unresolved_blockers_returns_incomplete_only() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &user_id).await;
-        let blocker = insert_test_item(&pool, &list_id).await;
-        let blocked = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
+        let blocker = create_test_item(&pool, &list_id).await;
+        let blocked = create_test_item(&pool, &list_id).await;
 
         insert(
             &pool,
@@ -244,9 +220,9 @@ mod tests {
     async fn delete_removes_relation() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &user_id).await;
-        let item_a = insert_test_item(&pool, &list_id).await;
-        let item_b = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
+        let item_a = create_test_item(&pool, &list_id).await;
+        let item_b = create_test_item(&pool, &list_id).await;
         let rel_id = Uuid::new_v4().to_string();
 
         insert(
@@ -278,9 +254,9 @@ mod tests {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
         let other_user = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &user_id).await;
-        let item_a = insert_test_item(&pool, &list_id).await;
-        let item_b = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
+        let item_a = create_test_item(&pool, &list_id).await;
+        let item_b = create_test_item(&pool, &list_id).await;
         let rel_id = Uuid::new_v4().to_string();
 
         insert(

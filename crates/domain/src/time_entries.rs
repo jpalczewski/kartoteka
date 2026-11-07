@@ -252,32 +252,9 @@ pub async fn get_active(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kartoteka_db::test_helpers::{create_test_user, test_pool};
-    use uuid::Uuid;
-
-    async fn insert_test_list(pool: &SqlitePool, user_id: &str) -> String {
-        let id = Uuid::new_v4().to_string();
-        sqlx::query(
-            "INSERT INTO lists (id, user_id, name, list_type) VALUES (?, ?, 'Test List', 'checklist')",
-        )
-        .bind(&id)
-        .bind(user_id)
-        .execute(pool)
-        .await
-        .expect("insert_test_list");
-        id
-    }
-
-    async fn insert_test_item(pool: &SqlitePool, list_id: &str) -> String {
-        let id = Uuid::new_v4().to_string();
-        sqlx::query("INSERT INTO items (id, list_id, title) VALUES (?, ?, 'Test Item')")
-            .bind(&id)
-            .bind(list_id)
-            .execute(pool)
-            .await
-            .expect("insert_test_item");
-        id
-    }
+    use kartoteka_db::test_helpers::{
+        create_test_item, create_test_list, create_test_user, test_pool,
+    };
 
     #[tokio::test]
     async fn start_creates_running_entry() {
@@ -295,8 +272,8 @@ mod tests {
     async fn start_with_item_assigns_item_id() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &uid).await;
-        let item_id = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_id = create_test_item(&pool, &list_id).await;
 
         let features = serde_json::json!({"time_tracking": {}});
         let mut tx = pool.begin().await.unwrap();
@@ -428,8 +405,8 @@ mod tests {
         let pool = test_pool().await;
         let owner = create_test_user(&pool).await;
         let attacker = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &owner).await;
-        let item_id = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &owner).await;
+        let item_id = create_test_item(&pool, &list_id).await;
 
         // attacker creates their own entry
         let entry = start(&pool, &attacker, None).await.unwrap();
@@ -443,8 +420,8 @@ mod tests {
     async fn summary_for_item_sums_completed_entries() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &uid).await;
-        let item_id = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_id = create_test_item(&pool, &list_id).await;
 
         let features = serde_json::json!({"time_tracking": {}});
         let mut tx = pool.begin().await.unwrap();
@@ -485,8 +462,8 @@ mod tests {
     async fn start_blocked_when_time_tracking_feature_missing() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &uid).await;
-        let item_id = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_id = create_test_item(&pool, &list_id).await;
 
         let err = start(&pool, &uid, Some(&item_id)).await.unwrap_err();
         assert!(matches!(err, DomainError::FeatureRequired("time_tracking")));
@@ -505,8 +482,8 @@ mod tests {
     async fn log_manual_blocked_when_time_tracking_feature_missing() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &uid).await;
-        let item_id = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_id = create_test_item(&pool, &list_id).await;
 
         let err = log_manual(
             &pool,
@@ -525,8 +502,8 @@ mod tests {
     async fn start_allowed_when_time_tracking_feature_present() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &uid).await;
-        let item_id = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_id = create_test_item(&pool, &list_id).await;
 
         let features = serde_json::json!({"time_tracking": {}});
         let mut tx = pool.begin().await.unwrap();

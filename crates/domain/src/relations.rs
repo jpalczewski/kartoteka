@@ -129,40 +129,17 @@ pub async fn delete(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kartoteka_db::test_helpers::{create_test_user, test_pool};
-    use uuid::Uuid;
-
-    async fn insert_test_list(pool: &SqlitePool, user_id: &str) -> String {
-        let id = Uuid::new_v4().to_string();
-        sqlx::query(
-            "INSERT INTO lists (id, user_id, name, list_type) VALUES (?, ?, 'Test List', 'checklist')",
-        )
-        .bind(&id)
-        .bind(user_id)
-        .execute(pool)
-        .await
-        .expect("insert_test_list");
-        id
-    }
-
-    async fn insert_test_item(pool: &SqlitePool, list_id: &str) -> String {
-        let id = Uuid::new_v4().to_string();
-        sqlx::query("INSERT INTO items (id, list_id, title) VALUES (?, ?, 'Test Item')")
-            .bind(&id)
-            .bind(list_id)
-            .execute(pool)
-            .await
-            .expect("insert_test_item");
-        id
-    }
+    use kartoteka_db::test_helpers::{
+        create_test_item, create_test_list, create_test_user, test_pool,
+    };
 
     #[tokio::test]
     async fn create_relation_between_owned_items() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &uid).await;
-        let item_a = insert_test_item(&pool, &list_id).await;
-        let item_b = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_a = create_test_item(&pool, &list_id).await;
+        let item_b = create_test_item(&pool, &list_id).await;
 
         let rel = create(&pool, &uid, "item", &item_a, "item", &item_b, "blocks")
             .await
@@ -177,10 +154,10 @@ mod tests {
         let pool = test_pool().await;
         let owner = create_test_user(&pool).await;
         let attacker = create_test_user(&pool).await;
-        let owner_list = insert_test_list(&pool, &owner).await;
-        let attacker_list = insert_test_list(&pool, &attacker).await;
-        let owner_item = insert_test_item(&pool, &owner_list).await;
-        let attacker_item = insert_test_item(&pool, &attacker_list).await;
+        let owner_list = create_test_list(&pool, &owner).await;
+        let attacker_list = create_test_list(&pool, &attacker).await;
+        let owner_item = create_test_item(&pool, &owner_list).await;
+        let attacker_item = create_test_item(&pool, &attacker_list).await;
 
         // attacker tries to create a relation targeting owner's item
         let result = create(
@@ -200,10 +177,10 @@ mod tests {
     async fn get_for_entity_returns_bidirectional() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &uid).await;
-        let item_a = insert_test_item(&pool, &list_id).await;
-        let item_b = insert_test_item(&pool, &list_id).await;
-        let item_c = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_a = create_test_item(&pool, &list_id).await;
+        let item_b = create_test_item(&pool, &list_id).await;
+        let item_c = create_test_item(&pool, &list_id).await;
 
         create(&pool, &uid, "item", &item_a, "item", &item_b, "blocks")
             .await
@@ -221,8 +198,8 @@ mod tests {
         let pool = test_pool().await;
         let owner = create_test_user(&pool).await;
         let attacker = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &owner).await;
-        let item = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &owner).await;
+        let item = create_test_item(&pool, &list_id).await;
 
         let result = get_for_entity(&pool, &attacker, "item", &item).await;
         assert!(matches!(result, Err(DomainError::Forbidden)));
@@ -232,9 +209,9 @@ mod tests {
     async fn delete_relation_removes_it() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &uid).await;
-        let item_a = insert_test_item(&pool, &list_id).await;
-        let item_b = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_a = create_test_item(&pool, &list_id).await;
+        let item_b = create_test_item(&pool, &list_id).await;
 
         let rel = create(&pool, &uid, "item", &item_a, "item", &item_b, "blocks")
             .await

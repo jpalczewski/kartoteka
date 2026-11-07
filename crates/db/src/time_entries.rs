@@ -193,32 +193,8 @@ pub async fn delete(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{create_test_user, test_pool};
+    use crate::test_helpers::{create_test_item, create_test_list, create_test_user, test_pool};
     use uuid::Uuid;
-
-    async fn insert_test_list(pool: &SqlitePool, user_id: &str) -> String {
-        let id = Uuid::new_v4().to_string();
-        sqlx::query(
-            "INSERT INTO lists (id, user_id, name, list_type) VALUES (?, ?, 'Test List', 'checklist')",
-        )
-        .bind(&id)
-        .bind(user_id)
-        .execute(pool)
-        .await
-        .expect("insert_test_list");
-        id
-    }
-
-    async fn insert_test_item(pool: &SqlitePool, list_id: &str) -> String {
-        let id = Uuid::new_v4().to_string();
-        sqlx::query("INSERT INTO items (id, list_id, title) VALUES (?, ?, 'Test Item')")
-            .bind(&id)
-            .bind(list_id)
-            .execute(pool)
-            .await
-            .expect("insert_test_item");
-        id
-    }
 
     async fn make_entry(
         pool: &SqlitePool,
@@ -249,8 +225,8 @@ mod tests {
     async fn insert_returns_entry() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &uid).await;
-        let item_id = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_id = create_test_item(&pool, &list_id).await;
 
         let entry = make_entry(&pool, &uid, Some(&item_id), None, None).await;
         assert_eq!(entry.user_id, uid);
@@ -303,8 +279,8 @@ mod tests {
     async fn list_inbox_returns_only_unassigned() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &uid).await;
-        let item_id = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_id = create_test_item(&pool, &list_id).await;
 
         make_entry(&pool, &uid, Some(&item_id), None, None).await; // assigned
         make_entry(&pool, &uid, None, None, None).await; // unassigned
@@ -318,9 +294,9 @@ mod tests {
     async fn list_for_item_returns_only_that_item() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &uid).await;
-        let item_a = insert_test_item(&pool, &list_id).await;
-        let item_b = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_a = create_test_item(&pool, &list_id).await;
+        let item_b = create_test_item(&pool, &list_id).await;
 
         make_entry(&pool, &uid, Some(&item_a), None, None).await;
         make_entry(&pool, &uid, Some(&item_b), None, None).await;
@@ -334,8 +310,8 @@ mod tests {
     async fn assign_changes_item_id() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &uid).await;
-        let item_id = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_id = create_test_item(&pool, &list_id).await;
 
         let entry = make_entry(&pool, &uid, None, None, None).await;
         assert!(entry.item_id.is_none());
@@ -374,8 +350,8 @@ mod tests {
     async fn summary_for_item_sums_completed_entries() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &uid).await;
-        let item_id = insert_test_item(&pool, &list_id).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_id = create_test_item(&pool, &list_id).await;
 
         // Two completed entries (60s + 120s = 180s)
         make_entry(

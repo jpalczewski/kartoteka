@@ -98,19 +98,7 @@ pub async fn touch_last_used(pool: &SqlitePool, id: &str) -> Result<(), DbError>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{create_test_user, test_pool};
-    use sqlx::SqlitePool;
-
-    async fn setup_list(pool: &SqlitePool, user_id: &str) -> String {
-        let list_id = uuid::Uuid::new_v4().to_string();
-        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES (?, ?, 'Test List')")
-            .bind(&list_id)
-            .bind(user_id)
-            .execute(pool)
-            .await
-            .unwrap();
-        list_id
-    }
+    use crate::test_helpers::{create_test_list, create_test_user, test_pool};
 
     #[tokio::test]
     async fn create_and_find_by_hash() {
@@ -134,7 +122,7 @@ mod tests {
     async fn create_with_list_id() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
         let row = create(
             &pool,
             "ct-1",
@@ -217,7 +205,7 @@ mod tests {
     async fn deleting_list_cascades_to_tokens() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = setup_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
         create(
             &pool,
             "ct-1",

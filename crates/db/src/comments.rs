@@ -96,27 +96,14 @@ pub async fn delete(pool: &SqlitePool, comment_id: &str, user_id: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{create_test_user, test_pool};
+    use crate::test_helpers::{create_test_list, create_test_user, test_pool};
     use uuid::Uuid;
-
-    async fn insert_test_list(pool: &SqlitePool, user_id: &str) -> String {
-        let id = Uuid::new_v4().to_string();
-        sqlx::query(
-            "INSERT INTO lists (id, user_id, name, list_type) VALUES (?, ?, 'Test List', 'checklist')",
-        )
-        .bind(&id)
-        .bind(user_id)
-        .execute(pool)
-        .await
-        .expect("insert_test_list");
-        id
-    }
 
     #[tokio::test]
     async fn insert_returns_comment() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
         let comment_id = Uuid::new_v4().to_string();
 
         let row = insert(
@@ -144,7 +131,7 @@ mod tests {
     async fn list_for_entity_returns_in_asc_order() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
 
         for i in 0..3u8 {
             insert(
@@ -173,7 +160,7 @@ mod tests {
     async fn delete_removes_comment() {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
         let comment_id = Uuid::new_v4().to_string();
 
         insert(
@@ -203,7 +190,7 @@ mod tests {
         let pool = test_pool().await;
         let user_id = create_test_user(&pool).await;
         let other_user_id = create_test_user(&pool).await;
-        let list_id = insert_test_list(&pool, &user_id).await;
+        let list_id = create_test_list(&pool, &user_id).await;
         let comment_id = Uuid::new_v4().to_string();
 
         insert(

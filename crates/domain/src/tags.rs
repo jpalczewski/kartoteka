@@ -645,7 +645,9 @@ pub async fn get_entities_by_tag(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kartoteka_db::test_helpers::{create_test_user, test_pool};
+    use kartoteka_db::test_helpers::{
+        create_test_item, create_test_list, create_test_user, test_pool,
+    };
 
     async fn make_tag(pool: &SqlitePool, uid: &str, name: &str) -> Tag {
         create(
@@ -665,21 +667,8 @@ mod tests {
     }
 
     async fn make_item(pool: &SqlitePool, uid: &str) -> String {
-        let lid = Uuid::new_v4().to_string();
-        let iid = Uuid::new_v4().to_string();
-        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES (?, ?, 'L')")
-            .bind(&lid)
-            .bind(uid)
-            .execute(pool)
-            .await
-            .unwrap();
-        sqlx::query("INSERT INTO items (id, list_id, title) VALUES (?, ?, 'I')")
-            .bind(&iid)
-            .bind(&lid)
-            .execute(pool)
-            .await
-            .unwrap();
-        iid
+        let lid = create_test_list(pool, uid).await;
+        create_test_item(pool, &lid).await
     }
 
     #[tokio::test]
