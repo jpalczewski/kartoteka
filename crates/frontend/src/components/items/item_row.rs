@@ -386,4 +386,7 @@ fn ItemEditor(item: Memo<Option<Item>>, id: String, caps: Signal<ItemCaps>) -> i
             </Show>
         </div>
     }
+    // Type-erased: the editor's nested view type pushes the list page's SSR future past
+    // rustc's auto-trait evaluation depth ("overflow evaluating ... CoerceUnsized").
+    .into_any()
 }
