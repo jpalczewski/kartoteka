@@ -409,6 +409,13 @@ pub struct Item {
     pub hard_deadline: Option<FlexDate>,
     pub estimated_duration: Option<i32>,
     pub location_id: Option<String>,
+    /// Repeat interval (`"7d"`, `"2w"`, `"1m"`); `None` for a one-off item.
+    /// Defaulted so JSON produced before recurrence existed still deserializes.
+    #[serde(default)]
+    pub recurrence_rule: Option<RecurrenceRule>,
+    /// How the next occurrence is dated; only meaningful together with `recurrence_rule`.
+    #[serde(default)]
+    pub recurrence_mode: Option<RecurrenceMode>,
     pub created_at: String,
     pub updated_at: String,
 }

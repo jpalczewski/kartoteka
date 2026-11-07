@@ -267,6 +267,8 @@ mod tests {
                 deadline_time: None,
                 hard_deadline: None,
                 estimated_duration: None,
+                recurrence_rule: None,
+                recurrence_mode: None,
             },
         )
         .await

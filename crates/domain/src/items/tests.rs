@@ -32,6 +32,8 @@ fn basic_req(title: &str) -> CreateItemRequest {
         deadline_time: None,
         hard_deadline: None,
         estimated_duration: None,
+        recurrence_rule: None,
+        recurrence_mode: None,
     }
 }
 
@@ -192,6 +194,8 @@ async fn update_title() {
         hard_deadline: None,
         estimated_duration: None,
         location_id: None,
+        recurrence_rule: None,
+        recurrence_mode: None,
     };
 
     let updated = update(&pool, &user_id, &item.id, &req)
@@ -199,7 +203,7 @@ async fn update_title() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(updated.title, "New");
+    assert_eq!(updated.item.title, "New");
 }
 
 #[tokio::test]
@@ -234,6 +238,8 @@ async fn update_triggers_auto_complete() {
         hard_deadline: None,
         estimated_duration: None,
         location_id: None,
+        recurrence_rule: None,
+        recurrence_mode: None,
     };
 
     let updated = update(&pool, &user_id, &item.id, &req)
@@ -241,7 +247,7 @@ async fn update_triggers_auto_complete() {
         .unwrap()
         .unwrap();
 
-    assert!(updated.completed);
+    assert!(updated.item.completed);
 }
 
 #[tokio::test]
@@ -276,6 +282,8 @@ async fn update_does_not_auto_complete_when_below_target() {
         hard_deadline: None,
         estimated_duration: None,
         location_id: None,
+        recurrence_rule: None,
+        recurrence_mode: None,
     };
 
     let updated = update(&pool, &user_id, &item.id, &req)
@@ -283,7 +291,7 @@ async fn update_does_not_auto_complete_when_below_target() {
         .unwrap()
         .unwrap();
 
-    assert!(!updated.completed);
+    assert!(!updated.item.completed);
 }
 
 #[tokio::test]
@@ -343,13 +351,13 @@ async fn toggle_complete_flips_completed() {
         .await
         .unwrap()
         .unwrap();
-    assert!(toggled.completed);
+    assert!(toggled.item.completed);
 
     let toggled2 = toggle_complete(&pool, &user_id, &item.id)
         .await
         .unwrap()
         .unwrap();
-    assert!(!toggled2.completed);
+    assert!(!toggled2.item.completed);
 }
 
 #[tokio::test]
@@ -397,7 +405,7 @@ async fn toggle_complete_blocked_by_incomplete_item() {
         .await
         .unwrap()
         .unwrap();
-    assert!(item.completed);
+    assert!(item.item.completed);
 }
 
 #[tokio::test]
@@ -631,6 +639,8 @@ async fn update_item_empty_title_rejected() {
         hard_deadline: None,
         estimated_duration: None,
         location_id: None,
+        recurrence_rule: None,
+        recurrence_mode: None,
     };
     let err = update(&pool, &user_id, &item.id, &req).await.unwrap_err();
     assert!(matches!(err, DomainError::Validation("title_empty")));
@@ -668,6 +678,8 @@ async fn update_item_date_order_violation_rejected() {
         hard_deadline: None,
         estimated_duration: None,
         location_id: None,
+        recurrence_rule: None,
+        recurrence_mode: None,
     };
     let err = update(&pool, &user_id, &item.id, &req).await.unwrap_err();
     assert!(matches!(
@@ -741,6 +753,8 @@ async fn update_title_to_existing_rejected() {
             hard_deadline: None,
             estimated_duration: None,
             location_id: None,
+            recurrence_rule: None,
+            recurrence_mode: None,
         },
     )
     .await
@@ -864,6 +878,8 @@ async fn update_same_title_as_self_ok() {
                 hard_deadline: None,
                 estimated_duration: None,
                 location_id: None,
+                recurrence_rule: None,
+                recurrence_mode: None,
             },
         )
         .await
@@ -1112,4 +1128,554 @@ async fn user_today_uses_configured_timezone() {
     let today = user_today(&pool, &uid).await.unwrap();
     assert_eq!(today.len(), 10);
     assert_eq!(today, chrono::Utc::now().format("%Y-%m-%d").to_string());
+}
+
+// ── Recurrence: spawn the next occurrence on completion ──────────────────────
+
+/// A recurring item: one occurrence per `rule`, anchored at `deadline`.
+async fn create_recurring(
+    pool: &SqlitePool,
+    user_id: &str,
+    list_id: &str,
+    title: &str,
+    deadline: &str,
+    rule: &str,
+    mode: Option<&str>,
+) -> Item {
+    create(
+        pool,
+        user_id,
+        list_id,
+        &CreateItemRequest {
+            deadline: Some(deadline.to_string()),
+            recurrence_rule: Some(rule.to_string()),
+            recurrence_mode: mode.map(str::to_string),
+            ..basic_req(title)
+        },
+    )
+    .await
+    .expect("recurring item")
+}
+
+fn date_str(date: &Option<FlexDate>) -> Option<String> {
+    date.as_ref().map(ToString::to_string)
+}
+
+#[tokio::test]
+async fn toggle_spawns_next_occurrence() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["checklist", "deadlines", "quantity"]).await;
+
+    let tag_id = create_test_tag(&pool, &uid, "Sprint").await;
+    let item = create(
+        &pool,
+        &uid,
+        &list_id,
+        &CreateItemRequest {
+            description: Some("plants on the balcony".to_string()),
+            quantity: Some(3),
+            unit: Some("l".to_string()),
+            deadline: Some("2026-05-10".to_string()),
+            deadline_time: Some("18:00".to_string()),
+            estimated_duration: Some(45),
+            recurrence_rule: Some("1w".to_string()),
+            ..basic_req("Water plants")
+        },
+    )
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)")
+        .bind(&item.id)
+        .bind(&tag_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    kartoteka_db::comments::insert(
+        &pool,
+        kartoteka_db::comments::InsertCommentInput {
+            id: &Uuid::new_v4().to_string(),
+            entity_type: "item",
+            entity_id: &item.id,
+            content: "first time",
+            author_type: "user",
+            author_name: None,
+            user_id: &uid,
+        },
+    )
+    .await
+    .unwrap();
+    // Another item, so the spawn can only land at the end of the list.
+    create(&pool, &uid, &list_id, &basic_req("Later item"))
+        .await
+        .unwrap();
+
+    let change = toggle_complete(&pool, &uid, &item.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let spawned = change.spawned.expect("next occurrence");
+
+    // The rule moves forward: the completed original stops recurring.
+    assert!(change.item.completed);
+    assert_eq!(change.item.recurrence_rule, None);
+    assert_eq!(change.item.recurrence_mode, None);
+    assert_eq!(change.item.tags.len(), 1);
+    assert_eq!(change.item.comments.len(), 1);
+
+    assert_eq!(spawned.list_id, list_id);
+    assert_eq!(spawned.title, "Water plants");
+    assert_eq!(
+        spawned.description.as_deref(),
+        Some("plants on the balcony")
+    );
+    assert_eq!(date_str(&spawned.deadline).as_deref(), Some("2026-05-17"));
+    assert_eq!(spawned.deadline_time.as_deref(), Some("18:00"));
+    assert_eq!(spawned.start_date, None);
+    assert_eq!(spawned.hard_deadline, None);
+    assert_eq!(spawned.quantity, Some(3));
+    assert_eq!(spawned.actual_quantity, None);
+    assert_eq!(spawned.unit.as_deref(), Some("l"));
+    assert_eq!(spawned.estimated_duration, Some(45));
+    assert!(!spawned.completed);
+    assert_eq!(
+        spawned.position, 2,
+        "spawned item goes to the end of the list"
+    );
+    assert_eq!(
+        spawned.recurrence_rule,
+        Some(RecurrenceRule {
+            interval: 1,
+            unit: kartoteka_shared::types::RecurrenceUnit::Week
+        })
+    );
+    assert_eq!(spawned.recurrence_mode, Some(RecurrenceMode::Fixed));
+    // Tags are copied, comments are not.
+    assert_eq!(spawned.tags.len(), 1);
+    assert_eq!(spawned.tags[0].name, "Sprint");
+    assert!(spawned.comments.is_empty());
+
+    let items = list_for_list(&pool, &list_id, &uid).await.unwrap();
+    assert_eq!(items.len(), 3);
+    assert_eq!(items.last().unwrap().id, spawned.id);
+}
+
+#[tokio::test]
+async fn uncomplete_then_complete_again_spawns_nothing() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["checklist", "deadlines"]).await;
+    let item = create_recurring(
+        &pool,
+        &uid,
+        &list_id,
+        "Water plants",
+        "2026-05-10",
+        "1w",
+        None,
+    )
+    .await;
+
+    let first = toggle_complete(&pool, &uid, &item.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(first.spawned.is_some());
+
+    let uncompleted = toggle_complete(&pool, &uid, &item.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!uncompleted.item.completed);
+    assert!(uncompleted.spawned.is_none());
+    // Un-completing does not delete the occurrence that was already spawned.
+    assert_eq!(list_for_list(&pool, &list_id, &uid).await.unwrap().len(), 2);
+
+    let again = toggle_complete(&pool, &uid, &item.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(again.item.completed);
+    assert!(again.spawned.is_none(), "the rule was moved to the spawn");
+    assert_eq!(list_for_list(&pool, &list_id, &uid).await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn update_with_completed_true_spawns_next_occurrence() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["checklist", "deadlines"]).await;
+    let item = create_recurring(&pool, &uid, &list_id, "Ping", "2026-05-10", "2d", None).await;
+
+    let change = update(
+        &pool,
+        &uid,
+        &item.id,
+        &UpdateItemRequest {
+            completed: Some(true),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert!(change.item.completed);
+    assert_eq!(change.item.recurrence_rule, None);
+    let spawned = change.spawned.expect("next occurrence");
+    assert_eq!(date_str(&spawned.deadline).as_deref(), Some("2026-05-12"));
+    assert!(!spawned.completed);
+    assert_eq!(spawned.recurrence_rule, Some("2d".parse().unwrap()));
+}
+
+#[tokio::test]
+async fn auto_complete_spawns_next_occurrence() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["checklist", "deadlines", "quantity"]).await;
+    let item = create(
+        &pool,
+        &uid,
+        &list_id,
+        &CreateItemRequest {
+            quantity: Some(5),
+            deadline: Some("2026-05-10".to_string()),
+            recurrence_rule: Some("1m".to_string()),
+            ..basic_req("Bottles")
+        },
+    )
+    .await
+    .unwrap();
+
+    let change = update(
+        &pool,
+        &uid,
+        &item.id,
+        &UpdateItemRequest {
+            actual_quantity: Some(Some(5)),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert!(change.item.completed);
+    assert_eq!(change.item.recurrence_rule, None);
+    let spawned = change.spawned.expect("next occurrence");
+    assert_eq!(date_str(&spawned.deadline).as_deref(), Some("2026-06-10"));
+    assert_eq!(spawned.actual_quantity, None);
+}
+
+#[tokio::test]
+async fn completing_non_recurring_item_spawns_nothing() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["checklist"]).await;
+    let item = create(&pool, &uid, &list_id, &basic_req("One off"))
+        .await
+        .unwrap();
+
+    let toggled = toggle_complete(&pool, &uid, &item.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(toggled.item.completed);
+    assert!(toggled.spawned.is_none());
+
+    let other = create(&pool, &uid, &list_id, &basic_req("Another one off"))
+        .await
+        .unwrap();
+    let updated = update(
+        &pool,
+        &uid,
+        &other.id,
+        &UpdateItemRequest {
+            completed: Some(true),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(updated.item.completed);
+    assert!(updated.spawned.is_none());
+}
+
+#[tokio::test]
+async fn unresolved_blocker_aborts_completion_and_spawn() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["checklist", "deadlines"]).await;
+
+    let blocker = create(&pool, &uid, &list_id, &basic_req("Blocker"))
+        .await
+        .unwrap();
+    let target = create_recurring(
+        &pool,
+        &uid,
+        &list_id,
+        "Blocked task",
+        "2026-05-10",
+        "1w",
+        None,
+    )
+    .await;
+    kartoteka_db::relations::insert(
+        &pool,
+        kartoteka_db::relations::InsertRelationInput {
+            id: &Uuid::new_v4().to_string(),
+            from_type: "item",
+            from_id: &blocker.id,
+            to_type: "item",
+            to_id: &target.id,
+            relation_type: "blocks",
+            user_id: &uid,
+        },
+    )
+    .await
+    .unwrap();
+
+    let err = toggle_complete(&pool, &uid, &target.id).await.unwrap_err();
+    assert!(matches!(
+        err,
+        DomainError::Validation("has_unresolved_blockers")
+    ));
+
+    // Nothing was written: no spawn, item still incomplete, rule still there.
+    assert_eq!(list_for_list(&pool, &list_id, &uid).await.unwrap().len(), 2);
+    let stored = get_one(&pool, &target.id, &uid).await.unwrap().unwrap();
+    assert!(!stored.completed);
+    assert_eq!(stored.recurrence_rule, Some("1w".parse().unwrap()));
+}
+
+#[tokio::test]
+async fn floating_rule_anchors_on_user_timezone_today() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["checklist", "deadlines"]).await;
+
+    // Use a timezone that is currently on a different calendar date than UTC,
+    // so a UTC anchor and the user's anchor cannot agree.
+    let utc_today = chrono::Utc::now().date_naive();
+    let (tz_name, local_today) = ["Pacific/Kiritimati", "Pacific/Midway"]
+        .iter()
+        .map(|name| {
+            let tz: chrono_tz::Tz = name.parse().expect("known timezone");
+            (*name, chrono::Utc::now().with_timezone(&tz).date_naive())
+        })
+        .find(|(_, date)| *date != utc_today)
+        .expect("one of the extreme timezones is on another date");
+    kartoteka_db::preferences::set_timezone(&pool, &uid, tz_name)
+        .await
+        .unwrap();
+
+    let item = create_recurring(
+        &pool,
+        &uid,
+        &list_id,
+        "Water plants",
+        "2026-05-10",
+        "1w",
+        Some("floating"),
+    )
+    .await;
+    let change = toggle_complete(&pool, &uid, &item.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let spawned = change.spawned.expect("next occurrence");
+
+    let expected = local_today
+        .checked_add_days(chrono::Days::new(7))
+        .expect("valid date");
+    assert_eq!(
+        date_str(&spawned.deadline).as_deref(),
+        Some(expected.format("%Y-%m-%d").to_string().as_str())
+    );
+}
+
+#[tokio::test]
+async fn rule_without_date_rejected_on_create() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &[]).await;
+
+    let err = create(
+        &pool,
+        &uid,
+        &list_id,
+        &CreateItemRequest {
+            recurrence_rule: Some("7d".to_string()),
+            ..basic_req("No date")
+        },
+    )
+    .await
+    .unwrap_err();
+
+    assert!(matches!(
+        err,
+        DomainError::Validation("recurrence_requires_date")
+    ));
+}
+
+#[tokio::test]
+async fn clearing_the_only_date_of_a_recurring_item_rejected() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["deadlines"]).await;
+    let item = create_recurring(&pool, &uid, &list_id, "Dated", "2026-05-10", "1w", None).await;
+
+    let err = update(
+        &pool,
+        &uid,
+        &item.id,
+        &UpdateItemRequest {
+            deadline: Some(None),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+
+    assert!(matches!(
+        err,
+        DomainError::Validation("recurrence_requires_date")
+    ));
+    // Rejected before any write.
+    let stored = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+    assert_eq!(date_str(&stored.deadline).as_deref(), Some("2026-05-10"));
+}
+
+#[tokio::test]
+async fn invalid_recurrence_strings_rejected() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["deadlines"]).await;
+
+    let bad_rule = create(
+        &pool,
+        &uid,
+        &list_id,
+        &CreateItemRequest {
+            deadline: Some("2026-05-10".to_string()),
+            recurrence_rule: Some("7x".to_string()),
+            ..basic_req("Bad rule")
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        bad_rule,
+        DomainError::Validation("recurrence_invalid_rule")
+    ));
+
+    let bad_mode = create(
+        &pool,
+        &uid,
+        &list_id,
+        &CreateItemRequest {
+            deadline: Some("2026-05-10".to_string()),
+            recurrence_rule: Some("7d".to_string()),
+            recurrence_mode: Some("sometimes".to_string()),
+            ..basic_req("Bad mode")
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        bad_mode,
+        DomainError::Validation("recurrence_invalid_mode")
+    ));
+
+    let mode_without_rule = create(
+        &pool,
+        &uid,
+        &list_id,
+        &CreateItemRequest {
+            deadline: Some("2026-05-10".to_string()),
+            recurrence_mode: Some("floating".to_string()),
+            ..basic_req("Dangling mode")
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        mode_without_rule,
+        DomainError::Validation("recurrence_mode_without_rule")
+    ));
+}
+
+#[tokio::test]
+async fn rule_without_mode_is_stored_as_fixed() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["deadlines"]).await;
+    let item = create_recurring(&pool, &uid, &list_id, "Daily", "2026-05-10", "1d", None).await;
+
+    assert_eq!(item.recurrence_rule, Some("1d".parse().unwrap()));
+    assert_eq!(item.recurrence_mode, Some(RecurrenceMode::Fixed));
+}
+
+#[tokio::test]
+async fn clearing_the_rule_clears_the_mode() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["deadlines"]).await;
+    let item = create_recurring(
+        &pool,
+        &uid,
+        &list_id,
+        "Floating",
+        "2026-05-10",
+        "1w",
+        Some("floating"),
+    )
+    .await;
+
+    let change = update(
+        &pool,
+        &uid,
+        &item.id,
+        &UpdateItemRequest {
+            recurrence_rule: Some(None),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(change.item.recurrence_rule, None);
+    assert_eq!(change.item.recurrence_mode, None);
+}
+
+#[tokio::test]
+async fn duplicate_title_of_completed_item_ok() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["checklist", "deadlines"]).await;
+
+    let done = create(&pool, &uid, &list_id, &basic_req("Eggs"))
+        .await
+        .unwrap();
+    toggle_complete(&pool, &uid, &done.id).await.unwrap();
+    // Title uniqueness ignores completed items.
+    let again = create(&pool, &uid, &list_id, &basic_req("Eggs"))
+        .await
+        .unwrap();
+    assert_ne!(again.id, done.id);
+
+    // A spawn repeats the title of the item it completes, which by then is
+    // completed — that must not be rejected as a duplicate either.
+    let other_list = create_list(&pool, &uid, &["checklist", "deadlines"]).await;
+    let recurring =
+        create_recurring(&pool, &uid, &other_list, "Bread", "2026-05-10", "1w", None).await;
+    let change = toggle_complete(&pool, &uid, &recurring.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let spawned = change.spawned.expect("next occurrence");
+    assert_eq!(spawned.title, "Bread");
+    assert_eq!(spawned.title, change.item.title);
 }
