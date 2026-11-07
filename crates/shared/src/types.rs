@@ -90,6 +90,8 @@ impl FromStr for FlexDate {
             }
             let year: u16 = parts[0].parse().map_err(|e| format!("invalid year: {e}"))?;
             let week: u8 = parts[1].parse().map_err(|e| format!("invalid week: {e}"))?;
+            NaiveDate::from_isoywd_opt(i32::from(year), u32::from(week), chrono::Weekday::Mon)
+                .ok_or_else(|| format!("week out of range: {s}"))?;
             Ok(FlexDate::Week(year, week))
         } else if s.len() == 7 && s.as_bytes()[4] == b'-' {
             let parts: Vec<&str> = s.split('-').collect();
@@ -97,6 +99,9 @@ impl FromStr for FlexDate {
             let month: u8 = parts[1]
                 .parse()
                 .map_err(|e| format!("invalid month: {e}"))?;
+            if !(1..=12).contains(&month) {
+                return Err(format!("month out of range: {s}"));
+            }
             Ok(FlexDate::Month(year, month))
         } else {
             Err(format!("unrecognized date format: {s}"))

@@ -46,8 +46,8 @@ const EN_WEEKDAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 /// Short human label for a (possibly fuzzy) date relative to `today`, for chips in item rows.
 ///
-/// Out-of-range values (e.g. month 13 or ISO week 54, which `FlexDate::from_str` accepts)
-/// fall back to the raw `Display` form instead of panicking during render.
+/// Out-of-range values (e.g. a directly constructed `FlexDate::Month(2026, 13)`) fall back to
+/// the raw `Display` form instead of panicking during render.
 pub fn format_date_human(date: &FlexDate, today: NaiveDate, locale: Locale) -> String {
     if !is_valid(date) {
         return date.to_string();

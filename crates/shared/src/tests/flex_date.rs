@@ -102,3 +102,13 @@ fn parse_from_str() {
     );
     assert!(FlexDate::from_str("invalid").is_err());
 }
+
+#[test]
+fn parse_rejects_out_of_range_month_and_week() {
+    for bad in ["2026-00", "2026-13", "2026-W00", "2026-W54", "2027-W53"] {
+        assert!(bad.parse::<FlexDate>().is_err(), "{bad} should be rejected");
+    }
+    // 2026 has 53 ISO weeks.
+    assert_eq!("2026-W53".parse::<FlexDate>(), Ok(FlexDate::Week(2026, 53)));
+    assert_eq!("2026-12".parse::<FlexDate>(), Ok(FlexDate::Month(2026, 12)));
+}
