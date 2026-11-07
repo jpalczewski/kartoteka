@@ -40,13 +40,13 @@ use crate::tools::{
     read::{
         GetContainerParams, GetItemParams, GetListParams, ListContainerItemsParams, ListItemsParams,
     },
-    relations::{AddRelationParams, RemoveRelationParams},
+    relations::{AddRelationParams, GetRelationsParams, RemoveRelationParams},
     search::SearchItemsParams,
     tags::{
         AssignTagParams, CreateTagParams, CreateTagsParams, GetTagEntitiesParams, UnassignTagParams,
     },
     templates::{CreateListFromTemplateParams, SaveAsTemplateParams},
-    time::{LogTimeParams, StartTimerParams},
+    time::{GetTimeSummaryParams, LogTimeParams, StartTimerParams},
 };
 use crate::{McpError, McpI18n};
 use batch::PositionAllocator;
@@ -371,6 +371,20 @@ impl KartotekaServer {
         self.json_result(json!({"deleted": true}), &locale)
     }
 
+    #[rmcp::tool(name = "get_relations", description = "mcp-tool-get_relations-desc")]
+    async fn get_relations(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<GetRelationsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let rels =
+            domain::relations::get_for_entity(&self.pool, &uid, &p.entity_type, &p.entity_id)
+                .await
+                .map_err(self.domain_err(&locale))?;
+        self.json_result(rels, &locale)
+    }
+
     #[rmcp::tool(name = "start_timer", description = "mcp-tool-start_timer-desc")]
     async fn start_timer(
         &self,
@@ -378,9 +392,17 @@ impl KartotekaServer {
         Parameters(p): Parameters<StartTimerParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let (uid, locale) = self.auth(&parts)?;
-        let entry = domain::time_entries::start(&self.pool, &uid, p.item_id.as_deref())
-            .await
-            .map_err(self.domain_err(&locale))?;
+        // Omitted mode = stopwatch; an unknown mode is a validation error.
+        let mode = match p.mode.as_deref() {
+            Some(m) => {
+                domain::time_entries::TimerMode::parse(m).map_err(self.domain_err(&locale))?
+            }
+            None => domain::time_entries::TimerMode::default(),
+        };
+        let entry =
+            domain::time_entries::start_with_mode(&self.pool, &uid, p.item_id.as_deref(), mode)
+                .await
+                .map_err(self.domain_err(&locale))?;
         self.json_result(entry, &locale)
     }
 
@@ -845,12 +867,48 @@ impl KartotekaServer {
     async fn get_time_summary(
         &self,
         Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<GetTimeSummaryParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let (uid, locale) = self.auth(&parts)?;
+        if let (Some(entity_type), Some(entity_id)) = (p.entity_type, p.entity_id) {
+            let total = self
+                .entity_time_total(&uid, &entity_type, &entity_id)
+                .await
+                .map_err(self.domain_err(&locale))?;
+            return self.json_result(
+                json!({
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                    "seconds": total.seconds,
+                    "running_since": total.running_since,
+                    "human": domain::time_entries::format_h_mm(total.seconds),
+                }),
+                &locale,
+            );
+        }
         let data = domain::time_entries::list_all_for_user(&self.pool, &uid)
             .await
             .map_err(self.domain_err(&locale))?;
         self.json_result(data, &locale)
+    }
+
+    /// Recursive tracked-time total for one entity (`item`, `list` or
+    /// `container`). Kept as a helper so the tool body stays small and the
+    /// entity-type dispatch lives in one place.
+    async fn entity_time_total(
+        &self,
+        uid: &str,
+        entity_type: &str,
+        entity_id: &str,
+    ) -> Result<domain::time_entries::TimeTotal, domain::DomainError> {
+        match entity_type {
+            "item" => domain::time_entries::total_for_item(&self.pool, uid, entity_id).await,
+            "list" => domain::time_entries::total_for_list(&self.pool, uid, entity_id).await,
+            "container" => {
+                domain::time_entries::total_for_container(&self.pool, uid, entity_id).await
+            }
+            _ => Err(domain::DomainError::Validation("invalid_entity_type")),
+        }
     }
 
     #[rmcp::tool(name = "get_item", description = "mcp-tool-get_item-desc")]

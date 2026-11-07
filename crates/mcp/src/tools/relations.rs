@@ -15,3 +15,10 @@ pub struct AddRelationParams {
 pub struct RemoveRelationParams {
     pub relation_id: String,
 }
+
+#[derive(Deserialize, JsonSchema)]
+pub struct GetRelationsParams {
+    /// "item", "list" or "container"
+    pub entity_type: String,
+    pub entity_id: String,
+}
