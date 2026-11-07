@@ -37,13 +37,23 @@ pub fn Chip(
     #[prop(optional, into)]
     icon: Option<IconName>,
     #[prop(optional)] tone: ChipTone,
+    /// Tooltip for the pill (rendered as the `title` attribute).
+    #[prop(optional, into)]
+    title: Option<String>,
+    /// Optional `data-testid` put on the `<span>`.
+    #[prop(optional_no_strip)]
+    testid: Option<&'static str>,
     /// Extra classes for the pill.
     #[prop(default = String::new(), into)]
     class: String,
     children: Children,
 ) -> impl IntoView {
     view! {
-        <span class=format!("badge badge-sm gap-1 {} {class}", tone.class())>
+        <span
+            class=format!("badge badge-sm gap-1 {} {class}", tone.class())
+            title=title
+            data-testid=testid
+        >
             {icon.map(|icon| view! { <Icon name=icon size=12 /> })}
             {children()}
         </span>

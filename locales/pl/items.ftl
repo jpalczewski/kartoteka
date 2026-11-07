@@ -44,3 +44,9 @@ item-move-to = Przenieś do…
 item-timer-start = Start
 item-timer-start-stops-other = Start (zatrzyma inny)
 item-timer-stop = Stop
+
+# Powtarzalność (tylko odczyt: reguły ustawia się poza UI)
+item-recurrence-label = Powtarza się co
+item-recurrence-every = Powtarza się co { $rule }
+item-recurrence-mode-fixed = stały
+item-recurrence-mode-floating = płynny

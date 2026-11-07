@@ -75,9 +75,9 @@ async fn update_item(
     Path(id): Path<String>,
     Json(req): Json<UpdateItemRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let item = kartoteka_domain::items::update(&state.pool, &uid, &id, &req).await?;
-    // Recurrence spawning is wired through a later change; the REST shape stays a bare item.
-    item.map(|change| change.item)
+    let change = kartoteka_domain::items::update(&state.pool, &uid, &id, &req).await?;
+    change
+        .map(kartoteka_shared::types::ItemChange::from)
         .map(Json)
         .ok_or(AppError::NotFound("item"))
 }
@@ -102,9 +102,9 @@ async fn toggle_complete(
     UserId(uid): UserId,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    let item = kartoteka_domain::items::toggle_complete(&state.pool, &uid, &id).await?;
-    // The spawned occurrence is exposed in a later change; REST still answers with the item.
-    item.map(|change| change.item)
+    let change = kartoteka_domain::items::toggle_complete(&state.pool, &uid, &id).await?;
+    change
+        .map(kartoteka_shared::types::ItemChange::from)
         .map(Json)
         .ok_or(AppError::NotFound("item"))
 }

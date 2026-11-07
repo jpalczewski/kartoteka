@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 use kartoteka_shared::types::{
-    CalendarMonthData, CalendarWeekDay, DateItem, Item, ItemDetailData, ListData, TodayData,
+    CalendarMonthData, CalendarWeekDay, DateItem, Item, ItemChange, ItemDetailData, ListData,
+    TodayData,
 };
 use leptos::prelude::*;
 
@@ -193,14 +194,15 @@ pub async fn create_item(
     Ok(item.into())
 }
 
-/// Toggle completed state of an item. Returns the updated item.
+/// Toggle completed state of an item. Returns the changed item plus the next
+/// occurrence a recurrence rule spawned (if any).
 #[server(prefix = "/leptos")]
-pub async fn toggle_item(item_id: String) -> Result<Option<Item>, ServerFnError> {
+pub async fn toggle_item(item_id: String) -> Result<Option<ItemChange>, ServerFnError> {
     let (pool, user) = require_user().await?;
     let result = domain::items::toggle_complete(&pool, &user.id, &item_id)
         .await
         .sfn()?;
-    Ok(result.map(|change| Item::from(change.item)))
+    Ok(result.map(ItemChange::from))
 }
 
 /// Set the three-state status of an item: `todo`, `in_progress` or `done`.
@@ -226,22 +228,8 @@ pub async fn set_item_status(item_id: String, status: String) -> Result<Item, Se
 pub async fn set_item_icon(item_id: String, icon: Option<String>) -> Result<Item, ServerFnError> {
     let (pool, user) = require_user().await?;
     let req = domain::items::UpdateItemRequest {
-        title: None,
-        description: None,
-        completed: None,
         icon: Some(icon),
-        quantity: None,
-        actual_quantity: None,
-        unit: None,
-        start_date: None,
-        start_time: None,
-        deadline: None,
-        deadline_time: None,
-        hard_deadline: None,
-        estimated_duration: None,
-        location_id: None,
-        recurrence_rule: None,
-        recurrence_mode: None,
+        ..Default::default()
     };
     let change = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
@@ -332,22 +320,9 @@ pub async fn update_actual_quantity(
         .map(|target| new_actual >= target)
         .unwrap_or(false);
     let req = domain::items::UpdateItemRequest {
-        title: None,
-        description: None,
         completed: if auto_complete { Some(true) } else { None },
-        icon: None,
-        quantity: None,
         actual_quantity: Some(Some(new_actual)),
-        unit: None,
-        start_date: None,
-        start_time: None,
-        deadline: None,
-        deadline_time: None,
-        hard_deadline: None,
-        estimated_duration: None,
-        location_id: None,
-        recurrence_rule: None,
-        recurrence_mode: None,
+        ..Default::default()
     };
     let change = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
@@ -372,22 +347,10 @@ pub async fn update_item_quantity(
         Some(unit)
     };
     let req = domain::items::UpdateItemRequest {
-        title: None,
-        description: None,
-        completed: None,
-        icon: None,
         quantity: Some(quantity),
         actual_quantity: Some(actual_quantity),
         unit: Some(unit_val),
-        start_date: None,
-        start_time: None,
-        deadline: None,
-        deadline_time: None,
-        hard_deadline: None,
-        estimated_duration: None,
-        location_id: None,
-        recurrence_rule: None,
-        recurrence_mode: None,
+        ..Default::default()
     };
     let change = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
@@ -435,26 +398,12 @@ pub async fn update_item_description(
 ) -> Result<Item, ServerFnError> {
     let (pool, user) = require_user().await?;
     let req = domain::items::UpdateItemRequest {
-        title: None,
         description: Some(if description.trim().is_empty() {
             None
         } else {
             Some(description)
         }),
-        completed: None,
-        icon: None,
-        quantity: None,
-        actual_quantity: None,
-        unit: None,
-        start_date: None,
-        start_time: None,
-        deadline: None,
-        deadline_time: None,
-        hard_deadline: None,
-        estimated_duration: None,
-        location_id: None,
-        recurrence_rule: None,
-        recurrence_mode: None,
+        ..Default::default()
     };
     let change = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
@@ -479,22 +428,12 @@ pub async fn update_item_dates(
     let to_field = |s: Option<String>| s.map(empty_as_none);
 
     let req = domain::items::UpdateItemRequest {
-        title: None,
-        description: None,
-        completed: None,
-        icon: None,
-        quantity: None,
-        actual_quantity: None,
-        unit: None,
         start_date: to_field(start_date),
         start_time: to_field(start_time),
         deadline: to_field(deadline),
         deadline_time: to_field(deadline_time),
         hard_deadline: to_field(hard_deadline),
-        estimated_duration: None,
-        location_id: None,
-        recurrence_rule: None,
-        recurrence_mode: None,
+        ..Default::default()
     };
     let change = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
@@ -522,20 +461,7 @@ pub async fn update_item(
         } else {
             Some(description)
         }),
-        completed: None,
-        icon: None,
-        quantity: None,
-        actual_quantity: None,
-        unit: None,
-        start_date: None,
-        start_time: None,
-        deadline: None,
-        deadline_time: None,
-        hard_deadline: None,
-        estimated_duration: None,
-        location_id: None,
-        recurrence_rule: None,
-        recurrence_mode: None,
+        ..Default::default()
     };
     let change = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
