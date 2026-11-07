@@ -1,5 +1,6 @@
 pub mod address;
 pub mod city;
+mod detail_header;
 
 use leptos::prelude::*;
 use leptos_fluent::{I18n, move_tr};
@@ -7,11 +8,31 @@ use leptos_router::components::A;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
+use crate::components::common::inline_edit::{InlineEdit, InlineEditSize};
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::locations::{
     delete_location_sf, get_countries, get_locations_sf, parse_location_sf, update_location_sf,
 };
-use kartoteka_shared::{Country, Location};
+use kartoteka_shared::{Country, Location, UpdateLocationRequest};
+
+// ── shared actions ────────────────────────────────────────────────────────────
+
+/// Runs a location server-fn call and refreshes the tree on success.
+///
+/// Failures become an error toast instead of an unhandled server-fn error, which is the
+/// pattern every write in this module needs.
+fn refresh_or_toast<F, T>(fut: F, set_refresh: WriteSignal<u32>, toast: ToastContext)
+where
+    F: std::future::Future<Output = Result<T, ServerFnError>> + 'static,
+    T: 'static,
+{
+    leptos::task::spawn_local(async move {
+        match fut.await {
+            Ok(_) => set_refresh.update(|n| *n += 1),
+            Err(e) => toast.push(e.to_string(), ToastKind::Error),
+        }
+    });
+}
 
 // ── data grouping ─────────────────────────────────────────────────────────────
 
@@ -127,7 +148,7 @@ pub fn LocationsPage() -> impl IntoView {
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            <h2 class="text-2xl font-bold mb-4">"Lokalizacje"</h2>
+            <h2 class="text-2xl font-bold mb-4">{move_tr!("locations-title")}</h2>
 
             // Parser input
             <div class="flex gap-2 mb-6">
@@ -233,7 +254,33 @@ fn CountrySection(
                                 })}
                                 <div class="flex flex-col gap-1">
                                     {rg.cities.into_iter().map(|cg| {
-                                        view! { <CityRow city_group=cg set_refresh=set_refresh /> }
+                                        let city_id = cg.city.id.clone();
+                                        let city_href = format!("/locations/{city_id}");
+                                        let addresses = cg.addresses;
+                                        view! {
+                                            <LocationRow
+                                                location=cg.city
+                                                kind=LocationRowKind::City
+                                                href=city_href
+                                                set_refresh=set_refresh
+                                            >
+                                                {(!addresses.is_empty()).then(|| view! {
+                                                    <div class="flex flex-col gap-1 mt-1 ml-4">
+                                                        {addresses.into_iter().map(|addr| {
+                                                            let href = format!("/locations/{city_id}/{}", addr.id);
+                                                            view! {
+                                                                <LocationRow
+                                                                    location=addr
+                                                                    kind=LocationRowKind::Address
+                                                                    href=href
+                                                                    set_refresh=set_refresh
+                                                                />
+                                                            }
+                                                        }).collect_view()}
+                                                    </div>
+                                                })}
+                                            </LocationRow>
+                                        }
                                     }).collect_view()}
                                 </div>
                             </div>
@@ -245,88 +292,99 @@ fn CountrySection(
     }
 }
 
-// ── city row ──────────────────────────────────────────────────────────────────
+// ── location row ──────────────────────────────────────────────────────────────
 
+/// Which visual variant of [`LocationRow`] to render.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum LocationRowKind {
+    /// Card wrapper, `Sm` inline editor, no inherited text size.
+    City,
+    /// Compact row, `Xs` inline editor, smaller text.
+    Address,
+}
+
+impl LocationRowKind {
+    const fn wrapper_class(self) -> &'static str {
+        match self {
+            Self::City => "card bg-base-200 p-2",
+            Self::Address => "py-1 px-2 rounded bg-base-100",
+        }
+    }
+
+    const fn name_class(self) -> &'static str {
+        match self {
+            Self::City => "font-medium hover:underline",
+            Self::Address => "text-sm flex-1 hover:underline",
+        }
+    }
+
+    const fn edit_size(self) -> InlineEditSize {
+        match self {
+            Self::City => InlineEditSize::Sm,
+            Self::Address => InlineEditSize::Xs,
+        }
+    }
+}
+
+/// One row in the location tree: name link, alias badge, rename and delete actions.
+///
+/// `children` renders underneath the row (a city uses it for its addresses).
 #[component]
-fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoView {
+fn LocationRow(
+    location: Location,
+    kind: LocationRowKind,
+    href: String,
+    set_refresh: WriteSignal<u32>,
+    #[prop(optional)] children: Option<Children>,
+) -> impl IntoView {
     let i18n = expect_context::<I18n>();
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let city = city_group.city.clone();
-    let city_id = StoredValue::new(city.id.clone());
-    let city_alias_sv = StoredValue::new(city.alias.clone());
+    let id = StoredValue::new(location.id);
+    let name = StoredValue::new(location.name);
+    let alias = StoredValue::new(location.alias);
+    let href = StoredValue::new(href);
 
     let (editing, set_editing) = signal(false);
-    let (edit_name, set_edit_name) = signal(city.name.clone());
     let show_delete = RwSignal::new(false);
 
-    let on_save = Callback::new(move |_: ()| {
-        let name = edit_name.get_untracked();
-        if name.trim().is_empty() {
-            return;
-        }
+    let on_save = Callback::new(move |new_name: String| {
         set_editing.set(false);
-        let id = city_id.get_value();
-        leptos::task::spawn_local(async move {
-            match update_location_sf(id, Some(name), None, false, None, None, false).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        refresh_or_toast(
+            update_location_sf(id.get_value(), UpdateLocationRequest::rename(new_name)),
+            set_refresh,
+            toast.clone(),
+        );
     });
 
     let on_delete = Callback::new(move |_: ()| {
         show_delete.set(false);
-        let id = city_id.get_value();
-        leptos::task::spawn_local(async move {
-            match delete_location_sf(id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        refresh_or_toast(
+            delete_location_sf(id.get_value()),
+            set_refresh,
+            toast.clone(),
+        );
     });
 
-    let display_name = StoredValue::new(city.name.clone());
-    let city_href = StoredValue::new(format!("/locations/{}", city_id.get_value()));
-
     view! {
-        <div class="card bg-base-200 p-2">
+        <div class=kind.wrapper_class()>
             {move || {
                 if editing.get() {
                     view! {
-                        <div class="flex gap-2 items-center">
-                            <input
-                                type="text"
-                                class="input input-bordered input-sm flex-1"
-                                prop:value=move || edit_name.get()
-                                on:input=move |ev| set_edit_name.set(event_target_value(&ev))
-                                on:keydown=move |ev| {
-                                    if ev.key() == "Enter" {
-                                        on_save.run(());
-                                    }
-                                }
-                            />
-                            <button
-                                class="btn btn-sm btn-primary"
-                                on:click=move |_| on_save.run(())
-                            >
-                                {move_tr!("locations-save")}
-                            </button>
-                            <button
-                                class="btn btn-sm btn-ghost"
-                                on:click=move |_| set_editing.set(false)
-                            >
-                                {move_tr!("locations-cancel")}
-                            </button>
-                        </div>
+                        <InlineEdit
+                            value=name.get_value()
+                            on_save=on_save
+                            on_cancel=Callback::new(move |_: ()| set_editing.set(false))
+                            size=kind.edit_size()
+                        />
                     }
                     .into_any()
                 } else {
                     view! {
                         <div class="flex items-center gap-2 flex-wrap">
-                            <A href=city_href.get_value() attr:class="font-medium hover:underline">
-                                {display_name.get_value()}
+                            <A href=href.get_value() attr:class=kind.name_class()>
+                                {name.get_value()}
                             </A>
-                            <InlineAlias id=city_id.get_value() initial=city_alias_sv.get_value() set_refresh />
+                            <InlineAlias id=id.get_value() initial=alias.get_value() set_refresh />
                             <div class="ml-auto flex gap-1">
                                 <button
                                     class="btn btn-xs btn-ghost"
@@ -347,128 +405,7 @@ fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoVie
                 }
             }}
 
-            // Addresses under city
-            {if !city_group.addresses.is_empty() {
-                view! {
-                    <div class="flex flex-col gap-1 mt-1 ml-4">
-                        {city_group
-                            .addresses
-                            .into_iter()
-                            .map(|addr| {
-                                view! { <AddressRow addr=addr set_refresh=set_refresh /> }
-                            })
-                            .collect_view()}
-                    </div>
-                }
-                .into_any()
-            } else {
-                view! {}.into_any()
-            }}
-
-            <ConfirmModal
-                open=Signal::from(show_delete)
-                title=i18n.tr("locations-delete-title")
-                message=i18n.tr("locations-delete-confirm")
-                confirm_label=i18n.tr("common-delete")
-                variant=ConfirmVariant::Danger
-                on_confirm=on_delete
-                on_close=Callback::new(move |_: ()| show_delete.set(false))
-            />
-        </div>
-    }
-}
-
-// ── address row ───────────────────────────────────────────────────────────────
-
-#[component]
-fn AddressRow(addr: Location, set_refresh: WriteSignal<u32>) -> impl IntoView {
-    let i18n = expect_context::<I18n>();
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let addr_id = StoredValue::new(addr.id.clone());
-    let addr_alias_sv = StoredValue::new(addr.alias.clone());
-
-    let (editing, set_editing) = signal(false);
-    let (edit_name, set_edit_name) = signal(addr.name.clone());
-    let show_delete = RwSignal::new(false);
-
-    let on_save = Callback::new(move |_: ()| {
-        let name = edit_name.get_untracked();
-        if name.trim().is_empty() {
-            return;
-        }
-        set_editing.set(false);
-        let id = addr_id.get_value();
-        leptos::task::spawn_local(async move {
-            match update_location_sf(id, Some(name), None, false, None, None, false).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
-    });
-
-    let on_delete = Callback::new(move |_: ()| {
-        show_delete.set(false);
-        let id = addr_id.get_value();
-        leptos::task::spawn_local(async move {
-            match delete_location_sf(id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
-    });
-
-    let display_name = StoredValue::new(addr.name.clone());
-
-    view! {
-        <div class="flex items-center gap-2 py-1 px-2 rounded bg-base-100 flex-wrap">
-            {move || {
-                if editing.get() {
-                    view! {
-                        <input
-                            type="text"
-                            class="input input-bordered input-xs flex-1"
-                            prop:value=move || edit_name.get()
-                            on:input=move |ev| set_edit_name.set(event_target_value(&ev))
-                            on:keydown=move |ev| {
-                                if ev.key() == "Enter" {
-                                    on_save.run(());
-                                }
-                            }
-                        />
-                        <button
-                            class="btn btn-xs btn-primary"
-                            on:click=move |_| on_save.run(())
-                        >
-                            {move_tr!("locations-save")}
-                        </button>
-                        <button
-                            class="btn btn-xs btn-ghost"
-                            on:click=move |_| set_editing.set(false)
-                        >
-                            {move_tr!("locations-cancel")}
-                        </button>
-                    }
-                    .into_any()
-                } else {
-                    view! {
-                        <span class="text-sm flex-1">{display_name.get_value()}</span>
-                        <InlineAlias id=addr_id.get_value() initial=addr_alias_sv.get_value() set_refresh />
-                        <button
-                            class="btn btn-xs btn-ghost"
-                            on:click=move |_| set_editing.set(true)
-                        >
-                            "✎"
-                        </button>
-                        <button
-                            class="btn btn-xs btn-ghost text-error"
-                            on:click=move |_| show_delete.set(true)
-                        >
-                            "✕"
-                        </button>
-                    }
-                    .into_any()
-                }
-            }}
+            {children.map(|children| children())}
 
             <ConfirmModal
                 open=Signal::from(show_delete)
@@ -492,75 +429,51 @@ pub(super) fn InlineAlias(
     set_refresh: WriteSignal<u32>,
 ) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let i18n = expect_context::<I18n>();
     let id_sv = StoredValue::new(id);
     let alias_sv = StoredValue::new(initial);
     let (editing, set_editing) = signal(false);
-    let (edit_value, set_edit_value) = signal(alias_sv.get_value().unwrap_or_default());
+    let placeholder = i18n.tr("locations-alias-placeholder");
 
-    let on_save = Callback::new(move |_: ()| {
-        let alias = edit_value.get_untracked();
+    let on_save = Callback::new(move |alias: String| {
         set_editing.set(false);
         let id = id_sv.get_value();
-        leptos::task::spawn_local(async move {
-            let result = if alias.trim().is_empty() {
-                update_location_sf(id, None, None, true, None, None, false).await
-            } else {
-                update_location_sf(id, None, Some(alias), false, None, None, false).await
-            };
-            match result {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        let req = if alias.trim().is_empty() {
+            UpdateLocationRequest::set_alias(None)
+        } else {
+            UpdateLocationRequest::set_alias(Some(alias))
+        };
+        refresh_or_toast(update_location_sf(id, req), set_refresh, toast.clone());
     });
 
     let on_clear = Callback::new(move |_: ()| {
-        let id = id_sv.get_value();
-        leptos::task::spawn_local(async move {
-            match update_location_sf(id, None, None, true, None, None, false).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        refresh_or_toast(
+            update_location_sf(id_sv.get_value(), UpdateLocationRequest::set_alias(None)),
+            set_refresh,
+            toast.clone(),
+        );
     });
 
     view! {
         {move || {
             if editing.get() {
                 view! {
-                    <div class="flex gap-1 items-center">
-                        <input
-                            type="text"
-                            class="input input-bordered input-xs"
-                            placeholder=move_tr!("locations-alias-placeholder")
-                            prop:value=move || edit_value.get()
-                            on:input=move |ev| set_edit_value.set(event_target_value(&ev))
-                            on:keydown=move |ev| {
-                                match ev.key().as_str() {
-                                    "Enter" => on_save.run(()),
-                                    "Escape" => set_editing.set(false),
-                                    _ => {}
-                                }
-                            }
-                        />
-                        <button class="btn btn-xs btn-primary" on:click=move |_| on_save.run(())>
-                            {move_tr!("locations-save")}
-                        </button>
-                        <button class="btn btn-xs btn-ghost" on:click=move |_| set_editing.set(false)>
-                            {move_tr!("locations-cancel")}
-                        </button>
-                    </div>
+                    <InlineEdit
+                        value=alias_sv.get_value().unwrap_or_default()
+                        on_save=on_save
+                        on_cancel=Callback::new(move |_: ()| set_editing.set(false))
+                        size=InlineEditSize::Xs
+                        placeholder=Some(placeholder.clone())
+                        allow_empty=true
+                    />
                 }
                 .into_any()
             } else {
                 let alias = alias_sv.get_value();
                 view! {
                     <AliasBadge
-                        alias=alias.clone()
-                        on_edit=Callback::new(move |_: ()| {
-                            set_edit_value.set(alias.clone().unwrap_or_default());
-                            set_editing.set(true);
-                        })
+                        alias=alias
+                        on_edit=Callback::new(move |_: ()| set_editing.set(true))
                         on_clear=on_clear
                     />
                 }

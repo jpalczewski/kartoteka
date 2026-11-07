@@ -176,6 +176,10 @@ pub async fn feed_for_token(pool: &SqlitePool, token: &str) -> Result<Option<Fee
     .format(DATE_FORMAT)
     .to_string();
     let reminders = get_reminder_defaults(pool, &row.user_id).await?;
+    let locale = db::preferences::get_locale(pool, &row.user_id)
+        .await?
+        .parse()
+        .unwrap_or_default();
 
     let calendar_name = match row.list_id.as_deref() {
         Some(list_id) => match db::lists::get_one(pool, list_id, &row.user_id).await? {
@@ -188,7 +192,7 @@ pub async fn feed_for_token(pool: &SqlitePool, token: &str) -> Result<Option<Fee
     let rows = db::items::for_calendar_feed(pool, &row.user_id, row.list_id.as_deref(), &from_date)
         .await?;
     let items: Vec<FeedItem> = rows.into_iter().map(FeedItem::from).collect();
-    let body = render_feed(&calendar_name, &items, tz, &reminders);
+    let body = render_feed(&calendar_name, &items, tz, &reminders, locale);
     let etag = format!("\"{}\"", etag_digest(&body));
 
     // Best effort: a failed bookkeeping write must not break the feed.

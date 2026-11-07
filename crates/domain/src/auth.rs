@@ -275,10 +275,114 @@ pub async fn is_totp_enabled(pool: &SqlitePool, user_id: &str) -> Result<bool, D
     Ok(db::totp::is_enabled(pool, user_id).await?)
 }
 
-/// Create a personal access token. Generates a UUID jti, signs it as JWT HS256,
-/// and stores metadata in personal_tokens. The JWT is returned once — never stored.
+/// Scopes a personal access token may be issued with.
+pub const ALLOWED_TOKEN_SCOPES: &[&str] = &["full", "readonly"];
+/// Expiry applied when the caller does not request one explicitly.
+pub const DEFAULT_TOKEN_TTL_DAYS: i64 = 90;
+/// Hard upper bound for a requested token expiry.
+pub const MAX_TOKEN_TTL_DAYS: i64 = 365;
+
+/// Input for issuing a personal access token.
+///
+/// `scope` defaults to `"full"` when omitted. `expires_at` is an RFC3339
+/// timestamp; when omitted the token gets [`DEFAULT_TOKEN_TTL_DAYS`] days.
+#[derive(Debug, Clone, Default)]
+pub struct CreateTokenParams {
+    pub name: String,
+    pub scope: Option<String>,
+    pub expires_at: Option<String>,
+}
+
+/// Token parameters after validation, with a concrete expiry.
+#[derive(Debug, Clone)]
+pub struct ValidatedTokenParams {
+    pub name: String,
+    pub scope: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Errors from validating or creating a personal access token.
+#[derive(Debug, thiserror::Error)]
+pub enum CreateTokenError {
+    #[error("invalid scope '{0}': must be one of: full, readonly")]
+    InvalidScope(String),
+    #[error("invalid expires_at: expected RFC3339")]
+    InvalidExpiryFormat,
+    #[error("expires_at must be in the future")]
+    ExpiryInPast,
+    #[error("expires_at exceeds maximum of 365 days")]
+    ExpiryTooLong,
+    #[error(transparent)]
+    Domain(#[from] DomainError),
+}
+
+/// Validate scope and expiry for a new personal token and normalise the expiry.
+///
+/// This is the single source of truth for both the REST API and the Leptos
+/// server functions, so no caller can mint a token with an off-allowlist scope
+/// or an unbounded lifetime. `now` is a parameter to keep the function pure and
+/// deterministic in tests.
+pub fn validate_create_token(
+    params: CreateTokenParams,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<ValidatedTokenParams, CreateTokenError> {
+    let scope = params.scope.unwrap_or_else(|| "full".to_string());
+    if !ALLOWED_TOKEN_SCOPES.contains(&scope.as_str()) {
+        return Err(CreateTokenError::InvalidScope(scope));
+    }
+
+    let expires_at = match params.expires_at.as_deref() {
+        Some(raw) => {
+            let dt = chrono::DateTime::parse_from_rfc3339(raw)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .map_err(|_| CreateTokenError::InvalidExpiryFormat)?;
+            if dt <= now {
+                return Err(CreateTokenError::ExpiryInPast);
+            }
+            if dt > now + chrono::Duration::days(MAX_TOKEN_TTL_DAYS) {
+                return Err(CreateTokenError::ExpiryTooLong);
+            }
+            dt
+        }
+        None => now + chrono::Duration::days(DEFAULT_TOKEN_TTL_DAYS),
+    };
+
+    Ok(ValidatedTokenParams {
+        name: params.name,
+        scope,
+        expires_at,
+    })
+}
+
+/// Create a validated personal access token.
+///
+/// The scope must be one of [`ALLOWED_TOKEN_SCOPES`] and the expiry defaults to
+/// [`DEFAULT_TOKEN_TTL_DAYS`] days, capped at [`MAX_TOKEN_TTL_DAYS`]. Use this
+/// (or [`validate_create_token`]) instead of signing a token directly.
+#[tracing::instrument(skip(pool, signing_secret, params))]
+pub async fn create_personal_token(
+    pool: &SqlitePool,
+    signing_secret: &str,
+    user_id: &str,
+    params: CreateTokenParams,
+) -> Result<TokenCreated, CreateTokenError> {
+    let validated = validate_create_token(params, chrono::Utc::now())?;
+    Ok(create_token(
+        pool,
+        signing_secret,
+        user_id,
+        &validated.name,
+        &validated.scope,
+        Some(validated.expires_at),
+    )
+    .await?)
+}
+
+/// Low-level token signing. Does NOT validate scope or expiry — call via
+/// [`create_personal_token`]. Generates a UUID jti, signs the claims as JWT
+/// HS256, and stores metadata in personal_tokens. The JWT is returned once.
 #[tracing::instrument(skip(pool, signing_secret))]
-pub async fn create_token(
+async fn create_token(
     pool: &SqlitePool,
     signing_secret: &str,
     user_id: &str,
@@ -401,382 +505,7 @@ pub async fn revoke_token(
     Ok(())
 }
 
+// ── Unit tests ────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use kartoteka_db::test_helpers::test_pool;
-
-    const TEST_PW: &str = "test-placeholder-pw";
-    const WRONG_PW: &str = "test-wrong-pw";
-
-    #[tokio::test]
-    async fn first_user_becomes_admin() {
-        let pool = test_pool().await;
-        let user = register(&pool, "admin@example.com", TEST_PW, Some("Admin"))
-            .await
-            .unwrap();
-        assert_eq!(user.role, "admin");
-        assert_eq!(user.email, "admin@example.com");
-    }
-
-    #[tokio::test]
-    async fn second_user_is_not_admin() {
-        let pool = test_pool().await;
-        register(&pool, "first@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        let second = register(&pool, "second@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        assert_eq!(second.role, "user");
-    }
-
-    #[tokio::test]
-    async fn duplicate_email_returns_validation_error() {
-        let pool = test_pool().await;
-        register(&pool, "alice@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        let err = register(&pool, "alice@example.com", TEST_PW, None)
-            .await
-            .unwrap_err();
-        assert!(matches!(err, DomainError::Validation("email_taken")));
-    }
-
-    #[tokio::test]
-    async fn registration_disabled_returns_forbidden() {
-        let pool = test_pool().await;
-        kartoteka_db::server_config::set(&pool, "registration_enabled", "false")
-            .await
-            .unwrap();
-        let err = register(&pool, "user@example.com", TEST_PW, None)
-            .await
-            .unwrap_err();
-        assert!(matches!(err, DomainError::Forbidden));
-    }
-
-    #[tokio::test]
-    async fn register_creates_password_auth_method() {
-        let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", "secret", None)
-            .await
-            .unwrap();
-        let method =
-            kartoteka_db::auth_methods::find_by_user_and_provider(&pool, &user.id, "password")
-                .await
-                .unwrap()
-                .unwrap();
-        assert_eq!(method.provider, "password");
-        assert!(method.credential.as_deref().unwrap().starts_with("$argon2"));
-    }
-
-    #[tokio::test]
-    async fn hash_and_verify_password_roundtrip() {
-        let hash = hash_password(TEST_PW.to_string()).await.unwrap();
-        assert!(
-            verify_password(TEST_PW.to_string(), hash.clone())
-                .await
-                .unwrap()
-        );
-        assert!(!verify_password(WRONG_PW.to_string(), hash).await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn is_registration_enabled_defaults_true() {
-        let pool = test_pool().await;
-        assert!(is_registration_enabled(&pool).await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn is_registration_enabled_false_when_set() {
-        let pool = test_pool().await;
-        kartoteka_db::server_config::set(&pool, "registration_enabled", "false")
-            .await
-            .unwrap();
-        assert!(!is_registration_enabled(&pool).await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn setup_totp_returns_secret_and_url() {
-        let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        let setup = setup_totp(&pool, &user.id, &user.email).await.unwrap();
-        assert!(!setup.secret.is_empty());
-        assert!(setup.otpauth_url.starts_with("otpauth://totp/Kartoteka:"));
-        assert!(setup.otpauth_url.contains("issuer=Kartoteka"));
-        assert!(
-            setup
-                .otpauth_url
-                .contains(&format!("secret={}", setup.secret))
-        );
-    }
-
-    #[test]
-    fn make_totp_round_trips_stored_base32_secret() {
-        // Secrets written by earlier totp-rs 5.x releases are uppercase, unpadded
-        // RFC 4648 base32; they must keep decoding to the same bytes and
-        // re-encode to the identical string, otherwise existing 2FA enrolments
-        // would stop verifying.
-        let stored = "OBWGC2LOFVZXI4TJNZTS243FMNZGK5BNGEZDG";
-        let totp = make_totp(stored).unwrap();
-        assert_eq!(totp.secret().to_base32(), stored);
-        assert_eq!(totp.secret().as_bytes().len(), 23);
-    }
-
-    #[tokio::test]
-    async fn verify_totp_setup_marks_verified() {
-        use totp_rs::{Algorithm, Builder, Secret};
-        let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        let setup = setup_totp(&pool, &user.id, &user.email).await.unwrap();
-        let secret = Secret::try_from_base32(setup.secret.clone()).unwrap();
-        let totp = Builder::new()
-            .with_algorithm(Algorithm::SHA1)
-            .with_digits(6)
-            .with_skew(1)
-            .with_step_duration(30)
-            .with_secret(secret)
-            .build()
-            .unwrap();
-        let code = totp.generate_current().to_string();
-        verify_totp_setup(&pool, &user.id, &code).await.unwrap();
-        assert!(is_totp_enabled(&pool, &user.id).await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn verify_totp_setup_with_wrong_code_returns_error() {
-        let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        setup_totp(&pool, &user.id, &user.email).await.unwrap();
-        let err = verify_totp_setup(&pool, &user.id, "000000")
-            .await
-            .unwrap_err();
-        assert!(matches!(err, DomainError::Validation("invalid_totp_code")));
-    }
-
-    #[tokio::test]
-    async fn disable_totp_removes_secret() {
-        use totp_rs::{Algorithm, Builder, Secret};
-        let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        let setup = setup_totp(&pool, &user.id, &user.email).await.unwrap();
-        let secret = Secret::try_from_base32(setup.secret).unwrap();
-        let totp = Builder::new()
-            .with_algorithm(Algorithm::SHA1)
-            .with_digits(6)
-            .with_skew(1)
-            .with_step_duration(30)
-            .with_secret(secret)
-            .build()
-            .unwrap();
-        let code = totp.generate_current().to_string();
-        verify_totp_setup(&pool, &user.id, &code).await.unwrap();
-        disable_totp(&pool, &user.id).await.unwrap();
-        assert!(!is_totp_enabled(&pool, &user.id).await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn check_totp_code_returns_false_when_totp_not_enabled() {
-        let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        let result = check_totp_code(&pool, &user.id, "123456").await.unwrap();
-        assert!(!result);
-    }
-
-    #[tokio::test]
-    async fn check_totp_code_rejects_replay() {
-        // A valid code that is accepted once must be rejected on the second use,
-        // even while still inside the TOTP validity window.
-        let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        let setup = setup_totp(&pool, &user.id, "user@example.com")
-            .await
-            .unwrap();
-        kartoteka_db::totp::mark_verified(&pool, &user.id)
-            .await
-            .unwrap();
-
-        let code = make_totp(&setup.secret)
-            .unwrap()
-            .generate_current()
-            .to_string();
-        assert!(check_totp_code(&pool, &user.id, &code).await.unwrap());
-        assert!(
-            !check_totp_code(&pool, &user.id, &code).await.unwrap(),
-            "second use of the same TOTP code must be rejected"
-        );
-    }
-
-    // ── C3: JWT token tests ──────────────────────────────────────────────
-
-    const TEST_SECRET: &str = "test-signing-secret-32-bytes-min!!";
-
-    #[tokio::test]
-    async fn create_token_returns_jwt_and_row() {
-        let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        let created = create_token(&pool, TEST_SECRET, &user.id, "My Token", "full", None)
-            .await
-            .unwrap();
-        assert!(!created.token.is_empty());
-        assert_eq!(created.name, "My Token");
-        assert_eq!(created.scope, "full");
-        assert!(!created.id.is_empty());
-        // JWT must decode correctly
-        let ctx = validate_jwt(&pool, &created.token, TEST_SECRET)
-            .await
-            .unwrap();
-        assert_eq!(ctx.user_id, user.id);
-        assert_eq!(ctx.scope, "full");
-    }
-
-    #[tokio::test]
-    async fn validate_jwt_with_wrong_secret_fails() {
-        let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        let created = create_token(&pool, TEST_SECRET, &user.id, "Token", "full", None)
-            .await
-            .unwrap();
-        let result = validate_jwt(&pool, &created.token, "wrong-secret-32-bytes-min!!!!!!").await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn validate_jwt_revoked_token_fails() {
-        let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        let created = create_token(&pool, TEST_SECRET, &user.id, "Token", "full", None)
-            .await
-            .unwrap();
-        revoke_token(&pool, &created.id, &user.id).await.unwrap();
-        let result = validate_jwt(&pool, &created.token, TEST_SECRET).await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn list_tokens_returns_user_tokens() {
-        let pool = test_pool().await;
-        let user = register(&pool, "user@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        create_token(&pool, TEST_SECRET, &user.id, "Token A", "full", None)
-            .await
-            .unwrap();
-        create_token(&pool, TEST_SECRET, &user.id, "Token B", "calendar", None)
-            .await
-            .unwrap();
-        let tokens = list_tokens(&pool, &user.id).await.unwrap();
-        assert_eq!(tokens.len(), 2);
-    }
-
-    #[tokio::test]
-    async fn revoke_token_not_owned_returns_not_found() {
-        let pool = test_pool().await;
-        let user1 = register(&pool, "u1@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        let user2 = register(&pool, "u2@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        let created = create_token(&pool, TEST_SECRET, &user1.id, "Token", "full", None)
-            .await
-            .unwrap();
-        let err = revoke_token(&pool, &created.id, &user2.id)
-            .await
-            .unwrap_err();
-        assert!(matches!(err, DomainError::NotFound("token")));
-    }
-
-    #[tokio::test]
-    async fn validate_jwt_mcp_scope_skips_revocation_check_but_requires_exp() {
-        // MCP tokens (short-lived, issued by OAuth) are not stored in personal_tokens,
-        // so they skip the DB revocation check — but they MUST carry an exp claim to
-        // avoid becoming permanently valid.
-        let pool = test_pool().await;
-        use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
-
-        // Without exp: must be rejected.
-        let claims_no_exp = serde_json::json!({
-            "sub": "some-user-id",
-            "scope": "mcp",
-            "jti": "phantom-jti-not-in-db",
-            "iat": 0usize,
-        });
-        let token_no_exp = encode(
-            &Header::new(Algorithm::HS256),
-            &claims_no_exp,
-            &EncodingKey::from_secret(TEST_SECRET.as_bytes()),
-        )
-        .unwrap();
-        assert!(
-            validate_jwt(&pool, &token_no_exp, TEST_SECRET)
-                .await
-                .is_err()
-        );
-
-        // With future exp: passes without DB lookup.
-        let future_exp = (chrono::Utc::now().timestamp() + 3600) as usize;
-        let claims_ok = serde_json::json!({
-            "sub": "some-user-id",
-            "scope": "mcp",
-            "jti": "phantom-jti-not-in-db",
-            "iat": 0usize,
-            "exp": future_exp,
-        });
-        let token_ok = encode(
-            &Header::new(Algorithm::HS256),
-            &claims_ok,
-            &EncodingKey::from_secret(TEST_SECRET.as_bytes()),
-        )
-        .unwrap();
-        let ctx = validate_jwt(&pool, &token_ok, TEST_SECRET).await.unwrap();
-        assert_eq!(ctx.scope, "mcp");
-    }
-
-    #[tokio::test]
-    async fn validate_jwt_rejects_sub_mismatch() {
-        // Cross-check: a forged token whose jti points to user A but sub claims user B
-        // must be rejected even though the jti is present in personal_tokens.
-        let pool = test_pool().await;
-        let user_a = register(&pool, "a@example.com", TEST_PW, None)
-            .await
-            .unwrap();
-        let created = create_token(&pool, TEST_SECRET, &user_a.id, "Token", "full", None)
-            .await
-            .unwrap();
-
-        // Forge a JWT with user_a's jti but a different sub.
-        use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
-        let claims = serde_json::json!({
-            "sub": "attacker-id",
-            "scope": "full",
-            "jti": &created.id,
-            "iat": 0usize,
-        });
-        let forged = encode(
-            &Header::new(Algorithm::HS256),
-            &claims,
-            &EncodingKey::from_secret(TEST_SECRET.as_bytes()),
-        )
-        .unwrap();
-        assert!(validate_jwt(&pool, &forged, TEST_SECRET).await.is_err());
-    }
-}
+mod tests;

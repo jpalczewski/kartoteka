@@ -10,8 +10,8 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    axum_login::AuthSession, kartoteka_auth::KartotekaBackend, kartoteka_domain as domain,
-    sqlx::SqlitePool,
+    crate::server_fns::utils::format_datetime_in_tz, axum_login::AuthSession,
+    kartoteka_auth::KartotekaBackend, kartoteka_domain as domain, sqlx::SqlitePool,
 };
 
 /// List the current user's calendar subscription tokens, with the scoped list's
@@ -28,6 +28,10 @@ pub async fn list_calendar_tokens_sf() -> Result<Vec<CalendarTokenInfo>, ServerF
     let rows = domain::calendar::list_tokens(&pool, &user.id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let tz = domain::preferences::get(&pool, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .timezone;
 
     let mut tokens = Vec::with_capacity(rows.len());
     for row in rows {
@@ -45,8 +49,8 @@ pub async fn list_calendar_tokens_sf() -> Result<Vec<CalendarTokenInfo>, ServerF
             name: row.name,
             list_id: row.list_id,
             list_name,
-            last_used_at: row.last_used_at,
-            created_at: row.created_at,
+            last_used_at: row.last_used_at.map(|at| format_datetime_in_tz(&at, &tz)),
+            created_at: format_datetime_in_tz(&row.created_at, &tz),
         });
     }
     Ok(tokens)

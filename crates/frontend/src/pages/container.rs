@@ -14,13 +14,14 @@ use crate::components::lists::{
     container_card::ContainerCard, create_entity_input::CreateEntityInput,
     list_preview::ListPreview,
 };
-use crate::context::GlobalRefresh;
 use crate::server_fns::containers::{
     archive_container, create_container, get_container_data, get_containers_for_move,
     move_container, rename_container, reorder_containers,
 };
 use crate::server_fns::lists::{archive_list, create_list, move_list, reorder_lists};
 use crate::state::dnd::{DndState, DropTarget, EntityKind};
+use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
+use kartoteka_shared::ChangeTopic;
 
 fn container_status_icon(status: Option<&str>) -> &'static str {
     match status {
@@ -39,12 +40,11 @@ pub fn ContainerPage() -> impl IntoView {
     let container_id = Signal::derive(move || params.read().get("id").unwrap_or_default());
     // Delete of this container or one of its children goes through the shared flow.
     let delete_target: RwSignal<Option<DeleteTarget>> = RwSignal::new(None);
-    let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let invalidation = use_invalidation();
     let navigate = StoredValue::new(use_navigate());
     let expand_all_label = StoredValue::new(i18n.tr("lists-expand-all"));
     let collapse_all_label = StoredValue::new(i18n.tr("lists-collapse-all"));
-    let (refresh, set_refresh) = signal(0u32);
     let (expand_all, set_expand_all) = signal(false);
 
     let container_dropdown_open = RwSignal::new(false);
@@ -61,18 +61,22 @@ pub fn ContainerPage() -> impl IntoView {
     );
     let on_move_container_to_parent = Callback::new(move |pid: String| {
         let cid = container_id.get();
-        leptos::task::spawn_local(async move {
-            match move_container(cid, Some(pid)).await {
-                Ok(_) => global_refresh.bump(),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-            container_dropdown_open.set(false);
-        });
+        container_dropdown_open.set(false);
+        mutate(move_container(cid, Some(pid)), &[ChangeTopic::Containers]);
     });
 
     let data_res = Resource::new(
-        move || (container_id.get(), global_refresh.get(), refresh.get()),
-        |(id, _, _)| get_container_data(id),
+        move || {
+            (
+                container_id.get(),
+                invalidation.track(&[
+                    ChangeTopic::Containers,
+                    ChangeTopic::Lists,
+                    ChangeTopic::Comments,
+                ]),
+            )
+        },
+        |(id, _)| get_container_data(id),
     );
 
     // Single state — lists and containers share it; handlers branch on kind.
@@ -83,11 +87,10 @@ pub fn ContainerPage() -> impl IntoView {
             <DeleteEntityModal
                 target=delete_target
                 on_deleted=Callback::new(move |target: DeleteTarget| {
+                    // Deleted this container — nothing left to show here. Children
+                    // vanish through the invalidation done by the modal.
                     if target.id == container_id.get_untracked() {
-                        // Deleted this container — nothing left to show here.
                         navigate.with_value(|nav| nav("/", Default::default()));
-                    } else {
-                        global_refresh.bump();
                     }
                 })
             />
@@ -140,7 +143,10 @@ pub fn ContainerPage() -> impl IntoView {
                                     EntityKind::List => move_list(id, ctr, None).await.map(|_| ()),
                                 };
                                 match result {
-                                    Ok(()) => global_refresh.bump(),
+                                    Ok(()) => invalidation.invalidate_many(&[
+                                        ChangeTopic::Containers,
+                                        ChangeTopic::Lists,
+                                    ]),
                                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                 }
                             });
@@ -161,7 +167,10 @@ pub fn ContainerPage() -> impl IntoView {
                                     EntityKind::List => move_list(id, Some(nest_id), None).await.map(|_| ()),
                                 };
                                 match result {
-                                    Ok(()) => global_refresh.bump(),
+                                    Ok(()) => invalidation.invalidate_many(&[
+                                        ChangeTopic::Containers,
+                                        ChangeTopic::Lists,
+                                    ]),
                                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                 }
                             });
@@ -177,7 +186,7 @@ pub fn ContainerPage() -> impl IntoView {
                             if kind != EntityKind::List || id == nest_id { return; }
                             leptos::task::spawn_local(async move {
                                 match move_list(id, None, Some(nest_id)).await {
-                                    Ok(_) => global_refresh.bump(),
+                                    Ok(_) => invalidation.invalidate(ChangeTopic::Lists),
                                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                 }
                             });
@@ -202,7 +211,7 @@ pub fn ContainerPage() -> impl IntoView {
                             let parent = Some(current_for_reorder.clone());
                             leptos::task::spawn_local(async move {
                                 match reorder_containers(parent, ids).await {
-                                    Ok(()) => global_refresh.bump(),
+                                    Ok(()) => invalidation.invalidate(ChangeTopic::Containers),
                                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                 }
                             });
@@ -227,27 +236,17 @@ pub fn ContainerPage() -> impl IntoView {
                             let ctr = Some(current_for_list_reorder.clone());
                             leptos::task::spawn_local(async move {
                                 match reorder_lists(ctr, None, ids).await {
-                                    Ok(()) => global_refresh.bump(),
+                                    Ok(()) => invalidation.invalidate(ChangeTopic::Lists),
                                     Err(e) => toast.push(e.to_string(), ToastKind::Error),
                                 }
                             });
                         });
 
                         let on_create_list = Callback::new(move |req| {
-                            leptos::task::spawn_local(async move {
-                                match create_list(req).await {
-                                    Ok(_) => global_refresh.bump(),
-                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                }
-                            });
+                            mutate(create_list(req), &[ChangeTopic::Lists, ChangeTopic::Containers]);
                         });
                         let on_create_container = Callback::new(move |req| {
-                            leptos::task::spawn_local(async move {
-                                match create_container(req).await {
-                                    Ok(_) => global_refresh.bump(),
-                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                }
-                            });
+                            mutate(create_container(req), &[ChangeTopic::Containers]);
                         });
 
                         // Callbacks for child containers
@@ -256,15 +255,11 @@ pub fn ContainerPage() -> impl IntoView {
                             let msg = archived_msg.clone();
                             Callback::new(move |id: String| {
                                 let msg = msg.clone();
-                                leptos::task::spawn_local(async move {
-                                    match archive_container(id).await {
-                                        Ok(_) => {
-                                            global_refresh.bump();
-                                            toast.push(msg, ToastKind::Success);
-                                        }
-                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                    }
-                                });
+                                mutate_with(
+                                    archive_container(id),
+                                    &[ChangeTopic::Containers],
+                                    move |()| toast.push(msg, ToastKind::Success),
+                                );
                             })
                         };
 
@@ -281,12 +276,7 @@ pub fn ContainerPage() -> impl IntoView {
 
                         // Callbacks for lists
                         let on_archive_list_cb = Callback::new(move |id: String| {
-                            leptos::task::spawn_local(async move {
-                                match archive_list(id).await {
-                                    Ok(_) => global_refresh.bump(),
-                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                }
-                            });
+                            mutate(archive_list(id), &[ChangeTopic::Lists]);
                         });
 
                         let on_delete_list_cb = Callback::new(move |id: String| {
@@ -304,15 +294,14 @@ pub fn ContainerPage() -> impl IntoView {
                             Callback::new(move |_: ()| {
                                 let id = cid_for_archive.clone();
                                 let msg = msg.clone();
-                                leptos::task::spawn_local(async move {
-                                    match archive_container(id).await {
-                                        Ok(_) => {
-                                            toast.push(msg, ToastKind::Success);
-                                            navigate.with_value(|nav| nav("/", Default::default()));
-                                        }
-                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                    }
-                                });
+                                mutate_with(
+                                    archive_container(id),
+                                    &[ChangeTopic::Containers],
+                                    move |()| {
+                                        toast.push(msg, ToastKind::Success);
+                                        navigate.with_value(|nav| nav("/", Default::default()));
+                                    },
+                                );
                             })
                         };
 
@@ -343,12 +332,10 @@ pub fn ContainerPage() -> impl IntoView {
                                             on_save=Callback::new(move |new_name: String| {
                                                 let lid = container_id_for_rename.clone();
                                                 let current_desc = desc_for_rename.clone();
-                                                leptos::task::spawn_local(async move {
-                                                    match rename_container(lid, new_name, current_desc).await {
-                                                        Ok(_) => set_refresh.update(|n| *n += 1),
-                                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                    }
-                                                });
+                                                mutate(
+                                                    rename_container(lid, new_name, current_desc),
+                                                    &[ChangeTopic::Containers],
+                                                );
                                             })
                                             class="text-2xl font-bold cursor-pointer hover:underline decoration-dotted"
                                         />
@@ -358,12 +345,10 @@ pub fn ContainerPage() -> impl IntoView {
                                                 let lid = container_id_for_desc.clone();
                                                 let current_name = name_for_desc.clone();
                                                 let desc_opt = if new_desc.trim().is_empty() { None } else { Some(new_desc) };
-                                                leptos::task::spawn_local(async move {
-                                                    match rename_container(lid, current_name, desc_opt).await {
-                                                        Ok(_) => set_refresh.update(|n| *n += 1),
-                                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                    }
-                                                });
+                                                mutate(
+                                                    rename_container(lid, current_name, desc_opt),
+                                                    &[ChangeTopic::Containers],
+                                                );
                                             })
                                             multiline=true
                                             placeholder="Dodaj opis..."
@@ -387,12 +372,10 @@ pub fn ContainerPage() -> impl IntoView {
                                                             title=move_tr!("lists-detach-from-parent")
                                                             on:click=move |_| {
                                                                 let cid = current_id_for_move_sv.get_value();
-                                                                leptos::task::spawn_local(async move {
-                                                                    match move_container(cid, None).await {
-                                                                        Ok(_) => global_refresh.bump(),
-                                                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                                    }
-                                                                });
+                                                                mutate(
+                                                                    move_container(cid, None),
+                                                                    &[ChangeTopic::Containers],
+                                                                );
                                                             }
                                                         >{"✕"}</button>
                                                     </div>

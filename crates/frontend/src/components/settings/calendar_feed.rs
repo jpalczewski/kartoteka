@@ -14,6 +14,8 @@ use crate::server_fns::calendar_feed::{
     revoke_calendar_token_sf, set_reminder_defaults_sf,
 };
 use crate::server_fns::lists::get_all_lists;
+use crate::state::invalidation::{mutate_with, use_invalidation};
+use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::ReminderDefaults;
 use kartoteka_shared::types::{CalendarTokenCreatedDto, CalendarTokenInfo};
 
@@ -42,18 +44,24 @@ struct FeedUrls {
 
 #[component]
 pub fn CalendarFeedSettings() -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let invalidation = use_invalidation();
 
-    let (tokens_refresh, set_tokens_refresh) = signal(0u32);
-    let tokens_res = Resource::new(move || tokens_refresh.get(), |_| list_calendar_tokens_sf());
-    let reminders_res = Resource::new(|| (), |_| get_reminder_defaults_sf());
-    let lists_res = Resource::new(|| (), |_| get_all_lists());
+    let tokens_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::Settings]),
+        |_| list_calendar_tokens_sf(),
+    );
+    let reminders_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::Settings]),
+        |_| get_reminder_defaults_sf(),
+    );
+    let lists_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::Lists]),
+        |_| get_all_lists(),
+    );
 
     let (new_name, set_new_name) = signal(String::new());
     let (new_list_id, set_new_list_id) = signal(String::new());
     let (created_urls, set_created_urls) = signal(Option::<FeedUrls>::None);
-
-    let on_revoked = Callback::new(move |_: ()| set_tokens_refresh.update(|n| *n += 1));
 
     let on_create = move |_| {
         let name = new_name.get_untracked();
@@ -68,16 +76,14 @@ pub fn CalendarFeedSettings() -> impl IntoView {
                 Some(selected)
             }
         };
-        leptos::task::spawn_local(async move {
-            match create_calendar_token_sf(name, list_id).await {
-                Ok(CalendarTokenCreatedDto { token, .. }) => {
-                    set_created_urls.set(Some(feed_urls(&client_origin(), &token)));
-                    set_new_name.set(String::new());
-                    set_tokens_refresh.update(|n| *n += 1);
-                }
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate_with(
+            create_calendar_token_sf(name, list_id),
+            &[ChangeTopic::Settings],
+            move |CalendarTokenCreatedDto { token, .. }| {
+                set_created_urls.set(Some(feed_urls(&client_origin(), &token)));
+                set_new_name.set(String::new());
+            },
+        );
     };
 
     view! {
@@ -88,10 +94,10 @@ pub fn CalendarFeedSettings() -> impl IntoView {
             </p>
 
             {move || created_urls.get().map(|urls| view! {
-                <div class="alert alert-success mb-3">
+                <div class="alert alert-success alert-soft mb-3">
                     <div class="w-full">
                         <p class="font-semibold">{move_tr!("settings-calendar-created-title")}</p>
-                        <p class="text-xs text-base-content/70 mt-1">
+                        <p class="text-xs opacity-80 mt-1">
                             {move_tr!("settings-calendar-created-hint")}
                         </p>
                         <div class="mt-2 flex items-center gap-2">
@@ -108,7 +114,7 @@ pub fn CalendarFeedSettings() -> impl IntoView {
                         </div>
                         <button
                             type="button"
-                            class="btn btn-xs btn-ghost mt-2"
+                            class="btn btn-xs btn-outline mt-2"
                             on:click=move |_| set_created_urls.set(None)
                         >
                             {move_tr!("common-close")}
@@ -121,7 +127,7 @@ pub fn CalendarFeedSettings() -> impl IntoView {
                 <div class="flex flex-col gap-2 sm:flex-row">
                     <input
                         type="text"
-                        class="input input-bordered input-sm flex-1"
+                        class="input input-bordered input-sm w-full sm:flex-1"
                         data-testid="calendar-feed-name"
                         placeholder=move_tr!("settings-calendar-name-placeholder")
                         prop:value=move || new_name.get()
@@ -177,7 +183,7 @@ pub fn CalendarFeedSettings() -> impl IntoView {
                                 {tokens
                                     .into_iter()
                                     .map(|token| view! {
-                                        <CalendarTokenRow token on_revoked=on_revoked/>
+                                        <CalendarTokenRow token/>
                                     })
                                     .collect::<Vec<_>>()}
                             </div>
@@ -192,6 +198,9 @@ pub fn CalendarFeedSettings() -> impl IntoView {
                     </h4>
                     <p class="text-xs text-base-content/60 mb-2">
                         {move_tr!("settings-calendar-reminders-description")}
+                    </p>
+                    <p class="text-xs text-base-content/60 mb-2">
+                        {move_tr!("settings-calendar-reminders-allday-hint")}
                     </p>
                     {move || match reminders_res.get() {
                         Some(Ok(defaults)) => view! {
@@ -210,8 +219,9 @@ pub fn CalendarFeedSettings() -> impl IntoView {
 
 /// One subscription token: name, scope, usage timestamps and a two-step revoke.
 #[component]
-fn CalendarTokenRow(token: CalendarTokenInfo, on_revoked: Callback<()>) -> impl IntoView {
+fn CalendarTokenRow(token: CalendarTokenInfo) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let invalidation = use_invalidation();
     let i18n = expect_context::<I18n>();
 
     let (confirming, set_confirming) = signal(false);
@@ -263,7 +273,7 @@ fn CalendarTokenRow(token: CalendarTokenInfo, on_revoked: Callback<()>) -> impl 
                                 match revoke_calendar_token_sf(id).await {
                                     Ok(()) => {
                                         set_confirming.set(false);
-                                        on_revoked.run(());
+                                        invalidation.invalidate(ChangeTopic::Settings);
                                     }
                                     Err(e) => {
                                         set_confirming.set(false);
@@ -381,6 +391,7 @@ fn ReminderRow(label: Signal<String>, value: RwSignal<Vec<u32>>) -> impl IntoVie
 #[component]
 fn ReminderDefaultsForm(initial: ReminderDefaults) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let invalidation = use_invalidation();
     let i18n = expect_context::<I18n>();
 
     let start_date = RwSignal::new(initial.start_date);
@@ -403,6 +414,7 @@ fn ReminderDefaultsForm(initial: ReminderDefaults) -> impl IntoView {
         leptos::task::spawn_local(async move {
             match set_reminder_defaults_sf(value).await {
                 Ok(()) => {
+                    invalidation.invalidate(ChangeTopic::Settings);
                     set_saving.set(false);
                     set_feedback.set(Some(true));
                     toast.push(saved_message, ToastKind::Success);
@@ -461,7 +473,7 @@ fn CopyButton(text: String) -> impl IntoView {
     view! {
         <button
             type="button"
-            class="btn btn-xs btn-ghost"
+            class="btn btn-xs btn-neutral shrink-0"
             title=move_tr!("common-copy")
             on:click=move |_| {
                 copy_to_clipboard(&text);

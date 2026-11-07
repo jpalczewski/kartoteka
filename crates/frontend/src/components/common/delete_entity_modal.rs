@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use kartoteka_shared::DeletePreview;
+use kartoteka_shared::{ChangeTopic, DeletePreview};
 use leptos::prelude::*;
 use leptos_fluent::I18n;
 
@@ -16,6 +16,7 @@ use crate::app::{ToastContext, ToastKind};
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::server_fns::containers::{delete_container, delete_container_preview};
 use crate::server_fns::lists::{delete_list, delete_list_preview};
+use crate::state::invalidation::use_invalidation;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DeleteEntityKind {
@@ -176,6 +177,7 @@ pub fn DeleteEntityModal(
 ) -> impl IntoView {
     let i18n = expect_context::<I18n>();
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let invalidation = use_invalidation();
     let preview: RwSignal<PreviewState> = RwSignal::new(PreviewState::Loading);
     let deleting = RwSignal::new(false);
 
@@ -230,6 +232,11 @@ pub fn DeleteEntityModal(
             deleting.set(false);
             match result {
                 Ok(()) => {
+                    invalidation.invalidate_many(&[
+                        ChangeTopic::Lists,
+                        ChangeTopic::Containers,
+                        ChangeTopic::Items,
+                    ]);
                     target.set(None);
                     on_deleted.run(request);
                 }

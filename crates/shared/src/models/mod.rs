@@ -1,3 +1,4 @@
+pub mod change_topic;
 pub mod container;
 pub mod invitation_code;
 pub mod item;
@@ -7,6 +8,7 @@ pub mod reminders;
 pub mod search;
 pub mod user;
 
+pub use change_topic::*;
 pub use container::*;
 pub use invitation_code::*;
 pub use item::*;

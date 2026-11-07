@@ -10,7 +10,7 @@ use chrono_tz::Tz;
 use icalendar::{
     Alarm, Calendar, Component, DatePerhapsTime, Event, EventLike, Parameter, Property, Trigger,
 };
-use kartoteka_shared::ReminderDefaults;
+use kartoteka_shared::{Locale, ReminderDefaults};
 
 /// How long a timed event lasts.
 const TIMED_EVENT_MINUTES: i64 = 30;
@@ -99,6 +99,7 @@ pub fn render_feed(
     items: &[FeedItem],
     tz: Tz,
     reminders: &ReminderDefaults,
+    locale: Locale,
 ) -> String {
     let mut calendar = Calendar::empty();
     calendar
@@ -116,7 +117,7 @@ pub fn render_feed(
 
     for item in items {
         for kind in Kind::ALL {
-            if let Some(event) = build_event(item, kind, tz, reminders) {
+            if let Some(event) = build_event(item, kind, tz, reminders, locale) {
                 calendar.push(event);
             }
         }
@@ -125,7 +126,13 @@ pub fn render_feed(
     calendar.to_string()
 }
 
-fn build_event(item: &FeedItem, kind: Kind, tz: Tz, reminders: &ReminderDefaults) -> Option<Event> {
+fn build_event(
+    item: &FeedItem,
+    kind: Kind,
+    tz: Tz,
+    reminders: &ReminderDefaults,
+    locale: Locale,
+) -> Option<Event> {
     let (date, time) = kind.date_and_time(item);
     let date = NaiveDate::parse_from_str(date?.trim(), "%Y-%m-%d").ok()?;
 
@@ -136,7 +143,7 @@ fn build_event(item: &FeedItem, kind: Kind, tz: Tz, reminders: &ReminderDefaults
     let mut event = Event::with_uid(&format!("{uid_base}@kartoteka"));
     event
         .summary(&summary)
-        .description(&build_description(item))
+        .description(&build_description(item, locale))
         .timestamp(stamp)
         .last_modified(stamp);
 
@@ -176,15 +183,24 @@ fn build_summary(item: &FeedItem, kind: Kind) -> String {
     }
 }
 
-fn build_description(item: &FeedItem) -> String {
+/// Label for the list name in an event description.
+fn list_label(locale: Locale) -> &'static str {
+    match locale {
+        Locale::En => "List",
+        Locale::Pl => "Lista",
+    }
+}
+
+fn build_description(item: &FeedItem, locale: Locale) -> String {
+    let label = list_label(locale);
     match item
         .description
         .as_deref()
         .map(str::trim)
         .filter(|text| !text.is_empty())
     {
-        Some(text) => format!("List: {}\n\n{text}", item.list_name),
-        None => format!("List: {}", item.list_name),
+        Some(text) => format!("{label}: {}\n\n{text}", item.list_name),
+        None => format!("{label}: {}", item.list_name),
     }
 }
 

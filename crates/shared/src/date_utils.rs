@@ -136,11 +136,13 @@ pub fn sort_by_deadline(items: &mut [crate::Item]) {
 }
 
 /// Format a UTC datetime string ("YYYY-MM-DD HH:MM:SS") as "DD.MM.YYYY HH:MM" in the given timezone.
-/// Falls back to UTC if the timezone name is unrecognized.
+/// Falls back to UTC if the timezone name is unrecognized, and returns the input unchanged
+/// if it cannot be parsed.
 pub fn format_datetime_in_tz(utc_str: &str, tz_name: &str) -> String {
     let tz: chrono_tz::Tz = tz_name.parse().unwrap_or(chrono_tz::UTC);
-    let naive =
-        chrono::NaiveDateTime::parse_from_str(utc_str, "%Y-%m-%d %H:%M:%S").unwrap_or_default();
+    let Ok(naive) = chrono::NaiveDateTime::parse_from_str(utc_str, "%Y-%m-%d %H:%M:%S") else {
+        return utc_str.to_string();
+    };
     Utc.from_utc_datetime(&naive)
         .with_timezone(&tz)
         .format("%d.%m.%Y %H:%M")
@@ -186,11 +188,8 @@ mod tests {
     }
 
     #[test]
-    fn format_datetime_in_tz_invalid_input_returns_epoch() {
-        assert_eq!(
-            format_datetime_in_tz("not-a-date", "UTC"),
-            "01.01.1970 00:00"
-        );
+    fn format_datetime_in_tz_invalid_input_is_returned_unchanged() {
+        assert_eq!(format_datetime_in_tz("not-a-date", "UTC"), "not-a-date");
     }
 
     #[test]

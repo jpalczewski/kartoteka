@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use axum::{
     body::Body,
-    http::{Request, StatusCode, Uri},
+    extract::State,
+    http::{HeaderValue, Request, StatusCode, Uri, header::CACHE_CONTROL},
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -46,6 +49,30 @@ pub async fn reject_file_like_paths(req: Request<Body>, next: Next) -> Response 
     }
 
     next.run(req).await
+}
+
+/// `Cache-Control` for content-hashed build assets: a new build gets new file names,
+/// so a given URL never changes and browsers and CDNs may keep it for a year.
+const IMMUTABLE_CACHE: &str = "public, max-age=31536000, immutable";
+
+/// Marks successful responses under `pkg_prefix` (e.g. `/pkg/`) as immutable.
+///
+/// Only correct while `LEPTOS_HASH_FILES` is on: without hashed names the same URL
+/// would carry a new build and clients would keep the old one. [`crate::router`]
+/// adds this layer only in that case. Errors (e.g. a 404 for a file from a previous
+/// build) are left uncached, so they don't stick once the file exists.
+pub async fn immutable_hashed_assets(
+    State(pkg_prefix): State<Arc<str>>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    let is_asset = req.uri().path().starts_with(&*pkg_prefix);
+    let mut resp = next.run(req).await;
+    if is_asset && resp.status().is_success() {
+        resp.headers_mut()
+            .insert(CACHE_CONTROL, HeaderValue::from_static(IMMUTABLE_CACHE));
+    }
+    resp
 }
 
 /// A segment is "file-like" if it contains a dot but does not start with one.
@@ -270,5 +297,48 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), 200);
+    }
+
+    fn cached_app() -> Router {
+        Router::new()
+            .route("/pkg/app-abc123.wasm", get(dummy))
+            .route("/lists", get(dummy))
+            .layer(axum::middleware::from_fn_with_state(
+                Arc::<str>::from("/pkg/"),
+                immutable_hashed_assets,
+            ))
+    }
+
+    async fn cache_control(uri: &str) -> (StatusCode, Option<String>) {
+        let resp = cached_app()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let cc = resp
+            .headers()
+            .get(CACHE_CONTROL)
+            .map(|v| v.to_str().unwrap().to_owned());
+        (resp.status(), cc)
+    }
+
+    #[tokio::test]
+    async fn pkg_asset_is_immutable() {
+        assert_eq!(
+            cache_control("/pkg/app-abc123.wasm").await,
+            (StatusCode::OK, Some(IMMUTABLE_CACHE.to_owned()))
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_pkg_asset_is_not_cached() {
+        assert_eq!(
+            cache_control("/pkg/app-old.wasm").await,
+            (StatusCode::NOT_FOUND, None)
+        );
+    }
+
+    #[tokio::test]
+    async fn pages_are_not_cached() {
+        assert_eq!(cache_control("/lists").await, (StatusCode::OK, None));
     }
 }

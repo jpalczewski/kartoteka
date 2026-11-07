@@ -43,7 +43,7 @@ test("rename list via inline click — Enter saves", async ({ page, context }) =
   await page.goto(`/lists/${listId}`);
 
   await page.locator('[data-testid="list-name-heading"]').click();
-  const nameInput = page.locator('[data-testid="list-name-input"]');
+  const nameInput = page.locator('[data-testid="list-name-heading-input"]');
   await nameInput.waitFor();
   await nameInput.fill("Renamed List");
   await page.keyboard.press("Enter");
@@ -56,7 +56,7 @@ test("Escape cancels rename without saving", async ({ page, context }) => {
   await page.goto(`/lists/${listId}`);
 
   await page.locator('[data-testid="list-name-heading"]').click();
-  const nameInput = page.locator('[data-testid="list-name-input"]');
+  const nameInput = page.locator('[data-testid="list-name-heading-input"]');
   await nameInput.waitFor();
   await nameInput.fill("Should Not Save");
   await page.keyboard.press("Escape");
@@ -121,7 +121,7 @@ test("rename with empty/whitespace name shows error toast", async ({ page, conte
   await page.goto(`/lists/${listId}`);
 
   await page.locator('[data-testid="list-name-heading"]').click();
-  const nameInput = page.locator('[data-testid="list-name-input"]');
+  const nameInput = page.locator('[data-testid="list-name-heading-input"]');
   await nameInput.waitFor();
   await nameInput.fill("   ");
   await page.keyboard.press("Enter");

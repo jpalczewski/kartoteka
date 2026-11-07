@@ -14,6 +14,7 @@ pub mod tags;
 pub mod templates;
 pub mod time_entries;
 
+pub use calendar_feed::TrustedProxies;
 pub use error::AppError;
 pub use extractors::UserId;
 
@@ -98,9 +99,23 @@ pub async fn leptos_routes_handler(State(state): State<AppState>, req: Request<B
         .into_response()
 }
 
-/// Convenience wrapper for integration tests: creates a router with default LeptosOptions.
+/// Convenience wrapper for integration tests: creates a router with default LeptosOptions
+/// and no trusted proxies, so the suite never depends on the developer's environment.
+/// Tests that need trust call [`test_router_with_trusted_proxies`].
 #[doc(hidden)]
 pub fn test_router(pool: SqlitePool, auth_layer: AuthLayer, signing_secret: String) -> Router {
+    test_router_with_trusted_proxies(pool, auth_layer, signing_secret, TrustedProxies::none())
+}
+
+/// [`test_router`] with an explicit trusted-proxy list, so tests can pin the
+/// `/cal` rate limiter's view of its peers.
+#[doc(hidden)]
+pub fn test_router_with_trusted_proxies(
+    pool: SqlitePool,
+    auth_layer: AuthLayer,
+    signing_secret: String,
+    trusted_proxies: TrustedProxies,
+) -> Router {
     router(
         pool,
         auth_layer,
@@ -112,6 +127,7 @@ pub fn test_router(pool: SqlitePool, auth_layer: AuthLayer, signing_secret: Stri
         Arc::new(McpI18n::load_from(
             &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../locales"),
         )),
+        trusted_proxies,
     )
 }
 
@@ -151,6 +167,7 @@ pub fn router(
     public_base_url: String,
     leptos_options: leptos::config::LeptosOptions,
     mcp_i18n: Arc<McpI18n>,
+    trusted_proxies: TrustedProxies,
 ) -> Router {
     use kartoteka_mcp::{LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService};
 
@@ -200,7 +217,7 @@ pub fn router(
         .nest("/auth", auth::auth_router())
         // Public iCal feed — no session, authenticated by the token in the path and
         // rate limited per client IP. Mounted outside /api on purpose.
-        .nest("/cal", calendar_feed::router())
+        .nest("/cal", calendar_feed::router(trusted_proxies))
         .nest("/api", routes::routes(state.clone()))
         // Server functions: /leptos/{fn_name} (avoids conflict with /api/* REST routes)
         .route(
@@ -217,6 +234,15 @@ pub fn router(
     // Must be added before .layer() — axum only wraps routes present at layer time.
     if log_health {
         base = base.route("/health", axum::routing::get(health::health));
+    }
+
+    // Hashed /pkg assets never change under the same URL: let browsers and Cloudflare keep them.
+    if leptos_options.hash_files {
+        let pkg_prefix: Arc<str> = format!("/{}/", leptos_options.site_pkg_dir).into();
+        base = base.layer(axum::middleware::from_fn_with_state(
+            pkg_prefix,
+            middleware::immutable_hashed_assets,
+        ));
     }
 
     let traced = base

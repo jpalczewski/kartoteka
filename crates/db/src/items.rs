@@ -309,9 +309,8 @@ pub async fn insert_many_in_tx(
 pub async fn insert_in_tx(
     conn: &mut SqliteConnection,
     input: &InsertItemInput,
-) -> Result<(), DbError> {
-    insert_row(&mut *conn, input).await?;
-    Ok(())
+) -> Result<ItemRow, DbError> {
+    insert_row(&mut *conn, input).await
 }
 
 #[tracing::instrument(skip(pool))]
@@ -413,6 +412,36 @@ pub async fn delete(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, 
     Ok(rows.rows_affected() > 0)
 }
 
+/// Shared `move_item` statement so both the pool and the transaction variant
+/// stay identical.
+///
+/// NOTE: target list ownership is NOT checked here — caller must verify that
+/// `target_list_id` belongs to `user_id` before calling this function.
+async fn move_item_row<'e, E>(
+    executor: E,
+    id: &str,
+    user_id: &str,
+    position: i32,
+    target_list_id: Option<&str>,
+) -> Result<bool, DbError>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
+    let rows = sqlx::query(
+        "UPDATE items SET position = ?, list_id = COALESCE(?, list_id), \
+                          updated_at = datetime('now') \
+         WHERE id = ? AND list_id IN (SELECT id FROM lists WHERE user_id = ?)",
+    )
+    .bind(position)
+    .bind(target_list_id)
+    .bind(id)
+    .bind(user_id)
+    .execute(executor)
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(rows.rows_affected() > 0)
+}
+
 /// NOTE: target list ownership is NOT checked here — caller must verify that
 /// `target_list_id` belongs to `user_id` before calling this function.
 #[tracing::instrument(skip(pool))]
@@ -423,19 +452,91 @@ pub async fn move_item(
     position: i32,
     target_list_id: Option<&str>,
 ) -> Result<bool, DbError> {
+    move_item_row(pool, id, user_id, position, target_list_id).await
+}
+
+/// Same as [`move_item`] but runs on a caller-owned transaction connection.
+#[tracing::instrument(skip(conn))]
+pub async fn move_item_in_tx(
+    conn: &mut SqliteConnection,
+    id: &str,
+    user_id: &str,
+    position: i32,
+    target_list_id: Option<&str>,
+) -> Result<bool, DbError> {
+    move_item_row(&mut *conn, id, user_id, position, target_list_id).await
+}
+
+/// Rewrite the position of one item, but only if it currently lives in
+/// `list_id` and that list belongs to `user_id`. Returns `false` when the item
+/// is not in scope, so callers can abort instead of silently skipping it.
+async fn set_position_row<'e, E>(
+    executor: E,
+    id: &str,
+    user_id: &str,
+    list_id: &str,
+    position: i32,
+) -> Result<bool, DbError>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
     let rows = sqlx::query(
-        "UPDATE items SET position = ?, list_id = COALESCE(?, list_id), \
-                          updated_at = datetime('now') \
-         WHERE id = ? AND list_id IN (SELECT id FROM lists WHERE user_id = ?)",
+        "UPDATE items SET position = ?, updated_at = datetime('now') \
+         WHERE id = ? AND list_id = ? \
+           AND list_id IN (SELECT id FROM lists WHERE user_id = ?)",
     )
     .bind(position)
-    .bind(target_list_id)
     .bind(id)
+    .bind(list_id)
     .bind(user_id)
-    .execute(pool)
+    .execute(executor)
     .await
     .map_err(DbError::Sqlx)?;
     Ok(rows.rows_affected() > 0)
+}
+
+/// See [`set_position_row`]; pool variant.
+#[tracing::instrument(skip(pool))]
+pub async fn set_position(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    list_id: &str,
+    position: i32,
+) -> Result<bool, DbError> {
+    set_position_row(pool, id, user_id, list_id, position).await
+}
+
+/// See [`set_position_row`]; transaction variant.
+#[tracing::instrument(skip(conn))]
+pub async fn set_position_in_tx(
+    conn: &mut SqliteConnection,
+    id: &str,
+    user_id: &str,
+    list_id: &str,
+    position: i32,
+) -> Result<bool, DbError> {
+    set_position_row(&mut *conn, id, user_id, list_id, position).await
+}
+
+/// All item ids of `list_id` owned by `user_id`, ordered by position.
+/// Used to validate a reorder request against the real scope before writing.
+pub async fn ordered_ids_in_list(
+    executor: impl sqlx::Executor<'_, Database = Sqlite>,
+    user_id: &str,
+    list_id: &str,
+) -> Result<Vec<String>, DbError> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT id FROM items WHERE list_id = ? \
+           AND list_id IN (SELECT id FROM lists WHERE user_id = ?) \
+         ORDER BY position, id",
+    )
+    .bind(list_id)
+    .bind(user_id)
+    .fetch_all(executor)
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
 }
 
 #[tracing::instrument(skip(pool))]

@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use leptos::prelude::*;
 use leptos_router::components::A;
 
+use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::{CalendarWeekDay, DateItem, Tag};
 
 use crate::components::calendar::week_view::WeekView;
@@ -12,6 +13,7 @@ use crate::components::common::list_filter_chips::ListFilterChips;
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::items::{get_calendar_month, get_calendar_week};
 use crate::server_fns::tags::{get_all_item_tag_links, get_all_tags};
+use crate::state::invalidation::use_invalidation;
 
 pub(super) fn add_days(date: &str, days: i64) -> String {
     use chrono::{Duration, NaiveDate};
@@ -169,11 +171,25 @@ pub fn CalendarPage() -> impl IntoView {
     let (view_mode, set_view_mode) = signal(ViewMode::Month);
     let (current_ym, set_current_ym) = signal(String::new());
     let (week_start, set_week_start) = signal(String::new());
+    let invalidation = use_invalidation();
 
-    let cal_res = Resource::new(move || current_ym.get(), get_calendar_month);
-    let week_res = Resource::new(move || week_start.get(), get_calendar_week);
-    let all_tags_res = Resource::new(|| (), |_| get_all_tags());
-    let item_tag_links_res = Resource::new(|| (), |_| get_all_item_tag_links());
+    let calendar_key = move || invalidation.track(&[ChangeTopic::Items, ChangeTopic::Lists]);
+    let cal_res = Resource::new(
+        move || (current_ym.get(), calendar_key()),
+        |(ym, _)| get_calendar_month(ym),
+    );
+    let week_res = Resource::new(
+        move || (week_start.get(), calendar_key()),
+        |(start, _)| get_calendar_week(start),
+    );
+    let all_tags_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::Tags]),
+        |_| get_all_tags(),
+    );
+    let item_tag_links_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::Items, ChangeTopic::Tags]),
+        |_| get_all_item_tag_links(),
+    );
 
     // Filter state for the week view. Kept at the page level so toggling the view mode preserves
     // the user's filter choices.

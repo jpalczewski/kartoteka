@@ -1,9 +1,11 @@
 use leptos::prelude::*;
 
-use crate::app::{ToastContext, ToastKind};
+use kartoteka_shared::ChangeTopic;
+
 use crate::server_fns::time_entries::{
     assign_time_entry, delete_time_entry, get_inbox, list_all_entries,
 };
+use crate::state::invalidation::{mutate, use_invalidation};
 
 fn format_duration(secs: Option<i32>) -> String {
     match secs {
@@ -29,11 +31,16 @@ fn truncate_id(id: &str) -> &str {
 
 #[component]
 pub fn TimePage() -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let (refresh, set_refresh) = signal(0u32);
+    let invalidation = use_invalidation();
 
-    let inbox_res = Resource::new(move || refresh.get(), move |_| get_inbox());
-    let all_res = Resource::new(move || refresh.get(), move |_| list_all_entries());
+    let inbox_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::TimeEntries]),
+        move |_| get_inbox(),
+    );
+    let all_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::TimeEntries]),
+        move |_| list_all_entries(),
+    );
 
     let assign_inputs: RwSignal<std::collections::HashMap<String, String>> =
         RwSignal::new(std::collections::HashMap::new());
@@ -43,21 +50,14 @@ pub fn TimePage() -> impl IntoView {
         if item_id.trim().is_empty() {
             return;
         }
-        leptos::task::spawn_local(async move {
-            match assign_time_entry(entry_id, item_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(
+            assign_time_entry(entry_id, item_id),
+            &[ChangeTopic::TimeEntries],
+        );
     };
 
     let on_delete = move |entry_id: String| {
-        leptos::task::spawn_local(async move {
-            match delete_time_entry(entry_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(delete_time_entry(entry_id), &[ChangeTopic::TimeEntries]);
     };
 
     view! {

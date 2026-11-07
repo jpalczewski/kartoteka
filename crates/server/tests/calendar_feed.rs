@@ -3,25 +3,36 @@
 use axum::{
     Router,
     body::{Body, to_bytes},
+    extract::ConnectInfo,
     http::{Request, StatusCode, header},
 };
 use kartoteka_db::test_helpers::{create_test_user, test_pool};
 use kartoteka_domain::calendar::{CalendarTokenCreated, create_token, revoke_token};
+use kartoteka_server::TrustedProxies;
 use sqlx::SqlitePool;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    net::SocketAddr,
+    sync::atomic::{AtomicU64, Ordering},
+};
 use tower::ServiceExt;
 use tower_sessions::SessionManagerLayer;
 use tower_sessions_sqlx_store::SqliteStore;
 
 /// Far future, so the item always falls inside the feed's date window.
 const FUTURE: &str = "2999-01-01";
-/// Client IP used by default; the rate limiter keys on it.
-const CLIENT_IP: &str = "203.0.113.7";
+/// Peer address used by default. With no trusted proxy configured the rate
+/// limiter keys on this, never on a client-supplied header.
+const CLIENT_PEER: &str = "203.0.113.7:40000";
 /// Ids are plain TEXT in this schema, so a counter is enough here.
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+const X_FORWARDED_FOR: header::HeaderName = header::HeaderName::from_static("x-forwarded-for");
 
 fn next_id(prefix: &str) -> String {
     format!("{prefix}-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed))
+}
+
+fn peer(raw: &str) -> SocketAddr {
+    raw.parse().expect("valid test peer address")
 }
 
 /// A router plus the data needed to request its feed.
@@ -32,6 +43,11 @@ struct Fixture {
 }
 
 async fn fixture() -> Fixture {
+    fixture_with_trusted(TrustedProxies::none()).await
+}
+
+/// A fixture whose `/cal` limiter trusts `trusted` as reverse proxies.
+async fn fixture_with_trusted(trusted: TrustedProxies) -> Fixture {
     let pool = test_pool().await;
     let user_id = create_test_user(&pool).await;
     let list_id = create_list(&pool, &user_id, "Groceries").await;
@@ -39,22 +55,24 @@ async fn fixture() -> Fixture {
     let token = create_token(&pool, &user_id, "My feed", None)
         .await
         .expect("create token");
-    let app = test_app(pool.clone()).await;
+    let app = test_app_with_trusted(pool.clone(), trusted).await;
     Fixture { app, pool, token }
 }
 
 /// Same construction as `lists_routes.rs`, on the caller's pool so the test can
-/// seed data the router will read.
-async fn test_app(pool: SqlitePool) -> Router {
+/// seed data the router will read. `trusted` controls which peers may set the
+/// client IP through `X-Forwarded-For` for the `/cal` rate limiter.
+async fn test_app_with_trusted(pool: SqlitePool, trusted: TrustedProxies) -> Router {
     let session_store = SqliteStore::new(pool.clone());
     session_store.migrate().await.unwrap();
     let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
     let backend = kartoteka_auth::KartotekaBackend::new(pool.clone());
     let auth_layer = axum_login::AuthManagerLayerBuilder::new(backend, session_layer).build();
-    kartoteka_server::test_router(
+    kartoteka_server::test_router_with_trusted_proxies(
         pool,
         auth_layer,
         "test-secret-32-bytes-minimum!!!!".to_string(),
+        trusted,
     )
 }
 
@@ -87,16 +105,18 @@ fn feed_uri(token: &str) -> String {
     format!("/cal/{token}/feed.ics")
 }
 
-/// GET the feed from `ip`, optionally with extra headers.
-fn request(uri: &str, ip: &str, headers: &[(header::HeaderName, &str)]) -> Request<Body> {
-    let mut builder = Request::builder()
-        .method("GET")
-        .uri(uri)
-        .header("x-forwarded-for", ip);
+/// GET the feed from `peer`, optionally with extra headers.
+///
+/// The peer goes into the request extensions as `ConnectInfo`, exactly what
+/// `into_make_service_with_connect_info::<SocketAddr>()` provides in production.
+fn request(uri: &str, peer: SocketAddr, headers: &[(header::HeaderName, &str)]) -> Request<Body> {
+    let mut builder = Request::builder().method("GET").uri(uri);
     for (name, value) in headers {
         builder = builder.header(name, *value);
     }
-    builder.body(Body::empty()).unwrap()
+    let mut request = builder.body(Body::empty()).unwrap();
+    request.extensions_mut().insert(ConnectInfo(peer));
+    request
 }
 
 async fn send(app: Router, req: Request<Body>) -> axum::http::Response<axum::body::Body> {
@@ -106,7 +126,11 @@ async fn send(app: Router, req: Request<Body>) -> axum::http::Response<axum::bod
 #[tokio::test]
 async fn returns_calendar_with_etag_and_item_title() {
     let Fixture { app, token, .. } = fixture().await;
-    let resp = send(app, request(&feed_uri(&token.token), CLIENT_IP, &[])).await;
+    let resp = send(
+        app,
+        request(&feed_uri(&token.token), peer(CLIENT_PEER), &[]),
+    )
+    .await;
 
     assert_eq!(resp.status(), StatusCode::OK);
     let headers = resp.headers();
@@ -142,7 +166,11 @@ async fn returns_calendar_with_etag_and_item_title() {
 #[tokio::test]
 async fn dotted_segment_middleware_allows_feed_path() {
     let Fixture { app, token, .. } = fixture().await;
-    let resp = send(app, request(&feed_uri(&token.token), CLIENT_IP, &[])).await;
+    let resp = send(
+        app,
+        request(&feed_uri(&token.token), peer(CLIENT_PEER), &[]),
+    )
+    .await;
     assert_eq!(
         resp.status(),
         StatusCode::OK,
@@ -154,7 +182,7 @@ async fn dotted_segment_middleware_allows_feed_path() {
 async fn returns_304_for_matching_if_none_match() {
     let Fixture { app, token, .. } = fixture().await;
     let uri = feed_uri(&token.token);
-    let resp = send(app.clone(), request(&uri, CLIENT_IP, &[])).await;
+    let resp = send(app.clone(), request(&uri, peer(CLIENT_PEER), &[])).await;
     let etag = resp
         .headers()
         .get(header::ETAG)
@@ -171,7 +199,11 @@ async fn returns_304_for_matching_if_none_match() {
     ] {
         let resp = send(
             app.clone(),
-            request(&uri, CLIENT_IP, &[(header::IF_NONE_MATCH, &candidate)]),
+            request(
+                &uri,
+                peer(CLIENT_PEER),
+                &[(header::IF_NONE_MATCH, &candidate)],
+            ),
         )
         .await;
         assert_eq!(
@@ -196,7 +228,7 @@ async fn stale_if_none_match_returns_full_feed() {
         app,
         request(
             &feed_uri(&token.token),
-            CLIENT_IP,
+            peer(CLIENT_PEER),
             &[(header::IF_NONE_MATCH, "\"stale\"")],
         ),
     )
@@ -208,7 +240,7 @@ async fn stale_if_none_match_returns_full_feed() {
 async fn unknown_token_returns_404() {
     let Fixture { app, .. } = fixture().await;
     let unknown = "A".repeat(43);
-    let resp = send(app, request(&feed_uri(&unknown), CLIENT_IP, &[])).await;
+    let resp = send(app, request(&feed_uri(&unknown), peer(CLIENT_PEER), &[])).await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     let body = to_bytes(resp.into_body(), 1_000_000).await.unwrap();
     let body = String::from_utf8(body.to_vec()).unwrap();
@@ -231,7 +263,11 @@ async fn revoked_token_returns_404() {
         .unwrap();
     revoke_token(&pool, &user_id, &token.id).await.unwrap();
 
-    let resp = send(app, request(&feed_uri(&token.token), CLIENT_IP, &[])).await;
+    let resp = send(
+        app,
+        request(&feed_uri(&token.token), peer(CLIENT_PEER), &[]),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
@@ -239,37 +275,145 @@ async fn revoked_token_returns_404() {
 async fn rate_limits_per_client_ip() {
     let Fixture { app, token, .. } = fixture().await;
     let uri = feed_uri(&token.token);
-    // Burst is 20, so the first 20 requests from one IP pass.
+    let client = peer("198.51.100.10:40000");
+    // Burst is 20, so the first 20 requests from one peer pass.
     for i in 0..20 {
-        let resp = send(app.clone(), request(&uri, "198.51.100.10", &[])).await;
+        let resp = send(app.clone(), request(&uri, client, &[])).await;
         assert_eq!(resp.status(), StatusCode::OK, "request {i} should pass");
     }
 
-    let resp = send(app.clone(), request(&uri, "198.51.100.10", &[])).await;
+    let resp = send(app.clone(), request(&uri, client, &[])).await;
     assert_eq!(
         resp.status(),
         StatusCode::TOO_MANY_REQUESTS,
-        "the 21st request from one IP must be throttled"
+        "the 21st request from one peer must be throttled"
     );
 
     // Another client keeps its own quota.
-    let resp = send(app, request(&uri, "198.51.100.11", &[])).await;
+    let resp = send(app, request(&uri, peer("198.51.100.11:40000"), &[])).await;
     assert_eq!(
         resp.status(),
         StatusCode::OK,
-        "a different IP must not be affected"
+        "a different peer must not be affected"
+    );
+}
+
+/// The issue's acceptance test: with no trusted proxy configured, a client
+/// rotating `X-Forwarded-For` must not escape the limiter.
+#[tokio::test]
+async fn spoofed_xff_from_untrusted_peer_is_throttled() {
+    let Fixture { app, token, .. } = fixture().await;
+    let uri = feed_uri(&token.token);
+    let client = peer("203.0.113.50:40000");
+
+    for i in 0..20 {
+        let spoofed = format!("198.51.100.{i}");
+        let resp = send(
+            app.clone(),
+            request(&uri, client, &[(X_FORWARDED_FOR, spoofed.as_str())]),
+        )
+        .await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "request {i} with spoofed x-forwarded-for {spoofed} should pass"
+        );
+    }
+
+    let resp = send(
+        app,
+        request(&uri, client, &[(X_FORWARDED_FOR, "198.51.100.99")]),
+    )
+    .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "a fresh spoofed x-forwarded-for value must not buy more quota"
+    );
+}
+
+/// Behind a trusted proxy the client IP from `X-Forwarded-For` is used, so
+/// clients behind that proxy keep separate quotas.
+#[tokio::test]
+async fn trusted_peer_xff_keeps_per_client_quota() {
+    let Fixture { app, token, .. } =
+        fixture_with_trusted(TrustedProxies::parse("10.0.0.0/8")).await;
+    let uri = feed_uri(&token.token);
+    let proxy = peer("10.1.2.3:5555");
+
+    for i in 0..20 {
+        let resp = send(
+            app.clone(),
+            request(&uri, proxy, &[(X_FORWARDED_FOR, "198.51.100.10")]),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK, "request {i} should pass");
+    }
+
+    let resp = send(
+        app.clone(),
+        request(&uri, proxy, &[(X_FORWARDED_FOR, "198.51.100.10")]),
+    )
+    .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "the 21st request from one forwarded client must be throttled"
+    );
+
+    let resp = send(
+        app,
+        request(&uri, proxy, &[(X_FORWARDED_FOR, "198.51.100.11")]),
+    )
+    .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "another client behind the same proxy keeps its own quota"
+    );
+}
+
+/// A client can prepend anything to `X-Forwarded-For`; the proxy appends the
+/// real value to the right, and the rightmost non-proxy entry is the key.
+#[tokio::test]
+async fn multi_hop_xff_uses_rightmost_untrusted_entry() {
+    let Fixture { app, token, .. } =
+        fixture_with_trusted(TrustedProxies::parse("10.0.0.0/8")).await;
+    let uri = feed_uri(&token.token);
+    let proxy = peer("10.1.2.3:5555");
+
+    for i in 0..20 {
+        // Rotate the spoofed leftmost entry on every request.
+        let value = format!("1.2.3.{i}, 198.51.100.10");
+        let resp = send(
+            app.clone(),
+            request(&uri, proxy, &[(X_FORWARDED_FOR, value.as_str())]),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK, "request {i} should pass");
+    }
+
+    let resp = send(
+        app,
+        request(&uri, proxy, &[(X_FORWARDED_FOR, "1.2.3.99, 198.51.100.10")]),
+    )
+    .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "rotating the client-supplied leftmost entry must not buy more quota"
     );
 }
 
 #[tokio::test]
 async fn no_session_cookie_required() {
     let Fixture { app, token, .. } = fixture().await;
-    let req = Request::builder()
+    let mut req = Request::builder()
         .method("GET")
         .uri(feed_uri(&token.token))
-        .header("x-forwarded-for", CLIENT_IP)
         .body(Body::empty())
         .unwrap();
+    req.extensions_mut().insert(ConnectInfo(peer(CLIENT_PEER)));
     assert!(req.headers().get(header::COOKIE).is_none());
 
     let resp = send(app, req).await;
@@ -279,12 +423,12 @@ async fn no_session_cookie_required() {
 #[tokio::test]
 async fn head_request_returns_headers_without_body() {
     let Fixture { app, token, .. } = fixture().await;
-    let req = Request::builder()
+    let mut req = Request::builder()
         .method("HEAD")
         .uri(feed_uri(&token.token))
-        .header("x-forwarded-for", CLIENT_IP)
         .body(Body::empty())
         .unwrap();
+    req.extensions_mut().insert(ConnectInfo(peer(CLIENT_PEER)));
     let resp = send(app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(

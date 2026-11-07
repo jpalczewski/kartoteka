@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::tag_utils::build_ancestor_map;
 use kartoteka_shared::types::{CreateContainerRequest, CreateListRequest};
 use kartoteka_shared::{FilterMode, HomeFilterResult};
@@ -16,7 +17,6 @@ use crate::components::home::{
     tag_filter_bar::HomeTagFilterBar,
 };
 use crate::components::lists::create_entity_input::CreateEntityInput;
-use crate::context::GlobalRefresh;
 use crate::pages::landing::LandingPage;
 use crate::server_fns::auth::get_auth_status;
 use crate::server_fns::{
@@ -28,6 +28,7 @@ use crate::server_fns::{
         remove_tag_from_list,
     },
 };
+use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
 
 #[component]
 pub fn HomePage() -> impl IntoView {
@@ -51,10 +52,7 @@ pub fn HomePage() -> impl IntoView {
 fn HomeContent() -> impl IntoView {
     let i18n = expect_context::<I18n>();
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
-
-    // Refresh trigger — incrementing causes all Resources to refetch
-    let (refresh, set_refresh) = signal(0u32);
-    let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
+    let invalidation = use_invalidation();
 
     // Multi-tag AND filter
     let active_tags: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
@@ -63,22 +61,25 @@ fn HomeContent() -> impl IntoView {
     // The entity a delete was requested for; the shared modal fetches its preview.
     let delete_target: RwSignal<Option<DeleteTarget>> = RwSignal::new(None);
 
-    // Resources — fetched server-side at initial render, refetched on refresh signal
+    // Resources — fetched server-side at initial render, refetched when a topic they depend on is invalidated
     let home_res = Resource::new(
-        move || (refresh.get(), global_refresh.get()),
+        move || invalidation.track(&[ChangeTopic::Lists, ChangeTopic::Containers]),
         |_| get_home_data(),
     );
     let archived_res = Resource::new(
-        move || (refresh.get(), global_refresh.get()),
+        move || invalidation.track(&[ChangeTopic::Lists]),
         |_| get_archived_lists(),
     );
     let archived_containers_res = Resource::new(
-        move || (refresh.get(), global_refresh.get()),
+        move || invalidation.track(&[ChangeTopic::Containers]),
         |_| get_archived_containers(),
     );
-    let tags_res = Resource::new(|| (), |_| get_all_tags());
+    let tags_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::Tags]),
+        |_| get_all_tags(),
+    );
     let tag_links_res = Resource::new(
-        move || (refresh.get(), global_refresh.get()),
+        move || invalidation.track(&[ChangeTopic::Lists, ChangeTopic::Tags]),
         |_| get_list_tag_links(),
     );
 
@@ -95,14 +96,18 @@ fn HomeContent() -> impl IntoView {
         move || {
             let mut tags: Vec<String> = active_tags.get().into_iter().collect();
             tags.sort();
-            if tags.is_empty() {
+            let filter = if tags.is_empty() {
                 None
             } else {
                 Some((tags, filter_mode.get()))
-            }
+            };
+            (
+                filter,
+                invalidation.track(&[ChangeTopic::Lists, ChangeTopic::Tags]),
+            )
         },
-        |key| async move {
-            match key {
+        |(filter, _)| async move {
+            match filter {
                 None => Ok(HomeFilterResult::default()),
                 Some((tags, mode)) => filter_home_by_tags(tags, mode).await,
             }
@@ -148,21 +153,14 @@ fn HomeContent() -> impl IntoView {
     // ── Mutation callbacks ─────────────────────────────────────────────
 
     let on_create_list = Callback::new(move |req: CreateListRequest| {
-        leptos::task::spawn_local(async move {
-            match create_list(req).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(
+            create_list(req),
+            &[ChangeTopic::Lists, ChangeTopic::Containers],
+        );
     });
 
     let on_create_container = Callback::new(move |req: CreateContainerRequest| {
-        leptos::task::spawn_local(async move {
-            match create_container(req).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(create_container(req), &[ChangeTopic::Containers]);
     });
 
     let on_deleted = Callback::new(move |target: DeleteTarget| {
@@ -170,65 +168,51 @@ fn HomeContent() -> impl IntoView {
             DeleteEntityKind::List => "home-list-deleted",
             DeleteEntityKind::Container => "home-container-deleted",
         });
-        set_refresh.update(|n| *n += 1);
         toast.push(msg, ToastKind::Success);
     });
 
     let on_pin_container = Callback::new(move |container_id: String| {
-        leptos::task::spawn_local(async move {
-            match toggle_container_pin(container_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(
+            toggle_container_pin(container_id),
+            &[ChangeTopic::Containers],
+        );
     });
 
     let on_tag_toggle = Callback::new(move |(list_id, tag_id): (String, String)| {
-        leptos::task::spawn_local(async move {
-            let has_tag = tag_links_res
-                .get_untracked()
-                .and_then(|r| r.ok())
-                .unwrap_or_default()
-                .iter()
-                .any(|l| l.list_id == list_id && l.tag_id == tag_id);
-            let result = if has_tag {
+        let has_tag = tag_links_res
+            .get_untracked()
+            .and_then(|r| r.ok())
+            .unwrap_or_default()
+            .iter()
+            .any(|l| l.list_id == list_id && l.tag_id == tag_id);
+        let result = async move {
+            if has_tag {
                 remove_tag_from_list(list_id, tag_id).await
             } else {
                 assign_tag_to_list(list_id, tag_id).await
-            };
-            if let Err(e) = result {
-                toast.push(e.to_string(), ToastKind::Error);
             }
-            set_refresh.update(|n| *n += 1);
-        });
+        };
+        mutate(result, &[ChangeTopic::Lists, ChangeTopic::Tags]);
     });
 
     let on_restore_list = Callback::new(move |list_id: String| {
         let msg = i18n.tr("home-list-restored");
-        leptos::task::spawn_local(async move {
-            match archive_list(list_id).await {
-                Ok(_) => {
-                    set_refresh.update(|n| *n += 1);
-                    toast.push(msg, ToastKind::Success);
-                }
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate_with(
+            archive_list(list_id),
+            &[ChangeTopic::Lists, ChangeTopic::Containers],
+            move |_| toast.push(msg, ToastKind::Success),
+        );
     });
 
     let on_restore_container = {
         let msg_restored = i18n.tr("home-container-restored");
         Callback::new(move |container_id: String| {
             let msg = msg_restored.clone();
-            leptos::task::spawn_local(async move {
-                match archive_container(container_id).await {
-                    Ok(_) => {
-                        set_refresh.update(|n| *n += 1);
-                        toast.push(msg, ToastKind::Success);
-                    }
-                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                }
-            });
+            mutate_with(
+                archive_container(container_id),
+                &[ChangeTopic::Containers, ChangeTopic::Lists],
+                move |()| toast.push(msg, ToastKind::Success),
+            );
         })
     };
 

@@ -1,7 +1,7 @@
 use crate::types::{ContainerRow, DeleteTreeOutcome, SubtreeSummary};
 use crate::{DbError, SqlitePool};
 use kartoteka_shared::types::{CreateContainerRequest, UpdateContainerRequest};
-use sqlx::SqliteConnection;
+use sqlx::{Sqlite, SqliteConnection};
 use std::collections::HashSet;
 use uuid::Uuid;
 
@@ -42,16 +42,19 @@ pub async fn list_all(pool: &SqlitePool, user_id: &str) -> Result<Vec<ContainerR
 }
 
 /// Get a single container by id and user_id.
-#[tracing::instrument(skip(pool))]
-pub async fn get_one(
-    pool: &SqlitePool,
+#[tracing::instrument(skip(executor))]
+pub async fn get_one<'e, E>(
+    executor: E,
     id: &str,
     user_id: &str,
-) -> Result<Option<ContainerRow>, DbError> {
+) -> Result<Option<ContainerRow>, DbError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let row = sqlx::query_as("SELECT * FROM containers WHERE id = ? AND user_id = ?")
         .bind(id)
         .bind(user_id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await?;
     Ok(row)
 }
@@ -65,22 +68,8 @@ pub async fn insert(
     position: i32,
 ) -> Result<ContainerRow, DbError> {
     let id = Uuid::new_v4().to_string();
-    let row = sqlx::query_as(
-        r#"INSERT INTO containers (id, user_id, name, icon, description, status, parent_container_id, position)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           RETURNING *"#,
-    )
-    .bind(&id)
-    .bind(user_id)
-    .bind(&req.name)
-    .bind(&req.icon)
-    .bind(&req.description)
-    .bind(&req.status)
-    .bind(&req.parent_container_id)
-    .bind(position)
-    .fetch_one(pool)
-    .await?;
-    Ok(row)
+    let mut conn = pool.acquire().await.map_err(DbError::Sqlx)?;
+    insert_in_tx(&mut conn, &id, user_id, req, position).await
 }
 
 pub async fn find_owned_ids(
@@ -100,10 +89,11 @@ pub async fn insert_in_tx(
     user_id: &str,
     req: &CreateContainerRequest,
     position: i32,
-) -> Result<(), DbError> {
-    sqlx::query(
-        "INSERT INTO containers (id, user_id, name, icon, description, status, parent_container_id, position) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+) -> Result<ContainerRow, DbError> {
+    let row = sqlx::query_as(
+        r#"INSERT INTO containers (id, user_id, name, icon, description, status, parent_container_id, position)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           RETURNING *"#,
     )
     .bind(id)
     .bind(user_id)
@@ -113,9 +103,9 @@ pub async fn insert_in_tx(
     .bind(&req.status)
     .bind(&req.parent_container_id)
     .bind(position)
-    .execute(&mut *conn)
+    .fetch_one(&mut *conn)
     .await?;
-    Ok(())
+    Ok(row)
 }
 
 /// Update a container using read-modify-write. Returns None if not found.
@@ -446,14 +436,16 @@ pub async fn toggle_pin(
 }
 
 /// Move a container to a new parent and position.
-#[tracing::instrument(skip(pool))]
-pub async fn move_container(
-    pool: &SqlitePool,
+async fn move_container_row<'e, E>(
+    executor: E,
     id: &str,
     user_id: &str,
     parent_id: Option<&str>,
     position: i32,
-) -> Result<Option<ContainerRow>, DbError> {
+) -> Result<Option<ContainerRow>, DbError>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
     let row = sqlx::query_as(
         r#"UPDATE containers
            SET parent_container_id=?, position=?, updated_at=datetime('now')
@@ -464,9 +456,53 @@ pub async fn move_container(
     .bind(position)
     .bind(id)
     .bind(user_id)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?;
     Ok(row)
+}
+
+/// Move a container to a new parent and position.
+#[tracing::instrument(skip(pool))]
+pub async fn move_container(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    parent_id: Option<&str>,
+    position: i32,
+) -> Result<Option<ContainerRow>, DbError> {
+    move_container_row(pool, id, user_id, parent_id, position).await
+}
+
+/// Same as [`move_container`] but runs on a caller-owned transaction connection.
+#[tracing::instrument(skip(conn))]
+pub async fn move_container_in_tx(
+    conn: &mut SqliteConnection,
+    id: &str,
+    user_id: &str,
+    parent_id: Option<&str>,
+    position: i32,
+) -> Result<Option<ContainerRow>, DbError> {
+    move_container_row(&mut *conn, id, user_id, parent_id, position).await
+}
+
+/// Ids of all containers owned by `user_id` that are direct children of
+/// `parent_id` (root when `None`), ordered by position. Used to validate a
+/// reorder request against the real scope before writing.
+pub async fn child_ids(
+    executor: impl sqlx::Executor<'_, Database = Sqlite>,
+    user_id: &str,
+    parent_id: Option<&str>,
+) -> Result<Vec<String>, DbError> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT id FROM containers \
+         WHERE user_id = ? AND parent_container_id IS ? \
+         ORDER BY position, id",
+    )
+    .bind(user_id)
+    .bind(parent_id)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
 }
 
 /// Check if `possible_descendant_id` is a descendant (or equal to) `ancestor_id`.
@@ -519,15 +555,16 @@ pub async fn progress(
 }
 
 /// Update last_opened_at for a container.
+///
+/// Only `last_opened_at` is written: opening a container is a read and must not
+/// make it look freshly edited (`updated_at`).
 #[tracing::instrument(skip(pool))]
 pub async fn touch_last_opened(pool: &SqlitePool, id: &str, user_id: &str) -> Result<(), DbError> {
-    sqlx::query(
-        "UPDATE containers SET last_opened_at=datetime('now'), updated_at=datetime('now') WHERE id=? AND user_id=?",
-    )
-    .bind(id)
-    .bind(user_id)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE containers SET last_opened_at=datetime('now') WHERE id=? AND user_id=?")
+        .bind(id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -1113,5 +1150,35 @@ mod tests {
             "should return only root of archived subtree, not cascaded children"
         );
         assert_eq!(archived[0].id, parent.id);
+    }
+
+    #[tokio::test]
+    async fn touch_last_opened_sets_only_last_opened_at() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let created = create_test_container(&pool, &uid, "Touched", None).await;
+        assert!(created.last_opened_at.is_none());
+
+        touch_last_opened(&pool, &created.id, &uid).await.unwrap();
+
+        let after = get_one(&pool, &created.id, &uid).await.unwrap().unwrap();
+        assert!(after.last_opened_at.is_some());
+        assert_eq!(
+            after.updated_at, created.updated_at,
+            "opening a container is a read and must not bump updated_at"
+        );
+    }
+
+    #[tokio::test]
+    async fn touch_last_opened_is_scoped_by_user() {
+        let pool = test_pool().await;
+        let owner = create_test_user(&pool).await;
+        let other = create_test_user(&pool).await;
+        let created = create_test_container(&pool, &owner, "Owned", None).await;
+
+        touch_last_opened(&pool, &created.id, &other).await.unwrap();
+
+        let row = get_one(&pool, &created.id, &owner).await.unwrap().unwrap();
+        assert!(row.last_opened_at.is_none());
     }
 }

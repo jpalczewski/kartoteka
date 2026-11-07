@@ -1,9 +1,9 @@
-use crate::app::{ToastContext, ToastKind};
 use crate::components::lists::add_input::AddInput;
 use crate::components::lists::list_card::list_type_icon;
-use crate::context::GlobalRefresh;
 use crate::server_fns::items::{create_item, toggle_item};
 use crate::server_fns::lists::get_list_preview_items;
+use crate::state::invalidation::{mutate, use_invalidation};
+use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::List;
 use kartoteka_shared::{FEATURE_CHECKLIST, FEATURE_QUANTITY, PreviewItem};
 use leptos::prelude::*;
@@ -16,8 +16,7 @@ pub fn ListPreview(
     #[prop(optional)] on_archive: Option<Callback<String>>,
     #[prop(optional)] force_expand: Option<Signal<bool>>,
 ) -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
+    let invalidation = use_invalidation();
     let has_checklist = list.has_feature(FEATURE_CHECKLIST);
     let has_quantity = list.has_feature(FEATURE_QUANTITY);
     let list_id = list.id.clone();
@@ -26,7 +25,8 @@ pub fn ListPreview(
     let href = format!("/lists/{}", list.id);
 
     let (is_open, set_is_open) = signal(false);
-    let (refresh, set_refresh) = signal(0u32);
+    // `opened` gates the first fetch: a collapsed preview never queries.
+    let (opened, set_opened) = signal(false);
 
     // When force_expand flips to true, open the panel and trigger the first fetch.
     // When it flips back to false, close the panel (collapse all).
@@ -35,54 +35,44 @@ pub fn ListPreview(
         Effect::new(move |_| {
             if force.get() {
                 set_is_open.set(true);
-                set_refresh.update(|n| {
-                    if *n == 0 {
-                        *n = 1
-                    }
-                });
+                set_opened.set(true);
             } else {
                 set_is_open.set(false);
             }
         });
     }
 
-    // rev == 0 means the collapse hasn't been opened yet — skip the fetch.
     let items_resource = Resource::new(
         {
             let lid = list_id.clone();
             move || {
-                let rev = refresh.get();
-                let _ = global_refresh.get();
-                (lid.clone(), rev)
+                (
+                    lid.clone(),
+                    opened.get(),
+                    invalidation.track(&[ChangeTopic::Items]),
+                )
             }
         },
-        |(id, rev)| async move {
-            if rev == 0 {
-                Ok(Vec::<PreviewItem>::new())
-            } else {
+        |(id, opened, _)| async move {
+            if opened {
                 get_list_preview_items(id).await
+            } else {
+                Ok(Vec::<PreviewItem>::new())
             }
         },
     );
 
     let on_toggle = Callback::new(move |item_id: String| {
-        leptos::task::spawn_local(async move {
-            match toggle_item(item_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(toggle_item(item_id), &[ChangeTopic::Items]);
     });
 
     let lid_add = list_id.clone();
     let on_add = Callback::new(move |title: String| {
         let lid = lid_add.clone();
-        leptos::task::spawn_local(async move {
-            match create_item(lid, title, None, None, None, None, None, None).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(
+            create_item(lid, title, None, None, None, None, None, None),
+            &[ChangeTopic::Items],
+        );
     });
 
     let list_id_del = list_id.clone();
@@ -97,7 +87,7 @@ pub fn ListPreview(
                     let checked = event_target_checked(&ev);
                     set_is_open.set(checked);
                     if checked {
-                        set_refresh.update(|n| if *n == 0 { *n = 1 });
+                        set_opened.set(true);
                     }
                 }
             />
@@ -145,7 +135,7 @@ pub fn ListPreview(
                             <p class="text-error text-sm">{e.to_string()}</p>
                         }.into_any(),
                         Ok(items) => {
-                            if items.is_empty() && refresh.get() == 0 {
+                            if items.is_empty() && !opened.get() {
                                 // Not yet expanded — render nothing (collapse is closed).
                                 return view! {}.into_any();
                             }

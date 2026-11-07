@@ -123,6 +123,18 @@ pub async fn recent(pool: &SqlitePool, user_id: &str, limit: i64) -> Result<Vec<
     .map_err(DbError::Sqlx)
 }
 
+/// Record that the user opened a list. Only `last_opened_at` is written —
+/// opening a list is a read and must not bump `updated_at`.
+#[tracing::instrument(skip(pool))]
+pub async fn touch_last_opened(pool: &SqlitePool, id: &str, user_id: &str) -> Result<(), DbError> {
+    sqlx::query("UPDATE lists SET last_opened_at=datetime('now') WHERE id=? AND user_id=?")
+        .bind(id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 /// Root lists: no container, no parent list, not archived, not pinned.
 /// Ordered by updated_at DESC.
 #[tracing::instrument(skip(pool))]
@@ -500,15 +512,17 @@ pub async fn uncheck_items(pool: &SqlitePool, list_id: &str) -> Result<u64, DbEr
     Ok(result.rows_affected())
 }
 
-#[tracing::instrument(skip(pool))]
-pub async fn move_list(
-    pool: &SqlitePool,
+async fn move_list_row<'e, E>(
+    executor: E,
     id: &str,
     user_id: &str,
     position: i64,
     container_id: Option<&str>,
     parent_list_id: Option<&str>,
-) -> Result<bool, DbError> {
+) -> Result<bool, DbError>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
     let rows = sqlx::query(
         "UPDATE lists SET position = ?, container_id = ?, parent_list_id = ?, \
                           updated_at = datetime('now') \
@@ -519,10 +533,96 @@ pub async fn move_list(
     .bind(parent_list_id)
     .bind(id)
     .bind(user_id)
-    .execute(pool)
+    .execute(executor)
     .await
     .map_err(DbError::Sqlx)?;
     Ok(rows.rows_affected() > 0)
+}
+
+/// NOTE: the destination container/parent list ownership and cycle rules are
+/// NOT checked here — callers must validate them first.
+#[tracing::instrument(skip(pool))]
+pub async fn move_list(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    position: i64,
+    container_id: Option<&str>,
+    parent_list_id: Option<&str>,
+) -> Result<bool, DbError> {
+    move_list_row(pool, id, user_id, position, container_id, parent_list_id).await
+}
+
+/// Same as [`move_list`] but runs on a caller-owned transaction connection.
+#[tracing::instrument(skip(conn))]
+pub async fn move_list_in_tx(
+    conn: &mut SqliteConnection,
+    id: &str,
+    user_id: &str,
+    position: i64,
+    container_id: Option<&str>,
+    parent_list_id: Option<&str>,
+) -> Result<bool, DbError> {
+    move_list_row(
+        &mut *conn,
+        id,
+        user_id,
+        position,
+        container_id,
+        parent_list_id,
+    )
+    .await
+}
+
+/// Ids of all lists owned by `user_id` that sit in the given scope
+/// (`container_id` and/or `parent_list_id`, both `None` = root), ordered by
+/// position. Used to validate a reorder request before writing.
+pub async fn ids_in_scope(
+    executor: impl sqlx::Executor<'_, Database = Sqlite>,
+    user_id: &str,
+    container_id: Option<&str>,
+    parent_list_id: Option<&str>,
+) -> Result<Vec<String>, DbError> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT id FROM lists \
+         WHERE user_id = ? AND container_id IS ? AND parent_list_id IS ? \
+         ORDER BY position, id",
+    )
+    .bind(user_id)
+    .bind(container_id)
+    .bind(parent_list_id)
+    .fetch_all(executor)
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
+}
+
+/// Check if `possible_descendant_id` is a descendant (or equal to) `ancestor_id`
+/// following the `parent_list_id` chain.
+#[tracing::instrument(skip(pool))]
+pub async fn is_descendant(
+    pool: &SqlitePool,
+    user_id: &str,
+    ancestor_id: &str,
+    possible_descendant_id: &str,
+) -> Result<bool, DbError> {
+    let row: (i64,) = sqlx::query_as(
+        r#"WITH RECURSIVE subtree AS (
+               SELECT id FROM lists WHERE id = ? AND user_id = ?
+               UNION ALL
+               SELECT l.id FROM lists l
+               JOIN subtree s ON l.parent_list_id = s.id
+               WHERE l.user_id = ?
+           )
+           SELECT COUNT(*) FROM subtree WHERE id = ?"#,
+    )
+    .bind(ancestor_id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(possible_descendant_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.0 > 0)
 }
 
 // ── db-level tests ────────────────────────────────────────────────────────────
@@ -841,16 +941,42 @@ mod tests {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
         let id = insert_test_list(&pool, &uid, "Recent").await;
-        // Simulate open by updating last_opened_at
-        sqlx::query("UPDATE lists SET last_opened_at = datetime('now') WHERE id = ?")
-            .bind(&id)
-            .execute(&pool)
-            .await
-            .unwrap();
+        touch_last_opened(&pool, &id, &uid).await.unwrap();
 
         let rows = recent(&pool, &uid, 5).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, id);
+    }
+
+    #[tokio::test]
+    async fn touch_last_opened_sets_only_last_opened_at() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let id = insert_test_list(&pool, &uid, "Touched").await;
+        let before = get_one(&pool, &id, &uid).await.unwrap().unwrap();
+        assert!(before.last_opened_at.is_none());
+
+        touch_last_opened(&pool, &id, &uid).await.unwrap();
+
+        let after = get_one(&pool, &id, &uid).await.unwrap().unwrap();
+        assert!(after.last_opened_at.is_some());
+        assert_eq!(
+            after.updated_at, before.updated_at,
+            "opening a list is a read and must not bump updated_at"
+        );
+    }
+
+    #[tokio::test]
+    async fn touch_last_opened_is_scoped_by_user() {
+        let pool = test_pool().await;
+        let owner = create_test_user(&pool).await;
+        let other = create_test_user(&pool).await;
+        let id = insert_test_list(&pool, &owner, "Owned").await;
+
+        touch_last_opened(&pool, &id, &other).await.unwrap();
+
+        let row = get_one(&pool, &id, &owner).await.unwrap().unwrap();
+        assert!(row.last_opened_at.is_none());
     }
 
     #[tokio::test]

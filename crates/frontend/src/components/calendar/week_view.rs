@@ -1,15 +1,15 @@
 use leptos::prelude::*;
 
 use super::item_row::CalendarItemRow;
-use crate::app::{ToastContext, ToastKind};
 use crate::server_fns::items::{delete_item, toggle_item};
+use crate::state::invalidation::mutate_with;
+use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::CalendarWeekDay;
 
 const DAY_NAMES: [&str; 7] = ["Pon", "Wt", "Śr", "Czw", "Pt", "Sob", "Nd"];
 
 #[component]
 pub fn WeekView(days: Vec<CalendarWeekDay>) -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let days_signal = RwSignal::new(days);
 
     view! {
@@ -40,8 +40,6 @@ pub fn WeekView(days: Vec<CalendarWeekDay>) -> impl IntoView {
                                         let item_id_del = item_id.clone();
                                         let date_toggle = date.clone();
                                         let date_delete = date.clone();
-                                        let toast_t = toast;
-                                        let toast_d = toast;
 
                                         view! {
                                             <CalendarItemRow
@@ -53,32 +51,30 @@ pub fn WeekView(days: Vec<CalendarWeekDay>) -> impl IntoView {
                                                 on_toggle=Callback::new(move |()| {
                                                     let iid = item_id.clone();
                                                     let d = date_toggle.clone();
-                                                    leptos::task::spawn_local(async move {
-                                                        match toggle_item(iid.clone()).await {
-                                                            Ok(_) => days_signal.update(|days| {
-                                                                if let Some(day) = days.iter_mut().find(|day| day.date == d) {
-                                                                    if let Some(di) = day.items.iter_mut().find(|di| di.item.id == iid) {
-                                                                        di.item.completed = !di.item.completed;
-                                                                    }
+                                                    mutate_with(
+                                                        toggle_item(iid.clone()),
+                                                        &[ChangeTopic::Items],
+                                                        move |_| days_signal.update(|days| {
+                                                            if let Some(day) = days.iter_mut().find(|day| day.date == d) {
+                                                                if let Some(di) = day.items.iter_mut().find(|di| di.item.id == iid) {
+                                                                    di.item.completed = !di.item.completed;
                                                                 }
-                                                            }),
-                                                            Err(e) => toast_t.push(e.to_string(), ToastKind::Error),
-                                                        }
-                                                    });
+                                                            }
+                                                        }),
+                                                    );
                                                 })
                                                 on_delete=Callback::new(move |()| {
                                                     let iid = item_id_del.clone();
                                                     let d = date_delete.clone();
-                                                    leptos::task::spawn_local(async move {
-                                                        match delete_item(iid.clone()).await {
-                                                            Ok(_) => days_signal.update(|days| {
-                                                                if let Some(day) = days.iter_mut().find(|day| day.date == d) {
-                                                                    day.items.retain(|di| di.item.id != iid);
-                                                                }
-                                                            }),
-                                                            Err(e) => toast_d.push(e.to_string(), ToastKind::Error),
-                                                        }
-                                                    });
+                                                    mutate_with(
+                                                        delete_item(iid.clone()),
+                                                        &[ChangeTopic::Items],
+                                                        move |()| days_signal.update(|days| {
+                                                            if let Some(day) = days.iter_mut().find(|day| day.date == d) {
+                                                                day.items.retain(|di| di.item.id != iid);
+                                                            }
+                                                        }),
+                                                    );
                                                 })
                                             />
                                         }

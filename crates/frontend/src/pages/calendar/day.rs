@@ -1,11 +1,13 @@
 use leptos::prelude::*;
 use leptos_router::{components::A, hooks::use_params_map};
 
+use kartoteka_shared::ChangeTopic;
+
 use super::add_days;
-use crate::app::{ToastContext, ToastKind};
 use crate::components::calendar::item_row::CalendarItemRow;
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::items::{delete_item, get_items_by_date, toggle_item};
+use crate::state::invalidation::{mutate, use_invalidation};
 use crate::utils::group_by_list;
 
 #[component]
@@ -13,31 +15,25 @@ pub fn CalendarDayPage() -> impl IntoView {
     let params = use_params_map();
     let date = move || params.read().get("date").unwrap_or_default();
 
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let (refresh, set_refresh) = signal(0u32);
+    let invalidation = use_invalidation();
     let (show_completed, set_show_completed) = signal(true);
 
     let items_res = Resource::new(
-        move || (date(), refresh.get()),
+        move || {
+            (
+                date(),
+                invalidation.track(&[ChangeTopic::Items, ChangeTopic::Lists]),
+            )
+        },
         |(d, _)| get_items_by_date(d),
     );
 
     let on_toggle = move |item_id: String| {
-        leptos::task::spawn_local(async move {
-            match toggle_item(item_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(toggle_item(item_id), &[ChangeTopic::Items]);
     };
 
     let on_delete = move |item_id: String| {
-        leptos::task::spawn_local(async move {
-            match delete_item(item_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(delete_item(item_id), &[ChangeTopic::Items]);
     };
 
     view! {
