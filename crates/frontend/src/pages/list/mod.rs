@@ -694,6 +694,7 @@ pub fn ListPage() -> impl IntoView {
                                                     <AddInput
                                                         placeholder=Signal::derive(|| "Nazwa podlisty...".to_string())
                                                         button_label=Signal::derive(|| "Utwórz".to_string())
+                                                        testid="new-sublist-name"
                                                         on_submit=Callback::new(move |name: String| {
                                                             set_adding_sublist.set(false);
                                                             on_create_sublist.run(name);

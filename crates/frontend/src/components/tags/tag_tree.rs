@@ -144,7 +144,7 @@ pub fn TagTreeRow(
 
     let badge = if linkable {
         view! {
-            <A href=format!("/tags/{tag_id_for_link}") attr:class="no-underline">
+            <A href=format!("/tags/{tag_id_for_link}") attr:class="no-underline" attr:data-testid="tag-link">
                 <TagBadge tag=tag.clone() />
             </A>
         }
@@ -154,7 +154,7 @@ pub fn TagTreeRow(
     };
 
     view! {
-        <div>
+        <div data-testid="tag-item">
             <div class="flex items-center gap-1 py-1" style=padding.clone()>
                 {badge}
                 {show_add_child.then(|| view! {

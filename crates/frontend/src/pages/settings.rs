@@ -66,6 +66,7 @@ pub fn SettingsPage() -> impl IntoView {
                                     <h3 class="font-semibold mb-3">"Język / Language"</h3>
                                     <select
                                         class="select select-bordered w-full max-w-xs"
+                                        data-testid="settings-language-select"
                                         on:change=move |ev| {
                                             let val = event_target_value(&ev);
                                             let locale = val.parse::<Locale>().unwrap_or_default();
@@ -86,6 +87,7 @@ pub fn SettingsPage() -> impl IntoView {
                                     <h3 class="font-semibold mb-3">"Strefa czasowa"</h3>
                                     <select
                                         class="select select-bordered w-full max-w-xs"
+                                        data-testid="settings-timezone-select"
                                         on:change=move |ev| {
                                             let val = event_target_value(&ev);
                                             mutate_with(
@@ -123,6 +125,7 @@ pub fn SettingsPage() -> impl IntoView {
                                             </p>
                                             <select
                                                 class="select select-bordered w-full max-w-xs"
+                                                data-testid="settings-country-select"
                                                 on:change=move |ev| {
                                                     let val = event_target_value(&ev);
                                                     mutate(
