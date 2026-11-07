@@ -25,7 +25,7 @@ async function removeTag(page: Page, container: ReturnType<Page["locator"]>, nam
   const badge = container.locator(".tag-badge").filter({ hasText: name });
   await badge.hover();
   await container.locator('[data-testid="tag-remove-btn"]').first().click();
-  await page.locator('[data-testid="confirm-ok"]').click();
+  await page.locator('[data-testid="confirm-modal-confirm"]').click();
 }
 
 test("assign tag to list from home page card", async ({ page, context }) => {

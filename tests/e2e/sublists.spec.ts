@@ -5,8 +5,9 @@ import { createListAndOpen, registerAndLogin, waitForHydration } from "./helpers
 /** Open the "add sublist" form on the list page and create a sublist. */
 async function createSublist(page: Page, name: string) {
   await page.locator('button:has-text("Dodaj podlistę")').click();
-  await page.fill('[data-testid="new-sublist-name"]', name);
-  await page.click('[data-testid="new-sublist-name-submit"]');
+  const form = page.locator('[data-testid="add-sublist-input"]');
+  await form.locator('input[type="text"]').fill(name);
+  await form.locator("button").click();
 }
 
 /** The collapse section of the sublist with the given name. */
@@ -16,8 +17,9 @@ function sublistSection(page: Page, name: string) {
 
 /** Add an item inside a sublist section and wait for it to appear. */
 async function addSublistItem(page: Page, section: ReturnType<Page["locator"]>, title: string) {
-  await section.locator('[data-testid="sublist-new-item"]').fill(title);
-  await section.locator('[data-testid="sublist-new-item-submit"]').click();
+  const form = section.locator('[data-testid="sublist-new-item"]');
+  await form.locator('input[type="text"]').fill(title);
+  await form.locator("button").click();
   await expect(section.getByText(title, { exact: true })).toBeVisible();
 }
 

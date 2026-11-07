@@ -68,8 +68,9 @@ export async function createList(page: Page, name: string): Promise<void> {
  * list type (or fill other options) before submitting.
  */
 export async function createListOnCurrentPage(page: Page, name: string): Promise<void> {
-  await page.fill('[data-testid="new-entity-name"]', name);
-  await page.click('[data-testid="new-entity-name-submit"]');
+  const form = page.locator('[data-testid="create-entity-input"]');
+  await form.locator('input[type="text"]').fill(name);
+  await form.locator("button").click();
   await listCard(page, name).waitFor({ timeout: 10_000 });
 }
 
@@ -98,8 +99,8 @@ export async function createListAndOpen(page: Page, name: string): Promise<strin
 
 /** Add an item to the list page that is currently open and wait for it to render. */
 export async function addItem(page: Page, title: string): Promise<void> {
-  await page.fill('[data-testid="new-item-input"]', title);
-  await page.click('[data-testid="new-item-submit"]');
+  await page.locator('[data-testid="add-item-title"]').fill(title);
+  await page.locator('[data-testid="add-item-form"] button[type="submit"]').click();
   await expect(page.getByText(title, { exact: true })).toBeVisible();
 }
 
@@ -111,5 +112,5 @@ export async function listAction(page: Page, testid: string): Promise<void> {
 
 /** Accept the confirmation modal that destructive list actions open. */
 export async function confirmModal(page: Page): Promise<void> {
-  await page.locator('[data-testid="confirm-ok"]').click();
+  await page.locator('[data-testid="confirm-modal-confirm"]').click();
 }

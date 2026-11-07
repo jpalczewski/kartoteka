@@ -85,11 +85,10 @@ pub fn AddItemInput(
                     class="input input-bordered flex-1"
                     data-testid="add-item-title"
                     placeholder="Nowy element..."
-                    data-testid="new-item-input"
                     prop:value=move || title.get()
                     on:input=move |ev| set_title.set(event_target_value(&ev))
                 />
-                <button type="submit" class="btn btn-primary" data-testid="new-item-submit" prop:disabled=move || pending.get()>
+                <button type="submit" class="btn btn-primary" prop:disabled=move || pending.get()>
                     "Dodaj"
                 </button>
             </div>
