@@ -1,23 +1,40 @@
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
 use leptos_router::components::A;
+use reactive_stores::Store;
 
 use crate::components::ui::{IconButton, IconButtonVariant};
+use crate::state::item_actions::use_item_actions;
+use crate::state::item_store::{ItemRows, row_item};
+use kartoteka_shared::types::DateItem;
 
+/// One calendar row, read from the keyed item store by `id`. Created once per id
+/// and kept across refetches; every displayed field reads the store reactively.
 #[component]
 pub fn CalendarItemRow(
-    item_id: String,
-    list_id: String,
-    title: String,
-    completed: bool,
-    on_toggle: Callback<()>,
-    on_delete: Callback<()>,
+    store: Store<ItemRows<DateItem>>,
+    id: String,
     /// compact=true: xs sizing, no background padding (week view)
     /// compact=false: sm sizing, padded card (day view)
     #[prop(default = false)]
     compact: bool,
 ) -> impl IntoView {
-    let href = format!("/lists/{list_id}/items/{item_id}");
+    let item = row_item(store, id.clone());
+    let completed = move || item.with(|di| di.as_ref().is_some_and(|di| di.item.completed));
+    let title = move || {
+        item.with(|di| {
+            di.as_ref()
+                .map(|di| di.item.title.clone())
+                .unwrap_or_default()
+        })
+    };
+    let href = move || {
+        item.with(|di| {
+            di.as_ref()
+                .map(|di| format!("/lists/{}/items/{}", di.item.list_id, di.item.id))
+                .unwrap_or_default()
+        })
+    };
 
     let (row_class, checkbox_class, title_class, title_class_done) = if compact {
         (
@@ -35,17 +52,21 @@ pub fn CalendarItemRow(
         )
     };
 
+    let actions = use_item_actions();
+    let id_toggle = id.clone();
+    let id_delete = id;
+
     view! {
         <div class=row_class>
             <input
                 type="checkbox"
                 class=checkbox_class
-                checked=completed
-                on:change=move |_| on_toggle.run(())
+                prop:checked=completed
+                on:change=move |_| actions.toggle.run(id_toggle.clone())
             />
             <A
                 href=href
-                attr:class=move || if completed { title_class_done } else { title_class }
+                attr:class=move || if completed() { title_class_done } else { title_class }
             >
                 {title}
             </A>
@@ -54,7 +75,7 @@ pub fn CalendarItemRow(
                 label=move_tr!("common-delete")
                 variant=IconButtonVariant::Danger
                 class="opacity-0 group-hover:opacity-100"
-                on_click=Callback::new(move |_| on_delete.run(()))
+                on_click=Callback::new(move |_| actions.delete.run(id_delete.clone()))
             />
         </div>
     }
