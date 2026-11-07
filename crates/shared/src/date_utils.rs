@@ -274,6 +274,8 @@ mod tests {
             title: title.to_string(),
             description: None,
             completed,
+            status: if completed { "done" } else { "todo" }.to_string(),
+            icon: None,
             position: 0,
             quantity: None,
             actual_quantity: None,

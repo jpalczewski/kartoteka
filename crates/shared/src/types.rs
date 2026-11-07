@@ -244,6 +244,8 @@ pub struct Container {
     pub user_id: String,
     pub name: String,
     pub icon: Option<String>,
+    /// Accent colour as `#rrggbb`; None = neutral.
+    pub color: Option<String>,
     pub description: Option<String>,
     /// None = folder; Some("active"|"done"|"paused"|...) = project
     pub status: Option<String>,
@@ -262,6 +264,8 @@ pub struct Container {
 pub struct CreateContainerRequest {
     pub name: String,
     pub icon: Option<String>,
+    /// Accent colour as `#rrggbb`; None = neutral.
+    pub color: Option<String>,
     pub description: Option<String>,
     /// None = folder. Some("active") = project with status.
     pub status: Option<String>,
@@ -274,6 +278,8 @@ pub struct UpdateContainerRequest {
     pub name: Option<String>,
     /// None = no change; Some(None) = clear; Some(Some(v)) = set
     pub icon: Option<Option<String>>,
+    /// Accent colour `#rrggbb`: None = no change; Some(None) = neutral
+    pub color: Option<Option<String>>,
     /// None = no change; Some(None) = clear; Some(Some(v)) = set
     pub description: Option<Option<String>>,
     /// None = no change; Some(None) = clear; Some(Some(v)) = set
@@ -322,6 +328,8 @@ pub struct List {
     pub user_id: String,
     pub name: String,
     pub icon: Option<String>,
+    /// Accent colour as `#rrggbb`; None = neutral.
+    pub color: Option<String>,
     pub description: Option<String>,
     pub list_type: String,
     pub parent_list_id: Option<String>,
@@ -372,6 +380,8 @@ pub struct CreateListRequest {
     pub name: String,
     pub list_type: Option<String>,
     pub icon: Option<String>,
+    /// Accent colour as `#rrggbb`; None = neutral.
+    pub color: Option<String>,
     pub description: Option<String>,
     pub container_id: Option<String>,
     pub parent_list_id: Option<String>,
@@ -389,6 +399,11 @@ impl CreateListRequest {
     }
 }
 
+/// Default for deserializing items produced before `status` existed.
+fn default_item_status() -> String {
+    "todo".to_string()
+}
+
 /// Shared Item type for server function return values.
 /// Mirrors domain::items::Item — kept in shared so WASM hydrate build can deserialize.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -398,6 +413,12 @@ pub struct Item {
     pub title: String,
     pub description: Option<String>,
     pub completed: bool,
+    /// "todo" | "in_progress" | "done" — `done` exactly when `completed`.
+    #[serde(default = "default_item_status")]
+    pub status: String,
+    /// `lucide:<name>`, `emoji:<e>` or a legacy bare emoji; None = no icon.
+    #[serde(default)]
+    pub icon: Option<String>,
     pub position: i32,
     pub quantity: Option<i32>,
     pub actual_quantity: Option<i32>,

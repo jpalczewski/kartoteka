@@ -15,6 +15,7 @@ fn list_has_feature() {
         user_id: "u1".into(),
         name: "test".into(),
         icon: None,
+        color: None,
         description: None,
         list_type: "shopping".into(),
         parent_list_id: None,
@@ -138,6 +139,7 @@ fn create_list_request_rejects_two_targets() {
         features: vec![],
         parent_list_id: Some("parent".into()),
         container_id: Some("container".into()),
+        color: None,
     };
     assert_eq!(
         req.validate_placement(),
@@ -155,6 +157,7 @@ fn create_list_request_allows_parent_list_id() {
         features: vec![],
         parent_list_id: Some("parent".into()),
         container_id: None,
+        color: None,
     };
     assert!(req.validate_placement().is_ok());
 }

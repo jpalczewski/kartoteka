@@ -91,14 +91,15 @@ pub async fn insert_in_tx(
     position: i32,
 ) -> Result<ContainerRow, DbError> {
     let row = sqlx::query_as(
-        r#"INSERT INTO containers (id, user_id, name, icon, description, status, parent_container_id, position)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        r#"INSERT INTO containers (id, user_id, name, icon, color, description, status, parent_container_id, position)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            RETURNING *"#,
     )
     .bind(id)
     .bind(user_id)
     .bind(&req.name)
     .bind(&req.icon)
+    .bind(&req.color)
     .bind(&req.description)
     .bind(&req.status)
     .bind(&req.parent_container_id)
@@ -126,6 +127,10 @@ pub async fn update(
         .icon
         .as_ref()
         .map_or(existing.icon.as_deref(), |v| v.as_deref());
+    let color = req
+        .color
+        .as_ref()
+        .map_or(existing.color.as_deref(), |v| v.as_deref());
     let description = req
         .description
         .as_ref()
@@ -141,12 +146,14 @@ pub async fn update(
 
     let row = sqlx::query_as(
         r#"UPDATE containers
-           SET name=?, icon=?, description=?, status=?, location_id=?, updated_at=datetime('now')
+           SET name=?, icon=?, color=?, description=?, status=?, location_id=?,
+               updated_at=datetime('now')
            WHERE id=? AND user_id=?
            RETURNING *"#,
     )
     .bind(name)
     .bind(icon)
+    .bind(color)
     .bind(description)
     .bind(status)
     .bind(location_id)
@@ -631,6 +638,7 @@ async fn create_test_container(
         description: None,
         status: None,
         parent_container_id: parent_id.map(str::to_string),
+        color: None,
     };
     let pos = next_position(pool, user_id, parent_id).await.unwrap();
     insert(pool, user_id, &req, pos).await.unwrap()
@@ -649,6 +657,7 @@ mod tests {
             description: None,
             status: None,
             parent_container_id: None,
+            color: None,
         }
     }
 
@@ -710,6 +719,7 @@ mod tests {
             description: Some(Some("A description".to_string())),
             status: None,
             location_id: None,
+            color: None,
         };
 
         let updated = update(&pool, &created.id, &uid, &req)
@@ -720,6 +730,45 @@ mod tests {
         assert_eq!(updated.name, "Updated");
         assert_eq!(updated.icon.as_deref(), Some("🗂️"));
         assert_eq!(updated.description.as_deref(), Some("A description"));
+    }
+
+    #[tokio::test]
+    async fn insert_and_update_color() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+
+        let mut req = make_req("Coloured");
+        req.color = Some("#ff8800".to_string());
+        let created = insert(&pool, &uid, &req, 0).await.unwrap();
+        assert_eq!(created.color.as_deref(), Some("#ff8800"));
+
+        let update_req = UpdateContainerRequest {
+            name: None,
+            icon: None,
+            color: Some(Some("#0088ff".to_string())),
+            description: None,
+            status: None,
+            location_id: None,
+        };
+        let updated = update(&pool, &created.id, &uid, &update_req)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.color.as_deref(), Some("#0088ff"));
+
+        let cleared = UpdateContainerRequest {
+            name: None,
+            icon: None,
+            color: Some(None),
+            description: None,
+            status: None,
+            location_id: None,
+        };
+        let updated = update(&pool, &created.id, &uid, &cleared)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(updated.color.is_none());
     }
 
     #[tokio::test]
@@ -738,6 +787,7 @@ mod tests {
             description: None,
             status: None,
             location_id: None,
+            color: None,
         };
 
         let updated = update(&pool, &created.id, &uid, &update_req)
