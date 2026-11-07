@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 use kartoteka_shared::types::{
-    CalendarMonthData, CalendarWeekDay, DateItem, Item, ListData, TodayData,
+    CalendarMonthData, CalendarWeekDay, DateItem, Item, ItemDetailData, ListData, TodayData,
 };
 use leptos::prelude::*;
 
@@ -430,9 +430,12 @@ pub async fn update_item_quantity(
     Ok(item.into())
 }
 
-/// Fetch a single item by id.
+/// Fetch a single item by id together with its comments.
+///
+/// Comments are part of this payload (instead of a separate Resource) so the
+/// detail page renders them during SSR and hydrates without a nested fetch.
 #[server(prefix = "/leptos")]
-pub async fn get_item(item_id: String) -> Result<Item, ServerFnError> {
+pub async fn get_item_detail(item_id: String) -> Result<ItemDetailData, ServerFnError> {
     let pool = expect_context::<SqlitePool>();
     let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
         .await
@@ -440,11 +443,25 @@ pub async fn get_item(item_id: String) -> Result<Item, ServerFnError> {
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    domain::items::get_one(&pool, &item_id, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
+    let (item, comments, prefs) = tokio::try_join!(
+        domain::items::get_one(&pool, &item_id, &user.id),
+        domain::comments::list_for_entity(&pool, &user.id, "item", &item_id),
+        domain::preferences::get(&pool, &user.id),
+    )
+    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let item = item
         .map(Item::from)
-        .ok_or_else(|| ServerFnError::new("item not found".to_string()))
+        .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
+    Ok(ItemDetailData {
+        item,
+        comments: CommentsPayload {
+            comments: comments
+                .into_iter()
+                .map(|c| domain_comment_to_shared(c, &prefs.timezone))
+                .collect(),
+            current_user_id: user.id,
+        },
+    })
 }
 
 /// Update only the description of an item. Pass empty string to clear.
