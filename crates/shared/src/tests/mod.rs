@@ -3,6 +3,7 @@ mod containers;
 mod deserializers;
 mod flex_date;
 mod human_date;
+mod icon_value;
 mod items;
 mod lists;
 mod patch_requests;
