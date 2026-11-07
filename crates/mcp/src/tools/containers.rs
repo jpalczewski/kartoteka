@@ -1,7 +1,9 @@
 use http::request::Parts;
 use kartoteka_db as db;
 use kartoteka_domain as domain;
-use kartoteka_shared::types::{CreateContainerRequest, MoveContainerRequest};
+use kartoteka_shared::types::{
+    CreateContainerRequest, MoveContainerRequest, UpdateContainerRequest,
+};
 use rmcp::{
     ErrorData,
     handler::server::{tool::Extension, wrapper::Parameters},
@@ -80,6 +82,58 @@ pub struct MoveContainerToParentParams {
     pub container_id: String,
     /// ID of the parent container to nest this container under. Pass null to move the container to root level.
     pub parent_container_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct UpdateContainerParams {
+    pub container_id: String,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    /// Icon: `lucide:<name>`, `emoji:<e>` or a bare emoji.
+    pub icon: Option<String>,
+    /// null = folder; "active" | "done" | "paused" = project.
+    pub status: Option<String>,
+    /// Field names to explicitly clear (set to null). Valid values: description,
+    /// icon, status
+    pub clear: Option<Vec<String>>,
+}
+
+/// `None` keeps the stored value, `Some(None)` clears it, `Some(Some(v))` sets it.
+fn nullable<T>(val: Option<T>, cleared: bool) -> Option<Option<T>> {
+    if cleared { Some(None) } else { val.map(Some) }
+}
+
+impl UpdateContainerParams {
+    fn cleared(&self, name: &str) -> bool {
+        self.clear
+            .as_deref()
+            .is_some_and(|v| v.iter().any(|s| s == name))
+    }
+
+    /// A field cannot be given a value and cleared in the same call.
+    fn ensure_not_both(&self, name: &str, set: bool) -> Result<(), McpError> {
+        if set && self.cleared(name) {
+            return Err(McpError::BadRequest(format!(
+                "{name} is both set and listed in clear"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Build the domain request from the params.
+    fn to_request(&self) -> Result<UpdateContainerRequest, McpError> {
+        self.ensure_not_both("description", self.description.is_some())?;
+        self.ensure_not_both("icon", self.icon.is_some())?;
+        self.ensure_not_both("status", self.status.is_some())?;
+        Ok(UpdateContainerRequest {
+            name: self.name.clone(),
+            icon: nullable(self.icon.clone(), self.cleared("icon")),
+            color: None,
+            description: nullable(self.description.clone(), self.cleared("description")),
+            status: nullable(self.status.clone(), self.cleared("status")),
+            location_id: None,
+        })
+    }
 }
 
 #[tool_router(router = containers_router, vis = "pub(crate)")]
@@ -312,5 +366,165 @@ impl KartotekaServer {
             .await
             .map_err(self.domain_err(&locale))?;
         self.json_result(container, &locale)
+    }
+
+    #[rmcp::tool(
+        name = "update_container",
+        description = "mcp-tool-update_container-desc"
+    )]
+    #[tracing::instrument(
+        skip(self, parts, p),
+        fields(action = "mcp_update_container", container_id = %p.container_id)
+    )]
+    pub(crate) async fn update_container(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<UpdateContainerParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let req = p.to_request().map_err(|e| self.map_err(e, &locale))?;
+        let container = domain::containers::update(&self.pool, &p.container_id, &uid, &req)
+            .await
+            .map_err(self.domain_err(&locale))?;
+        self.json_result(container, &locale)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::test_support::*;
+    use kartoteka_db::test_helpers::create_test_user;
+    use serde_json::json;
+
+    fn update_params(container_id: &str) -> UpdateContainerParams {
+        UpdateContainerParams {
+            container_id: container_id.to_owned(),
+            name: None,
+            description: None,
+            icon: None,
+            status: None,
+            clear: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn update_container_updates_and_clears_fields() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let server = test_server(pool);
+        let container =
+            domain::containers::create(&server.pool, &uid, &domain_container_req("Stary"))
+                .await
+                .unwrap();
+
+        let updated = server
+            .update_container(
+                Extension(parts_for_user(&uid)),
+                Parameters(UpdateContainerParams {
+                    name: Some("Nowy".to_owned()),
+                    description: Some("Opis".to_owned()),
+                    icon: Some("lucide:folder".to_owned()),
+                    status: Some("active".to_owned()),
+                    ..update_params(&container.id)
+                }),
+            )
+            .await
+            .unwrap();
+        let body = item_json(&updated).await;
+        assert_eq!(body["name"], "Nowy");
+        assert_eq!(body["description"], "Opis");
+        assert_eq!(body["icon"], "lucide:folder");
+        assert_eq!(body["status"], "active");
+
+        // clear turns the project back into a folder and drops the description
+        let cleared = server
+            .update_container(
+                Extension(parts_for_user(&uid)),
+                Parameters(UpdateContainerParams {
+                    clear: Some(vec!["description".to_owned(), "status".to_owned()]),
+                    ..update_params(&container.id)
+                }),
+            )
+            .await
+            .unwrap();
+        let body = item_json(&cleared).await;
+        assert_eq!(body["name"], "Nowy");
+        assert!(body["description"].is_null());
+        assert!(body["status"].is_null());
+    }
+
+    #[test]
+    fn update_container_rejects_a_field_that_is_set_and_cleared() {
+        for name in ["description", "icon", "status"] {
+            let mut params = update_params("container-1");
+            match name {
+                "description" => params.description = Some("both".to_owned()),
+                "icon" => params.icon = Some("lucide:folder".to_owned()),
+                _ => params.status = Some("active".to_owned()),
+            }
+            params.clear = Some(vec![name.to_owned()]);
+            assert!(
+                matches!(params.to_request(), Err(McpError::BadRequest(_))),
+                "{name} set and cleared must be rejected"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn update_container_to_an_unknown_status_is_rejected() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let server = test_server(pool);
+        let container = domain::containers::create(&server.pool, &uid, &domain_container_req("C"))
+            .await
+            .unwrap();
+
+        let err = server
+            .update_container(
+                Extension(parts_for_user(&uid)),
+                Parameters(UpdateContainerParams {
+                    status: Some("blocked".to_owned()),
+                    ..update_params(&container.id)
+                }),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err.data,
+            Some(json!({ "error": "validation", "reason": "invalid_container_status" }))
+        );
+    }
+
+    #[tokio::test]
+    async fn update_container_of_another_user_is_not_found() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let intruder = create_test_user(&pool).await;
+        let server = test_server(pool);
+        let container =
+            domain::containers::create(&server.pool, &uid, &domain_container_req("Moje"))
+                .await
+                .unwrap();
+
+        let err = server
+            .update_container(
+                Extension(parts_for_user(&intruder)),
+                Parameters(UpdateContainerParams {
+                    name: Some("Przejęte".to_owned()),
+                    ..update_params(&container.id)
+                }),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            err.data,
+            Some(json!({ "error": "not_found", "entity": "container" }))
+        );
+        let row = domain::containers::get_one(&server.pool, &container.id, &uid)
+            .await
+            .unwrap();
+        assert_eq!(row.name, "Moje");
     }
 }
