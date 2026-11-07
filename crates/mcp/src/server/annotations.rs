@@ -16,6 +16,7 @@ const READ_ONLY: &[&str] = &[
     "list_tags",
     "get_today",
     "get_time_summary",
+    "get_relations",
     "search_items",
     "get_item",
     "list_templates",
