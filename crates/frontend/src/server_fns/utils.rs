@@ -1,6 +1,58 @@
 #[cfg(feature = "ssr")]
 pub(crate) use kartoteka_shared::date_utils::format_datetime_in_tz;
 
+// ── Server-side helpers shared by every server function ───────────────────────
+
+#[cfg(feature = "ssr")]
+use {
+    axum_login::AuthSession,
+    kartoteka_auth::{KartotekaBackend, KartotekaUser},
+    leptos::prelude::*,
+    sqlx::SqlitePool,
+};
+
+/// The DB pool plus the authenticated user of the current request.
+#[cfg(feature = "ssr")]
+pub(crate) type AuthedRequest = (SqlitePool, KartotekaUser);
+
+/// Authenticate the current request: DB pool + logged-in user.
+///
+/// The error messages are part of the client contract — do not reword them.
+#[cfg(feature = "ssr")]
+pub(crate) async fn require_user() -> Result<AuthedRequest, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    Ok((pool, user))
+}
+
+/// Like [`require_user`], but also rejects non-admin users.
+#[cfg(feature = "ssr")]
+pub(crate) async fn require_admin() -> Result<AuthedRequest, ServerFnError> {
+    let (pool, user) = require_user().await?;
+    if user.role != "admin" {
+        return Err(ServerFnError::new("forbidden".to_string()));
+    }
+    Ok((pool, user))
+}
+
+/// Turns any `Result<T, E: Display>` into a server fn result.
+#[cfg(feature = "ssr")]
+pub(crate) trait SfnResultExt<T> {
+    fn sfn(self) -> Result<T, ServerFnError>;
+}
+
+#[cfg(feature = "ssr")]
+impl<T, E: std::fmt::Display> SfnResultExt<T> for Result<T, E> {
+    fn sfn(self) -> Result<T, ServerFnError> {
+        self.map_err(|e| ServerFnError::new(e.to_string()))
+    }
+}
+
 #[cfg(any(feature = "ssr", test))]
 use kartoteka_shared::types::Container;
 

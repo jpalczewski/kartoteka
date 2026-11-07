@@ -3,8 +3,9 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    crate::server_fns::utils::format_datetime_in_tz, axum_login::AuthSession,
-    kartoteka_auth::KartotekaBackend, kartoteka_domain as domain, sqlx::SqlitePool,
+    crate::server_fns::utils::{SfnResultExt, format_datetime_in_tz, require_user},
+    kartoteka_domain as domain,
+    sqlx::SqlitePool,
 };
 
 #[cfg(feature = "ssr")]
@@ -27,7 +28,7 @@ fn domain_entry_to_shared(e: domain::time_entries::TimeEntry) -> TimeEntry {
 async fn user_timezone(pool: &SqlitePool, user_id: &str) -> Result<String, ServerFnError> {
     Ok(domain::preferences::get(pool, user_id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .sfn()?
         .timezone)
 }
 
@@ -39,33 +40,21 @@ fn domain_summary_to_shared(s: domain::time_entries::ItemTimeSummary) -> ItemTim
     }
 }
 
-#[cfg(feature = "ssr")]
-async fn current_user_id() -> Result<String, ServerFnError> {
-    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
-        .await
-        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    auth.user
-        .map(|u| u.id)
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))
-}
-
 #[server(prefix = "/leptos")]
 pub async fn get_time_summary(item_id: String) -> Result<ItemTimeSummary, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let uid = current_user_id().await?;
-    let summary = domain::time_entries::summary_for_item(&pool, &uid, &item_id)
+    let (pool, user) = require_user().await?;
+    let summary = domain::time_entries::summary_for_item(&pool, &user.id, &item_id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
     Ok(domain_summary_to_shared(summary))
 }
 
 #[server(prefix = "/leptos")]
 pub async fn get_running_timer() -> Result<Option<TimeEntry>, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let uid = current_user_id().await?;
-    let entry = kartoteka_db::time_entries::get_running(&pool, &uid)
+    let (pool, user) = require_user().await?;
+    let entry = kartoteka_db::time_entries::get_running(&pool, &user.id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
     Ok(entry.map(|row| TimeEntry {
         id: row.id,
         item_id: row.item_id,
@@ -82,32 +71,27 @@ pub async fn get_running_timer() -> Result<Option<TimeEntry>, ServerFnError> {
 
 #[server(prefix = "/leptos")]
 pub async fn start_timer(item_id: String) -> Result<TimeEntry, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let uid = current_user_id().await?;
-    let entry = domain::time_entries::start(&pool, &uid, Some(&item_id))
+    let (pool, user) = require_user().await?;
+    let entry = domain::time_entries::start(&pool, &user.id, Some(&item_id))
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
     Ok(domain_entry_to_shared(entry))
 }
 
 #[server(prefix = "/leptos")]
 pub async fn stop_timer() -> Result<Option<TimeEntry>, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let uid = current_user_id().await?;
-    let entry = domain::time_entries::stop(&pool, &uid)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let (pool, user) = require_user().await?;
+    let entry = domain::time_entries::stop(&pool, &user.id).await.sfn()?;
     Ok(entry.map(domain_entry_to_shared))
 }
 
 #[server(prefix = "/leptos")]
 pub async fn get_inbox() -> Result<Vec<TimeEntry>, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let uid = current_user_id().await?;
-    let entries = domain::time_entries::list_inbox(&pool, &uid)
+    let (pool, user) = require_user().await?;
+    let entries = domain::time_entries::list_inbox(&pool, &user.id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let tz = user_timezone(&pool, &uid).await?;
+        .sfn()?;
+    let tz = user_timezone(&pool, &user.id).await?;
     Ok(entries
         .into_iter()
         .map(domain_entry_to_shared)
@@ -121,12 +105,11 @@ pub async fn get_inbox() -> Result<Vec<TimeEntry>, ServerFnError> {
 
 #[server(prefix = "/leptos")]
 pub async fn list_all_entries() -> Result<Vec<TimeEntry>, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let uid = current_user_id().await?;
-    let entries = domain::time_entries::list_all_for_user(&pool, &uid)
+    let (pool, user) = require_user().await?;
+    let entries = domain::time_entries::list_all_for_user(&pool, &user.id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let tz = user_timezone(&pool, &uid).await?;
+        .sfn()?;
+    let tz = user_timezone(&pool, &user.id).await?;
     Ok(entries
         .into_iter()
         .map(domain_entry_to_shared)
@@ -145,18 +128,17 @@ pub async fn log_time(
     ended_at: String,
     description: Option<String>,
 ) -> Result<TimeEntry, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let uid = current_user_id().await?;
+    let (pool, user) = require_user().await?;
     let entry = domain::time_entries::log_manual(
         &pool,
-        &uid,
+        &user.id,
         item_id.as_deref(),
         &started_at,
         &ended_at,
         description.as_deref(),
     )
     .await
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    .sfn()?;
     Ok(domain_entry_to_shared(entry))
 }
 
@@ -165,20 +147,18 @@ pub async fn assign_time_entry(
     entry_id: String,
     item_id: String,
 ) -> Result<TimeEntry, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let uid = current_user_id().await?;
-    let entry = domain::time_entries::assign(&pool, &uid, &entry_id, &item_id)
+    let (pool, user) = require_user().await?;
+    let entry = domain::time_entries::assign(&pool, &user.id, &entry_id, &item_id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
     Ok(domain_entry_to_shared(entry))
 }
 
 #[server(prefix = "/leptos")]
 pub async fn delete_time_entry(entry_id: String) -> Result<(), ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
-    let uid = current_user_id().await?;
-    domain::time_entries::delete(&pool, &uid, &entry_id)
+    let (pool, user) = require_user().await?;
+    domain::time_entries::delete(&pool, &user.id, &entry_id)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .sfn()?;
     Ok(())
 }
