@@ -2,11 +2,11 @@ use leptos::prelude::*;
 use leptos_fluent::move_tr;
 use leptos_router::{components::A, hooks::use_params_map};
 
+use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::{
     FEATURE_CHECKLIST, FEATURE_DEADLINES, FEATURE_LOCATION, FEATURE_QUANTITY, FEATURE_TIME_TRACKING,
 };
 
-use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::CommentSection;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::items::date_field::DateFieldInput;
@@ -20,24 +20,17 @@ use crate::server_fns::lists::get_list_feature_names;
 use crate::server_fns::tags::{
     assign_tag_to_item, get_all_tags, get_item_tags, remove_tag_from_item,
 };
+use crate::state::invalidation::{mutate, use_invalidation};
 
-fn toggle_item_tag(
-    item_id: String,
-    tag_id: String,
-    is_assigned: bool,
-    set_tag_refresh: WriteSignal<u32>,
-) {
-    leptos::task::spawn_local(async move {
-        let result = if is_assigned {
+fn toggle_item_tag(item_id: String, tag_id: String, is_assigned: bool) {
+    let result = async move {
+        if is_assigned {
             remove_tag_from_item(item_id, tag_id).await
         } else {
             assign_tag_to_item(item_id, tag_id).await
-        };
-        if let Err(e) = result {
-            leptos::logging::warn!("tag toggle error: {e}");
         }
-        set_tag_refresh.update(|n| *n += 1);
-    });
+    };
+    mutate(result, &[ChangeTopic::Items, ChangeTopic::Tags]);
 }
 
 #[component]
@@ -46,21 +39,34 @@ pub fn ItemDetailPage() -> impl IntoView {
     let list_id = move || params.read().get("list_id").unwrap_or_default();
     let item_id = move || params.read().get("id").unwrap_or_default();
 
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
-
-    let (refresh, set_refresh) = signal(0u32);
-    let (tag_refresh, set_tag_refresh) = signal(0u32);
+    let invalidation = use_invalidation();
 
     let item_res = Resource::new(
-        move || (item_id(), refresh.get()),
+        move || {
+            (
+                item_id(),
+                invalidation.track(&[ChangeTopic::Items, ChangeTopic::Comments]),
+            )
+        },
         |(id, _)| get_item_detail(id),
     );
     let item_tags_res = Resource::new(
-        move || (item_id(), tag_refresh.get()),
+        move || {
+            (
+                item_id(),
+                invalidation.track(&[ChangeTopic::Tags, ChangeTopic::Items]),
+            )
+        },
         |(id, _)| get_item_tags(id),
     );
-    let all_tags_res = Resource::new(move || tag_refresh.get(), |_| get_all_tags());
-    let list_features_res = Resource::new(list_id, get_list_feature_names);
+    let all_tags_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::Tags]),
+        |_| get_all_tags(),
+    );
+    let list_features_res = Resource::new(
+        move || (list_id(), invalidation.track(&[ChangeTopic::Lists])),
+        |(id, _)| get_list_feature_names(id),
+    );
 
     // Derive a single features signal so each section doesn't repeat the lookup.
     let features = Signal::derive(move || {
@@ -86,12 +92,7 @@ pub fn ItemDetailPage() -> impl IntoView {
         let id = item_id();
         let title = title_input.get();
         let description = description_input.get();
-        leptos::task::spawn_local(async move {
-            match update_item(id, title, description).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(update_item(id, title, description), &[ChangeTopic::Items]);
     };
 
     let on_save_dates = move |_: leptos::ev::MouseEvent| {
@@ -101,12 +102,10 @@ pub fn ItemDetailPage() -> impl IntoView {
         let dl = Some(deadline_input.get());
         let dt = Some(deadline_time_input.get());
         let hd = Some(hard_deadline_input.get());
-        leptos::task::spawn_local(async move {
-            match update_item_dates(id, sd, st, dl, dt, hd).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(
+            update_item_dates(id, sd, st, dl, dt, hd),
+            &[ChangeTopic::Items],
+        );
     };
 
     let on_save_quantity = move |_: leptos::ev::MouseEvent| {
@@ -114,22 +113,15 @@ pub fn ItemDetailPage() -> impl IntoView {
         let qty = quantity_input.get().trim().parse::<i32>().ok();
         let actual_qty = actual_quantity_input.get().trim().parse::<i32>().ok();
         let unit = unit_input.get();
-        leptos::task::spawn_local(async move {
-            match update_item_quantity(id, qty, actual_qty, unit).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(
+            update_item_quantity(id, qty, actual_qty, unit),
+            &[ChangeTopic::Items],
+        );
     };
 
     let on_toggle = move |_: leptos::ev::Event| {
         let id = item_id();
-        leptos::task::spawn_local(async move {
-            match toggle_item(id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(toggle_item(id), &[ChangeTopic::Items]);
     };
 
     let back_href = move || format!("/lists/{}", list_id());
@@ -364,7 +356,7 @@ pub fn ItemDetailPage() -> impl IntoView {
 
                                     let on_tag_toggle = Callback::new(move |tid: String| {
                                         let is_assigned = tag_ids.contains(&tid);
-                                        toggle_item_tag(iid.clone(), tid, is_assigned, set_tag_refresh);
+                                        toggle_item_tag(iid.clone(), tid, is_assigned);
                                     });
 
                                     view! {
@@ -401,7 +393,7 @@ pub fn ItemDetailPage() -> impl IntoView {
 
                                         let on_location_toggle = Callback::new(move |tid: String| {
                                             let is_assigned = tag_ids_for_cb.contains(&tid);
-                                            toggle_item_tag(iid.clone(), tid, is_assigned, set_tag_refresh);
+                                            toggle_item_tag(iid.clone(), tid, is_assigned);
                                         });
 
                                         view! {

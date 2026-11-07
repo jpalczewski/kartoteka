@@ -8,6 +8,8 @@ use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::add_comment::AddComment;
 use crate::components::comments::comment_list::CommentList;
 use crate::server_fns::comments::{get_comments, remove_comment};
+use crate::state::invalidation::{mutate_with, use_invalidation};
+use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::CommentsPayload;
 
 #[component]
@@ -17,31 +19,36 @@ pub fn CommentSection(
     #[prop(optional)] initial_payload: Option<CommentsPayload>,
 ) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let invalidation = use_invalidation();
 
     // Initialized from pre-fetched data — avoids a nested Resource that breaks hydration.
     let payload = RwSignal::new(initial_payload);
 
     let on_added = Callback::new(move |_: ()| {
+        invalidation.invalidate(ChangeTopic::Comments);
         let eid = entity_id.get_untracked();
         leptos::task::spawn_local(async move {
             match get_comments(entity_type.to_string(), eid).await {
                 Ok(p) => payload.set(Some(p)),
-                Err(e) => leptos::logging::warn!("CommentSection refresh failed: {e}"),
+                Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
         });
     });
 
     let on_delete = Callback::new(move |comment_id: String| {
         let eid = entity_id.get_untracked();
-        leptos::task::spawn_local(async move {
-            match remove_comment(comment_id).await {
-                Ok(_) => match get_comments(entity_type.to_string(), eid).await {
-                    Ok(p) => payload.set(Some(p)),
-                    Err(e) => leptos::logging::warn!("CommentSection refresh failed: {e}"),
-                },
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate_with(
+            remove_comment(comment_id),
+            &[ChangeTopic::Comments],
+            move |()| {
+                leptos::task::spawn_local(async move {
+                    match get_comments(entity_type.to_string(), eid).await {
+                        Ok(p) => payload.set(Some(p)),
+                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
+                    }
+                });
+            },
+        );
     });
 
     view! {

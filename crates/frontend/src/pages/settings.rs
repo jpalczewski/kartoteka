@@ -1,15 +1,15 @@
 use leptos::prelude::*;
 use leptos_fluent::I18n;
 
-use crate::app::{ToastContext, ToastKind};
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::settings::calendar_feed::CalendarFeedSettings;
-use crate::context::GlobalRefresh;
 use crate::server_fns::locations::get_countries;
 use crate::server_fns::settings::{
     create_token_sf, get_settings_page_data, revoke_token_sf, set_locale_sf, set_reg_enabled,
     set_setting,
 };
+use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
+use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::Locale;
 use kartoteka_shared::types::TokenCreated;
 
@@ -30,12 +30,13 @@ const TIMEZONES: &[&str] = &[
 
 #[component]
 pub fn SettingsPage() -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
-    let (refresh, set_refresh) = signal(0u32);
+    let invalidation = use_invalidation();
 
     let i18n = expect_context::<I18n>();
-    let data_res = Resource::new(move || refresh.get(), |_| get_settings_page_data());
+    let data_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::Settings]),
+        |_| get_settings_page_data(),
+    );
     let countries_res = Resource::new(|| (), |_| get_countries());
 
     let (new_token_name, set_new_token_name) = signal(String::new());
@@ -68,12 +69,11 @@ pub fn SettingsPage() -> impl IntoView {
                                         on:change=move |ev| {
                                             let val = event_target_value(&ev);
                                             let locale = val.parse::<Locale>().unwrap_or_default();
-                                            leptos::task::spawn_local(async move {
-                                                match set_locale_sf(locale).await {
-                                                    Ok(_) => set_refresh.update(|n| *n += 1),
-                                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                }
-                                            });
+                                            mutate_with(
+                                                set_locale_sf(locale),
+                                                &[],
+                                                move |_| invalidation.invalidate_all(),
+                                            );
                                         }
                                     >
                                         <option value="en" selected=move || current_locale == Locale::En>"English"</option>
@@ -88,15 +88,11 @@ pub fn SettingsPage() -> impl IntoView {
                                         class="select select-bordered w-full max-w-xs"
                                         on:change=move |ev| {
                                             let val = event_target_value(&ev);
-                                            leptos::task::spawn_local(async move {
-                                                match set_setting("timezone".to_string(), val).await {
-                                                    Ok(_) => {
-                                                        set_refresh.update(|n| *n += 1);
-                                                        global_refresh.bump();
-                                                    }
-                                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                }
-                                            });
+                                            mutate_with(
+                                                set_setting("timezone".to_string(), val),
+                                                &[],
+                                                move |_| invalidation.invalidate_all(),
+                                            );
                                         }
                                     >
                                         {TIMEZONES.iter().map(|tz| {
@@ -129,12 +125,10 @@ pub fn SettingsPage() -> impl IntoView {
                                                 class="select select-bordered w-full max-w-xs"
                                                 on:change=move |ev| {
                                                     let val = event_target_value(&ev);
-                                                    leptos::task::spawn_local(async move {
-                                                        match set_setting("default_country_iso".to_string(), val).await {
-                                                            Ok(_) => set_refresh.update(|n| *n += 1),
-                                                            Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                        }
-                                                    });
+                                                    mutate(
+                                                        set_setting("default_country_iso".to_string(), val),
+                                                        &[ChangeTopic::Settings],
+                                                    );
                                                 }
                                             >
                                                 <option value="" selected=current_country.is_empty()>
@@ -189,16 +183,14 @@ pub fn SettingsPage() -> impl IntoView {
                                             on:click=move |_| {
                                                 let name = new_token_name.get();
                                                 if name.trim().is_empty() { return; }
-                                                leptos::task::spawn_local(async move {
-                                                    match create_token_sf(name, "full".to_string()).await {
-                                                        Ok(tok) => {
-                                                            set_created_token.set(Some(tok));
-                                                            set_new_token_name.set(String::new());
-                                                            set_refresh.update(|n| *n += 1);
-                                                        }
-                                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                    }
-                                                });
+                                                mutate_with(
+                                                    create_token_sf(name, "full".to_string()),
+                                                    &[ChangeTopic::Settings],
+                                                    move |tok| {
+                                                        set_created_token.set(Some(tok));
+                                                        set_new_token_name.set(String::new());
+                                                    },
+                                                );
                                             }
                                         >
                                             "Utwórz"
@@ -225,12 +217,10 @@ pub fn SettingsPage() -> impl IntoView {
                                                                 class="btn btn-ghost btn-xs text-error"
                                                                 on:click=move |_| {
                                                                     let id = tid.clone();
-                                                                    leptos::task::spawn_local(async move {
-                                                                        match revoke_token_sf(id).await {
-                                                                            Ok(_) => set_refresh.update(|n| *n += 1),
-                                                                            Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                                        }
-                                                                    });
+                                                                    mutate(
+                                                                        revoke_token_sf(id),
+                                                                        &[ChangeTopic::Settings],
+                                                                    );
                                                                 }
                                                             >
                                                                 "Unieważnij"
@@ -259,12 +249,10 @@ pub fn SettingsPage() -> impl IntoView {
                                                     prop:checked=reg_enabled
                                                     on:change=move |ev| {
                                                         let checked = event_target_checked(&ev);
-                                                        leptos::task::spawn_local(async move {
-                                                            match set_reg_enabled(checked).await {
-                                                                Ok(_) => set_refresh.update(|n| *n += 1),
-                                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                            }
-                                                        });
+                                                        mutate(
+                                                            set_reg_enabled(checked),
+                                                            &[ChangeTopic::Settings],
+                                                        );
                                                     }
                                                 />
                                                 <span class="text-sm text-base-content/50">

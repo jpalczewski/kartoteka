@@ -1,8 +1,9 @@
+use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::Relation;
 use leptos::prelude::*;
 
-use crate::app::{ToastContext, ToastKind};
 use crate::server_fns::relations::{add_relation, get_relations, remove_relation};
+use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
 
 fn relation_label(rel: &Relation, current_entity_id: &str) -> String {
     let is_outgoing = rel.from_id == current_entity_id;
@@ -23,24 +24,23 @@ fn relation_label(rel: &Relation, current_entity_id: &str) -> String {
 
 #[component]
 pub fn RelatedEntities(entity_id: Signal<String>) -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let (refresh, set_refresh) = signal(0u32);
+    let invalidation = use_invalidation();
 
     let target_id = RwSignal::new(String::new());
     let rel_type = RwSignal::new("blocks".to_string());
 
     let rels_res = Resource::new(
-        move || (entity_id.get(), refresh.get()),
+        move || {
+            (
+                entity_id.get(),
+                invalidation.track(&[ChangeTopic::Relations]),
+            )
+        },
         move |(eid, _)| get_relations("item".to_string(), eid),
     );
 
     let on_delete = Callback::new(move |relation_id: String| {
-        leptos::task::spawn_local(async move {
-            match remove_relation(relation_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(remove_relation(relation_id), &[ChangeTopic::Relations]);
     });
 
     let on_add = move |ev: leptos::ev::MouseEvent| {
@@ -51,15 +51,11 @@ pub fn RelatedEntities(entity_id: Signal<String>) -> impl IntoView {
         }
         let from_id = entity_id.get();
         let rtype = rel_type.get();
-        leptos::task::spawn_local(async move {
-            match add_relation("item".to_string(), from_id, "item".to_string(), tid, rtype).await {
-                Ok(_) => {
-                    target_id.set(String::new());
-                    set_refresh.update(|n| *n += 1);
-                }
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate_with(
+            add_relation("item".to_string(), from_id, "item".to_string(), tid, rtype),
+            &[ChangeTopic::Relations],
+            move |_| target_id.set(String::new()),
+        );
     };
 
     view! {
