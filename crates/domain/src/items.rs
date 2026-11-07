@@ -540,6 +540,23 @@ pub async fn update(
     };
 
     // Phase 2: THINK
+    // Feature gate, same rule as `create` (via `validate_create_item`): storing a
+    // value in a date or quantity field requires the matching list feature,
+    // otherwise the UI would hide data the caller just wrote. Clearing is always
+    // allowed (`Some(None)`), so leftovers from before a feature was turned off
+    // can still be removed.
+    let sets_date_fields = req.start_date.as_ref().is_some_and(Option::is_some)
+        || req.start_time.as_ref().is_some_and(Option::is_some)
+        || req.deadline.as_ref().is_some_and(Option::is_some)
+        || req.deadline_time.as_ref().is_some_and(Option::is_some)
+        || req.hard_deadline.as_ref().is_some_and(Option::is_some);
+    let sets_quantity_fields = req.quantity.as_ref().is_some_and(Option::is_some)
+        || req.actual_quantity.as_ref().is_some_and(Option::is_some)
+        || req.unit.as_ref().is_some_and(Option::is_some);
+    if sets_date_fields || sets_quantity_fields {
+        let features = db::lists::get_feature_names(pool, &current.list_id).await?;
+        rules::items::validate_features(&features, sets_date_fields, sets_quantity_fields)?;
+    }
     if let Some(title) = &req.title {
         rules::items::validate_title(title)?;
         DomainError::ensure_unique(
