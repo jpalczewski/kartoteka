@@ -117,6 +117,28 @@ pub struct ListRow {
     pub updated_at: String,
 }
 
+/// Counts describing the subtree rooted at a list or container.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, sqlx::FromRow)]
+pub struct SubtreeSummary {
+    /// Descendant lists, excluding the root list itself.
+    pub lists: i64,
+    /// Descendant containers, excluding the root container itself.
+    pub containers: i64,
+    /// Items anywhere in the tree, including items of the root list.
+    pub items: i64,
+}
+
+/// Result of an atomic subtree deletion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeleteTreeOutcome {
+    /// The root does not exist (or belongs to another user); nothing was deleted.
+    NotFound,
+    /// The tree still contains items; nothing was deleted.
+    NotEmpty { items: i64 },
+    /// The whole tree was deleted.
+    Deleted,
+}
+
 #[derive(Debug, sqlx::FromRow)]
 pub struct ItemRow {
     pub id: String,

@@ -47,7 +47,7 @@ pub async fn delete_list(id: String) -> Result<(), ServerFnError> {
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    domain::lists::delete(&pool, &id, &user.id)
+    domain::lists::delete(&pool, &id, &user.id, false)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
     Ok(())
