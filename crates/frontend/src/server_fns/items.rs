@@ -183,6 +183,8 @@ pub async fn create_item(
             deadline_time: None,
             hard_deadline: opt_date(hard_deadline),
             estimated_duration: None,
+            recurrence_rule: None,
+            recurrence_mode: None,
         },
     )
     .await
@@ -197,7 +199,7 @@ pub async fn toggle_item(item_id: String) -> Result<Option<Item>, ServerFnError>
     let result = domain::items::toggle_complete(&pool, &user.id, &item_id)
         .await
         .sfn()?;
-    Ok(result.map(Item::from))
+    Ok(result.map(|change| Item::from(change.item)))
 }
 
 /// Rewrite item positions in `list_id` according to `item_ids`. Every id must
@@ -295,12 +297,14 @@ pub async fn update_actual_quantity(
         hard_deadline: None,
         estimated_duration: None,
         location_id: None,
+        recurrence_rule: None,
+        recurrence_mode: None,
     };
-    let item = domain::items::update(&pool, &user.id, &item_id, &req)
+    let change = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
         .sfn()?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
-    Ok(item.into())
+    Ok(change.item.into())
 }
 
 /// Update quantity, actual_quantity and unit of an item.
@@ -332,12 +336,14 @@ pub async fn update_item_quantity(
         hard_deadline: None,
         estimated_duration: None,
         location_id: None,
+        recurrence_rule: None,
+        recurrence_mode: None,
     };
-    let item = domain::items::update(&pool, &user.id, &item_id, &req)
+    let change = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
         .sfn()?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
-    Ok(item.into())
+    Ok(change.item.into())
 }
 
 /// Fetch a single item by id together with its comments.
@@ -396,12 +402,14 @@ pub async fn update_item_description(
         hard_deadline: None,
         estimated_duration: None,
         location_id: None,
+        recurrence_rule: None,
+        recurrence_mode: None,
     };
-    let item = domain::items::update(&pool, &user.id, &item_id, &req)
+    let change = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
         .sfn()?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
-    Ok(item.into())
+    Ok(change.item.into())
 }
 
 /// Update date fields of an item.
@@ -433,12 +441,14 @@ pub async fn update_item_dates(
         hard_deadline: to_field(hard_deadline),
         estimated_duration: None,
         location_id: None,
+        recurrence_rule: None,
+        recurrence_mode: None,
     };
-    let item = domain::items::update(&pool, &user.id, &item_id, &req)
+    let change = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
         .sfn()?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
-    Ok(item.into())
+    Ok(change.item.into())
 }
 
 /// Update title and description of an item.
@@ -471,12 +481,14 @@ pub async fn update_item(
         hard_deadline: None,
         estimated_duration: None,
         location_id: None,
+        recurrence_rule: None,
+        recurrence_mode: None,
     };
-    let item = domain::items::update(&pool, &user.id, &item_id, &req)
+    let change = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
         .sfn()?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
-    Ok(item.into())
+    Ok(change.item.into())
 }
 
 #[cfg(feature = "ssr")]

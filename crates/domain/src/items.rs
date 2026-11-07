@@ -1,6 +1,7 @@
 use crate::{DomainError, rules};
+use chrono::NaiveDate;
 use kartoteka_db as db;
-use kartoteka_shared::types::FlexDate;
+use kartoteka_shared::types::{FlexDate, RecurrenceMode, RecurrenceRule};
 use serde::{Deserialize, Serialize};
 use sqlx::{SqliteConnection, SqlitePool};
 use std::collections::HashMap;
@@ -34,12 +35,32 @@ pub struct Item {
     pub hard_deadline: Option<FlexDate>,
     pub estimated_duration: Option<i32>,
     pub location_id: Option<String>,
+    pub recurrence_rule: Option<RecurrenceRule>,
+    pub recurrence_mode: Option<RecurrenceMode>,
     pub created_at: String,
     pub updated_at: String,
     #[serde(default)]
     pub tags: Vec<ItemTag>,
     #[serde(default)]
     pub comments: Vec<crate::comments::Comment>,
+}
+
+/// Result of an operation that may complete an item: the item itself plus the
+/// next occurrence its recurrence rule spawned.
+#[derive(Debug, Clone, Serialize)]
+pub struct ItemChange {
+    pub item: Item,
+    pub spawned: Option<Item>,
+}
+
+/// Map onto the shared DTO the server functions serialize.
+impl From<ItemChange> for kartoteka_shared::types::ItemChange {
+    fn from(change: ItemChange) -> Self {
+        Self {
+            item: change.item.into(),
+            spawned: change.spawned.map(Into::into),
+        }
+    }
 }
 
 // ── Request types ─────────────────────────────────────────────────────────────
@@ -57,10 +78,14 @@ pub struct CreateItemRequest {
     pub deadline_time: Option<String>,
     pub hard_deadline: Option<String>,
     pub estimated_duration: Option<i32>,
+    /// Compact rule form, e.g. `"7d"` / `"2w"` / `"1m"`.
+    pub recurrence_rule: Option<String>,
+    /// `"fixed"` (default when a rule is set) or `"floating"`.
+    pub recurrence_mode: Option<String>,
 }
 
 /// All fields optional. None = don't update. For nullable: Some(None) = clear to NULL.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct UpdateItemRequest {
     pub title: Option<String>,
     pub description: Option<Option<String>>,
@@ -75,6 +100,8 @@ pub struct UpdateItemRequest {
     pub hard_deadline: Option<Option<String>>,
     pub estimated_duration: Option<Option<i32>>,
     pub location_id: Option<Option<String>>,
+    pub recurrence_rule: Option<Option<String>>,
+    pub recurrence_mode: Option<Option<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,6 +141,8 @@ impl From<db::types::ItemRow> for Item {
             hard_deadline: row.hard_deadline,
             estimated_duration: row.estimated_duration,
             location_id: row.location_id,
+            recurrence_rule: row.recurrence_rule,
+            recurrence_mode: row.recurrence_mode,
             created_at: row.created_at,
             updated_at: row.updated_at,
             tags: vec![],
@@ -142,6 +171,8 @@ impl From<Item> for kartoteka_shared::types::Item {
             hard_deadline: item.hard_deadline,
             estimated_duration: item.estimated_duration,
             location_id: item.location_id,
+            recurrence_rule: item.recurrence_rule,
+            recurrence_mode: item.recurrence_mode,
             created_at: item.created_at,
             updated_at: item.updated_at,
         }
@@ -188,6 +219,87 @@ fn effective_str_field<'a>(
         Some(None) => None,
         Some(Some(s)) => Some(s.as_str()),
     }
+}
+
+/// The date fields of raw request strings, ignoring unparsable ones (already
+/// rejected by [`rules::items::validate_item_dates`]).
+fn item_dates_of(
+    start_date: Option<&str>,
+    deadline: Option<&str>,
+    hard_deadline: Option<&str>,
+) -> rules::recurrence::ItemDates {
+    let parse = |s: &str| s.parse::<FlexDate>().ok();
+    rules::recurrence::ItemDates {
+        start_date: start_date.and_then(parse),
+        deadline: deadline.and_then(parse),
+        hard_deadline: hard_deadline.and_then(parse),
+    }
+}
+
+/// Parse a raw rule/mode pair. A rule given without a mode repeats `fixed`.
+fn parse_recurrence(
+    rule_raw: Option<&str>,
+    mode_raw: Option<&str>,
+) -> Result<(Option<RecurrenceRule>, Option<RecurrenceMode>), DomainError> {
+    let rule = rule_raw.map(rules::recurrence::parse_rule).transpose()?;
+    let mode = mode_raw.map(rules::recurrence::parse_mode).transpose()?;
+    let mode = match (rule.is_some(), mode) {
+        (true, None) => Some(RecurrenceMode::Fixed),
+        _ => mode,
+    };
+    Ok((rule, mode))
+}
+
+/// The persisted form of a parsed rule/mode pair.
+fn recurrence_strings(
+    recurrence: (Option<RecurrenceRule>, Option<RecurrenceMode>),
+) -> (Option<String>, Option<String>) {
+    (
+        recurrence.0.map(|rule| rule.to_string()),
+        recurrence.1.map(|mode| mode.to_string()),
+    )
+}
+
+/// Raw recurrence strings after applying an update patch: `None` keeps the
+/// current value, `Some(None)` clears it. Clearing the rule clears the mode
+/// with it, so a rule-less item never keeps a dangling mode.
+fn effective_recurrence_raw(
+    current: &Item,
+    req: &UpdateItemRequest,
+) -> (Option<String>, Option<String>) {
+    let rule = match &req.recurrence_rule {
+        None => current.recurrence_rule.map(|rule| rule.to_string()),
+        Some(None) => None,
+        Some(Some(raw)) => Some(raw.clone()),
+    };
+    let mode = match &req.recurrence_mode {
+        Some(value) => value.clone(),
+        None if rule.is_none() => None,
+        None => current.recurrence_mode.map(|mode| mode.to_string()),
+    };
+    (rule, mode)
+}
+
+/// True when the item repeats from its completion date, i.e. the next
+/// occurrence needs the user's current date.
+fn is_floating(item: &Item) -> bool {
+    item.recurrence_rule.is_some()
+        && item.recurrence_mode.unwrap_or_default() == RecurrenceMode::Floating
+}
+
+/// The date a spawn is anchored to: the user's `today` for a floating rule.
+/// Fixed rules ignore it, so their timezone lookup is skipped.
+async fn completion_day(
+    pool: &SqlitePool,
+    user_id: &str,
+    item: &Item,
+) -> Result<NaiveDate, DomainError> {
+    if !is_floating(item) {
+        return Ok(chrono::Utc::now().date_naive());
+    }
+    let today = user_today(pool, user_id).await?;
+    NaiveDate::parse_from_str(&today, "%Y-%m-%d")
+        .map_err(|_| DomainError::Internal(format!("invalid today date: {today}")))
 }
 
 // ── Orchestration ─────────────────────────────────────────────────────────────
@@ -299,7 +411,20 @@ pub fn validate_create_item(
     let has_dates =
         req.start_date.is_some() || req.deadline.is_some() || req.hard_deadline.is_some();
     let has_quantity = req.quantity.is_some() || req.unit.is_some();
-    rules::items::validate_features(features, has_dates, has_quantity)
+    rules::items::validate_features(features, has_dates, has_quantity)?;
+    let (rule, mode) = parse_recurrence(
+        req.recurrence_rule.as_deref(),
+        req.recurrence_mode.as_deref(),
+    )?;
+    rules::recurrence::validate_recurrence(
+        rule.as_ref(),
+        mode,
+        &item_dates_of(
+            req.start_date.as_deref(),
+            req.deadline.as_deref(),
+            req.hard_deadline.as_deref(),
+        ),
+    )
 }
 
 /// Map a validated create request onto the DB insert input.
@@ -308,6 +433,15 @@ pub fn new_item_input(
     position: i32,
     req: &CreateItemRequest,
 ) -> db::items::InsertItemInput {
+    // A rule without an explicit mode is stored as `fixed`. Requests are
+    // validated first; the fallback never writes an unparsable rule, because
+    // such a row would fail to decode on every read of its list.
+    let (recurrence_rule, recurrence_mode) = parse_recurrence(
+        req.recurrence_rule.as_deref(),
+        req.recurrence_mode.as_deref(),
+    )
+    .map(recurrence_strings)
+    .unwrap_or_default();
     db::items::InsertItemInput {
         id: Uuid::new_v4().to_string(),
         list_id: list_id.to_string(),
@@ -325,8 +459,8 @@ pub fn new_item_input(
         estimated_duration: req.estimated_duration,
         // Not part of CreateItemRequest yet; recurrence behaviour is a separate change.
         location_id: None,
-        recurrence_rule: None,
-        recurrence_mode: None,
+        recurrence_rule,
+        recurrence_mode,
     }
 }
 
@@ -376,7 +510,7 @@ pub async fn update(
     user_id: &str,
     id: &str,
     req: &UpdateItemRequest,
-) -> Result<Option<Item>, DomainError> {
+) -> Result<Option<ItemChange>, DomainError> {
     // Phase 1: READ
     let current = match db::items::get_one(pool, id, user_id).await?.map(Item::from) {
         Some(i) => i,
@@ -406,13 +540,44 @@ pub async fn update(
         eff_deadline_time,
         eff_hard_deadline.as_deref(),
     )?;
+    let (eff_rule_raw, eff_mode_raw) = effective_recurrence_raw(&current, req);
+    let (eff_rule, eff_mode) = parse_recurrence(eff_rule_raw.as_deref(), eff_mode_raw.as_deref())?;
+    rules::recurrence::validate_recurrence(
+        eff_rule.as_ref(),
+        eff_mode,
+        &item_dates_of(
+            eff_start_date.as_deref(),
+            eff_deadline.as_deref(),
+            eff_hard_deadline.as_deref(),
+        ),
+    )?;
     crate::locations::ensure_owned(pool, &req.location_id, user_id).await?;
 
-    // Phase 3: WRITE
+    // The false → true transition (explicit or auto-complete) drives the spawn.
+    // It is decided from the pre-write state, before the transaction opens.
+    let eff_actual = req.actual_quantity.unwrap_or(current.actual_quantity);
+    let eff_quantity = req.quantity.unwrap_or(current.quantity);
+    let auto_complete = matches!(
+        (eff_actual, eff_quantity),
+        (Some(actual), Some(quantity)) if rules::items::should_auto_complete(actual, quantity)
+    );
+    let completing = !current.completed && (req.completed == Some(true) || auto_complete);
+    let today = if completing {
+        completion_day(pool, user_id, &current).await?
+    } else {
+        chrono::Utc::now().date_naive()
+    };
+
+    // Phase 3: WRITE — the update, the spawn and the tag copy commit together
+    let (recurrence_rule, recurrence_mode) = recurrence_strings((eff_rule, eff_mode));
     let input = db::items::UpdateItemInput {
         title: req.title.clone(),
         description: req.description.clone(),
-        completed: req.completed,
+        completed: if completing {
+            Some(true)
+        } else {
+            req.completed
+        },
         quantity: req.quantity,
         actual_quantity: req.actual_quantity,
         unit: req.unit.clone(),
@@ -423,28 +588,27 @@ pub async fn update(
         hard_deadline: req.hard_deadline.clone(),
         estimated_duration: req.estimated_duration,
         location_id: req.location_id.clone(),
-        // Recurrence fields stay untouched here; behaviour lands with a separate change.
-        recurrence_rule: None,
-        recurrence_mode: None,
+        recurrence_rule: Some(recurrence_rule),
+        recurrence_mode: Some(recurrence_mode),
     };
-    let found = db::items::update(pool, id, user_id, &input).await?;
-    if !found {
+    let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
+    if !db::items::update_in_tx(&mut tx, id, user_id, &input).await? {
         return Ok(None);
     }
-    let item = match db::items::get_one(pool, id, user_id).await?.map(Item::from) {
-        Some(i) => i,
-        None => return Ok(None),
+    let spawned_id = if completing {
+        // Spawn from the row as written, so a date or quantity patched by this
+        // same request is what the next occurrence repeats from.
+        let written = db::items::get_one_in_tx(&mut tx, id, user_id)
+            .await?
+            .map(Item::from)
+            .ok_or(DomainError::NotFound("item"))?;
+        spawn_next_in(&mut tx, user_id, &written, today).await?
+    } else {
+        None
     };
-    // Auto-complete check
-    if !item.completed {
-        if let (Some(actual), Some(qty)) = (item.actual_quantity, item.quantity) {
-            if rules::items::should_auto_complete(actual, qty) {
-                db::items::set_completed(pool, id, true).await?;
-                return Ok(db::items::get_one(pool, id, user_id).await?.map(Item::from));
-            }
-        }
-    }
-    Ok(Some(item))
+    tx.commit().await.map_err(db::DbError::Sqlx)?;
+
+    Ok(Some(item_change(pool, user_id, id, spawned_id).await?))
 }
 
 #[tracing::instrument(skip(pool))]
@@ -457,31 +621,143 @@ pub async fn toggle_complete(
     pool: &SqlitePool,
     user_id: &str,
     id: &str,
-) -> Result<Option<Item>, DomainError> {
+) -> Result<Option<ItemChange>, DomainError> {
     // Phase 1 READ: check current state
-    let item = match db::items::get_one(pool, id, user_id).await? {
+    let current = match db::items::get_one(pool, id, user_id).await? {
         Some(row) => Item::from(row),
         None => return Ok(None),
     };
 
     // Feature gate
-    let features = db::lists::get_feature_names(pool, &item.list_id).await?;
+    let features = db::lists::get_feature_names(pool, &current.list_id).await?;
     if !features.iter().any(|f| f == "checklist") {
         return Err(DomainError::FeatureRequired("checklist"));
     }
 
     // Phase 2 THINK: only check blockers when completing (false → true)
-    if !item.completed {
+    let completing = !current.completed;
+    if completing {
         let blockers = db::relations::get_unresolved_blockers(pool, id).await?;
         crate::rules::items::validate_can_complete(blockers.len())?;
     }
+    let today = if completing {
+        completion_day(pool, user_id, &current).await?
+    } else {
+        chrono::Utc::now().date_naive()
+    };
 
-    // Phase 3 WRITE: toggle
-    let found = db::items::toggle_complete(pool, id, user_id).await?;
-    if !found {
+    // Phase 3 WRITE: the flip, the spawn and the tag copy commit together
+    let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
+    if !db::items::set_completed_in_tx(&mut tx, id, user_id, completing).await? {
         return Ok(None);
     }
-    Ok(db::items::get_one(pool, id, user_id).await?.map(Item::from))
+    let spawned_id = if completing {
+        let written = db::items::get_one_in_tx(&mut tx, id, user_id)
+            .await?
+            .map(Item::from)
+            .ok_or(DomainError::NotFound("item"))?;
+        spawn_next_in(&mut tx, user_id, &written, today).await?
+    } else {
+        None
+    };
+    tx.commit().await.map_err(db::DbError::Sqlx)?;
+
+    Ok(Some(item_change(pool, user_id, id, spawned_id).await?))
+}
+
+/// Insert the next occurrence of `completed` and move the rule off it, inside
+/// the caller's transaction. Returns the new item id, or `None` when the item
+/// does not recur.
+///
+/// The spawned item copies the plan (title, description, quantity, unit, times,
+/// duration, location, tags and the rule itself) with the dates shifted by
+/// [`rules::recurrence::next_dates`]; relations and comments stay behind.
+async fn spawn_next_in(
+    conn: &mut SqliteConnection,
+    user_id: &str,
+    completed: &Item,
+    today: NaiveDate,
+) -> Result<Option<String>, DomainError> {
+    let Some(rule) = completed.recurrence_rule else {
+        return Ok(None);
+    };
+    let mode = completed.recurrence_mode.unwrap_or_default();
+    let next = rules::recurrence::next_dates(
+        &rules::recurrence::ItemDates {
+            start_date: completed.start_date.clone(),
+            deadline: completed.deadline.clone(),
+            hard_deadline: completed.hard_deadline.clone(),
+        },
+        &rule,
+        mode,
+        today,
+    );
+    let input = db::items::InsertItemInput {
+        id: Uuid::new_v4().to_string(),
+        list_id: completed.list_id.clone(),
+        position: db::items::next_position_in_tx(&mut *conn, &completed.list_id).await?,
+        title: completed.title.clone(),
+        description: completed.description.clone(),
+        quantity: completed.quantity,
+        actual_quantity: None,
+        unit: completed.unit.clone(),
+        start_date: next.start_date.as_ref().map(ToString::to_string),
+        start_time: completed.start_time.clone(),
+        deadline: next.deadline.as_ref().map(ToString::to_string),
+        deadline_time: completed.deadline_time.clone(),
+        hard_deadline: next.hard_deadline.as_ref().map(ToString::to_string),
+        estimated_duration: completed.estimated_duration,
+        location_id: completed.location_id.clone(),
+        recurrence_rule: Some(rule.to_string()),
+        recurrence_mode: Some(mode.to_string()),
+    };
+    let spawned = db::items::insert_in_tx(&mut *conn, &input).await?;
+    db::tags::copy_item_tags_in_tx(&mut *conn, &completed.id, &spawned.id).await?;
+
+    // The rule moves forward: the completed original stops recurring, so
+    // un-completing it and completing it again spawns nothing.
+    let clear_rule = db::items::UpdateItemInput {
+        title: None,
+        description: None,
+        completed: None,
+        quantity: None,
+        actual_quantity: None,
+        unit: None,
+        start_date: None,
+        start_time: None,
+        deadline: None,
+        deadline_time: None,
+        hard_deadline: None,
+        estimated_duration: None,
+        location_id: None,
+        recurrence_rule: Some(None),
+        recurrence_mode: Some(None),
+    };
+    db::items::update_in_tx(&mut *conn, &completed.id, user_id, &clear_rule).await?;
+
+    Ok(Some(spawned.id))
+}
+
+/// Re-read the original item and the spawned occurrence after the transaction
+/// committed, so both carry their tags (and the original its comments).
+async fn item_change(
+    pool: &SqlitePool,
+    user_id: &str,
+    id: &str,
+    spawned_id: Option<String>,
+) -> Result<ItemChange, DomainError> {
+    let item = get_one(pool, id, user_id)
+        .await?
+        .ok_or(DomainError::NotFound("item"))?;
+    let spawned = match spawned_id {
+        Some(spawned_id) => Some(
+            get_one(pool, &spawned_id, user_id)
+                .await?
+                .ok_or(DomainError::NotFound("item"))?,
+        ),
+        None => None,
+    };
+    Ok(ItemChange { item, spawned })
 }
 
 #[tracing::instrument(skip(pool))]

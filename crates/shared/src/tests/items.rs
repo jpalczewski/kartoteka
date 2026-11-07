@@ -228,6 +228,8 @@ fn date_item_to_item_conversion() {
         hard_deadline: None,
         estimated_duration: None,
         location_id: None,
+        recurrence_rule: None,
+        recurrence_mode: None,
         created_at: "2024-01-01".into(),
         updated_at: "2024-01-01".into(),
     };

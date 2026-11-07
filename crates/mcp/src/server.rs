@@ -246,6 +246,8 @@ impl KartotekaServer {
             actual_quantity: p.actual_quantity,
             unit: p.unit,
             estimated_duration: p.estimated_duration,
+            recurrence_rule: None,
+            recurrence_mode: None,
         };
         self.domain_or_existing(
             domain::items::create(&self.pool, &uid, &p.list_id, &req).await,
@@ -274,11 +276,14 @@ impl KartotekaServer {
             hard_deadline: p.hard_deadline_field(),
             estimated_duration: p.estimated_duration_field(),
             location_id: None,
+            recurrence_rule: None,
+            recurrence_mode: None,
         };
         let item = domain::items::update(&self.pool, &uid, &p.item_id, &req)
             .await
             .map_err(self.domain_err(&locale))?;
-        self.json_result(item, &locale)
+        // The MCP contract stays a bare item until the recurrence tool changes land.
+        self.json_result(item.map(|change| change.item), &locale)
     }
 
     #[rmcp::tool(name = "create_list", description = "mcp-tool-create_list-desc")]
@@ -1041,6 +1046,8 @@ impl KartotekaServer {
                 deadline_time: item.deadline_time.clone(),
                 hard_deadline: item.hard_deadline.clone(),
                 estimated_duration: item.estimated_duration,
+                recurrence_rule: None,
+                recurrence_mode: None,
             })
             .collect();
         for req in &requests {
