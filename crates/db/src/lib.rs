@@ -39,6 +39,8 @@ pub mod items;
 pub mod lists;
 pub mod locations;
 pub mod oauth;
+#[cfg(test)]
+mod orphans;
 pub mod personal_tokens;
 pub mod preferences;
 pub mod relations;
