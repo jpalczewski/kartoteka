@@ -229,7 +229,9 @@ pub async fn log_manual(
     Ok(row_to_entry(row))
 }
 
-/// Assign an unassigned entry to an item. Checks item ownership.
+/// Assign an unassigned entry to an item. Checks item ownership and that the
+/// item's list has the `time_tracking` feature, exactly like [`start`]: the
+/// entry would otherwise land on an item whose time section is hidden.
 #[tracing::instrument(skip(pool))]
 pub async fn assign(
     pool: &SqlitePool,
@@ -237,8 +239,12 @@ pub async fn assign(
     entry_id: &str,
     item_id: &str,
 ) -> Result<TimeEntry, DomainError> {
-    if db::items::get_one(pool, item_id, user_id).await?.is_none() {
-        return Err(DomainError::Forbidden);
+    let item = db::items::get_one(pool, item_id, user_id)
+        .await?
+        .ok_or(DomainError::Forbidden)?;
+    let features = db::lists::get_feature_names(pool, &item.list_id).await?;
+    if !features.iter().any(|f| f == "time_tracking") {
+        return Err(DomainError::FeatureRequired("time_tracking"));
     }
     let found = db::time_entries::assign(pool, entry_id, item_id, user_id).await?;
     if !found {
@@ -579,6 +585,67 @@ mod tests {
         // attacker tries to assign to owner's item
         let result = assign(&pool, &attacker, &entry.id, &item_id).await;
         assert!(matches!(result, Err(DomainError::Forbidden)));
+    }
+
+    /// Turn on `time_tracking` for a list, the same way the UI does.
+    async fn enable_time_tracking(pool: &SqlitePool, list_id: &str) {
+        let features = serde_json::json!({"time_tracking": {}});
+        let mut tx = pool.begin().await.unwrap();
+        kartoteka_db::lists::set_features(&mut tx, list_id, &features)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn assign_blocked_when_time_tracking_feature_missing() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_id = create_test_item(&pool, &list_id).await;
+        let entry = start(&pool, &uid, None).await.unwrap();
+
+        let err = assign(&pool, &uid, &entry.id, &item_id).await.unwrap_err();
+        assert!(matches!(err, DomainError::FeatureRequired("time_tracking")));
+
+        // The entry stays in the inbox, unassigned.
+        let inbox = list_inbox(&pool, &uid).await.unwrap();
+        assert_eq!(inbox.len(), 1);
+        assert!(inbox[0].item_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn assign_moves_entry_out_of_inbox() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_id = create_test_item(&pool, &list_id).await;
+        enable_time_tracking(&pool, &list_id).await;
+
+        let entry = start(&pool, &uid, None).await.unwrap();
+        assert_eq!(list_inbox(&pool, &uid).await.unwrap().len(), 1);
+
+        let assigned = assign(&pool, &uid, &entry.id, &item_id).await.unwrap();
+        assert_eq!(assigned.item_id.as_deref(), Some(item_id.as_str()));
+        assert!(list_inbox(&pool, &uid).await.unwrap().is_empty());
+
+        let for_item = list_for_item(&pool, &uid, &item_id).await.unwrap();
+        assert_eq!(for_item.len(), 1);
+        assert_eq!(for_item[0].id, entry.id);
+    }
+
+    #[tokio::test]
+    async fn assign_not_found_for_unknown_entry() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_id = create_test_item(&pool, &list_id).await;
+        enable_time_tracking(&pool, &list_id).await;
+
+        let err = assign(&pool, &uid, "missing-entry", &item_id)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::NotFound("time_entry")));
     }
 
     #[tokio::test]
