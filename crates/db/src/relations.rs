@@ -6,6 +6,66 @@ const RELATION_COLS: &str =
 
 // ── Read queries ──────────────────────────────────────────────────────────────
 
+/// A relation plus the display data of the entity on its *other* side.
+#[derive(Debug, sqlx::FromRow)]
+pub struct EntityRelationWithTitleRow {
+    pub id: String,
+    pub from_type: String,
+    pub from_id: String,
+    pub to_type: String,
+    pub to_id: String,
+    pub relation_type: String,
+    pub user_id: String,
+    pub created_at: String,
+    /// `item` / `list` / `container` of the opposite side.
+    pub other_type: String,
+    /// `items.title`, `lists.name` or `containers.name` of the opposite side.
+    pub other_title: Option<String>,
+    /// `items.completed` — only set when the opposite side is an item.
+    pub other_completed: Option<bool>,
+}
+
+/// All relations touching `entity_id`, each with the title (and, for items, the
+/// completed flag) of the entity on the other side.
+///
+/// One query: the opposite side is resolved per row with a `CASE`, then joined
+/// against items, lists and containers (all scoped to the relation's user).
+#[tracing::instrument(skip(pool))]
+pub async fn list_for_entity_with_titles(
+    pool: &SqlitePool,
+    entity_type: &str,
+    entity_id: &str,
+    user_id: &str,
+) -> Result<Vec<EntityRelationWithTitleRow>, DbError> {
+    sqlx::query_as::<_, EntityRelationWithTitleRow>(
+        "WITH rel AS ( \
+           SELECT er.id, er.from_type, er.from_id, er.to_type, er.to_id, er.relation_type, \
+                  er.user_id, er.created_at, \
+                  CASE WHEN er.from_type = ?1 AND er.from_id = ?2 THEN er.to_type ELSE er.from_type END AS other_type, \
+                  CASE WHEN er.from_type = ?1 AND er.from_id = ?2 THEN er.to_id ELSE er.from_id END AS other_id \
+           FROM entity_relations er \
+           WHERE ((er.from_type = ?1 AND er.from_id = ?2) OR (er.to_type = ?1 AND er.to_id = ?2)) \
+             AND er.user_id = ?3 \
+         ) \
+         SELECT rel.id, rel.from_type, rel.from_id, rel.to_type, rel.to_id, rel.relation_type, \
+                rel.user_id, rel.created_at, rel.other_type, \
+                COALESCE(i.title, l.name, c.name) AS other_title, \
+                i.completed AS other_completed \
+         FROM rel \
+         LEFT JOIN items i ON i.id = rel.other_id \
+              AND EXISTS (SELECT 1 FROM lists li WHERE li.id = i.list_id AND li.user_id = rel.user_id) \
+         LEFT JOIN lists l ON l.id = rel.other_id AND l.user_id = rel.user_id \
+         LEFT JOIN containers c ON c.id = rel.other_id AND c.user_id = rel.user_id \
+         ORDER BY rel.created_at ASC",
+    )
+    .bind(entity_type)
+    .bind(entity_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn list_for_entity(
     pool: &SqlitePool,
@@ -214,6 +274,91 @@ mod tests {
 
         let rows = get_unresolved_blockers(&pool, &blocked).await.unwrap();
         assert!(rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_for_entity_with_titles_resolves_item_titles_and_completion() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &user_id).await;
+        let item_a = create_test_item(&pool, &list_id).await;
+        let item_b = create_test_item(&pool, &list_id).await;
+
+        insert(
+            &pool,
+            InsertRelationInput {
+                id: &Uuid::new_v4().to_string(),
+                from_type: "item",
+                from_id: &item_b,
+                to_type: "item",
+                to_id: &item_a,
+                relation_type: "blocks",
+                user_id: &user_id,
+            },
+        )
+        .await
+        .unwrap();
+
+        let rows = list_for_entity_with_titles(&pool, "item", &item_a, &user_id)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].other_type, "item");
+        assert_eq!(rows[0].other_title.as_deref(), Some("Test Item"));
+        assert_eq!(rows[0].other_completed, Some(false));
+
+        // The other side's completion is reported.
+        sqlx::query("UPDATE items SET completed = 1 WHERE id = ?")
+            .bind(&item_b)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let rows = list_for_entity_with_titles(&pool, "item", &item_a, &user_id)
+            .await
+            .unwrap();
+        assert_eq!(rows[0].other_completed, Some(true));
+
+        // From the other side, the completed flag belongs to item_a.
+        let rows = list_for_entity_with_titles(&pool, "item", &item_b, &user_id)
+            .await
+            .unwrap();
+        assert_eq!(rows[0].other_completed, Some(false));
+    }
+
+    #[tokio::test]
+    async fn list_for_entity_with_titles_resolves_list_and_container_names() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &user_id).await;
+        let item_id = create_test_item(&pool, &list_id).await;
+        let container_id = crate::test_helpers::create_test_container(&pool, &user_id, None).await;
+
+        for (to_type, to_id) in [("list", &list_id), ("container", &container_id)] {
+            insert(
+                &pool,
+                InsertRelationInput {
+                    id: &Uuid::new_v4().to_string(),
+                    from_type: "item",
+                    from_id: &item_id,
+                    to_type,
+                    to_id,
+                    relation_type: "relates_to",
+                    user_id: &user_id,
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let rows = list_for_entity_with_titles(&pool, "item", &item_id, &user_id)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        let list_row = rows.iter().find(|r| r.other_type == "list").unwrap();
+        assert_eq!(list_row.other_title.as_deref(), Some("Test List"));
+        assert!(list_row.other_completed.is_none());
+        let container_row = rows.iter().find(|r| r.other_type == "container").unwrap();
+        assert_eq!(container_row.other_title.as_deref(), Some("Test Container"));
     }
 
     #[tokio::test]
