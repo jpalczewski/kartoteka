@@ -474,3 +474,17 @@ fn urgency_fuzzy_variants() {
         DateUrgency::Later
     );
 }
+
+#[test]
+fn out_of_range_values_fall_back_without_panicking() {
+    let today = NaiveDate::from_ymd_opt(2026, 11, 7).unwrap();
+    for (date, raw) in [
+        (FlexDate::Month(2026, 13), "2026-13"),
+        (FlexDate::Month(2026, 0), "2026-00"),
+        (FlexDate::Week(2026, 54), "2026-W54"),
+        (FlexDate::Week(2026, 0), "2026-W00"),
+    ] {
+        assert_eq!(format_date_human(&date, today, Locale::Pl), raw);
+        assert_eq!(date_urgency(&date, today, false), DateUrgency::None);
+    }
+}

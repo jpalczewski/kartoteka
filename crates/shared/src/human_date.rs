@@ -45,7 +45,13 @@ const PL_WEEKDAYS: [&str; 7] = ["pon", "wt", "śr", "czw", "pt", "sob", "nd"];
 const EN_WEEKDAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 /// Short human label for a (possibly fuzzy) date relative to `today`, for chips in item rows.
+///
+/// Out-of-range values (e.g. month 13 or ISO week 54, which `FlexDate::from_str` accepts)
+/// fall back to the raw `Display` form instead of panicking during render.
 pub fn format_date_human(date: &FlexDate, today: NaiveDate, locale: Locale) -> String {
+    if !is_valid(date) {
+        return date.to_string();
+    }
     match date {
         FlexDate::Day(d) => format_day(*d, today, locale),
         FlexDate::Week(year, week) => format_week(*year, *week, today, locale),
@@ -70,7 +76,7 @@ pub enum DateUrgency {
 
 /// Classify a date's urgency relative to `today`, for styling chips.
 pub fn date_urgency(date: &FlexDate, today: NaiveDate, completed: bool) -> DateUrgency {
-    if completed {
+    if completed || !is_valid(date) {
         return DateUrgency::None;
     }
 
@@ -95,6 +101,18 @@ pub fn date_urgency(date: &FlexDate, today: NaiveDate, completed: bool) -> DateU
                 DateUrgency::Later
             }
         }
+    }
+}
+
+/// Whether `start()`/`end()` and the month tables are safe to use for this date.
+fn is_valid(date: &FlexDate) -> bool {
+    match date {
+        FlexDate::Day(_) => true,
+        FlexDate::Week(year, week) => {
+            NaiveDate::from_isoywd_opt(i32::from(*year), u32::from(*week), chrono::Weekday::Mon)
+                .is_some()
+        }
+        FlexDate::Month(_, month) => (1..=12).contains(month),
     }
 }
 
