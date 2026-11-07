@@ -219,6 +219,15 @@ pub fn router(
         base = base.route("/health", axum::routing::get(health::health));
     }
 
+    // Hashed /pkg assets never change under the same URL: let browsers and Cloudflare keep them.
+    if leptos_options.hash_files {
+        let pkg_prefix: Arc<str> = format!("/{}/", leptos_options.site_pkg_dir).into();
+        base = base.layer(axum::middleware::from_fn_with_state(
+            pkg_prefix,
+            middleware::immutable_hashed_assets,
+        ));
+    }
+
     let traced = base
         .layer(auth_layer)
         .layer(
