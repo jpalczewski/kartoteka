@@ -82,6 +82,14 @@ impl Default for ToastContext {
     }
 }
 
+/// Access the app-wide [`ToastContext`].
+///
+/// Like any `use_context` call this must run while an owner is active — in a
+/// component body, an event handler, or a `Callback` created in one.
+pub fn use_toast() -> ToastContext {
+    use_context::<ToastContext>().expect("ToastContext missing")
+}
+
 // ── i18n ───────────────────────────────────────────────────────────────────────
 
 #[component]

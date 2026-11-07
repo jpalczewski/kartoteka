@@ -7,14 +7,14 @@
 use leptos::prelude::*;
 use leptos_fluent::{I18n, move_tr};
 
-use crate::app::{ToastContext, ToastKind};
+use crate::app::{ToastKind, use_toast};
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::calendar_feed::{
     create_calendar_token_sf, get_reminder_defaults_sf, list_calendar_tokens_sf,
     revoke_calendar_token_sf, set_reminder_defaults_sf,
 };
 use crate::server_fns::lists::get_all_lists;
-use crate::state::invalidation::{mutate_with, use_invalidation};
+use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
 use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::ReminderDefaults;
 use kartoteka_shared::types::{CalendarTokenCreatedDto, CalendarTokenInfo};
@@ -220,8 +220,6 @@ pub fn CalendarFeedSettings() -> impl IntoView {
 /// One subscription token: name, scope, usage timestamps and a two-step revoke.
 #[component]
 fn CalendarTokenRow(token: CalendarTokenInfo) -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let invalidation = use_invalidation();
     let i18n = expect_context::<I18n>();
 
     let (confirming, set_confirming) = signal(false);
@@ -269,18 +267,14 @@ fn CalendarTokenRow(token: CalendarTokenInfo) -> impl IntoView {
                         class="btn btn-error btn-xs"
                         on:click=move |_| {
                             let id = token_id.get_value();
-                            leptos::task::spawn_local(async move {
-                                match revoke_calendar_token_sf(id).await {
-                                    Ok(()) => {
-                                        set_confirming.set(false);
-                                        invalidation.invalidate(ChangeTopic::Settings);
-                                    }
-                                    Err(e) => {
-                                        set_confirming.set(false);
-                                        toast.push(e.to_string(), ToastKind::Error);
-                                    }
-                                }
-                            });
+                            // Closing the two-step confirm on both outcomes, so the future
+                            // carries the reset itself.
+                            let revoked = async move {
+                                let result = revoke_calendar_token_sf(id).await;
+                                set_confirming.set(false);
+                                result
+                            };
+                            mutate(revoked, &[ChangeTopic::Settings]);
                         }
                     >
                         {move_tr!("common-confirm")}
@@ -301,7 +295,7 @@ fn CalendarTokenRow(token: CalendarTokenInfo) -> impl IntoView {
 /// Default reminders for one date field, picked from preset offsets.
 #[component]
 fn ReminderRow(label: Signal<String>, value: RwSignal<Vec<u32>>) -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let toast = use_toast();
     let i18n = expect_context::<I18n>();
 
     // Offsets set outside the UI (e.g. through the API) stay visible, so saving
@@ -390,7 +384,7 @@ fn ReminderRow(label: Signal<String>, value: RwSignal<Vec<u32>>) -> impl IntoVie
 /// Three reminder rows plus the save action.
 #[component]
 fn ReminderDefaultsForm(initial: ReminderDefaults) -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let toast = use_toast();
     let invalidation = use_invalidation();
     let i18n = expect_context::<I18n>();
 
@@ -467,7 +461,7 @@ fn ReminderDefaultsForm(initial: ReminderDefaults) -> impl IntoView {
 /// Copy-to-clipboard button for a feed address.
 #[component]
 fn CopyButton(text: String) -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let toast = use_toast();
     let copied_message = expect_context::<I18n>().tr("common-copied");
 
     view! {

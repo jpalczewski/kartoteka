@@ -6,33 +6,14 @@ use leptos::prelude::*;
 use leptos_fluent::{I18n, move_tr};
 use leptos_router::components::A;
 
-use crate::app::{ToastContext, ToastKind};
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::inline_edit::{InlineEdit, InlineEditSize};
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::locations::{
     delete_location_sf, get_countries, get_locations_sf, parse_location_sf, update_location_sf,
 };
-use kartoteka_shared::{Country, Location, UpdateLocationRequest};
-
-// ── shared actions ────────────────────────────────────────────────────────────
-
-/// Runs a location server-fn call and refreshes the tree on success.
-///
-/// Failures become an error toast instead of an unhandled server-fn error, which is the
-/// pattern every write in this module needs.
-fn refresh_or_toast<F, T>(fut: F, set_refresh: WriteSignal<u32>, toast: ToastContext)
-where
-    F: std::future::Future<Output = Result<T, ServerFnError>> + 'static,
-    T: 'static,
-{
-    leptos::task::spawn_local(async move {
-        match fut.await {
-            Ok(_) => set_refresh.update(|n| *n += 1),
-            Err(e) => toast.push(e.to_string(), ToastKind::Error),
-        }
-    });
-}
+use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
+use kartoteka_shared::{ChangeTopic, Country, Location, UpdateLocationRequest};
 
 // ── data grouping ─────────────────────────────────────────────────────────────
 
@@ -118,12 +99,14 @@ fn group_locations(countries: &[Country], locs: &[Location]) -> Vec<CountryGroup
 
 #[component]
 pub fn LocationsPage() -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let i18n = expect_context::<I18n>();
-    let (refresh, set_refresh) = signal(0u32);
+    let invalidation = use_invalidation();
 
     let countries_res = Resource::new(|| (), |_| get_countries());
-    let locs_res = Resource::new(move || refresh.get(), |_| get_locations_sf());
+    let locs_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::Locations]),
+        |_| get_locations_sf(),
+    );
 
     let (parse_input, set_parse_input) = signal(String::new());
     let (parsing, set_parsing) = signal(false);
@@ -134,15 +117,14 @@ pub fn LocationsPage() -> impl IntoView {
             return;
         }
         set_parsing.set(true);
-        leptos::task::spawn_local(async move {
-            match parse_location_sf(input).await {
-                Ok(_) => {
-                    set_parse_input.set(String::new());
-                    set_refresh.update(|n| *n += 1);
-                }
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
+        // Clear the spinner on both outcomes, so the future carries the reset itself.
+        let parsed = async move {
+            let result = parse_location_sf(input).await;
             set_parsing.set(false);
+            result
+        };
+        mutate_with(parsed, &[ChangeTopic::Locations], move |_| {
+            set_parse_input.set(String::new());
         });
     });
 
@@ -201,7 +183,6 @@ pub fn LocationsPage() -> impl IntoView {
                                                 <CountrySection
                                                     group=group
                                                     country_name=country_name
-                                                    set_refresh=set_refresh
                                                 />
                                             }
                                         })
@@ -229,11 +210,7 @@ pub fn LocationsPage() -> impl IntoView {
 // ── country section ───────────────────────────────────────────────────────────
 
 #[component]
-fn CountrySection(
-    group: CountryGroup,
-    country_name: String,
-    set_refresh: WriteSignal<u32>,
-) -> impl IntoView {
+fn CountrySection(group: CountryGroup, country_name: String) -> impl IntoView {
     view! {
         <div>
             <h3 class="text-lg font-semibold text-base-content/70 mb-2 flex items-center gap-2">
@@ -262,7 +239,6 @@ fn CountrySection(
                                                 location=cg.city
                                                 kind=LocationRowKind::City
                                                 href=city_href
-                                                set_refresh=set_refresh
                                             >
                                                 {(!addresses.is_empty()).then(|| view! {
                                                     <div class="flex flex-col gap-1 mt-1 ml-4">
@@ -273,7 +249,6 @@ fn CountrySection(
                                                                     location=addr
                                                                     kind=LocationRowKind::Address
                                                                     href=href
-                                                                    set_refresh=set_refresh
                                                                 />
                                                             }
                                                         }).collect_view()}
@@ -334,11 +309,9 @@ fn LocationRow(
     location: Location,
     kind: LocationRowKind,
     href: String,
-    set_refresh: WriteSignal<u32>,
     #[prop(optional)] children: Option<Children>,
 ) -> impl IntoView {
     let i18n = expect_context::<I18n>();
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let id = StoredValue::new(location.id);
     let name = StoredValue::new(location.name);
     let alias = StoredValue::new(location.alias);
@@ -349,19 +322,17 @@ fn LocationRow(
 
     let on_save = Callback::new(move |new_name: String| {
         set_editing.set(false);
-        refresh_or_toast(
+        mutate(
             update_location_sf(id.get_value(), UpdateLocationRequest::rename(new_name)),
-            set_refresh,
-            toast.clone(),
+            &[ChangeTopic::Locations],
         );
     });
 
     let on_delete = Callback::new(move |_: ()| {
         show_delete.set(false);
-        refresh_or_toast(
+        mutate(
             delete_location_sf(id.get_value()),
-            set_refresh,
-            toast.clone(),
+            &[ChangeTopic::Locations],
         );
     });
 
@@ -384,7 +355,7 @@ fn LocationRow(
                             <A href=href.get_value() attr:class=kind.name_class()>
                                 {name.get_value()}
                             </A>
-                            <InlineAlias id=id.get_value() initial=alias.get_value() set_refresh />
+                            <InlineAlias id=id.get_value() initial=alias.get_value() />
                             <div class="ml-auto flex gap-1">
                                 <button
                                     class="btn btn-xs btn-ghost"
@@ -423,12 +394,7 @@ fn LocationRow(
 // ── inline alias ─────────────────────────────────────────────────────────────
 
 #[component]
-pub(super) fn InlineAlias(
-    id: String,
-    initial: Option<String>,
-    set_refresh: WriteSignal<u32>,
-) -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
+pub(super) fn InlineAlias(id: String, initial: Option<String>) -> impl IntoView {
     let i18n = expect_context::<I18n>();
     let id_sv = StoredValue::new(id);
     let alias_sv = StoredValue::new(initial);
@@ -443,14 +409,13 @@ pub(super) fn InlineAlias(
         } else {
             UpdateLocationRequest::set_alias(Some(alias))
         };
-        refresh_or_toast(update_location_sf(id, req), set_refresh, toast.clone());
+        mutate(update_location_sf(id, req), &[ChangeTopic::Locations]);
     });
 
     let on_clear = Callback::new(move |_: ()| {
-        refresh_or_toast(
+        mutate(
             update_location_sf(id_sv.get_value(), UpdateLocationRequest::set_alias(None)),
-            set_refresh,
-            toast.clone(),
+            &[ChangeTopic::Locations],
         );
     });
 

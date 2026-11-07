@@ -5,6 +5,8 @@ use leptos_router::hooks::use_params_map;
 use crate::components::common::breadcrumbs::Breadcrumbs;
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::locations::get_location_detail_sf;
+use crate::state::invalidation::use_invalidation;
+use kartoteka_shared::ChangeTopic;
 
 use super::detail_header::LocationDetailHeader;
 
@@ -14,10 +16,10 @@ pub fn AddressDetailPage() -> impl IntoView {
     let city_id = Memo::new(move |_| params.read().get("city_id").unwrap_or_default());
     let addr_id = Memo::new(move |_| params.read().get("id").unwrap_or_default());
     let i18n = expect_context::<I18n>();
-    let (refresh, set_refresh) = signal(0u32);
+    let invalidation = use_invalidation();
 
     let addr_res = Resource::new(
-        move || (addr_id.get(), refresh.get()),
+        move || (addr_id.get(), invalidation.track(&[ChangeTopic::Locations])),
         |(id, _)| get_location_detail_sf(id),
     );
     let city_res = Resource::new(move || city_id.get(), get_location_detail_sf);
@@ -55,7 +57,6 @@ pub fn AddressDetailPage() -> impl IntoView {
                                     name=addr.name
                                     alias=addr.alias
                                     after_delete_href=after_delete_href
-                                    set_refresh=set_refresh
                                 />
                             }.into_any()
                         }

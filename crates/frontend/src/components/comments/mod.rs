@@ -4,11 +4,11 @@ pub mod comment_list;
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
 
-use crate::app::{ToastContext, ToastKind};
+use crate::app::{ToastKind, use_toast};
 use crate::components::comments::add_comment::AddComment;
 use crate::components::comments::comment_list::CommentList;
 use crate::server_fns::comments::{get_comments, remove_comment};
-use crate::state::invalidation::{mutate_with, use_invalidation};
+use crate::state::invalidation::mutate_with;
 use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::CommentsPayload;
 
@@ -18,14 +18,14 @@ pub fn CommentSection(
     entity_id: Signal<String>,
     #[prop(optional)] initial_payload: Option<CommentsPayload>,
 ) -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let invalidation = use_invalidation();
+    let toast = use_toast();
 
     // Initialized from pre-fetched data — avoids a nested Resource that breaks hydration.
     let payload = RwSignal::new(initial_payload);
 
+    // `AddComment` invalidates `ChangeTopic::Comments` itself; this only refetches the
+    // payload this section renders from it.
     let on_added = Callback::new(move |_: ()| {
-        invalidation.invalidate(ChangeTopic::Comments);
         let eid = entity_id.get_untracked();
         leptos::task::spawn_local(async move {
             match get_comments(entity_type.to_string(), eid).await {
