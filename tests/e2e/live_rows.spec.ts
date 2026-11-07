@@ -83,6 +83,22 @@ test("Today: a live update keeps untouched rows", async ({ page, context }) => {
   expect(await isMarked(row("Live B"))).toBe(true);
 });
 
+test("All: a live update keeps untouched rows", async ({ page, context }) => {
+  await registerAndLogin(page, context, "Live All");
+  const listId = await scheduleListWithItems(page, "Live All List");
+
+  await page.goto("/all");
+  await waitForHydration(page);
+  const row = (title: string) => page.locator('[data-testid="all-row"]').filter({ hasText: title });
+  await expect(row("Live B")).toBeVisible();
+  await markRow(row("Live B"));
+
+  await completeFromOtherTab(context, listId, "Live A");
+
+  await expect(row("Live A").locator('[data-testid="all-item-toggle"]')).toBeChecked();
+  expect(await isMarked(row("Live B"))).toBe(true);
+});
+
 test("Calendar week: a live update keeps untouched rows", async ({ page, context }) => {
   await registerAndLogin(page, context, "Live Week");
   const listId = await scheduleListWithItems(page, "Live Week List");
