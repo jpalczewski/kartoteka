@@ -3,9 +3,10 @@ use std::collections::HashSet;
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
 use leptos_router::components::A;
+use reactive_stores::Store;
 
 use kartoteka_shared::ChangeTopic;
-use kartoteka_shared::types::{DateItem, Tag};
+use kartoteka_shared::types::{DateItem, ItemTagLink, Tag};
 
 use crate::components::common::list_filter_chips::ListFilterChips;
 use crate::components::common::loading::LoadingSpinner;
@@ -13,13 +14,38 @@ use crate::components::ui::{IconButton, IconButtonVariant};
 use crate::server_fns::items::{delete_item, get_today_data, toggle_item};
 use crate::server_fns::tags::{get_all_item_tag_links, get_all_tags};
 use crate::state::invalidation::{mutate, use_invalidation};
-use crate::utils::group_by_list;
+use crate::state::item_store::{ItemRows, patch_rows, row_item, tracked_items};
+
+/// The items of one list inside a section, in display order.
+#[derive(Clone, Debug, PartialEq)]
+struct ListGroup {
+    list_id: String,
+    list_name: String,
+    item_ids: Vec<String>,
+}
+
+/// Group entries by list, keeping first-seen list order and item order.
+fn group_ids(items: &[DateItem]) -> Vec<ListGroup> {
+    let mut groups: Vec<ListGroup> = Vec::new();
+    for di in items {
+        match groups.iter_mut().find(|g| g.list_id == di.item.list_id) {
+            Some(group) => group.item_ids.push(di.item.id.clone()),
+            None => groups.push(ListGroup {
+                list_id: di.item.list_id.clone(),
+                list_name: di.list_name.clone(),
+                item_ids: vec![di.item.id.clone()],
+            }),
+        }
+    }
+    groups
+}
 
 #[component]
 pub fn TodayPage() -> impl IntoView {
     let invalidation = use_invalidation();
     let show_completed = RwSignal::new(true);
     let hidden_lists: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
+    let hidden_tags: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
 
     let today_res = Resource::new(
         move || invalidation.track(&[ChangeTopic::Items, ChangeTopic::Lists]),
@@ -34,228 +60,314 @@ pub fn TodayPage() -> impl IntoView {
         |_| get_all_item_tag_links(),
     );
 
-    let hidden_tags: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
+    // Row data lives in keyed stores, so a refetch (e.g. a live update) updates the
+    // changed rows in place instead of re-creating every row.
+    let overdue_rows = Store::new(ItemRows::<DateItem>::default());
+    let today_rows = Store::new(ItemRows::<DateItem>::default());
 
-    let on_toggle = move |item_id: String| {
-        mutate(toggle_item(item_id), &[ChangeTopic::Items]);
+    let links = move || -> Vec<ItemTagLink> {
+        item_tag_links_res
+            .get()
+            .and_then(Result::ok)
+            .unwrap_or_default()
     };
 
-    let on_delete = move |item_id: String| {
-        mutate(delete_item(item_id), &[ChangeTopic::Items]);
+    let visible = move |items: Vec<DateItem>| -> Vec<DateItem> {
+        let hl = hidden_lists.get();
+        let sc = show_completed.get();
+        let ht = hidden_tags.get();
+        let links = if ht.is_empty() { Vec::new() } else { links() };
+        items
+            .into_iter()
+            .filter(|di| !hl.contains(&di.item.list_id))
+            .filter(|di| sc || !di.item.completed)
+            .filter(|di| {
+                ht.is_empty()
+                    || !links
+                        .iter()
+                        .any(|l| l.item_id == di.item.id && ht.contains(&l.tag_id))
+            })
+            .collect()
+    };
+    let overdue_groups = Memo::new(move |_| group_ids(&visible(tracked_items(overdue_rows))));
+    let today_groups = Memo::new(move |_| group_ids(&visible(tracked_items(today_rows))));
+
+    let all_items = move || {
+        let mut items = tracked_items(overdue_rows);
+        items.extend(tracked_items(today_rows));
+        items
+    };
+    let total = move || all_items().len();
+    let completed_count = move || all_items().iter().filter(|di| di.item.completed).count();
+    let has_any = move || total() > 0;
+    let has_overdue = move || !overdue_groups.with(Vec::is_empty);
+    let all_hidden = move || overdue_groups.with(Vec::is_empty) && today_groups.with(Vec::is_empty);
+
+    let unique_lists = move || {
+        let mut seen = HashSet::new();
+        all_items()
+            .into_iter()
+            .filter(|di| seen.insert(di.item.list_id.clone()))
+            .map(|di| (di.item.list_id, di.list_name))
+            .collect::<Vec<_>>()
+    };
+    let relevant_tags = move || {
+        let item_ids: HashSet<String> = all_items().into_iter().map(|di| di.item.id).collect();
+        let tag_ids: HashSet<String> = links()
+            .into_iter()
+            .filter(|l| item_ids.contains(&l.item_id))
+            .map(|l| l.tag_id)
+            .collect();
+        all_tags_res
+            .get()
+            .and_then(Result::ok)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|t| tag_ids.contains(&t.id))
+            .collect::<Vec<Tag>>()
     };
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            <Suspense fallback=|| view! { <LoadingSpinner/> }>
-                {move || today_res.get().map(|result| match result {
-                    Err(e) => view! {
+            <Transition fallback=|| view! { <LoadingSpinner/> }>
+                // Patch the stores first: this closure runs before the list below in the
+                // same render pass, on the server and in the browser.
+                {move || match today_res.get() {
+                    Some(Ok(data)) => {
+                        patch_rows(overdue_rows, data.overdue);
+                        patch_rows(today_rows, data.today);
+                        ().into_any()
+                    }
+                    Some(Err(e)) => view! {
                         <p class="text-error">"Błąd: " {e.to_string()}</p>
                     }.into_any(),
-                    Ok(data) => {
-                        let all_items: Vec<&DateItem> = data.overdue.iter().chain(data.today.iter()).collect();
-                        let total = all_items.len();
-                        let completed_count = all_items.iter().filter(|di| di.item.completed).count();
+                    None => ().into_any(),
+                }}
 
-                        let has_overdue = !data.overdue.is_empty();
-                        let has_today = !data.today.is_empty();
+                <Show when=move || matches!(today_res.get(), Some(Ok(_)))>
+                    <div class="flex items-center justify-between mb-4">
+                        <h1 class="text-2xl font-bold">"Dziś"</h1>
+                        <span class="text-base-content/50 text-sm">
+                            {move || today_res.get().and_then(Result::ok).map(|d| d.today_date)}
+                        </span>
+                    </div>
 
-                        let mut unique_lists: Vec<(String, String)> = Vec::new();
-                        let mut seen = HashSet::new();
-                        for di in &all_items {
-                            if seen.insert(di.item.list_id.clone()) {
-                                unique_lists.push((di.item.list_id.clone(), di.list_name.clone()));
-                            }
+                    <Show
+                        when=has_any
+                        fallback=|| view! {
+                            <p class="text-center text-base-content/50 py-12">"Brak zadań na dziś."</p>
                         }
+                    >
+                        <div class="flex items-center justify-between mb-3">
+                            <span class="text-sm text-base-content/60" data-testid="today-completion-count">
+                                {completed_count} "/" {total} " ukończone"
+                            </span>
+                            <label class="flex items-center gap-2 cursor-pointer select-none">
+                                <span class="text-xs text-base-content/50">"Ukryj ukończone"</span>
+                                <input
+                                    type="checkbox"
+                                    class="toggle toggle-xs"
+                                    data-testid="hide-completed-toggle"
+                                    prop:checked=move || !show_completed.get()
+                                    on:change=move |ev| show_completed.set(!event_target_checked(&ev))
+                                />
+                            </label>
+                        </div>
 
-                        let item_ids: HashSet<String> = all_items.iter().map(|di| di.item.id.clone()).collect();
-                        let all_tags: Vec<Tag> = all_tags_res.get().and_then(|r| r.ok()).unwrap_or_default();
-                        let links = item_tag_links_res.get().and_then(|r| r.ok()).unwrap_or_default();
-                        let relevant_tag_ids: HashSet<String> = links.iter()
-                            .filter(|l| item_ids.contains(&l.item_id))
-                            .map(|l| l.tag_id.clone())
-                            .collect();
-                        let relevant_tags: Vec<Tag> = all_tags.into_iter()
-                            .filter(|t| relevant_tag_ids.contains(&t.id))
-                            .collect();
-                        let links = StoredValue::new(links);
+                        {move || view! {
+                            <ListFilterChips
+                                lists=unique_lists()
+                                hidden_lists=hidden_lists
+                                tags=relevant_tags()
+                                hidden_tags=hidden_tags
+                                show_completed=show_completed
+                            />
+                        }}
 
-                        let overdue_items = data.overdue;
-                        let today_items = data.today;
-
-                        view! {
-                            <div>
-                                <div class="flex items-center justify-between mb-4">
-                                    <h1 class="text-2xl font-bold">"Dziś"</h1>
-                                    <span class="text-base-content/50 text-sm">{data.today_date}</span>
+                        <Show
+                            when=move || !all_hidden()
+                            fallback=|| view! {
+                                <div class="text-center text-base-content/50 py-4">
+                                    "Wszystkie elementy ukończone lub ukryte."
                                 </div>
-
-                                {if !has_overdue && !has_today {
-                                    view! {
-                                        <p class="text-center text-base-content/50 py-12">
-                                            "Brak zadań na dziś."
-                                        </p>
-                                    }.into_any()
-                                } else {
-                                    view! {
-                                        <div>
-                                            <div class="flex items-center justify-between mb-3">
-                                                <span class="text-sm text-base-content/60" data-testid="today-completion-count">
-                                                    {completed_count} "/" {total} " ukończone"
-                                                </span>
-                                                <label class="flex items-center gap-2 cursor-pointer select-none">
-                                                    <span class="text-xs text-base-content/50">"Ukryj ukończone"</span>
-                                                    <input
-                                                        type="checkbox"
-                                                        class="toggle toggle-xs"
-                                                        data-testid="hide-completed-toggle"
-                                                        prop:checked=move || !show_completed.get()
-                                                        on:change=move |ev| show_completed.set(!event_target_checked(&ev))
-                                                    />
-                                                </label>
-                                            </div>
-
-                                            <ListFilterChips
-                                                lists=unique_lists
-                                                hidden_lists=hidden_lists
-                                                tags=relevant_tags
-                                                hidden_tags=hidden_tags
-                                                show_completed=show_completed
-                                            />
-
-                                            {move || {
-                                                let hl = hidden_lists.get();
-                                                let sc = show_completed.get();
-                                                let ht = hidden_tags.get();
-
-                                                let filter = |items: &Vec<DateItem>| -> Vec<DateItem> {
-                                                    items.iter()
-                                                        .filter(|di| !hl.contains(&di.item.list_id))
-                                                        .filter(|di| sc || !di.item.completed)
-                                                        .filter(|di| {
-                                                            if ht.is_empty() { return true; }
-                                                            !links.get_value().iter()
-                                                                .filter(|l| l.item_id == di.item.id)
-                                                                .any(|l| ht.contains(&l.tag_id))
-                                                        })
-                                                        .cloned()
-                                                        .collect()
-                                                };
-
-                                                let visible_overdue = filter(&overdue_items);
-                                                let visible_today = filter(&today_items);
-                                                let all_hidden = visible_overdue.is_empty() && visible_today.is_empty();
-                                                let has_visible_overdue = !visible_overdue.is_empty();
-
-                                                if all_hidden {
-                                                    view! {
-                                                        <div class="text-center text-base-content/50 py-4">
-                                                            "Wszystkie elementy ukończone lub ukryte."
-                                                        </div>
-                                                    }.into_any()
-                                                } else {
-                                                    view! {
-                                                        <div>
-                                                            {if has_visible_overdue {
-                                                                view! {
-                                                                    <div class="mb-6">
-                                                                        <h3 class="text-xs text-error uppercase tracking-wider font-semibold mb-2">
-                                                                            "Zaległe"
-                                                                        </h3>
-                                                                        {render_groups(group_by_list(visible_overdue), on_toggle, on_delete)}
-                                                                    </div>
-                                                                }.into_any()
-                                                            } else { ().into_any() }}
-
-                                                            {if !visible_today.is_empty() {
-                                                                view! {
-                                                                    <div class="mb-6">
-                                                                        {if has_overdue && has_visible_overdue {
-                                                                            view! {
-                                                                                <h3 class="text-xs text-base-content/50 uppercase tracking-wider font-semibold mb-2">
-                                                                                    "Dziś"
-                                                                                </h3>
-                                                                            }.into_any()
-                                                                        } else { ().into_any() }}
-                                                                        {render_groups(group_by_list(visible_today), on_toggle, on_delete)}
-                                                                    </div>
-                                                                }.into_any()
-                                                            } else { ().into_any() }}
-                                                        </div>
-                                                    }.into_any()
-                                                }
-                                            }}
-                                        </div>
-                                    }.into_any()
-                                }}
-                            </div>
-                        }.into_any()
-                    }
-                })}
-            </Suspense>
+                            }
+                        >
+                            <Show when=has_overdue>
+                                <div class="mb-6">
+                                    <h3 class="text-xs text-error uppercase tracking-wider font-semibold mb-2">
+                                        "Zaległe"
+                                    </h3>
+                                    <ItemGroups store=overdue_rows groups=overdue_groups/>
+                                </div>
+                            </Show>
+                            <Show when=move || !today_groups.with(Vec::is_empty)>
+                                <div class="mb-6">
+                                    <Show when=has_overdue>
+                                        <h3 class="text-xs text-base-content/50 uppercase tracking-wider font-semibold mb-2">
+                                            "Dziś"
+                                        </h3>
+                                    </Show>
+                                    <ItemGroups store=today_rows groups=today_groups/>
+                                </div>
+                            </Show>
+                        </Show>
+                    </Show>
+                </Show>
+            </Transition>
         </div>
     }
 }
 
-fn render_groups(
-    groups: Vec<(String, String, Vec<DateItem>)>,
-    on_toggle: impl Fn(String) + Copy + Send + Sync + 'static,
-    on_delete: impl Fn(String) + Copy + Send + Sync + 'static,
-) -> impl IntoView {
-    groups
-        .into_iter()
-        .map(|(list_id, list_name, items)| {
-            view! {
-                <div class="mb-4">
-                    <h4 class="text-sm font-semibold uppercase tracking-wide mb-1 text-base-content/70">
-                        <A href=format!("/lists/{list_id}") attr:class="link link-hover">
-                            {list_name}
-                        </A>
-                    </h4>
-                    <div class="flex flex-col gap-1">
-                        {items.into_iter().map(|date_item| {
-                            let item_id = date_item.item.id.clone();
-                            let item_id_del = item_id.clone();
-                            let href = format!("/lists/{}/items/{}", date_item.item.list_id, date_item.item.id);
-                            let completed = date_item.item.completed;
-                            let title = date_item.item.title.clone();
-                            let deadline = date_item.item.deadline
-                                .as_ref()
-                                .map(|d| d.to_string());
-
-                            view! {
-                                <div class="flex items-center gap-3 p-2 bg-base-200 rounded-lg group">
-                                    <input
-                                        type="checkbox"
-                                        class="checkbox checkbox-sm checkbox-primary"
-                                        checked=completed
-                                        on:change=move |_| on_toggle(item_id.clone())
-                                    />
-                                    <A
-                                        href=href
-                                        attr:class=move || if completed {
-                                            "flex-1 text-sm text-base-content/50 line-through"
-                                        } else {
-                                            "flex-1 text-sm text-base-content hover:text-primary"
-                                        }
-                                    >
-                                        {title}
-                                    </A>
-                                    {deadline.map(|d| view! {
-                                        <span class="text-xs text-error/70">{d}</span>
-                                    })}
-                                    <IconButton
-                                        icon="x"
-                                        label=move_tr!("common-delete")
-                                        variant=IconButtonVariant::Danger
-                                        class="opacity-0 group-hover:opacity-100"
-                                        on_click=Callback::new(move |_| on_delete(item_id_del.clone()))
-                                    />
-                                </div>
-                            }
-                        }).collect_view()}
+/// List groups of one section, keyed by list id, each with its rows keyed by item id.
+#[component]
+fn ItemGroups(store: Store<ItemRows<DateItem>>, groups: Memo<Vec<ListGroup>>) -> impl IntoView {
+    view! {
+        <For
+            each=move || groups.get()
+            key=|group| group.list_id.clone()
+            let:group
+        >
+            {
+                let list_id = group.list_id.clone();
+                let item_ids = move || {
+                    groups.with(|gs| {
+                        gs.iter()
+                            .find(|g| g.list_id == list_id)
+                            .map(|g| g.item_ids.clone())
+                            .unwrap_or_default()
+                    })
+                };
+                view! {
+                    <div class="mb-4">
+                        <h4 class="text-sm font-semibold uppercase tracking-wide mb-1 text-base-content/70">
+                            <A href=format!("/lists/{}", group.list_id) attr:class="link link-hover">
+                                {group.list_name.clone()}
+                            </A>
+                        </h4>
+                        <div class="flex flex-col gap-1">
+                            <For each=item_ids key=|id| id.clone() let:id>
+                                <TodayRow store=store id=id/>
+                            </For>
+                        </div>
                     </div>
-                </div>
+                }
             }
+        </For>
+    }
+}
+
+/// One row. Created once per item id and kept across refetches; every displayed
+/// field reads the keyed store, so only what changed re-renders.
+#[component]
+fn TodayRow(store: Store<ItemRows<DateItem>>, id: String) -> impl IntoView {
+    let item = row_item(store, id.clone());
+    let completed = move || item.with(|di| di.as_ref().is_some_and(|di| di.item.completed));
+    let title = move || item.with(|di| di.as_ref().map(|di| di.item.title.clone()));
+    let deadline = move || {
+        item.with(|di| {
+            di.as_ref()
+                .and_then(|di| di.item.deadline.as_ref().map(ToString::to_string))
         })
-        .collect_view()
+    };
+    let href = move || {
+        item.with(|di| {
+            di.as_ref()
+                .map(|di| format!("/lists/{}/items/{}", di.item.list_id, di.item.id))
+                .unwrap_or_default()
+        })
+    };
+    let id_toggle = id.clone();
+    let id_delete = id;
+
+    view! {
+        <div class="flex items-center gap-3 p-2 bg-base-200 rounded-lg group">
+            <input
+                type="checkbox"
+                class="checkbox checkbox-sm checkbox-primary"
+                prop:checked=completed
+                on:change=move |_| mutate(toggle_item(id_toggle.clone()), &[ChangeTopic::Items])
+            />
+            <A
+                href=href
+                attr:class=move || if completed() {
+                    "flex-1 text-sm text-base-content/50 line-through"
+                } else {
+                    "flex-1 text-sm text-base-content hover:text-primary"
+                }
+            >
+                {title}
+            </A>
+            {move || deadline().map(|d| view! { <span class="text-xs text-error/70">{d}</span> })}
+            <IconButton
+                icon="x"
+                label=move_tr!("common-delete")
+                variant=IconButtonVariant::Danger
+                class="opacity-0 group-hover:opacity-100"
+                on_click=Callback::new(move |_| {
+                    mutate(delete_item(id_delete.clone()), &[ChangeTopic::Items]);
+                })
+            />
+        </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kartoteka_shared::types::Item;
+
+    fn entry(id: &str, list_id: &str, list_name: &str) -> DateItem {
+        DateItem {
+            item: Item {
+                id: id.into(),
+                list_id: list_id.into(),
+                title: id.into(),
+                description: None,
+                completed: false,
+                status: "todo".into(),
+                icon: None,
+                position: 0,
+                quantity: None,
+                actual_quantity: None,
+                unit: None,
+                start_date: None,
+                start_time: None,
+                deadline: None,
+                deadline_time: None,
+                hard_deadline: None,
+                estimated_duration: None,
+                location_id: None,
+                recurrence_rule: None,
+                recurrence_mode: None,
+                created_at: String::new(),
+                updated_at: String::new(),
+            },
+            list_name: list_name.into(),
+            list_type: "checklist".into(),
+        }
+    }
+
+    #[test]
+    fn group_ids_keeps_first_seen_list_order_and_item_order() {
+        let groups = group_ids(&[
+            entry("a", "l1", "Work"),
+            entry("b", "l2", "Home"),
+            entry("c", "l1", "Work"),
+        ]);
+        assert_eq!(
+            groups,
+            vec![
+                ListGroup {
+                    list_id: "l1".into(),
+                    list_name: "Work".into(),
+                    item_ids: vec!["a".into(), "c".into()],
+                },
+                ListGroup {
+                    list_id: "l2".into(),
+                    list_name: "Home".into(),
+                    item_ids: vec!["b".into()],
+                },
+            ]
+        );
+    }
 }
