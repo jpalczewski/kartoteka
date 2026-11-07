@@ -1,9 +1,10 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use leptos::prelude::*;
 use leptos_fluent::{I18n, move_tr};
 use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
+use reactive_stores::Store;
 
 use kartoteka_shared::types::DateItem;
 use kartoteka_shared::{ChangeTopic, TagUsage};
@@ -11,6 +12,7 @@ use kartoteka_shared::{ChangeTopic, TagUsage};
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
+use crate::components::items::item_groups::{ListGroup, group_ids};
 use crate::components::tags::color_picker::TagColorPicker;
 use crate::components::tags::tag_tree::{
     TagTreeRow, build_breadcrumb, build_subtree, get_descendant_ids, tag_type_key,
@@ -21,6 +23,7 @@ use crate::server_fns::tags::{
     set_tag_icon, update_tag, update_tag_color,
 };
 use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
+use crate::state::item_store::{ItemRows, patch_rows, row_item, tracked_items};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DetailAction {
@@ -71,6 +74,20 @@ pub fn TagDetailPage() -> impl IntoView {
         },
         |(id, rec, _)| get_tag_items(id, rec),
     );
+
+    // Item rows live in a keyed store, so a refetch (e.g. a live update) updates the
+    // changed rows in place instead of re-creating every row.
+    let item_rows = Store::new(ItemRows::<DateItem>::default());
+    // Groups by list, sorted by list id and name as the page has always shown them.
+    let item_groups = Memo::new(move |_| {
+        let mut groups = group_ids(&tracked_items(item_rows));
+        groups.sort_by(|a, b| (&a.list_id, &a.list_name).cmp(&(&b.list_id, &b.list_name)));
+        groups
+    });
+    let has_items = move || !item_groups.with(Vec::is_empty);
+    // Whether the last items load failed. A signal rather than a read of `items_res`, so the
+    // list is not torn down while the resource refetches.
+    let items_failed = RwSignal::new(false);
 
     // Rename / colour / icon / delete / move / merge callbacks — each reads the route
     // param through the Memo so they stay valid if the route changes.
@@ -492,44 +509,69 @@ pub fn TagDetailPage() -> impl IntoView {
                                     })}
                                 </Suspense>
                             </div>
-
-                            // ── Items tagged with this tag ────────────────────────
-                            <div class="mb-4">
-                                <SectionHeader
-                                    title=move_tr!("tags-items-title")
-                                    icon="circle-check"
-                                    class="mb-2"
-                                >
-                                    <label class="flex cursor-pointer items-center gap-1.5">
-                                        <input
-                                            type="checkbox"
-                                            class="toggle toggle-xs toggle-primary"
-                                            data-testid="tag-recursive-toggle"
-                                            prop:checked=move || recursive.get()
-                                            on:change=move |ev| set_recursive.set(event_target_checked(&ev))
-                                        />
-                                        <span class="text-xs text-base-content/60">
-                                            {move_tr!("tags-include-subtags")}
-                                        </span>
-                                    </label>
-                                </SectionHeader>
-
-                                <Suspense fallback=|| view! { <LoadingSpinner/> }>
-                                    {move || items_res.get().map(|result| match result {
-                                        Err(e) => view! {
-                                            <p class="text-error" data-testid="tag-error">
-                                                {e.to_string()}
-                                            </p>
-                                        }
-                                            .into_any(),
-                                        Ok(items) => render_items_grouped(items),
-                                    })}
-                                </Suspense>
-                            </div>
                         </div>
                     }.into_any()
                 }}
             </Suspense>
+
+            // ── Items tagged with this tag ────────────────────────
+            <div class="mb-4">
+                <SectionHeader
+                    title=move_tr!("tags-items-title")
+                    icon="circle-check"
+                    class="mb-2"
+                >
+                    <label class="flex cursor-pointer items-center gap-1.5">
+                        <input
+                            type="checkbox"
+                            class="toggle toggle-xs toggle-primary"
+                            data-testid="tag-recursive-toggle"
+                            prop:checked=move || recursive.get()
+                            on:change=move |ev| set_recursive.set(event_target_checked(&ev))
+                        />
+                        <span class="text-xs text-base-content/60">
+                            {move_tr!("tags-include-subtags")}
+                        </span>
+                    </label>
+                </SectionHeader>
+
+                <Transition fallback=|| view! { <LoadingSpinner/> }>
+                    // Patch the store first: this closure runs before the list below in the
+                    // same render pass, on the server and in the browser.
+                    {move || match items_res.get() {
+                        Some(Ok(items)) => {
+                            items_failed.set(false);
+                            patch_rows(item_rows, items);
+                            ().into_any()
+                        }
+                        Some(Err(e)) => {
+                            items_failed.set(true);
+                            view! {
+                                <p class="text-error" data-testid="tag-error">
+                                    {e.to_string()}
+                                </p>
+                            }
+                            .into_any()
+                        }
+                        None => ().into_any(),
+                    }}
+
+                    <Show when=move || !items_failed.get()>
+                        <Show
+                            when=has_items
+                            fallback=|| view! {
+                                <p class="py-8 text-center text-base-content/50" data-testid="tag-no-items">
+                                    {move_tr!("tags-no-items")}
+                                </p>
+                            }
+                        >
+                            <div data-testid="tag-items">
+                                <TagItemGroups store=item_rows groups=item_groups/>
+                            </div>
+                        </Show>
+                    </Show>
+                </Transition>
+            </div>
 
             <ConfirmModal
                 open=Signal::derive(move || confirm_delete.get())
@@ -544,63 +586,86 @@ pub fn TagDetailPage() -> impl IntoView {
     }
 }
 
-fn render_items_grouped(items: Vec<DateItem>) -> AnyView {
-    if items.is_empty() {
-        return view! {
-            <p class="py-8 text-center text-base-content/50" data-testid="tag-no-items">
-                {move_tr!("tags-no-items")}
-            </p>
-        }
-        .into_any();
-    }
-
-    let mut groups: BTreeMap<(String, String), Vec<DateItem>> = BTreeMap::new();
-    for di in items {
-        let key = (di.item.list_id.clone(), di.list_name.clone());
-        groups.entry(key).or_default().push(di);
-    }
-
+/// List groups of the tag's items, keyed by list (id and name), each with its rows keyed
+/// by item id.
+#[component]
+fn TagItemGroups(store: Store<ItemRows<DateItem>>, groups: Memo<Vec<ListGroup>>) -> impl IntoView {
     view! {
-        <div data-testid="tag-items">
-            {groups.into_iter().map(|((list_id, list_name), group)| {
+        <For
+            each=move || groups.get()
+            key=|group| (group.list_id.clone(), group.list_name.clone())
+            let:group
+        >
+            {
+                let list_id = group.list_id.clone();
+                let item_ids = move || {
+                    groups.with(|gs| {
+                        gs.iter()
+                            .find(|g| g.list_id == list_id)
+                            .map(|g| g.item_ids.clone())
+                            .unwrap_or_default()
+                    })
+                };
                 view! {
                     <div class="mb-4">
                         <h4 class="mb-1 text-xs font-semibold uppercase tracking-wide text-base-content/50">
-                            <A href=format!("/lists/{list_id}") attr:class="link link-hover">
-                                {list_name}
+                            <A href=format!("/lists/{}", group.list_id) attr:class="link link-hover">
+                                {group.list_name.clone()}
                             </A>
                         </h4>
                         <ul class="flex flex-col">
-                            {group.into_iter().map(|di| {
-                                let completed = di.item.completed;
-                                let row_class = if completed {
-                                    "flex items-center gap-2 rounded-md px-1 py-1 text-sm text-base-content/40 hover:bg-base-200/50"
-                                } else {
-                                    "flex items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-base-200/50"
-                                };
-                                let title_class = if completed { "truncate line-through" } else { "truncate" };
-                                view! {
-                                    <li>
-                                        <A
-                                            href=format!("/lists/{}/items/{}", di.item.list_id, di.item.id)
-                                            attr:class=row_class
-                                            attr:data-testid="tag-item-link"
-                                        >
-                                            <Icon
-                                                name=if completed { "circle-check" } else { "circle" }
-                                                size=14
-                                                class="text-base-content/40"
-                                            />
-                                            <span class=title_class>{di.item.title.clone()}</span>
-                                        </A>
-                                    </li>
-                                }
-                            }).collect_view()}
+                            <For each=item_ids key=|id| id.clone() let:id>
+                                <TagItemRow store=store id=id/>
+                            </For>
                         </ul>
                     </div>
                 }
-            }).collect_view()}
-        </div>
+            }
+        </For>
     }
-    .into_any()
+}
+
+/// One item link. Created once per item id and kept across refetches; every displayed
+/// field reads the keyed store, so only what changed re-renders.
+#[component]
+fn TagItemRow(store: Store<ItemRows<DateItem>>, id: String) -> impl IntoView {
+    let item = row_item(store, id);
+    let completed = move || item.with(|di| di.as_ref().is_some_and(|di| di.item.completed));
+    let href = move || {
+        item.with(|di| {
+            di.as_ref()
+                .map(|di| format!("/lists/{}/items/{}", di.item.list_id, di.item.id))
+                .unwrap_or_default()
+        })
+    };
+    let title = move || {
+        item.with(|di| {
+            di.as_ref()
+                .map(|di| di.item.title.clone())
+                .unwrap_or_default()
+        })
+    };
+
+    view! {
+        <li>
+            <A
+                href=href
+                attr:class=move || if completed() {
+                    "flex items-center gap-2 rounded-md px-1 py-1 text-sm text-base-content/40 hover:bg-base-200/50"
+                } else {
+                    "flex items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-base-200/50"
+                }
+                attr:data-testid="tag-item-link"
+            >
+                <Icon
+                    name=Signal::derive(move || String::from(if completed() { "circle-check" } else { "circle" }))
+                    size=14
+                    class="text-base-content/40"
+                />
+                <span class=move || if completed() { "truncate line-through" } else { "truncate" }>
+                    {title}
+                </span>
+            </A>
+        </li>
+    }
 }
