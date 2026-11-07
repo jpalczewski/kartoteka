@@ -712,15 +712,23 @@ pub async fn set_features(
     user_id: &str,
     req: &SetFeaturesRequest,
 ) -> Result<Option<List>, DomainError> {
-    // Phase 2: THINK — unknown names are rejected before anything is written
-    validate_feature_names(&req.features)?;
-
     // Phase 1: READ — need the current features to keep their configs
     let Some(current) = db::lists::get_one(pool, id, user_id).await? else {
         return Ok(None);
     };
-    let features =
-        features_preserving_configs(&parse_features_map(&current.features)?, &req.features);
+    let existing = parse_features_map(&current.features)?;
+
+    // Phase 2: THINK — only newly enabled names must be known. The UI sends the
+    // whole current set, so a legacy name already stored on the list must not
+    // make every later toggle fail.
+    let added: Vec<String> = req
+        .features
+        .iter()
+        .filter(|name| !existing.contains_key(name.as_str()))
+        .cloned()
+        .collect();
+    validate_feature_names(&added)?;
+    let features = features_preserving_configs(&existing, &req.features);
 
     // Phase 3: WRITE
     let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
@@ -1946,6 +1954,40 @@ mod tests {
         let row = get_one(&pool, &list.id, &uid).await.unwrap().unwrap();
         assert_eq!(row.features.len(), 1);
         assert_eq!(row.features[0].feature_name, "checklist");
+    }
+
+    #[tokio::test]
+    async fn set_features_keeps_a_legacy_name_already_on_the_list() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list = create(&pool, &uid, &checklist_req("Legacy")).await.unwrap();
+        let legacy = serde_json::json!({"checklist": {}, "legacy_thing": {"x": 1}});
+        let mut tx = pool.begin().await.unwrap();
+        db::lists::set_features(&mut tx, &list.id, &legacy)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        // The UI sends the whole current set plus the toggled feature.
+        set_features(
+            &pool,
+            &list.id,
+            &uid,
+            &SetFeaturesRequest {
+                features: vec!["checklist".into(), "legacy_thing".into(), "quantity".into()],
+            },
+        )
+        .await
+        .unwrap();
+
+        let row = get_one(&pool, &list.id, &uid).await.unwrap().unwrap();
+        let names: Vec<&str> = row
+            .features
+            .iter()
+            .map(|f| f.feature_name.as_str())
+            .collect();
+        assert!(names.contains(&"legacy_thing"));
+        assert!(names.contains(&"quantity"));
     }
 
     #[test]
