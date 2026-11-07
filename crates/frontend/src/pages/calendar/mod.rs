@@ -281,6 +281,7 @@ pub fn CalendarPage() -> impl IntoView {
                     >"Miesiąc"</button>
                     <button
                         class=move || format!("join-item btn btn-sm {}", if view_mode.get() == ViewMode::Week { "btn-primary" } else { "btn-ghost" })
+                        data-testid="calendar-view-week"
                         on:click=move |_| set_view_mode.set(ViewMode::Week)
                     >"Tydzień"</button>
                 </div>
