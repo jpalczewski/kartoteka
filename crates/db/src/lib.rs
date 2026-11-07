@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::str::FromStr;
 use std::time::Duration;
 
+pub use changes::ChangeSignal;
 pub use sqlx::sqlite::SqlitePool;
 
 /// Bulk ownership check: returns the subset of `ids` that exist in `table` and are owned by `user_id`.
@@ -32,6 +33,7 @@ pub(crate) async fn find_owned_ids_in(
 
 pub mod auth_methods;
 pub mod calendar_tokens;
+pub mod changes;
 pub mod comments;
 pub mod containers;
 pub mod home;
@@ -70,8 +72,8 @@ pub enum DbError {
     NotFound(&'static str),
 }
 
-pub async fn create_pool(url: &str) -> Result<SqlitePool, DbError> {
-    let options = SqliteConnectOptions::from_str(url)?
+fn connect_options(url: &str) -> Result<SqliteConnectOptions, DbError> {
+    Ok(SqliteConnectOptions::from_str(url)?
         .create_if_missing(true)
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)
@@ -79,13 +81,30 @@ pub async fn create_pool(url: &str) -> Result<SqlitePool, DbError> {
         .log_slow_statements(LevelFilter::Warn, Duration::from_millis(1))
         // WAL allows concurrent reads; busy_timeout lets writers retry instead of
         // returning SQLITE_BUSY immediately when another write holds the lock.
-        .busy_timeout(Duration::from_secs(5));
+        .busy_timeout(Duration::from_secs(5)))
+}
+
+pub async fn create_pool(url: &str) -> Result<SqlitePool, DbError> {
+    create_pool_with_signal(url, ChangeSignal::default()).await
+}
+
+/// Same options as [`create_pool`], plus per-connection SQLite hooks that notify
+/// `signal` after a COMMIT of a transaction that wrote to `change_log`.
+pub async fn create_pool_with_signal(
+    url: &str,
+    signal: ChangeSignal,
+) -> Result<SqlitePool, DbError> {
+    let options = connect_options(url)?;
 
     // min_connections stays at 0 so the pool does not eagerly open connections beyond
     // the first one. min_connections>0 would race with migrations: the extra connections
     // open concurrently and see an empty schema before migrations finish.
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
+        .after_connect(move |conn, _meta| {
+            let signal = signal.clone();
+            Box::pin(async move { changes::install_hooks(conn, signal).await })
+        })
         .connect_with(options)
         .await?;
 
