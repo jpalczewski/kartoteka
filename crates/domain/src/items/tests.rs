@@ -1957,3 +1957,152 @@ async fn duplicate_title_of_completed_item_ok() {
     assert_eq!(spawned.title, "Bread");
     assert_eq!(spawned.title, change.item.title);
 }
+
+// ── feature gating on update (#385) ──────────────────────────────────────────
+
+#[tokio::test]
+async fn update_setting_deadline_without_feature_is_rejected() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &[]).await;
+    let item = create(&pool, &uid, &list_id, &basic_req("No features"))
+        .await
+        .unwrap();
+
+    let req = UpdateItemRequest {
+        deadline: Some(Some("2026-05-15".to_string())),
+        ..icon_req()
+    };
+    let err = update(&pool, &uid, &item.id, &req).await.unwrap_err();
+    assert!(matches!(err, DomainError::FeatureRequired("deadlines")));
+
+    // Nothing was written.
+    let stored = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+    assert!(stored.deadline.is_none());
+}
+
+#[tokio::test]
+async fn update_setting_quantity_without_feature_is_rejected() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &[]).await;
+    let item = create(&pool, &uid, &list_id, &basic_req("No features"))
+        .await
+        .unwrap();
+
+    for req in [
+        UpdateItemRequest {
+            quantity: Some(Some(5)),
+            ..icon_req()
+        },
+        UpdateItemRequest {
+            actual_quantity: Some(Some(2)),
+            ..icon_req()
+        },
+        UpdateItemRequest {
+            unit: Some(Some("kg".to_string())),
+            ..icon_req()
+        },
+    ] {
+        let err = update(&pool, &uid, &item.id, &req).await.unwrap_err();
+        assert!(matches!(err, DomainError::FeatureRequired("quantity")));
+    }
+}
+
+#[tokio::test]
+async fn update_setting_dates_with_features_ok() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["deadlines", "quantity"]).await;
+    let item = create(&pool, &uid, &list_id, &basic_req("Has features"))
+        .await
+        .unwrap();
+
+    let req = UpdateItemRequest {
+        deadline: Some(Some("2026-05-15".to_string())),
+        quantity: Some(Some(4)),
+        ..icon_req()
+    };
+    let change = update(&pool, &uid, &item.id, &req)
+        .await
+        .unwrap()
+        .expect("item changed");
+    assert_eq!(
+        change.item.deadline.map(|d| d.to_string()).as_deref(),
+        Some("2026-05-15")
+    );
+    assert_eq!(change.item.quantity, Some(4));
+}
+
+#[tokio::test]
+async fn update_clearing_dates_without_feature_is_allowed() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["deadlines"]).await;
+    let item = create(
+        &pool,
+        &uid,
+        &list_id,
+        &CreateItemRequest {
+            deadline: Some("2026-05-15".to_string()),
+            ..basic_req("Leftover deadline")
+        },
+    )
+    .await
+    .unwrap();
+
+    // The feature was turned off after the deadline was stored.
+    sqlx::query("UPDATE lists SET features = '{}' WHERE id = ?")
+        .bind(&list_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let req = UpdateItemRequest {
+        deadline: Some(None),
+        ..icon_req()
+    };
+    let change = update(&pool, &uid, &item.id, &req)
+        .await
+        .unwrap()
+        .expect("item changed");
+    assert!(change.item.deadline.is_none());
+}
+
+#[tokio::test]
+async fn update_clearing_quantity_without_feature_is_allowed() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["quantity"]).await;
+    let item = create(
+        &pool,
+        &uid,
+        &list_id,
+        &CreateItemRequest {
+            quantity: Some(3),
+            unit: Some("kg".to_string()),
+            ..basic_req("Leftover quantity")
+        },
+    )
+    .await
+    .unwrap();
+
+    sqlx::query("UPDATE lists SET features = '{}' WHERE id = ?")
+        .bind(&list_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let req = UpdateItemRequest {
+        quantity: Some(None),
+        actual_quantity: Some(None),
+        unit: Some(None),
+        ..icon_req()
+    };
+    let change = update(&pool, &uid, &item.id, &req)
+        .await
+        .unwrap()
+        .expect("item changed");
+    assert!(change.item.quantity.is_none());
+    assert!(change.item.unit.is_none());
+}
