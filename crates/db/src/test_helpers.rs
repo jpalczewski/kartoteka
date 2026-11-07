@@ -62,3 +62,59 @@ pub async fn create_test_tag(pool: &SqlitePool, user_id: &str, name: &str) -> St
         .expect("create_test_tag");
     id
 }
+
+/// Insert a minimal test list nested under `parent_list_id` and return its ID.
+pub async fn create_test_sublist(pool: &SqlitePool, user_id: &str, parent_list_id: &str) -> String {
+    let id = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO lists (id, user_id, name, list_type, parent_list_id) \
+         VALUES (?, ?, 'Test Sublist', 'checklist', ?)",
+    )
+    .bind(&id)
+    .bind(user_id)
+    .bind(parent_list_id)
+    .execute(pool)
+    .await
+    .expect("create_test_sublist");
+    id
+}
+
+/// Insert a minimal test list inside `container_id` and return its ID.
+pub async fn create_test_list_in_container(
+    pool: &SqlitePool,
+    user_id: &str,
+    container_id: &str,
+) -> String {
+    let id = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO lists (id, user_id, name, list_type, container_id) \
+         VALUES (?, ?, 'Test Container List', 'checklist', ?)",
+    )
+    .bind(&id)
+    .bind(user_id)
+    .bind(container_id)
+    .execute(pool)
+    .await
+    .expect("create_test_list_in_container");
+    id
+}
+
+/// Insert a minimal test container, optionally nested under `parent_container_id`,
+/// and return its ID.
+pub async fn create_test_container(
+    pool: &SqlitePool,
+    user_id: &str,
+    parent_container_id: Option<&str>,
+) -> String {
+    let id = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO containers (id, user_id, name, parent_container_id) VALUES (?, ?, 'Test Container', ?)",
+    )
+    .bind(&id)
+    .bind(user_id)
+    .bind(parent_container_id)
+    .execute(pool)
+    .await
+    .expect("create_test_container");
+    id
+}
