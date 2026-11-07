@@ -33,7 +33,9 @@ async fn main() {
 
     let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://data.db".into());
     tracing::info!("connecting to database: {}", db_url);
-    let pool = kartoteka_db::create_pool(&db_url)
+    // Live updates: the pool's commit hooks notify this signal, which wakes the hub's pump.
+    let change_signal = kartoteka_db::ChangeSignal::default();
+    let pool = kartoteka_db::create_pool_with_signal(&db_url, change_signal.clone())
         .await
         .expect("db connect");
     tracing::info!("running migrations");
@@ -41,6 +43,8 @@ async fn main() {
         .await
         .expect("migrations");
     tracing::info!("migrations done");
+
+    let change_hub = kartoteka_server::ChangeHub::start(pool.clone(), change_signal);
 
     let session_store = SqliteStore::new(pool.clone());
     session_store
@@ -74,6 +78,7 @@ async fn main() {
         std::env::var("BIND_ADDR").unwrap_or_else(|_| leptos_options.site_addr.to_string());
     let app = kartoteka_server::router(
         pool,
+        change_hub,
         auth_layer,
         signing_secret,
         public_base_url,

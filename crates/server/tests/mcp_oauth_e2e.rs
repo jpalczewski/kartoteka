@@ -30,8 +30,10 @@ fn build_app(pool: kartoteka_db::SqlitePool, mcp_i18n: Arc<McpI18n>) -> axum::Ro
     let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
     let backend = KartotekaBackend::new(pool.clone());
     let auth_layer = axum_login::AuthManagerLayerBuilder::new(backend, session_layer).build();
+    let change_hub = kartoteka_server::ChangeHub::start(pool.clone(), Default::default());
     kartoteka_server::router(
         pool,
+        change_hub,
         auth_layer,
         "secret-at-least-32-chars-long-padded".into(),
         "http://localhost:3000".into(),

@@ -5,6 +5,7 @@ pub mod extractors;
 pub mod health;
 pub mod items;
 pub mod lists;
+pub mod live;
 mod middleware;
 pub mod relations;
 pub mod routes;
@@ -17,6 +18,7 @@ pub mod time_entries;
 pub use calendar_feed::TrustedProxies;
 pub use error::AppError;
 pub use extractors::UserId;
+pub use live::ChangeHub;
 
 use std::sync::Arc;
 
@@ -26,7 +28,7 @@ use axum::{
     extract::{Request, State},
     response::{IntoResponse, Response},
 };
-use kartoteka_db::SqlitePool;
+use kartoteka_db::{ChangeSignal, SqlitePool};
 use kartoteka_frontend::{App, shell};
 use kartoteka_mcp::McpI18n;
 use kartoteka_oauth::OAuthState;
@@ -46,6 +48,8 @@ pub struct AppState {
     /// Pre-generated Leptos route list (reused per request by leptos_routes_handler).
     pub routes: Vec<AxumRouteListing>,
     pub pool: SqlitePool,
+    /// Live updates: turns `change_log` rows into per-user SSE events.
+    pub change_hub: ChangeHub,
     /// HMAC-SHA256 signing secret for JWT bearer tokens (min 32 chars).
     pub signing_secret: String,
     pub oauth_state: OAuthState,
@@ -101,7 +105,9 @@ pub async fn leptos_routes_handler(State(state): State<AppState>, req: Request<B
 
 /// Convenience wrapper for integration tests: creates a router with default LeptosOptions
 /// and no trusted proxies, so the suite never depends on the developer's environment.
-/// Tests that need trust call [`test_router_with_trusted_proxies`].
+/// Tests that need trust call [`test_router_with_trusted_proxies`]; tests that need
+/// live wake-ups build their own pool with `create_pool_with_signal` and call
+/// [`test_router_with_change_hub`].
 #[doc(hidden)]
 pub fn test_router(pool: SqlitePool, auth_layer: AuthLayer, signing_secret: String) -> Router {
     test_router_with_trusted_proxies(pool, auth_layer, signing_secret, TrustedProxies::none())
@@ -116,8 +122,31 @@ pub fn test_router_with_trusted_proxies(
     signing_secret: String,
     trusted_proxies: TrustedProxies,
 ) -> Router {
+    // Nothing feeds this signal, so the hub falls back to its 2 s tick. Fine for
+    // tests that do not assert on live updates.
+    let change_hub = ChangeHub::start(pool.clone(), ChangeSignal::default());
+    test_router_with_change_hub(
+        pool,
+        change_hub,
+        auth_layer,
+        signing_secret,
+        trusted_proxies,
+    )
+}
+
+/// [`test_router`] with an explicit [`ChangeHub`], for tests that drive the pump
+/// through a pool built with `create_pool_with_signal`.
+#[doc(hidden)]
+pub fn test_router_with_change_hub(
+    pool: SqlitePool,
+    change_hub: ChangeHub,
+    auth_layer: AuthLayer,
+    signing_secret: String,
+    trusted_proxies: TrustedProxies,
+) -> Router {
     router(
         pool,
+        change_hub,
         auth_layer,
         signing_secret,
         "http://localhost:3000".into(),
@@ -160,8 +189,11 @@ fn mcp_allowed_hosts(public_base_url: &str) -> Vec<String> {
     hosts
 }
 
+// Wiring function: one argument per long-lived subsystem (auth, live updates, Leptos, MCP).
+#[allow(clippy::too_many_arguments)]
 pub fn router(
     pool: SqlitePool,
+    change_hub: ChangeHub,
     auth_layer: AuthLayer,
     signing_secret: String,
     public_base_url: String,
@@ -182,6 +214,7 @@ pub fn router(
         leptos_options: leptos_options.clone(),
         routes: routes.clone(),
         pool: pool.clone(),
+        change_hub,
         signing_secret,
         oauth_state: oauth_state.clone(),
         mcp_i18n: mcp_i18n.clone(),
