@@ -23,6 +23,7 @@ const READ_ONLY: &[&str] = &[
     "list_templates",
     "list_overdue",
     "get_active_timer",
+    "list_marked_for_delete",
 ];
 
 const ADDITIVE_WRITE: &[&str] = &[
@@ -41,6 +42,7 @@ const ADDITIVE_WRITE: &[&str] = &[
     "create_tag",
     "create_tags",
     "assign_tag",
+    "toggle_mark_for_delete",
 ];
 
 const DESTRUCTIVE: &[&str] = &[

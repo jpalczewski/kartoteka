@@ -52,6 +52,7 @@ async fn tool_router_matches_the_published_snapshot() {
         "list_containers | desc=mcp-tool-list_containers-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
         "list_items | desc=mcp-tool-list_items-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
         "list_lists | desc=mcp-tool-list_lists-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
+        "list_marked_for_delete | desc=mcp-tool-list_marked_for_delete-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
         "list_overdue | desc=mcp-tool-list_overdue-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
         "list_tags | desc=mcp-tool-list_tags-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
         "list_templates | desc=mcp-tool-list_templates-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
@@ -66,6 +67,7 @@ async fn tool_router_matches_the_published_snapshot() {
         "start_timer | desc=mcp-tool-start_timer-desc | ro=Some(false) destructive=Some(false) idempotent=Some(false) open_world=Some(false)",
         "stop_timer | desc=mcp-tool-stop_timer-desc | ro=Some(false) destructive=Some(true) idempotent=Some(false) open_world=Some(false)",
         "toggle_item | desc=mcp-tool-toggle_item-desc | ro=Some(false) destructive=Some(true) idempotent=Some(false) open_world=Some(false)",
+        "toggle_mark_for_delete | desc=mcp-tool-toggle_mark_for_delete-desc | ro=Some(false) destructive=Some(false) idempotent=Some(false) open_world=Some(false)",
         "unassign_tag | desc=mcp-tool-unassign_tag-desc | ro=Some(false) destructive=Some(true) idempotent=Some(false) open_world=Some(false)",
         "update_item | desc=mcp-tool-update_item-desc | ro=Some(false) destructive=Some(true) idempotent=Some(false) open_world=Some(false)",
     ];

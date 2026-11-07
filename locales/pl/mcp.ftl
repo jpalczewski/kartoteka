@@ -71,3 +71,5 @@ mcp-tool-create_containers-desc = Utwórz wiele folderów/projektów atomowo. U�
 
 mcp-tool-move_list_to_container-desc = Przenieś listę do kontenera lub odepnij ją od bieżącego (container_id: null).
 mcp-tool-move_container_to_parent-desc = Wnieś kontener do folderu-rodzica lub odepnij do poziomu głównego (parent_container_id: null). Tylko foldery (bez status) mogą być rodzicem.
+mcp-tool-toggle_mark_for_delete-desc = Oznacz encję do usunięcia lub odznacz ją. entity_type: "item", "list", "container" lub "comment". Nic nie zostaje usunięte: encja trafia do kolejki usuwania użytkownika, którą użytkownik przegląda w aplikacji na /trash i tam decyduje. Ponowne wywołanie na oznaczonej encji ją odznacza. To jedyny sposób usuwania przez MCP.
+mcp-tool-list_marked_for_delete-desc = Pobierz wszystko, co czeka w kolejce usuwania użytkownika (typ encji, etykieta, gdzie się znajduje, a dla list i kontenerów także co jeszcze zniknie razem z nimi). Nic nie zostaje usunięte. Wywołaj to przed przełączeniem, aby nie odznaczyć czegoś, co już oznaczyłeś.

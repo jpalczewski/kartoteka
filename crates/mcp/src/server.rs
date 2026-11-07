@@ -66,6 +66,7 @@ impl KartotekaServer {
             + Self::tags_router()
             + Self::templates_router()
             + Self::search_router()
+            + Self::pending_deletions_router()
     }
 
     /// Map any tool failure to a JSON-RPC error for the client.
@@ -335,7 +336,10 @@ impl ServerHandler for KartotekaServer {
             Use search_items to find items by keyword before acting on them. \
             When adding comments: omit author_name to write in the user's voice; \
             set author_name to your name (e.g. \"Claude\") for your own observations. \
-            Prefer get_today and list_overdue to surface what needs attention now.",
+            Prefer get_today and list_overdue to surface what needs attention now. \
+            Deleting over MCP goes through toggle_mark_for_delete: it deletes nothing, \
+            the user reviews the marked entities on /trash and decides, and \
+            list_marked_for_delete shows what you already queued.",
         )
     }
 
