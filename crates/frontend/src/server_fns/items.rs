@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 use kartoteka_shared::types::{
-    CalendarMonthData, CalendarWeekDay, DateItem, Item, ListData, TodayData,
+    CalendarMonthData, CalendarWeekDay, DateItem, Item, ItemDetailData, ListData, TodayData,
 };
 use leptos::prelude::*;
 
@@ -26,6 +26,12 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+
+    // Record the open so the home page "recent" section can list it. Best-effort:
+    // a failure here must not break the page.
+    if let Err(e) = domain::lists::touch_last_opened(&pool, &list_id, &user.id).await {
+        leptos::logging::warn!("failed to touch list last_opened_at: {e}");
+    }
 
     macro_rules! sfn_err {
         ($e:expr) => {
@@ -100,7 +106,9 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
 
     let created_at_local = format_datetime_in_tz(&list.created_at, tz);
 
-    let today_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    // Resolve today in the user's timezone, matching the domain overdue logic and
+    // get_today_data. Reading settings above means no extra query is needed here.
+    let today_date = domain::items::date_in_tz(chrono::Utc::now(), tz);
 
     let container_name = if let Some(ref cid) = list.container_id {
         domain::containers::get_one(&pool, cid, &user.id)
@@ -226,8 +234,9 @@ pub async fn toggle_item(item_id: String) -> Result<Option<Item>, ServerFnError>
     Ok(result.map(Item::from))
 }
 
-/// Rewrite item positions in `list_id` according to `item_ids`. Ids not in
-/// the list are ignored; missing ids keep their old position.
+/// Rewrite item positions in `list_id` according to `item_ids`. Every id must
+/// be an item of that (owned) list; ids missing from `item_ids` keep their old
+/// position. The whole rewrite runs in one domain transaction.
 #[server(prefix = "/leptos")]
 pub async fn reorder_items(list_id: String, item_ids: Vec<String>) -> Result<(), ServerFnError> {
     let pool = expect_context::<SqlitePool>();
@@ -237,25 +246,15 @@ pub async fn reorder_items(list_id: String, item_ids: Vec<String>) -> Result<(),
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    // Ownership guard — ensure caller owns the list.
-    if domain::lists::get_one(&pool, &list_id, &user.id)
+    domain::items::reorder(&pool, &user.id, &list_id, &item_ids)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
-        .is_none()
-    {
-        return Err(ServerFnError::new("list not found".to_string()));
-    }
-    for (pos, id) in item_ids.iter().enumerate() {
-        kartoteka_db::items::move_item(&pool, id, &user.id, pos as i32, None)
-            .await
-            .map_err(|e| ServerFnError::new(e.to_string()))?;
-    }
-    Ok(())
+        .map_err(|e| ServerFnError::new(e.to_string()))
 }
 
 /// Cross-list item move: put `item_id` into `target_list_id` right before
-/// `before_item_id` (None = append). Rewrites positions on the target list so
-/// the new order is stable.
+/// `before_item_id` (None = append). The domain layer re-validates target list
+/// ownership, the duplicate-title rule and rewrites positions in one
+/// transaction.
 #[server(prefix = "/leptos")]
 pub async fn set_item_placement(
     item_id: String,
@@ -269,34 +268,15 @@ pub async fn set_item_placement(
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    // Fetch current items of target list (ordered).
-    let target_items = domain::items::list_for_list(&pool, &target_list_id, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let mut target_ids: Vec<String> = target_items
-        .into_iter()
-        .map(|it| it.id)
-        .filter(|id| id != &item_id)
-        .collect();
-    let insert_at = match before_item_id.as_deref() {
-        Some(before) => target_ids
-            .iter()
-            .position(|id| id == before)
-            .unwrap_or(target_ids.len()),
-        None => target_ids.len(),
-    };
-    target_ids.insert(insert_at, item_id.clone());
-    // First move the dragged item into the target list (any position); then
-    // rewrite positions so the sequence matches target_ids.
-    kartoteka_db::items::move_item(&pool, &item_id, &user.id, 0, Some(&target_list_id))
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-    for (pos, id) in target_ids.iter().enumerate() {
-        kartoteka_db::items::move_item(&pool, id, &user.id, pos as i32, None)
-            .await
-            .map_err(|e| ServerFnError::new(e.to_string()))?;
-    }
-    Ok(())
+    domain::items::place(
+        &pool,
+        &user.id,
+        &item_id,
+        &target_list_id,
+        before_item_id.as_deref(),
+    )
+    .await
+    .map_err(|e| ServerFnError::new(e.to_string()))
 }
 
 /// Move an item to a different list (appended at the end of the target list).
@@ -430,9 +410,12 @@ pub async fn update_item_quantity(
     Ok(item.into())
 }
 
-/// Fetch a single item by id.
+/// Fetch a single item by id together with its comments.
+///
+/// Comments are part of this payload (instead of a separate Resource) so the
+/// detail page renders them during SSR and hydrates without a nested fetch.
 #[server(prefix = "/leptos")]
-pub async fn get_item(item_id: String) -> Result<Item, ServerFnError> {
+pub async fn get_item_detail(item_id: String) -> Result<ItemDetailData, ServerFnError> {
     let pool = expect_context::<SqlitePool>();
     let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
         .await
@@ -440,8 +423,9 @@ pub async fn get_item(item_id: String) -> Result<Item, ServerFnError> {
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    let (item, prefs) = tokio::try_join!(
+    let (item, comments, prefs) = tokio::try_join!(
         domain::items::get_one(&pool, &item_id, &user.id),
+        domain::comments::list_for_entity(&pool, &user.id, "item", &item_id),
         domain::preferences::get(&pool, &user.id),
     )
     .map_err(|e| ServerFnError::new(e.to_string()))?;
@@ -451,7 +435,16 @@ pub async fn get_item(item_id: String) -> Result<Item, ServerFnError> {
     // Display-only fields: shown on the item page in the user's timezone.
     item.created_at = format_datetime_in_tz(&item.created_at, &prefs.timezone);
     item.updated_at = format_datetime_in_tz(&item.updated_at, &prefs.timezone);
-    Ok(item)
+    Ok(ItemDetailData {
+        item,
+        comments: CommentsPayload {
+            comments: comments
+                .into_iter()
+                .map(|c| domain_comment_to_shared(c, &prefs.timezone))
+                .collect(),
+            current_user_id: user.id,
+        },
+    })
 }
 
 /// Update only the description of an item. Pass empty string to clear.
@@ -642,15 +635,10 @@ pub async fn get_today_data() -> Result<TodayData, ServerFnError> {
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
 
-    // Resolve today's date in user's timezone first
-    let prefs = domain::preferences::get(&pool, &user.id)
+    // Resolve today's date in the user's timezone first (shared with list grouping).
+    let today_date = domain::items::user_today(&pool, &user.id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let tz: chrono_tz::Tz = prefs.timezone.parse().unwrap_or(chrono_tz::UTC);
-    let today_date = chrono::Utc::now()
-        .with_timezone(&tz)
-        .format("%Y-%m-%d")
-        .to_string();
 
     // Pass resolved date string (not "today") to avoid double timezone resolution inside domain
     let today_items = domain::items::by_date(&pool, &user.id, &today_date)

@@ -190,7 +190,7 @@ pub fn SettingsPage() -> impl IntoView {
                                                 let name = new_token_name.get();
                                                 if name.trim().is_empty() { return; }
                                                 leptos::task::spawn_local(async move {
-                                                    match create_token_sf(name, "api".to_string()).await {
+                                                    match create_token_sf(name, "full".to_string()).await {
                                                         Ok(tok) => {
                                                             set_created_token.set(Some(tok));
                                                             set_new_token_name.set(String::new());

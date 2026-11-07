@@ -421,9 +421,6 @@ pub async fn set_server_config(
     }))
 }
 
-const DEFAULT_TOKEN_TTL_DAYS: i64 = 90;
-const MAX_TOKEN_TTL_DAYS: i64 = 365;
-
 /// POST /auth/tokens — create a personal access token (session auth required)
 #[tracing::instrument(skip_all, fields(action = "create_token"))]
 pub async fn create_token_handler(
@@ -432,48 +429,25 @@ pub async fn create_token_handler(
     Json(req): Json<CreateTokenRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let user = auth_session.user.ok_or(AppError::Unauthorized)?;
-    let scope = req.scope.as_deref().unwrap_or("full");
 
-    const ALLOWED_SCOPES: &[&str] = &["full", "readonly"];
-    if !ALLOWED_SCOPES.contains(&scope) {
-        return Err(AppError::Validation(format!(
-            "invalid scope '{scope}': must be one of: full, readonly"
-        )));
-    }
-
-    let now = chrono::Utc::now();
-    let expires_at = match req.expires_at.as_deref() {
-        Some(s) => {
-            let dt = chrono::DateTime::parse_from_rfc3339(s)
-                .map(|dt| dt.with_timezone(&chrono::Utc))
-                .map_err(|_| {
-                    AppError::Validation("invalid expires_at: expected RFC3339".to_string())
-                })?;
-            if dt <= now {
-                return Err(AppError::Validation(
-                    "expires_at must be in the future".to_string(),
-                ));
-            }
-            let max = now + chrono::Duration::days(MAX_TOKEN_TTL_DAYS);
-            if dt > max {
-                return Err(AppError::Validation(format!(
-                    "expires_at exceeds maximum of {MAX_TOKEN_TTL_DAYS} days"
-                )));
-            }
-            dt
-        }
-        None => now + chrono::Duration::days(DEFAULT_TOKEN_TTL_DAYS),
+    // Scope allowlist, TTL defaults and limits live in the domain layer so the
+    // REST API and the Leptos server functions can never diverge.
+    let params = kartoteka_domain::auth::CreateTokenParams {
+        name: req.name,
+        scope: req.scope,
+        expires_at: req.expires_at,
     };
-
-    let created = kartoteka_domain::auth::create_token(
+    let created = kartoteka_domain::auth::create_personal_token(
         &state.pool,
         &state.signing_secret,
         &user.id,
-        &req.name,
-        scope,
-        Some(expires_at),
+        params,
     )
-    .await?;
+    .await
+    .map_err(|e| match e {
+        kartoteka_domain::auth::CreateTokenError::Domain(domain_err) => AppError::from(domain_err),
+        validation_err => AppError::Validation(validation_err.to_string()),
+    })?;
 
     Ok((
         StatusCode::CREATED,

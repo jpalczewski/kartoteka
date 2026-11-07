@@ -2,7 +2,7 @@ use crate::{DomainError, rules};
 use kartoteka_db as db;
 use kartoteka_shared::types::FlexDate;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -277,6 +277,63 @@ pub async fn get_one(
     }))
 }
 
+// ── Create building blocks ────────────────────────────────────────────────────
+
+/// Rules every new item must satisfy, independent of how it is persisted.
+///
+/// `features` are the feature names enabled on the target list. Uniqueness is
+/// deliberately not checked here: [`create`] rejects duplicates while the MCP
+/// batch reports them as `existed` in its own dedup pass.
+pub fn validate_create_item(
+    features: &[String],
+    req: &CreateItemRequest,
+) -> Result<(), DomainError> {
+    rules::items::validate_title(&req.title)?;
+    rules::items::validate_item_dates(
+        req.start_date.as_deref(),
+        req.start_time.as_deref(),
+        req.deadline.as_deref(),
+        req.deadline_time.as_deref(),
+        req.hard_deadline.as_deref(),
+    )?;
+    let has_dates =
+        req.start_date.is_some() || req.deadline.is_some() || req.hard_deadline.is_some();
+    let has_quantity = req.quantity.is_some() || req.unit.is_some();
+    rules::items::validate_features(features, has_dates, has_quantity)
+}
+
+/// Map a validated create request onto the DB insert input.
+pub fn new_item_input(
+    list_id: &str,
+    position: i32,
+    req: &CreateItemRequest,
+) -> db::items::InsertItemInput {
+    db::items::InsertItemInput {
+        id: Uuid::new_v4().to_string(),
+        list_id: list_id.to_string(),
+        position,
+        title: req.title.clone(),
+        description: req.description.clone(),
+        quantity: req.quantity,
+        actual_quantity: req.actual_quantity,
+        unit: req.unit.clone(),
+        start_date: req.start_date.clone(),
+        start_time: req.start_time.clone(),
+        deadline: req.deadline.clone(),
+        deadline_time: req.deadline_time.clone(),
+        hard_deadline: req.hard_deadline.clone(),
+        estimated_duration: req.estimated_duration,
+    }
+}
+
+/// Insert an already-validated item inside a caller-owned transaction.
+pub async fn insert_item_in(
+    conn: &mut SqliteConnection,
+    input: &db::items::InsertItemInput,
+) -> Result<Item, DomainError> {
+    Ok(db::items::insert_in_tx(conn, input).await?.into())
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn create(
     pool: &SqlitePool,
@@ -290,46 +347,23 @@ pub async fn create(
         .ok_or(DomainError::NotFound("list"))?;
 
     // Phase 2: THINK
-    rules::items::validate_title(&req.title)?;
+    validate_create_item(&ctx.features, req)?;
     DomainError::ensure_unique(
         db::items::find_id_by_title_in_list(pool, list_id, &req.title, None).await?,
         "item",
     )?;
-    rules::items::validate_item_dates(
-        req.start_date.as_deref(),
-        req.start_time.as_deref(),
-        req.deadline.as_deref(),
-        req.deadline_time.as_deref(),
-        req.hard_deadline.as_deref(),
-    )?;
-    let has_dates =
-        req.start_date.is_some() || req.deadline.is_some() || req.hard_deadline.is_some();
-    let has_quantity = req.quantity.is_some() || req.unit.is_some();
-    rules::items::validate_features(&ctx.features, has_dates, has_quantity)?;
 
     // Phase 3: WRITE
-    let row = db::items::insert(
-        pool,
-        &db::items::InsertItemInput {
-            id: Uuid::new_v4().to_string(),
-            list_id: list_id.to_string(),
-            position: i32::try_from(ctx.next_position).unwrap_or(i32::MAX),
-            title: req.title.clone(),
-            description: req.description.clone(),
-            quantity: req.quantity,
-            actual_quantity: req.actual_quantity,
-            unit: req.unit.clone(),
-            start_date: req.start_date.clone(),
-            start_time: req.start_time.clone(),
-            deadline: req.deadline.clone(),
-            deadline_time: req.deadline_time.clone(),
-            hard_deadline: req.hard_deadline.clone(),
-            estimated_duration: req.estimated_duration,
-        },
-    )
-    .await?;
+    let input = new_item_input(
+        list_id,
+        i32::try_from(ctx.next_position).unwrap_or(i32::MAX),
+        req,
+    );
+    let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
+    let item = insert_item_in(&mut tx, &input).await?;
+    tx.commit().await.map_err(db::DbError::Sqlx)?;
 
-    Ok(row.into())
+    Ok(item)
 }
 
 #[tracing::instrument(skip(pool))]
@@ -478,6 +512,114 @@ pub async fn move_item(
     Ok(db::items::get_one(pool, id, user_id).await?.map(Item::from))
 }
 
+/// Rewrite item positions inside one list, atomically.
+///
+/// Every id in `ordered_ids` must be an item of `list_id` owned by `user_id`,
+/// otherwise the call fails with [`DomainError::NotFound`] before anything is
+/// written (no partial reorder). Positions of ids that are not mentioned keep
+/// their current value.
+#[tracing::instrument(skip(pool, ordered_ids), fields(list_id = %list_id, count = ordered_ids.len()))]
+pub async fn reorder(
+    pool: &SqlitePool,
+    user_id: &str,
+    list_id: &str,
+    ordered_ids: &[String],
+) -> Result<(), DomainError> {
+    if db::lists::get_one(pool, list_id, user_id).await?.is_none() {
+        return Err(DomainError::NotFound("list"));
+    }
+    let scope = db::items::ordered_ids_in_list(pool, user_id, list_id).await?;
+    DomainError::ensure_ids_in_scope(&scope, ordered_ids, "item")?;
+
+    let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
+    for (pos, id) in ordered_ids.iter().enumerate() {
+        if !db::items::set_position_in_tx(&mut tx, id, user_id, list_id, pos as i32).await? {
+            // Cannot happen after the scope check above; keep the guard so a
+            // concurrent change can never produce a silent partial write.
+            return Err(DomainError::NotFound("item"));
+        }
+    }
+    tx.commit().await.map_err(db::DbError::Sqlx)?;
+    Ok(())
+}
+
+/// Move `item_id` into `target_list_id` right before `before_item_id`
+/// (`None` = append), then rewrite the target list positions in the same
+/// transaction.
+///
+/// The target list must belong to `user_id` and the item title must stay unique
+/// inside it (same rule as [`move_item`]).
+#[tracing::instrument(skip(pool, before_item_id), fields(item_id = %item_id, target_list_id = %target_list_id))]
+pub async fn place(
+    pool: &SqlitePool,
+    user_id: &str,
+    item_id: &str,
+    target_list_id: &str,
+    before_item_id: Option<&str>,
+) -> Result<(), DomainError> {
+    // Phase 1 READ: item (owner-scoped) + target list ownership
+    let current = db::items::get_one(pool, item_id, user_id)
+        .await?
+        .map(Item::from)
+        .ok_or(DomainError::NotFound("item"))?;
+    if db::lists::get_one(pool, target_list_id, user_id)
+        .await?
+        .is_none()
+    {
+        return Err(DomainError::NotFound("list"));
+    }
+    // Phase 2 THINK: duplicate-title rule of the target list
+    DomainError::ensure_unique(
+        db::items::find_id_by_title_in_list(pool, target_list_id, &current.title, Some(item_id))
+            .await?,
+        "item",
+    )?;
+
+    let mut target_ids = db::items::ordered_ids_in_list(pool, user_id, target_list_id).await?;
+    target_ids.retain(|id| id != item_id);
+    let insert_at = match before_item_id.filter(|before| *before != item_id) {
+        Some(before) => target_ids
+            .iter()
+            .position(|id| id == before)
+            .ok_or(DomainError::NotFound("item"))?,
+        None => target_ids.len(),
+    };
+    target_ids.insert(insert_at, item_id.to_string());
+
+    // Phase 3 WRITE: one transaction — move first, then rewrite positions
+    let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
+    if !db::items::move_item_in_tx(&mut tx, item_id, user_id, 0, Some(target_list_id)).await? {
+        return Err(DomainError::NotFound("item"));
+    }
+    for (pos, id) in target_ids.iter().enumerate() {
+        if !db::items::set_position_in_tx(&mut tx, id, user_id, target_list_id, pos as i32).await? {
+            return Err(DomainError::NotFound("item"));
+        }
+    }
+    tx.commit().await.map_err(db::DbError::Sqlx)?;
+    Ok(())
+}
+
+/// Format `now` as a "YYYY-MM-DD" date in `tz_str`, falling back to UTC when the
+/// timezone name is invalid. Kept pure so timezone-boundary behaviour is testable.
+pub fn date_in_tz(now: chrono::DateTime<chrono::Utc>, tz_str: &str) -> String {
+    let tz: chrono_tz::Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
+    now.with_timezone(&tz)
+        .date_naive()
+        .format("%Y-%m-%d")
+        .to_string()
+}
+
+/// Today's date ("YYYY-MM-DD") in the user's configured timezone.
+///
+/// All "today"-based logic (today view, overdue, list grouping) must go through
+/// this helper so it agrees on the user's local date instead of UTC.
+#[tracing::instrument(skip(pool))]
+pub async fn user_today(pool: &SqlitePool, user_id: &str) -> Result<String, DomainError> {
+    let tz_str = db::preferences::get_timezone(pool, user_id).await?;
+    Ok(date_in_tz(chrono::Utc::now(), &tz_str))
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn by_date(
     pool: &SqlitePool,
@@ -485,13 +627,7 @@ pub async fn by_date(
     date: &str,
 ) -> Result<Vec<Item>, DomainError> {
     let resolved = if date == "today" {
-        let tz_str = db::preferences::get_timezone(pool, user_id).await?;
-        let tz: chrono_tz::Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
-        chrono::Utc::now()
-            .with_timezone(&tz)
-            .date_naive()
-            .format("%Y-%m-%d")
-            .to_string()
+        user_today(pool, user_id).await?
     } else {
         date.to_string()
     };
@@ -531,13 +667,7 @@ pub async fn overdue_for(
 /// Hard deadlines are intentionally excluded — overdue means a missed `deadline` date.
 #[tracing::instrument(skip(pool))]
 pub async fn overdue(pool: &SqlitePool, user_id: &str) -> Result<Vec<Item>, DomainError> {
-    let tz_str = db::preferences::get_timezone(pool, user_id).await?;
-    let tz: chrono_tz::Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
-    let today = chrono::Utc::now()
-        .with_timezone(&tz)
-        .date_naive()
-        .format("%Y-%m-%d")
-        .to_string();
+    let today = user_today(pool, user_id).await?;
     overdue_for(pool, user_id, &today).await
 }
 

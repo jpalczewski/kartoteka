@@ -70,18 +70,17 @@ pub async fn list_tree(pool: &SqlitePool, user_id: &str) -> Result<Vec<TagRow>, 
     .map_err(DbError::Sqlx)
 }
 
-#[tracing::instrument(skip(pool))]
-pub async fn get_one(
-    pool: &SqlitePool,
-    id: &str,
-    user_id: &str,
-) -> Result<Option<TagRow>, DbError> {
+#[tracing::instrument(skip(executor))]
+pub async fn get_one<'e, E>(executor: E, id: &str, user_id: &str) -> Result<Option<TagRow>, DbError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     sqlx::query_as::<_, TagRow>(&format!(
         "SELECT {TAG_COLS} FROM tags WHERE id = ? AND user_id = ?"
     ))
     .bind(id)
     .bind(user_id)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await
     .map_err(DbError::Sqlx)
 }

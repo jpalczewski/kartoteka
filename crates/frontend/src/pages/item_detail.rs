@@ -14,7 +14,7 @@ use crate::components::relations::RelatedEntities;
 use crate::components::tags::tag_list::TagList;
 use crate::components::time_entries::ItemTimerWidget;
 use crate::server_fns::items::{
-    get_item, toggle_item, update_item, update_item_dates, update_item_quantity,
+    get_item_detail, toggle_item, update_item, update_item_dates, update_item_quantity,
 };
 use crate::server_fns::lists::get_list_feature_names;
 use crate::server_fns::tags::{
@@ -51,7 +51,10 @@ pub fn ItemDetailPage() -> impl IntoView {
     let (refresh, set_refresh) = signal(0u32);
     let (tag_refresh, set_tag_refresh) = signal(0u32);
 
-    let item_res = Resource::new(move || (item_id(), refresh.get()), |(id, _)| get_item(id));
+    let item_res = Resource::new(
+        move || (item_id(), refresh.get()),
+        |(id, _)| get_item_detail(id),
+    );
     let item_tags_res = Resource::new(
         move || (item_id(), tag_refresh.get()),
         |(id, _)| get_item_tags(id),
@@ -132,7 +135,8 @@ pub fn ItemDetailPage() -> impl IntoView {
     let back_href = move || format!("/lists/{}", list_id());
 
     Effect::new(move |_| {
-        if let Some(Ok(item)) = item_res.get() {
+        if let Some(Ok(data)) = item_res.get() {
+            let item = data.item;
             title_input.set(item.title.clone());
             description_input.set(item.description.clone().unwrap_or_default());
             quantity_input.set(item.quantity.map(|q| q.to_string()).unwrap_or_default());
@@ -178,7 +182,9 @@ pub fn ItemDetailPage() -> impl IntoView {
                     Err(e) => view! {
                         <p class="text-error">"Error: " {e.to_string()}</p>
                     }.into_any(),
-                    Ok(item) => {
+                    Ok(data) => {
+                        let comments_payload = data.comments;
+                        let item = data.item;
                         let completed = item.completed;
                         let created_at = item.created_at.clone();
                         let updated_at = item.updated_at.clone();
@@ -417,6 +423,7 @@ pub fn ItemDetailPage() -> impl IntoView {
                                 <CommentSection
                                     entity_type="item"
                                     entity_id=Signal::derive(item_id)
+                                    initial_payload=comments_payload
                                 />
 
                                 <RelatedEntities
