@@ -27,6 +27,12 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
 
+    // Record the open so the home page "recent" section can list it. Best-effort:
+    // a failure here must not break the page.
+    if let Err(e) = domain::lists::touch_last_opened(&pool, &list_id, &user.id).await {
+        leptos::logging::warn!("failed to touch list last_opened_at: {e}");
+    }
+
     macro_rules! sfn_err {
         ($e:expr) => {
             ServerFnError::new($e.to_string())

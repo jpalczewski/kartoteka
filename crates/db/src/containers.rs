@@ -395,15 +395,16 @@ pub async fn progress(
 }
 
 /// Update last_opened_at for a container.
+///
+/// Only `last_opened_at` is written: opening a container is a read and must not
+/// make it look freshly edited (`updated_at`).
 #[tracing::instrument(skip(pool))]
 pub async fn touch_last_opened(pool: &SqlitePool, id: &str, user_id: &str) -> Result<(), DbError> {
-    sqlx::query(
-        "UPDATE containers SET last_opened_at=datetime('now'), updated_at=datetime('now') WHERE id=? AND user_id=?",
-    )
-    .bind(id)
-    .bind(user_id)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE containers SET last_opened_at=datetime('now') WHERE id=? AND user_id=?")
+        .bind(id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -831,5 +832,35 @@ mod tests {
             "should return only root of archived subtree, not cascaded children"
         );
         assert_eq!(archived[0].id, parent.id);
+    }
+
+    #[tokio::test]
+    async fn touch_last_opened_sets_only_last_opened_at() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let created = create_test_container(&pool, &uid, "Touched", None).await;
+        assert!(created.last_opened_at.is_none());
+
+        touch_last_opened(&pool, &created.id, &uid).await.unwrap();
+
+        let after = get_one(&pool, &created.id, &uid).await.unwrap().unwrap();
+        assert!(after.last_opened_at.is_some());
+        assert_eq!(
+            after.updated_at, created.updated_at,
+            "opening a container is a read and must not bump updated_at"
+        );
+    }
+
+    #[tokio::test]
+    async fn touch_last_opened_is_scoped_by_user() {
+        let pool = test_pool().await;
+        let owner = create_test_user(&pool).await;
+        let other = create_test_user(&pool).await;
+        let created = create_test_container(&pool, &owner, "Owned", None).await;
+
+        touch_last_opened(&pool, &created.id, &other).await.unwrap();
+
+        let row = get_one(&pool, &created.id, &owner).await.unwrap().unwrap();
+        assert!(row.last_opened_at.is_none());
     }
 }

@@ -182,6 +182,18 @@ pub async fn get_one(
         .transpose()
 }
 
+/// Record that the user opened a list (powers the home "recent" section).
+/// Only `last_opened_at` is written; `updated_at` is left untouched.
+#[tracing::instrument(skip(pool))]
+pub async fn touch_last_opened(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+) -> Result<(), DomainError> {
+    db::lists::touch_last_opened(pool, id, user_id).await?;
+    Ok(())
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn sublists(
     pool: &SqlitePool,
