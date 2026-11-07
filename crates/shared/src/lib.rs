@@ -10,7 +10,10 @@ pub use constants::*;
 pub use icon_value::{IconValue, default_container_icon, default_list_icon, parse_icon_value};
 pub use locale::Locale;
 pub use redirect::safe_return_to;
-pub use tag_utils::FilterMode;
+pub use tag_utils::{
+    DEFAULT_TAG_COLOR, FilterMode, TAG_PALETTE, ancestor_path, build_ancestor_map,
+    readable_text_color,
+};
 #[allow(dead_code)]
 pub(crate) mod deserializers;
 pub mod dto;

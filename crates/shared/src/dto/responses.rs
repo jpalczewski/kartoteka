@@ -114,3 +114,21 @@ pub struct HomeFilterResult {
     pub matching_container_ids: Vec<String>,
     pub related_tag_ids: Vec<String>,
 }
+
+// ── Tag responses ─────────────────────────────────────────────────────────────
+
+/// How many items and lists carry a tag — shown as the usage count in the tag tree
+/// and summarised in the delete confirmation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TagUsage {
+    pub items: i64,
+    pub lists: i64,
+}
+
+impl TagUsage {
+    /// Items plus lists, i.e. the single number rendered next to a tag.
+    #[must_use]
+    pub const fn total(self) -> i64 {
+        self.items + self.lists
+    }
+}
