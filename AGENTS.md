@@ -66,6 +66,7 @@ just check-fe       # check frontendu: ssr + hydrate (wasm32) + kompilacja test�
 just build          # npm install + cargo leptos build --release
 just test           # nextest workspace + doctesty
 just t <crate>      # nextest jednego crate'a
+just c <crate>      # clippy jednego crate'a (frontend: ssr + hydrate/wasm32)
 just verify         # pełne sprawdzenie przed pushem (fmt, lint, test, check-fe)
 just test-e2e       # Playwright (serwer startuje sam Playwright)
 just lint           # Clippy (z testami) + fmt check
@@ -74,25 +75,16 @@ just ci             # fmt + lint + audit + machete + test
 just deploy-preview # build AMD64 obraz lokalnie + push :preview do GHCR (bez deploya)
 ```
 
-## Git / Commits
-
-- Conventional Commits: `feat: ...`, `fix: ...`, `chore: ...`
-
-## Deployment / CI
-
-- Główna aplikacja: binarka + site budowane natywnie w CI (`docker-build.yml`, `cargo leptos build --release`), pakowane przez `Dockerfile.runtime`, wypychane do GHCR (`:develop`, `:preview`, `:latest` + tag wersji). Repo nie robi deploya; `Dockerfile` (multi-stage) zostaje do buildów lokalnych
-- CI (`.github/workflows/`): `ci.yml` (fmt, clippy+testy, deny, machete), `docker-build.yml`, `security-audit.yml` (weekly), `codeql.yml`, `release-please.yml`
-- Preview: `just deploy-preview` (AMD64 build via Colima, tylko push do GHCR)
-
-### Weryfikacja — tylko przez `just`, bez własnych kombinacji flag
+## Weryfikacja — tylko przez `just`, bez własnych kombinacji flag
 
 Każda nowa kombinacja `--features` / `--all-targets` / `--tests` rekompiluje całe drzewo na współdzielonym hoście — używaj wyłącznie gotowych przepisów.
 
 | Kiedy | Komenda | Co robi |
 | --- | --- | --- |
 | w trakcie pracy | `just t <crate>` | nextest jednego crate'a |
+| w trakcie pracy, lint | `just c <crate>` | clippy jednego crate'a (frontend: ssr + hydrate/wasm32) |
 | zmiana w `crates/frontend` | `just check-fe` | check ssr + hydrate (wasm32) + kompilacja testów frontendu |
-| przed pushem, raz | `just verify` | fmt, clippy (z testami), nextest workspace, check-fe; odpala też lefthook pre-push |
+| przed pushem, raz | `just verify` | fmt, clippy (z testami), nextest workspace, check-fe; to samo robi lefthook pre-push tam, gdzie lefthook jest zainstalowany |
 | tylko na prośbę | `just test-e2e` | Playwright, port z `E2E_PORT` |
 
 - Nigdy `cargo test` — używaj nextest (`just test` / `just t <crate>`)
@@ -101,10 +93,37 @@ Każda nowa kombinacja `--features` / `--all-targets` / `--tests` rekompiluje ca
 - Z konfliktami: `just t <crate>` dla dotkniętych crate'ów i `just verify` raz na końcu
 - Flaky test: max 3 powtórzenia przez `just t <crate> -E 'test(name)'`, potem zgłoś — nie zapętlaj
 
-### Praca równoległa (wiele wątków i PR-ów naraz)
+## Testy
+
+- Unit (`crates/shared/`): `just t shared`
+- i18n (`crates/i18n/tests/`): kompletność PL/EN, parsowanie FTL, pokrycie MCP
+- E2E (`tests/e2e/`): Playwright, 9 spec files — `just test-e2e`
+  - `just test-e2e` robi `build-css` + `cargo leptos build`, potem `npx playwright test`; serwer aplikacji
+    startuje sam Playwright (`tests/playwright.config.ts`), więc nie trzeba uruchamiać `just dev`
+  - binarka: `target/debug/kartoteka` (albo `$CARGO_TARGET_DIR`), nadpisywalna przez `$KARTOTEKA_BIN`;
+    port: 3030, nadpisywalny przez `$E2E_PORT` (kilka checkoutów obok siebie)
+  - `tests/test.db` jest kasowany **przed** startem serwera (migracje lecą przy starcie), a
+    `LEPTOS_HASH_FILES=true` jest ustawiane w env serwera — bez tego hydracja nie działa
+  - `@playwright/test` jest przypięty do `1.58.2` (nie `^`), bo ta wersja używa
+    `chromium-headless-shell-1208`, który jest zainstalowany na maszynach dev/CI; podbicie do
+    `1.60+` wymaga innej rewizji przeglądarki (`npx playwright install chromium-headless-shell`)
+  - helpery (`registerAndLogin`, `createList`, `addItem`, …) są w `tests/e2e/helpers.ts`; nowe
+    selektory opieraj na `data-testid`, nie na przetłumaczonych placeholderach/etykietach
+
+## Praca równoległa (wiele wątków i PR-ów naraz)
 
 - Merge tylko przez rebase/squash (merge commity wyłączone); jeden wątek-koordynator trzyma kolejność merge'y do develop — zgłoś mu swój PR, nie merguj poza kolejnością
 - Zarezerwuj numer migracji u koordynatora przed jej utworzeniem (była już kolizja 017)
 - Pliki tymczasowe: `.scratch/` w worktree (gitignored), nigdy `/tmp`
 - Procesy: `pgrep -x kartoteka`, nie `pkill -f` (zabija twoją własną powłokę)
 - Nie buduj w głównym checkoutcie `~/kartoteka`, tylko w swoim worktree
+
+## Git / Commits
+
+- Conventional Commits: `feat: ...`, `fix: ...`, `chore: ...`
+
+## Deployment / CI
+
+- CI: `.github/workflows/` — `ci.yml` (fmt, clippy+testy, deny, machete), CodeQL, obrazy Docker (`docker-build.yml` reusable); szczegóły w plikach workflow.
+- Główna aplikacja: binarka + site budowane natywnie w CI (`docker-build.yml`, `cargo leptos build --release`), pakowane przez `Dockerfile.runtime`, wypychane do GHCR (`:develop`, `:preview`, `:latest` + tag wersji). Repo nie robi deploya; `Dockerfile` (multi-stage) zostaje do buildów lokalnych
+- Preview: `just deploy-preview` (AMD64 build via Colima, tylko push do GHCR)
