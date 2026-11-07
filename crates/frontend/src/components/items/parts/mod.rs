@@ -5,6 +5,7 @@
 
 mod checkbox;
 mod date_chips;
+mod estimate_chip;
 mod icon;
 mod quantity_badge;
 mod recurrence_chip;
@@ -13,6 +14,7 @@ mod title;
 
 pub use checkbox::ItemCheckbox;
 pub use date_chips::DateChips;
+pub use estimate_chip::EstimateChip;
 pub use icon::ItemIcon;
 pub use quantity_badge::QuantityBadge;
 pub use recurrence_chip::RecurrenceChip;

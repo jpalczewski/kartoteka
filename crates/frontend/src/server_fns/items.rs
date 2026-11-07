@@ -230,6 +230,53 @@ pub async fn set_item_icon(item_id: String, icon: Option<String>) -> Result<Item
     Ok(change.item.into())
 }
 
+/// Set (or clear, with `None` / a blank rule) an item's recurrence.
+///
+/// `rule` is the compact form (`7d`, `2w`, `1m`), `mode` is `fixed` (the default) or
+/// `floating`. Clearing the rule clears the mode with it. The domain refuses a rule on an
+/// item without a start date or deadline, and one that does not fit the item's dates.
+#[server(prefix = "/leptos")]
+pub async fn set_item_recurrence(
+    item_id: String,
+    rule: Option<String>,
+    mode: Option<String>,
+) -> Result<Item, ServerFnError> {
+    let (pool, user) = require_user().await?;
+    let rule = rule.and_then(blank_as_none);
+    let mode = rule.as_ref().and(mode.and_then(blank_as_none));
+    let req = domain::items::UpdateItemRequest {
+        recurrence_mode: rule.as_ref().map(|_| mode),
+        recurrence_rule: Some(rule),
+        ..Default::default()
+    };
+    let change = domain::items::update(&pool, &user.id, &item_id, &req)
+        .await
+        .sfn()?
+        .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
+    Ok(change.item.into())
+}
+
+/// Set (or clear, with `None`) an item's estimated duration in minutes.
+#[server(prefix = "/leptos")]
+pub async fn set_item_estimate(
+    item_id: String,
+    minutes: Option<i32>,
+) -> Result<Item, ServerFnError> {
+    if minutes.is_some_and(|m| !(1..=kartoteka_shared::MAX_ESTIMATE_MINUTES).contains(&m)) {
+        return Err(ServerFnError::new("invalid estimate".to_string()));
+    }
+    let (pool, user) = require_user().await?;
+    let req = domain::items::UpdateItemRequest {
+        estimated_duration: Some(minutes),
+        ..Default::default()
+    };
+    let change = domain::items::update(&pool, &user.id, &item_id, &req)
+        .await
+        .sfn()?
+        .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
+    Ok(change.item.into())
+}
+
 /// Rewrite item positions in `list_id` according to `item_ids`. Every id must
 /// be an item of that (owned) list; ids missing from `item_ids` keep their old
 /// position. The whole rewrite runs in one domain transaction.

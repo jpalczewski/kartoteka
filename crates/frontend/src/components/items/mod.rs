@@ -8,3 +8,4 @@ pub mod item_row;
 pub mod item_view;
 pub mod parts;
 pub mod quantity_stepper;
+pub mod row_editors;
