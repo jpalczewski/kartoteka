@@ -28,6 +28,10 @@ const serverBin = process.env.KARTOTEKA_BIN || path.resolve(targetDir, "debug", 
 
 export default defineConfig({
   testDir: "./e2e",
+  // Shared CI/dev machines compile in the background, so hydration can take a while: give a test
+  // (register + login + setup + assertions) and a single expectation more room than the defaults.
+  timeout: 90_000,
+  expect: { timeout: 10_000 },
   use: {
     baseURL: BASE_URL,
     headless: true,
