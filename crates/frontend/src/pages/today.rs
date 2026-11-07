@@ -10,7 +10,7 @@ use kartoteka_shared::types::{DateItem, ItemTagLink, Tag};
 
 use crate::components::common::list_filter_chips::ListFilterChips;
 use crate::components::common::loading::LoadingSpinner;
-use crate::components::items::item_groups::{ListGroup, group_ids};
+use crate::components::items::item_groups::{ItemGroups, group_ids};
 use crate::components::ui::{IconButton, IconButtonVariant};
 use crate::server_fns::items::{delete_item, get_today_data};
 use crate::server_fns::tags::{get_all_item_tag_links, get_all_tags};
@@ -175,7 +175,10 @@ pub fn TodayPage() -> impl IntoView {
                                     <h3 class="text-xs text-error uppercase tracking-wider font-semibold mb-2">
                                         "Zaległe"
                                     </h3>
-                                    <ItemGroups store=overdue_rows groups=overdue_groups/>
+                                    <ItemGroups
+                                        groups=overdue_groups
+                                        row=move |id: String| view! { <TodayRow store=overdue_rows id=id/> }.into_any()
+                                    />
                                 </div>
                             </Show>
                             <Show when=move || !today_groups.with(Vec::is_empty)>
@@ -185,7 +188,10 @@ pub fn TodayPage() -> impl IntoView {
                                             "Dziś"
                                         </h3>
                                     </Show>
-                                    <ItemGroups store=today_rows groups=today_groups/>
+                                    <ItemGroups
+                                        groups=today_groups
+                                        row=move |id: String| view! { <TodayRow store=today_rows id=id/> }.into_any()
+                                    />
                                 </div>
                             </Show>
                         </Show>
@@ -193,44 +199,6 @@ pub fn TodayPage() -> impl IntoView {
                 </Show>
             </Transition>
         </div>
-    }
-}
-
-/// List groups of one section, keyed by list id, each with its rows keyed by item id.
-#[component]
-fn ItemGroups(store: Store<ItemRows<DateItem>>, groups: Memo<Vec<ListGroup>>) -> impl IntoView {
-    view! {
-        <For
-            each=move || groups.get()
-            key=|group| group.list_id.clone()
-            let:group
-        >
-            {
-                let list_id = group.list_id.clone();
-                let item_ids = move || {
-                    groups.with(|gs| {
-                        gs.iter()
-                            .find(|g| g.list_id == list_id)
-                            .map(|g| g.item_ids.clone())
-                            .unwrap_or_default()
-                    })
-                };
-                view! {
-                    <div class="mb-4">
-                        <h4 class="text-sm font-semibold uppercase tracking-wide mb-1 text-base-content/70">
-                            <A href=format!("/lists/{}", group.list_id) attr:class="link link-hover">
-                                {group.list_name.clone()}
-                            </A>
-                        </h4>
-                        <div class="flex flex-col gap-1">
-                            <For each=item_ids key=|id| id.clone() let:id>
-                                <TodayRow store=store id=id/>
-                            </For>
-                        </div>
-                    </div>
-                }
-            }
-        </For>
     }
 }
 

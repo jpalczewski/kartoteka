@@ -1,3 +1,12 @@
+//! Item rows grouped under their list, shared by the item-list pages.
+//!
+//! A page derives [`ListGroup`]s from its store with [`group_ids`] inside a `Memo` and
+//! hands them to [`ItemGroups`], which renders one section per list and delegates each
+//! row to the page's own row component.
+
+use leptos::prelude::*;
+use leptos_router::components::A;
+
 use kartoteka_shared::types::DateItem;
 
 /// The items of one list inside a section, in display order.
@@ -22,6 +31,48 @@ pub fn group_ids(items: &[DateItem]) -> Vec<ListGroup> {
         }
     }
     groups
+}
+
+/// List groups, keyed by list id, each with its rows keyed by item id. `row` renders
+/// one item id; the page's row component reads its data from its own store.
+#[component]
+pub fn ItemGroups(
+    groups: Memo<Vec<ListGroup>>,
+    #[prop(into)] row: Callback<String, AnyView>,
+) -> impl IntoView {
+    view! {
+        <For
+            each=move || groups.get()
+            key=|group| group.list_id.clone()
+            let:group
+        >
+            {
+                let list_id = group.list_id.clone();
+                let item_ids = move || {
+                    groups.with(|gs| {
+                        gs.iter()
+                            .find(|g| g.list_id == list_id)
+                            .map(|g| g.item_ids.clone())
+                            .unwrap_or_default()
+                    })
+                };
+                view! {
+                    <div class="mb-4">
+                        <h4 class="text-sm font-semibold uppercase tracking-wide mb-1 text-base-content/70">
+                            <A href=format!("/lists/{}", group.list_id) attr:class="link link-hover">
+                                {group.list_name.clone()}
+                            </A>
+                        </h4>
+                        <div class="flex flex-col gap-1">
+                            <For each=item_ids key=|id| id.clone() let:id>
+                                {row.run(id)}
+                            </For>
+                        </div>
+                    </div>
+                }
+            }
+        </For>
+    }
 }
 
 #[cfg(test)]
