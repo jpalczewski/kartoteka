@@ -100,7 +100,9 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
 
     let created_at_local = format_datetime_in_tz(&list.created_at, tz);
 
-    let today_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    // Resolve today in the user's timezone, matching the domain overdue logic and
+    // get_today_data. Reading settings above means no extra query is needed here.
+    let today_date = domain::items::date_in_tz(chrono::Utc::now(), tz);
 
     let container_name = if let Some(ref cid) = list.container_id {
         domain::containers::get_one(&pool, cid, &user.id)
@@ -652,15 +654,10 @@ pub async fn get_today_data() -> Result<TodayData, ServerFnError> {
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
 
-    // Resolve today's date in user's timezone first
-    let prefs = domain::preferences::get(&pool, &user.id)
+    // Resolve today's date in the user's timezone first (shared with list grouping).
+    let today_date = domain::items::user_today(&pool, &user.id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let tz: chrono_tz::Tz = prefs.timezone.parse().unwrap_or(chrono_tz::UTC);
-    let today_date = chrono::Utc::now()
-        .with_timezone(&tz)
-        .format("%Y-%m-%d")
-        .to_string();
 
     // Pass resolved date string (not "today") to avoid double timezone resolution inside domain
     let today_items = domain::items::by_date(&pool, &user.id, &today_date)
