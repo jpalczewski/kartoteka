@@ -34,7 +34,7 @@ async function scheduleListWithItems(page: Page, name: string): Promise<string> 
     await submitAddItem(page, title, async () => {
       const deadline = page.locator('[data-testid="add-item-deadline"]');
       if (!(await deadline.isVisible())) {
-        await page.locator('[data-testid="add-item-dates-toggle"]').click();
+        await page.locator('[data-testid="composer-more-toggle"]').click();
       }
       await deadline.fill(todayIso());
     });
@@ -165,7 +165,7 @@ test("List page: a live update keeps the add-item draft (#426)", async ({ page, 
   await page.goto(`/lists/${listId}`);
   await waitForHydration(page);
   await page.locator('[data-testid="add-item-title"]').fill("Half typed");
-  await page.locator('[data-testid="add-item-dates-toggle"]').click();
+  await page.locator('[data-testid="composer-more-toggle"]').click();
   await page.locator('[data-testid="add-item-deadline"]').fill(todayIso());
 
   // A change from another tab refetches and re-renders this list page.

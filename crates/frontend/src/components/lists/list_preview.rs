@@ -1,12 +1,12 @@
-use crate::components::lists::add_input::AddInput;
+use crate::components::items::item_composer::{AddItemDraft, ItemComposer};
 use crate::components::lists::appearance::{AppearanceTarget, appearance_menu_item};
 use crate::components::ui::{ActionMenu, ActionMenuItem, EntityIcon, Icon};
-use crate::server_fns::items::{create_item, toggle_item};
+use crate::server_fns::items::toggle_item;
 use crate::server_fns::lists::get_list_preview_items;
 use crate::state::invalidation::{mutate, use_invalidation};
+use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::default_list_icon;
 use kartoteka_shared::types::List;
-use kartoteka_shared::{ChangeTopic, CreateItemRequest};
 use kartoteka_shared::{FEATURE_CHECKLIST, FEATURE_QUANTITY, PreviewItem};
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
@@ -107,20 +107,8 @@ pub fn ListPreview(
         mutate(toggle_item(item_id), &[ChangeTopic::Items]);
     });
 
-    let lid_add = list_id.clone();
-    let on_add = Callback::new(move |title: String| {
-        let lid = lid_add.clone();
-        mutate(
-            create_item(
-                lid,
-                CreateItemRequest {
-                    title,
-                    ..Default::default()
-                },
-            ),
-            &[ChangeTopic::Items],
-        );
-    });
+    // Owned here: the preview list below re-renders on every refetch, the draft must not.
+    let add_draft = AddItemDraft::new();
 
     view! {
         <div class="collapse collapse-arrow bg-base-200 border border-base-300">
@@ -212,10 +200,10 @@ pub fn ListPreview(
                                         }
                                     }).collect::<Vec<_>>()}
                                     <div class="mt-2">
-                                        <AddInput
-                                            placeholder=move_tr!("lists-preview-new-item-placeholder")
-                                            button_label=move_tr!("common-add")
-                                            on_submit=on_add
+                                        <ItemComposer
+                                            list_id=Signal::stored(list_id.clone())
+                                            compact=true
+                                            draft=add_draft
                                         />
                                     </div>
                                 </div>

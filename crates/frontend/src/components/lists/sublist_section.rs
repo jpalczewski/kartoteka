@@ -1,14 +1,11 @@
 use crate::components::common::dnd::DragHandleButton;
+use crate::components::items::item_composer::ItemComposer;
 use crate::components::items::item_list::{ItemDnd, ItemRowList};
 use crate::components::items::item_view::ItemCaps;
-use crate::components::lists::add_input::AddInput;
 use crate::components::ui::{ActionMenu, ActionMenuItem, CompletionBar, Icon};
-use crate::server_fns::items::create_item;
 use crate::state::dnd::{DndState, EntityKind};
-use crate::state::invalidation::mutate;
 use crate::state::item_store::{ItemRows, tracked_items};
 use kartoteka_shared::types::Item;
-use kartoteka_shared::{ChangeTopic, CreateItemRequest};
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
 use leptos_router::hooks::use_navigate;
@@ -83,23 +80,6 @@ pub fn SublistSection(
         (items.iter().filter(|i| i.completed).count(), items.len())
     });
 
-    let on_add = Callback::new({
-        let id = id.clone();
-        move |title: String| {
-            let lid = id.clone();
-            mutate(
-                async move {
-                    let req = CreateItemRequest {
-                        title,
-                        ..Default::default()
-                    };
-                    create_item(lid, req).await.map(|_| ())
-                },
-                &[ChangeTopic::Items],
-            );
-        }
-    });
-
     view! {
         <div
             class="collapse collapse-arrow bg-base-200 mb-2"
@@ -152,17 +132,16 @@ pub fn SublistSection(
                     <ItemRowList
                         store=store
                         ids=ids
-                        list_id=Signal::stored(id)
+                        list_id=Signal::stored(id.clone())
                         caps=caps
                         move_targets=move_targets
                         dnd=item_dnd
                     />
                     <div class="mt-2">
-                        <AddInput
-                            placeholder=Signal::derive(|| "Nowy element...".to_string())
-                            button_label=Signal::derive(|| "Dodaj".to_string())
+                        <ItemComposer
+                            list_id=Signal::stored(id)
+                            compact=true
                             testid="sublist-new-item"
-                            on_submit=on_add
                         />
                     </div>
                 </div>
