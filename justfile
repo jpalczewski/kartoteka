@@ -68,9 +68,16 @@ machete:
 test:
     cargo test --workspace
 
-# Uruchom testy e2e — najpierw cargo leptos build (SSR + WASM razem), potem Playwright
-test-e2e:
-    cargo leptos build
-    cd tests && npm install && CI=true npm test
+# Tailwind 4 CSS — jednorazowa kompilacja do `crates/frontend/style/main.css` (plik jest
+# generowany i gitignorowany, bez niego `cargo leptos build` nie wystartuje)
+build-css:
+    cd crates/frontend && npm install
+    crates/frontend/node_modules/.bin/tailwindcss -i crates/frontend/style/input.css -o crates/frontend/style/main.css
+
+# Uruchom testy e2e — CSS + cargo leptos build (SSR + WASM razem), serwer startuje Playwright
+# (tests/playwright.config.ts: binarka z target/debug albo $KARTOTEKA_BIN, port 3030 albo $E2E_PORT)
+test-e2e: build-css
+    OAUTH_SIGNING_SECRET="${OAUTH_SIGNING_SECRET:-dev-secret-min-32-chars-abcdefgh}" cargo leptos build
+    cd tests && npm install && CI=true npx playwright test --reporter=list
 
 ci: fmt lint audit machete test

@@ -67,7 +67,18 @@ Projekt używa szybko ewoluujących bibliotek (Leptos 0.8, DaisyUI 5, rmcp). Prz
 
 - Unit (`crates/shared/`): `cargo test -p kartoteka-shared`
 - i18n (`crates/i18n/tests/`): kompletność PL/EN, parsowanie FTL, pokrycie MCP
-- E2E (`tests/e2e/`): Playwright, 9+ spec files (auth, items, lists, tags, settings, sublists) — `just test-e2e`
+- E2E (`tests/e2e/`): Playwright, 9 spec files — `just test-e2e`
+  - `just test-e2e` robi `build-css` + `cargo leptos build`, potem `npx playwright test`; serwer WWW
+    startuje sam Playwright (`tests/playwright.config.ts`), więc nie trzeba uruchamiać `just dev`
+  - binarka: `target/debug/kartoteka` (albo `$CARGO_TARGET_DIR`), nadpisywalna przez `$KARTOTEKA_BIN`;
+    port: 3030, nadpisywalny przez `$E2E_PORT` (kilka checkoutów obok siebie)
+  - `tests/test.db` jest kasowany **przed** startem serwera (migracje lecą przy starcie), a
+    `LEPTOS_HASH_FILES=true` jest ustawiane w env serwera — bez tego hydracja nie działa
+  - `@playwright/test` jest przypięty do `1.58.2` (nie `^`), bo ta wersja używa
+    `chromium-headless-shell-1208`, który jest zainstalowany na maszynach dev/CI; podbicie do
+    `1.60+` wymaga innej rewizji przeglądarki (`npx playwright install chromium-headless-shell`)
+  - helpery (`registerAndLogin`, `createList`, `addItem`, …) są w `tests/e2e/helpers.ts`; nowe
+    selektory opieraj na `data-testid`, nie na przetłumaczonych placeholderach/etykietach
 
 ## Deployment
 
