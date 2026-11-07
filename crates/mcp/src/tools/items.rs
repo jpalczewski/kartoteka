@@ -175,6 +175,22 @@ pub struct GetItemParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct ReorderItemsParams {
+    pub list_id: String,
+    /// Every item id of the list, in the new order. Get them with `list_items`.
+    pub item_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct MoveItemParams {
+    pub item_id: String,
+    /// Target list ID; omit to stay in the item's current list.
+    pub list_id: Option<String>,
+    /// Place the item right before this item ID; omit to append it at the end.
+    pub before_item_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ListItemsParams {
     pub list_id: String,
     /// Opaque cursor from previous response; omit for first page
@@ -454,11 +470,110 @@ impl KartotekaServer {
         let data: Vec<_> = data.into_iter().map(|i| localize_item(i, &tz)).collect();
         self.json_result(data, &locale)
     }
+
+    // ── Ordering tools ──────────────────────────────────────────────────────
+
+    #[rmcp::tool(name = "reorder_items", description = "mcp-tool-reorder_items-desc")]
+    #[tracing::instrument(
+        skip(self, parts, p),
+        fields(
+            action = "mcp_reorder_items",
+            list_id = %p.list_id,
+            count = p.item_ids.len()
+        )
+    )]
+    pub(crate) async fn reorder_items(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<ReorderItemsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        // A foreign list has an empty scope, which would be indistinguishable from
+        // an incomplete order, so check ownership first.
+        if domain::lists::get_one(&self.pool, &p.list_id, &uid)
+            .await
+            .map_err(self.domain_err(&locale))?
+            .is_none()
+        {
+            return Err(self.map_err(
+                McpError::Domain(domain::DomainError::NotFound("list")),
+                &locale,
+            ));
+        }
+        let scope = db::items::ordered_ids_in_list(&self.pool, &uid, &p.list_id)
+            .await
+            .map_err(self.db_err(&locale))?;
+        // Foreign and repeated ids are reported as such, before the completeness
+        // check, so the client learns what is actually wrong.
+        domain::DomainError::ensure_ids_in_scope(&scope, &p.item_ids, "item")
+            .map_err(self.domain_err(&locale))?;
+        // `items::reorder` writes positions 0..n for exactly the ids it receives,
+        // so a partial order would collide with the positions of the items it
+        // left out. The full set is required here and not in the domain layer:
+        // the UI legitimately reorders only the items it has on screen.
+        if p.item_ids.len() != scope.len() {
+            return Err(self.map_err(
+                McpError::Domain(domain::DomainError::Validation("incomplete_order")),
+                &locale,
+            ));
+        }
+        domain::items::reorder(&self.pool, &uid, &p.list_id, &p.item_ids)
+            .await
+            .map_err(self.domain_err(&locale))?;
+        self.json_result(serde_json::json!({"reordered": p.item_ids.len()}), &locale)
+    }
+
+    #[rmcp::tool(name = "move_item", description = "mcp-tool-move_item-desc")]
+    #[tracing::instrument(
+        skip(self, parts, p),
+        fields(action = "mcp_move_item", item_id = %p.item_id)
+    )]
+    pub(crate) async fn move_item(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<MoveItemParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let tz = Self::timezone(&parts);
+        let current = domain::items::get_one(&self.pool, &p.item_id, &uid)
+            .await
+            .map_err(self.domain_err(&locale))?
+            .ok_or_else(|| {
+                self.map_err(
+                    McpError::Domain(domain::DomainError::NotFound("item")),
+                    &locale,
+                )
+            })?;
+        let target_list_id = p.list_id.unwrap_or(current.list_id);
+        domain::items::place(
+            &self.pool,
+            &uid,
+            &p.item_id,
+            &target_list_id,
+            p.before_item_id.as_deref(),
+        )
+        .await
+        .map_err(self.domain_err(&locale))?;
+        let moved = domain::items::get_one(&self.pool, &p.item_id, &uid)
+            .await
+            .map_err(self.domain_err(&locale))?
+            .ok_or_else(|| {
+                self.map_err(
+                    McpError::Domain(domain::DomainError::NotFound("item")),
+                    &locale,
+                )
+            })?;
+        self.json_result(localize_item(moved, &tz), &locale)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::test_support::{
+        insert_test_list, item_json, multi_conn_pool, parts_for_user, test_server,
+    };
+    use kartoteka_db::test_helpers::create_test_user;
     use serde_json::json;
 
     /// Mirrors what `update_item` hands to `domain::items::update`.
@@ -599,5 +714,283 @@ mod tests {
         let req = update_request(&p);
         assert_eq!(req.recurrence_rule, Some(Some("3d".to_owned())));
         assert_eq!(req.recurrence_mode, Some(None));
+    }
+
+    // ── reorder_items / move_item (#385) ────────────────────────────────────
+
+    /// Insert an item row directly, so the positions under test are explicit.
+    async fn insert_item(
+        server: &KartotekaServer,
+        list_id: &str,
+        title: &str,
+        position: i32,
+    ) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        sqlx::query("INSERT INTO items (id, list_id, title, position) VALUES (?, ?, ?, ?)")
+            .bind(&id)
+            .bind(list_id)
+            .bind(title)
+            .bind(position)
+            .execute(&server.pool)
+            .await
+            .unwrap();
+        id
+    }
+
+    /// `<data.error>/<data.reason>` of a mapped error, for compact assertions.
+    fn error_reason(err: &ErrorData) -> String {
+        let data = err.data.as_ref().expect("mapped errors carry data");
+        let field = |key: &str| data[key].as_str().unwrap_or("").to_owned();
+        format!("{}/{}", field("error"), field("reason"))
+    }
+
+    #[tokio::test]
+    async fn reorder_items_persists_the_full_order() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list(&pool, &uid).await;
+        let server = test_server(pool);
+        let a = insert_item(&server, &list_id, "A", 0).await;
+        let b = insert_item(&server, &list_id, "B", 1).await;
+        let c = insert_item(&server, &list_id, "C", 2).await;
+
+        let result = server
+            .reorder_items(
+                Extension(parts_for_user(&uid)),
+                Parameters(ReorderItemsParams {
+                    list_id: list_id.clone(),
+                    item_ids: vec![c.clone(), a.clone(), b.clone()],
+                }),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(item_json(&result).await, json!({"reordered": 3}));
+        let ordered = db::items::ordered_ids_in_list(&server.pool, &uid, &list_id)
+            .await
+            .unwrap();
+        assert_eq!(ordered, vec![c, a, b]);
+    }
+
+    #[tokio::test]
+    async fn reorder_items_rejects_a_partial_order() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list(&pool, &uid).await;
+        let server = test_server(pool);
+        let a = insert_item(&server, &list_id, "A", 0).await;
+        let b = insert_item(&server, &list_id, "B", 1).await;
+        let c = insert_item(&server, &list_id, "C", 2).await;
+
+        let err = server
+            .reorder_items(
+                Extension(parts_for_user(&uid)),
+                Parameters(ReorderItemsParams {
+                    list_id: list_id.clone(),
+                    item_ids: vec![c.clone(), a.clone()],
+                }),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code.0, -32602, "unexpected code: {err:?}");
+        assert_eq!(error_reason(&err), "validation/incomplete_order");
+        // Nothing was written: the positions still describe the old order.
+        let ordered = db::items::ordered_ids_in_list(&server.pool, &uid, &list_id)
+            .await
+            .unwrap();
+        assert_eq!(ordered, vec![a, b, c]);
+    }
+
+    #[tokio::test]
+    async fn reorder_items_rejects_an_item_from_another_list() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list(&pool, &uid).await;
+        let other_list = insert_test_list(&pool, &uid).await;
+        let server = test_server(pool);
+        let a = insert_item(&server, &list_id, "A", 0).await;
+        let b = insert_item(&server, &list_id, "B", 1).await;
+        let elsewhere = insert_item(&server, &other_list, "X", 0).await;
+
+        let err = server
+            .reorder_items(
+                Extension(parts_for_user(&uid)),
+                Parameters(ReorderItemsParams {
+                    list_id: list_id.clone(),
+                    item_ids: vec![elsewhere, a.clone(), b.clone()],
+                }),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code.0, -32602, "unexpected code: {err:?}");
+        assert_eq!(error_reason(&err), "not_found/");
+        assert_eq!(
+            err.data.as_ref().unwrap()["entity"],
+            "item",
+            "the foreign id is reported as a missing item"
+        );
+        let ordered = db::items::ordered_ids_in_list(&server.pool, &uid, &list_id)
+            .await
+            .unwrap();
+        assert_eq!(ordered, vec![a, b]);
+    }
+
+    #[tokio::test]
+    async fn reorder_items_rejects_a_foreign_list() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let other_uid = create_test_user(&pool).await;
+        let foreign_list = insert_test_list(&pool, &other_uid).await;
+        let server = test_server(pool);
+        let foreign_item = insert_item(&server, &foreign_list, "X", 0).await;
+
+        let err = server
+            .reorder_items(
+                Extension(parts_for_user(&uid)),
+                Parameters(ReorderItemsParams {
+                    list_id: foreign_list.clone(),
+                    item_ids: vec![foreign_item],
+                }),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code.0, -32602, "unexpected code: {err:?}");
+        assert_eq!(err.data.as_ref().unwrap()["entity"], "list");
+    }
+
+    #[tokio::test]
+    async fn move_item_appends_to_the_target_list() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let source = insert_test_list(&pool, &uid).await;
+        let target = insert_test_list(&pool, &uid).await;
+        let server = test_server(pool);
+        let moving = insert_item(&server, &source, "Milk", 0).await;
+        let first = insert_item(&server, &target, "Bread", 0).await;
+        let second = insert_item(&server, &target, "Eggs", 1).await;
+
+        let result = server
+            .move_item(
+                Extension(parts_for_user(&uid)),
+                Parameters(MoveItemParams {
+                    item_id: moving.clone(),
+                    list_id: Some(target.clone()),
+                    before_item_id: None,
+                }),
+            )
+            .await
+            .unwrap();
+
+        let json = item_json(&result).await;
+        assert_eq!(json["id"], moving.as_str());
+        assert_eq!(json["list_id"], target.as_str());
+        assert_eq!(json["position"], 2);
+        let ordered = db::items::ordered_ids_in_list(&server.pool, &uid, &target)
+            .await
+            .unwrap();
+        assert_eq!(ordered, vec![first, second, moving.clone()]);
+        assert!(
+            db::items::ordered_ids_in_list(&server.pool, &uid, &source)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn move_item_inserts_before_the_given_item() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let source = insert_test_list(&pool, &uid).await;
+        let target = insert_test_list(&pool, &uid).await;
+        let server = test_server(pool);
+        let moving = insert_item(&server, &source, "Milk", 0).await;
+        let first = insert_item(&server, &target, "Bread", 0).await;
+        let second = insert_item(&server, &target, "Eggs", 1).await;
+
+        let result = server
+            .move_item(
+                Extension(parts_for_user(&uid)),
+                Parameters(MoveItemParams {
+                    item_id: moving.clone(),
+                    list_id: Some(target.clone()),
+                    before_item_id: Some(second.clone()),
+                }),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(item_json(&result).await["position"], 1);
+        let ordered = db::items::ordered_ids_in_list(&server.pool, &uid, &target)
+            .await
+            .unwrap();
+        assert_eq!(ordered, vec![first, moving, second]);
+    }
+
+    #[tokio::test]
+    async fn move_item_without_list_id_stays_in_the_current_list() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list(&pool, &uid).await;
+        let server = test_server(pool);
+        let a = insert_item(&server, &list_id, "A", 0).await;
+        let b = insert_item(&server, &list_id, "B", 1).await;
+        let c = insert_item(&server, &list_id, "C", 2).await;
+
+        let result = server
+            .move_item(
+                Extension(parts_for_user(&uid)),
+                Parameters(MoveItemParams {
+                    item_id: c.clone(),
+                    list_id: None,
+                    before_item_id: Some(a.clone()),
+                }),
+            )
+            .await
+            .unwrap();
+
+        let json = item_json(&result).await;
+        assert_eq!(json["list_id"], list_id.as_str());
+        assert_eq!(json["position"], 0);
+        let ordered = db::items::ordered_ids_in_list(&server.pool, &uid, &list_id)
+            .await
+            .unwrap();
+        assert_eq!(ordered, vec![c, a, b]);
+    }
+
+    #[tokio::test]
+    async fn move_item_to_a_foreign_list_is_not_found() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let other_uid = create_test_user(&pool).await;
+        let source = insert_test_list(&pool, &uid).await;
+        let foreign_list = insert_test_list(&pool, &other_uid).await;
+        let server = test_server(pool);
+        let moving = insert_item(&server, &source, "Milk", 0).await;
+
+        let err = server
+            .move_item(
+                Extension(parts_for_user(&uid)),
+                Parameters(MoveItemParams {
+                    item_id: moving.clone(),
+                    list_id: Some(foreign_list),
+                    before_item_id: None,
+                }),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code.0, -32602, "unexpected code: {err:?}");
+        assert_eq!(err.data.as_ref().unwrap()["entity"], "list");
+        let (stored_list, position) =
+            sqlx::query_as::<_, (String, i32)>("SELECT list_id, position FROM items WHERE id = ?")
+                .bind(&moving)
+                .fetch_one(&server.pool)
+                .await
+                .unwrap();
+        assert_eq!((stored_list, position), (source, 0));
     }
 }

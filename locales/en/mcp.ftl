@@ -76,3 +76,6 @@ mcp-tool-list_marked_for_delete-desc = List everything currently waiting in the 
 mcp-tool-list_comments-desc = List the comments of an item, list or container, oldest first. entity_type: "item", "list" or "container".
 mcp-tool-list_time_inbox-desc = List your time entries that are not attached to an item yet, newest first. Entries land in the inbox when start_timer or log_time is called without item_id; attach one to an item with assign_time_entry.
 mcp-tool-assign_time_entry-desc = Attach an inbox time entry to an item so its tracked time counts towards it. The item's list needs the time_tracking feature; the entry is removed from the inbox.
+mcp-tool-reorder_items-desc = Reorder the items of one list. Pass all item ids of the list in the new order; get them from list_items.
+mcp-tool-move_item-desc = Move an item to another list, or reorder it inside its current list. Omit list_id to stay in the same list; before_item_id places it right before that item, omit it to append at the end.
+mcp-tool-reorder_lists-desc = Reorder the lists of one scope: root level (no scope arguments), inside a container (container_id), or the sublists of a list (parent_list_id). Pass all list ids of that scope in the new order; get them from list_lists.
