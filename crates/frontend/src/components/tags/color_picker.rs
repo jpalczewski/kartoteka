@@ -34,7 +34,7 @@ pub fn TagColorPicker(
                 on:change=move |ev| on_change.run(event_target_value(&ev))
             />
             <IconButton
-                icon="sparkles"
+                icon="shuffle"
                 label="Losuj kolor"
                 on_click=Callback::new(move |_| on_change_clone.run(random_hex_color()))
             />

@@ -6,7 +6,7 @@ use lucide_leptos::{
     Columns3, Copy, Ellipsis, EllipsisVertical, ExternalLink, Folder, FolderKanban, FolderOpen,
     GripVertical, Hourglass, House, Inbox, LayoutGrid, Link, List, LogOut, Luggage, MapPin,
     Package, PackageOpen, Pencil, Pin, PinOff, Play, Plus, RotateCcw, Search, Settings,
-    ShoppingCart, Square, SquareCheck, Star, Tag, Timer, Trash, TriangleAlert, Undo2, X,
+    ShoppingCart, Shuffle, Square, SquareCheck, Star, Tag, Timer, Trash, TriangleAlert, Undo2, X,
 };
 
 /// A lucide icon name, accepted from `&'static str`, `String` or `Signal<String>`.
@@ -107,6 +107,7 @@ fn render_icon(name: &str, size: Signal<usize>, color: Signal<String>) -> AnyVie
         "search" => Search,
         "settings" => Settings,
         "shopping-cart" => ShoppingCart,
+        "shuffle" => Shuffle,
         "square" => Square,
         "square-check" => SquareCheck,
         "star" => Star,
