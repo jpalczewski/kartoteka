@@ -50,3 +50,6 @@ item-recurrence-label = Powtarza się co
 item-recurrence-every = Powtarza się co { $rule }
 item-recurrence-mode-fixed = stały
 item-recurrence-mode-floating = płynny
+
+# Status
+item-status-in-progress = W toku
