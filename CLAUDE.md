@@ -1,98 +1,15 @@
-# CLAUDE.md
+# CLAUDE.md — Claude Code
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Projekt
-
-Kartoteka — aplikacja todo/listy. Leptos 0.8 SSR (Axum) + SQLite + `axum-login`/`tower-sessions`. MCP server via `rmcp`.
-
-## Architektura
-
-- **Monorepo**: Cargo workspace — `auth`, `db`, `domain`, `frontend`, `i18n`, `jobs`, `mcp`, `oauth`, `server`, `shared`
-- **Server**: Axum (`crates/server`) — SSR, `/api/*`, auth middleware
-- **Frontend**: Leptos 0.8 SSR w `crates/frontend` — komponenty SSR, routing, server functions (`src/server_fns/`), Tailwind input + `node_modules`
-- **MCP**: `crates/mcp` używa `rmcp` (Rust MCP SDK), wystawiany pod `/mcp` przez główny serwer — bez osobnego gateway
-- **Auth**: `crates/auth` — `axum-login` + `tower-sessions` (SQLite store), hasła `argon2`, 2FA `totp-rs`. OAuth providers w `crates/oauth`. Sesja via HttpOnly cookie
-- **DB**: SQLite przez `sqlx`, UUID v4 (TEXT) IDs, timestampy `datetime('now')`. Migracje w `crates/db/migrations/` wykonywane przy starcie serwera
-
-## Kluczowe konwencje
-
-### Env vars
-- `OAUTH_SIGNING_SECRET` — wymagany do dev (min 32 znaków), zarządzane przez `.env` + `set dotenv-load` w justfile
-
-### Frontend (Leptos 0.8 SSR)
-Szczegółowe reguły w `crates/frontend/CLAUDE.md`. Skrót:
-- Build: **zawsze** przez `cargo leptos build` / `just dev` — nigdy `cargo build -p kartoteka-server`
-- Server functions: `#[server(prefix = "/leptos")]` w `src/server_fns/`
-
-### Shared crate (`crates/shared/`)
-- `models/`, `dto/` (requests/responses), `deserializers.rs` (pub(crate)), `constants.rs`, `date_utils.rs`
-- `lib.rs` reeksportuje flat (`pub use models::*; pub use dto::*; pub use date_utils::*`)
-- `chrono = { version = "0.4.44", default-features = false, features = ["alloc"] }` — WASM-safe
-- Daty: zobacz `date_utils.rs` (parse_date, week_range, month_grid_range, is_overdue, sort_by_deadline, …)
-
-### Tracing / Logging
-Każdy handler w `crates/server/src/` **musi** mieć `#[instrument(fields(action = "verb_noun", <entity_id> = %id))]`. Bez `&` przed `tracing::field::display` (clippy `needless_borrows_for_generic_args` blokuje CI).
-
-## Komendy
-
-```bash
-just setup        # cargo-leptos + wasm target + npm install (crates/frontend)
-just dev          # dev-leptos + dev-tailwind w parallel (trap/wait)
-just check        # cargo check --workspace
-just check-ssr    # cargo check bez WASM — szybszy feedback
-just build        # npm install + cargo leptos build --release
-just test         # cargo test --workspace
-just test-e2e     # Playwright (wymaga running just dev)
-just lint         # Clippy + fmt check
-just fmt          # cargo fmt
-just ci           # fmt + lint + audit + machete + test
-just deploy-preview  # build AMD64 obraz lokalnie + push :preview do GHCR (bez deploya)
-```
-
-### Build frontend+server (Leptos SSR)
-- **ZAWSZE** `cargo leptos build` — buduje WASM (hydrate) i serwer w spójnych feature'ach
-- **NIGDY** `cargo build -p kartoteka-server` — default features rozjeżdżają się z WASM, hydration pęka
-- Produkcja: `cargo leptos build --release`
-
-## Pre-commit (lefthook)
-
-`lefthook.yml` uruchamia `cargo fmt --check` + `cargo clippy --workspace -- -D warnings` w parallel przed każdym commitem.
+@AGENTS.md
 
 ## Dokumentacja bibliotek (context7)
 
 Projekt używa szybko ewoluujących bibliotek (Leptos 0.8, DaisyUI 5, rmcp). Przed pisaniem kodu sprawdzaj aktualne API przez context7 MCP (`mcp__context7__resolve-library-id` + `mcp__context7__query-docs`). Proaktywnie, nie czekaj na błędy.
 
-## Testy
+## Delegowanie — Opus orkiestruje, nie wykonuje
 
-- Unit (`crates/shared/`): `cargo test -p kartoteka-shared`
-- i18n (`crates/i18n/tests/`): kompletność PL/EN, parsowanie FTL, pokrycie MCP
-- E2E (`tests/e2e/`): Playwright, 9 spec files — `just test-e2e`
-  - `just test-e2e` robi `build-css` + `cargo leptos build`, potem `npx playwright test`; serwer aplikacji
-    startuje sam Playwright (`tests/playwright.config.ts`), więc nie trzeba uruchamiać `just dev`
-  - binarka: `target/debug/kartoteka` (albo `$CARGO_TARGET_DIR`), nadpisywalna przez `$KARTOTEKA_BIN`;
-    port: 3030, nadpisywalny przez `$E2E_PORT` (kilka checkoutów obok siebie)
-  - `tests/test.db` jest kasowany **przed** startem serwera (migracje lecą przy starcie), a
-    `LEPTOS_HASH_FILES=true` jest ustawiane w env serwera — bez tego hydracja nie działa
-  - `@playwright/test` jest przypięty do `1.58.2` (nie `^`), bo ta wersja używa
-    `chromium-headless-shell-1208`, który jest zainstalowany na maszynach dev/CI; podbicie do
-    `1.60+` wymaga innej rewizji przeglądarki (`npx playwright install chromium-headless-shell`)
-  - helpery (`registerAndLogin`, `createList`, `addItem`, …) są w `tests/e2e/helpers.ts`; nowe
-    selektory opieraj na `data-testid`, nie na przetłumaczonych placeholderach/etykietach
-
-## Deployment
-
-- **Główna aplikacja**: binarka i site budowane natywnie w CI (`docker-build.yml`, `cargo leptos build --release`), pakowane przez `Dockerfile.runtime` i wypychane do GHCR: `:develop` (push na develop), `:preview` (PR), `:latest` + tag wersji (release-please). Repo nie robi deploya; `Dockerfile` (pełny multi-stage) zostaje do buildów lokalnych
-- Preview: `just deploy-preview` (AMD64 build via Colima, tylko push do GHCR)
-
-## CI/CD
-
-- `.github/workflows/`: `ci.yml` (fmt, clippy+testy w jednym jobie z `rust-cache` i `mold`, deny, machete; wszystko na `ubuntu-24.04`), `docker-build.yml` (reusable), `docker-dev.yml`, `docker-preview.yml`, `security-audit.yml` (weekly), `codeql.yml`, `release-please.yml`, `claude-code-review.yml`, `deps-outdated.yml`
-- Workspace lints w `Cargo.toml` — clippy correctness=deny, suspicious/complexity/perf/style=warn
-- `deny.toml` — licencje, advisories, supply chain
-- Lokalne sprawdzenie: `just ci`
-
-## Pliki do NIE commitowania
-
-- `.env` — sekrety
-- `target/`, `build/` — build/cache
+- Opus (główny agent) planuje, pisze kontrakty (GH sub-issues), briefuje, robi review, decyduje i wystawia PR-y. Nie robi sam nawet prostych rzeczy (drobne edycje, poprawki z review, rutynowe zbieranie danych, odpalanie komend) — deleguje.
+- Implementacja i proste zadania: 1) DeepSeek Flash przez pi (T3 `delegate_task` na instancję `pi`, `isolation: "worktree"` dla zmian w kodzie); 2) gdy pi/DeepSeek niedostępny → agent Sonnet: w T3 `delegate_task` z celem Claude Sonnet (`isolation: "worktree"`), w samym Claude Code `Agent` z `model: "sonnet"` (równoległe fale w osobnych worktree).
+- Research: pi-scout (`delegate_task`, role `research`, instancja `pi-scout`); gdy niedostępny → subagent Haiku (`Agent`, `model: "haiku"`, typ `Explore`). Nie rób researchu we własnym kontekście. Brief samowystarczalny (co znaleźć, gdzie, co zwrócić), proś o fakty ze ścieżkami/URL-ami; to, na czym opiera się decyzja, weryfikuje Opus.
+- Brief dla implementera zawsze zawiera: kontrakt z sub-issue, listę plików, komendy weryfikacji (`just t <crate>`, `just check-fe`), zakaz `cargo test` / `--all-targets` / `/tmp`, i `just verify` raz przed oddaniem pracy.
+- Wątki koordynują się same przez wiadomości między sesjami (kolejność merge'ów, numery migracji, właściciele plików); użytkownika pytaj tylko, gdy coś się sypie lub decyzja jest jego.
