@@ -25,6 +25,7 @@ use crate::pages::{
     tags::{TagsPage, detail::TagDetailPage},
     time::TimePage,
     today::TodayPage,
+    trash::TrashPage,
 };
 use crate::server_fns::auth::get_auth_status;
 use crate::server_fns::settings::get_user_locale_sf;
@@ -183,6 +184,7 @@ pub fn App() -> impl IntoView {
                             <Route path=path!("/lists/:list_id/items/:id")  view=ItemDetailPage/>
                             <Route path=path!("/lists/:id")                 view=ListPage/>
                             <Route path=path!("/containers/:id")            view=ContainerPage/>
+                            <Route path=path!("/trash")                     view=TrashPage/>
                         </ProtectedParentRoute>
                     </Routes>
                 </main>

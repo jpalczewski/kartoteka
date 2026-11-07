@@ -9,3 +9,4 @@ nav-logout = Log out
 nav-login = Log in
 nav-admin = Admin
 nav-all = All
+nav-trash = Trash
