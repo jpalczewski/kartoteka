@@ -29,6 +29,8 @@ js-sys = { workspace = true, optional = true }
 web-sys = { workspace = true, features = [
     "Storage", "Window", "Navigator", "Clipboard", "Location",
     "Document", "HtmlElement", "DragEvent", "DataTransfer",
+    # Live updates (SSE): EventSource implies EventTarget, MessageEvent implies Event.
+    "EventSource", "MessageEvent", "VisibilityState",
 ] }
 console_error_panic_hook = { workspace = true, optional = true }
 
