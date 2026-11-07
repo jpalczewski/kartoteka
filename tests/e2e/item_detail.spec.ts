@@ -1,10 +1,12 @@
 import { test, expect } from "@playwright/test";
 
 import {
-  BASE_URL,
   addItem,
+  BASE_URL,
   createListAndOpen,
+  gotoPage,
   registerAndLogin,
+  saveItemDetail,
   waitForHydration,
 } from "./helpers";
 
@@ -18,7 +20,7 @@ test("clicking item title navigates to item detail page", async ({ page, context
   const listId = await createListAndOpen(page, "Nav List");
   await addItem(page, "Click Me");
 
-  await page.goto(`/lists/${listId}`);
+  await gotoPage(page, `/lists/${listId}`);
   await waitForHydration(page);
   await itemLink(page, "Click Me").click();
 
@@ -31,7 +33,7 @@ test("back link returns to parent list", async ({ page, context }) => {
   const listId = await createListAndOpen(page, "Back List");
   await addItem(page, "Back Item");
 
-  await page.goto(`/lists/${listId}`);
+  await gotoPage(page, `/lists/${listId}`);
   await waitForHydration(page);
   await itemLink(page, "Back Item").click();
   await page.waitForURL(/\/lists\/.+\/items\/.+/);
@@ -47,13 +49,13 @@ test("edit title and save updates the item", async ({ page, context }) => {
   const listId = await createListAndOpen(page, "Edit List");
   await addItem(page, "Original Title");
 
-  await page.goto(`/lists/${listId}`);
+  await gotoPage(page, `/lists/${listId}`);
   await waitForHydration(page);
   await itemLink(page, "Original Title").click();
   await page.waitForURL(/\/lists\/.+\/items\/.+/);
 
   await page.locator('[data-testid="item-detail-title"]').fill("Updated Title");
-  await page.locator('[data-testid="item-detail-save"]').click();
+  await saveItemDetail(page);
 
   // Reload to confirm server persisted
   await page.reload();
@@ -65,13 +67,13 @@ test("edit description and save persists", async ({ page, context }) => {
   const listId = await createListAndOpen(page, "Desc List");
   await addItem(page, "Desc Item");
 
-  await page.goto(`/lists/${listId}`);
+  await gotoPage(page, `/lists/${listId}`);
   await waitForHydration(page);
   await itemLink(page, "Desc Item").click();
   await page.waitForURL(/\/lists\/.+\/items\/.+/);
 
   await page.locator('[data-testid="item-detail-description"]').fill("My description text");
-  await page.locator('[data-testid="item-detail-save"]').click();
+  await saveItemDetail(page);
 
   await page.reload();
   await expect(page.locator('[data-testid="item-detail-description"]')).toHaveValue(
@@ -86,7 +88,7 @@ test("toggle marks item as completed", async ({ page, context }) => {
   const listId = await createListAndOpen(page, "Toggle List");
   await addItem(page, "Toggle Item");
 
-  await page.goto(`/lists/${listId}`);
+  await gotoPage(page, `/lists/${listId}`);
   await waitForHydration(page);
   await itemLink(page, "Toggle Item").click();
   await page.waitForURL(/\/lists\/.+\/items\/.+/);
@@ -101,7 +103,7 @@ test("toggle from completed back to incomplete", async ({ page, context }) => {
   const listId = await createListAndOpen(page, "Uncheck List");
   await addItem(page, "Uncheck Item");
 
-  await page.goto(`/lists/${listId}`);
+  await gotoPage(page, `/lists/${listId}`);
   await waitForHydration(page);
   // Complete via list page first
   await page.locator('[data-testid="item-toggle"]').first().click();

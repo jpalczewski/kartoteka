@@ -4,8 +4,10 @@ import {
   addItem,
   createList,
   createListOnCurrentPage,
+  gotoPage,
   openList,
   registerAndLogin,
+  saveItemDetail,
   waitForHydration,
 } from "./helpers";
 
@@ -25,7 +27,7 @@ async function createNotesListWithDescribedItem(
   itemTitle: string,
   description: string,
 ) {
-  await page.goto("/");
+  await gotoPage(page, "/");
   await waitForHydration(page);
   await page.getByLabel("Notes").check();
   await createListOnCurrentPage(page, listName);
@@ -35,14 +37,14 @@ async function createNotesListWithDescribedItem(
   await page.locator('[data-testid="item-title-link"]').filter({ hasText: itemTitle }).click();
   await page.waitForURL(/\/lists\/.+\/items\/.+/);
   await page.locator('[data-testid="item-detail-description"]').fill(description);
-  await page.locator('[data-testid="item-detail-save"]').click();
+  await saveItemDetail(page);
 }
 
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 test("all items page shows empty state with no items", async ({ page, context }) => {
   await registerAndLogin(page, context, "All User");
-  await page.goto("/all");
+  await gotoPage(page, "/all");
   await waitForHydration(page);
   await expect(page.getByText("No items.", { exact: true })).toBeVisible();
 });
@@ -54,7 +56,7 @@ test("items from all lists appear on all items page", async ({ page, context }) 
   await createListWithItems(page, "Lista A", ["Item Alpha"]);
   await createListWithItems(page, "Lista B", ["Item Beta"]);
 
-  await page.goto("/all");
+  await gotoPage(page, "/all");
   await waitForHydration(page);
   await expect(page.getByText("Item Alpha", { exact: true })).toBeVisible();
   await expect(page.getByText("Item Beta", { exact: true })).toBeVisible();
@@ -64,7 +66,7 @@ test("completion count reflects all items", async ({ page, context }) => {
   await registerAndLogin(page, context, "All User");
   await createListWithItems(page, "Count List", ["One", "Two", "Three"]);
 
-  await page.goto("/all");
+  await gotoPage(page, "/all");
   await waitForHydration(page);
   await expect(page.locator('[data-testid="all-completion-count"]')).toContainText("0/3");
 });
@@ -75,7 +77,7 @@ test("toggling item on all page updates completion count", async ({ page, contex
   await registerAndLogin(page, context, "All User");
   await createListWithItems(page, "Toggle All List", ["Task X"]);
 
-  await page.goto("/all");
+  await gotoPage(page, "/all");
   await waitForHydration(page);
   await expect(page.locator('[data-testid="all-completion-count"]')).toContainText("0/1");
 
@@ -89,7 +91,7 @@ test("hiding completed removes completed items from view", async ({ page, contex
   await registerAndLogin(page, context, "All User");
   await createListWithItems(page, "Filter All List", ["Done Task", "Pending Task"]);
 
-  await page.goto("/all");
+  await gotoPage(page, "/all");
   await waitForHydration(page);
 
   // Complete the first item
@@ -106,7 +108,7 @@ test("all completed + hide filter shows helpful message", async ({ page, context
   await registerAndLogin(page, context, "All User");
   await createListWithItems(page, "All Done List", ["Solo Task"]);
 
-  await page.goto("/all");
+  await gotoPage(page, "/all");
   await waitForHydration(page);
 
   await page.locator('[data-testid="all-item-toggle"]').first().click();
@@ -122,7 +124,7 @@ test("clicking item title on all page navigates to item detail", async ({ page, 
   await registerAndLogin(page, context, "All User");
   await createListWithItems(page, "Link List", ["Detail Link Item"]);
 
-  await page.goto("/all");
+  await gotoPage(page, "/all");
   await waitForHydration(page);
   await page.getByText("Detail Link Item", { exact: true }).click();
 
@@ -140,7 +142,7 @@ test("notes items have no checkbox and show their description", async ({ page, c
     "A note body that must be visible",
   );
 
-  await page.goto("/all");
+  await gotoPage(page, "/all");
   await waitForHydration(page);
 
   await expect(page.getByText("Notes Item", { exact: true })).toBeVisible();
