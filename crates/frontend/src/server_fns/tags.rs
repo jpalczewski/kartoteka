@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use kartoteka_shared::TagUsage;
 use kartoteka_shared::types::{DateItem, ItemTagLink, ListTagLink, Tag};
 use leptos::prelude::*;
 
@@ -223,6 +226,47 @@ pub async fn get_tag_items(
         .collect();
 
     Ok(items_to_date_items(matching_items, &list_meta))
+}
+
+/// Set or clear a tag's icon.
+///
+/// The stored value is `lucide:<name>`, `emoji:<glyph>` or a bare emoji; `None`,
+/// an empty string and whitespace all clear the icon. Trimming and the 64
+/// character limit come from `domain::rules::appearance`.
+#[server(prefix = "/leptos")]
+pub async fn set_tag_icon(id: String, icon: Option<String>) -> Result<Tag, ServerFnError> {
+    let (pool, user) = require_user().await?;
+    let tag = domain::tags::update(
+        &pool,
+        &user.id,
+        &id,
+        &domain::tags::UpdateTagRequest {
+            name: None,
+            icon: Some(icon),
+            color: None,
+            parent_tag_id: None,
+            tag_type: None,
+            metadata: None,
+        },
+    )
+    .await
+    .sfn()?
+    .ok_or_else(|| ServerFnError::new("tag not found".to_string()))?;
+    Ok(domain_tag_to_shared(tag))
+}
+
+/// Item and list usage counts for every tag of the current user, keyed by tag id.
+///
+/// Tags that are attached to nothing are absent from the map, so callers read a
+/// missing entry as zero.
+#[server(prefix = "/leptos")]
+pub async fn get_tag_usage_counts() -> Result<HashMap<String, TagUsage>, ServerFnError> {
+    let (pool, user) = require_user().await?;
+    let counts = domain::tags::usage_counts(&pool, &user.id).await.sfn()?;
+    Ok(counts
+        .into_iter()
+        .map(|(tag_id, (items, lists))| (tag_id, TagUsage { items, lists }))
+        .collect())
 }
 
 /// Update tag color.

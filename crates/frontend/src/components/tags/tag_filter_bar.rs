@@ -1,9 +1,11 @@
 use kartoteka_shared::types::{ItemTagLink, Tag};
+use kartoteka_shared::{DEFAULT_TAG_COLOR, readable_text_color};
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use std::collections::HashSet;
 
 /// Filter bar shown above the item list. Displays only tags that are actually used in the list.
-/// Clicking a tag filters to items with that tag; clicking "Wszystkie" clears the filter.
+/// Clicking a tag filters to items with that tag; the first button clears the filter.
 #[component]
 pub fn TagFilterBar(
     all_tags: Vec<Tag>,
@@ -30,24 +32,25 @@ pub fn TagFilterBar(
                 }
                 on:click=move |_| active_tag.set(None)
             >
-                "Wszystkie"
+                {move_tr!("tags-filter-all")}
             </button>
             {used_tags.into_iter().map(|tag| {
                 let tid_class = tag.id.clone();
                 let tid_click = tag.id.clone();
-                let color = tag.color.clone().unwrap_or_else(|| "#6b7280".to_string());
+                let color = tag.color.clone().unwrap_or_else(|| DEFAULT_TAG_COLOR.to_string());
+                let text_color = readable_text_color(&color);
                 let name = tag.name.clone();
                 view! {
                     <button
                         type="button"
                         class=move || {
                             if active_tag.get().as_deref() == Some(tid_class.as_str()) {
-                                "btn btn-xs ring-2 ring-offset-1 text-white"
+                                "btn btn-xs ring-2 ring-offset-1 ring-base-content"
                             } else {
-                                "btn btn-xs text-white opacity-80 hover:opacity-100"
+                                "btn btn-xs opacity-80 hover:opacity-100"
                             }
                         }
-                        style=format!("background:{color};border-color:{color};")
+                        style=format!("background:{color};border-color:{color};color:{text_color};")
                         on:click=move |_| {
                             let id = tid_click.clone();
                             active_tag.update(|cur| {
