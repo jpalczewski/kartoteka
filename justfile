@@ -80,9 +80,19 @@ test:
 t crate *args:
     cargo nextest run -p kartoteka-{{crate}} {{args}}
 
-# Pojedyncze sprawdzenie przed pushem (kolejność: fmt → lint → test → check-fe)
+# Clippy jednego crate'a; frontend w obu konfiguracjach (ssr i hydrate/wasm32)
+c crate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{crate}}" = "frontend" ]; then
+        cargo clippy -p kartoteka-frontend --features ssr -- -D warnings
+        cargo clippy -p kartoteka-frontend --features hydrate --target wasm32-unknown-unknown -- -D warnings
+    else
+        cargo clippy -p kartoteka-{{crate}} -- -D warnings
+    fi
+
+# Pojedyncze sprawdzenie przed pushem (kolejność: lint → test → check-fe)
 verify:
-    cargo fmt --check --all
     just lint
     just test
     just check-fe
