@@ -5,6 +5,8 @@ use serde::Deserialize;
 pub struct CreateTagParams {
     pub name: String,
     pub color: Option<String>,
+    /// Icon: `lucide:<name>`, `emoji:<e>` or a bare emoji.
+    pub icon: Option<String>,
     pub parent_tag_id: Option<String>,
 }
 
@@ -28,6 +30,8 @@ pub struct UnassignTagParams {
 pub struct CreateTagsInput {
     pub name: String,
     pub color: Option<String>,
+    /// Icon: `lucide:<name>`, `emoji:<e>` or a bare emoji.
+    pub icon: Option<String>,
     /// Real UUID of an existing parent tag.
     pub parent_tag_id: Option<String>,
     /// client_ref of a tag created earlier in this same batch.

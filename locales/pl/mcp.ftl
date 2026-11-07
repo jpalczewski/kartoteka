@@ -13,12 +13,14 @@ tool-search-entities = Wyszukaj globalnie elementy, listy i kontenery po nazwie 
 tool-next-cursor-page = Pobierz następną stronę dla wcześniej zwróconego kursora paginacji
 tool-add-item = Dodaj jeden lub wiele elementów do listy
 tool-update-item = Zaktualizuj istniejący element
+tool-set-item-status = Ustaw status elementu (todo, in_progress, done)
 tool-toggle-item = Ustaw stan ukończenia jednego lub wielu elementów
 tool-move-item = Przenieś jeden lub wiele elementów do innej listy
 
 # Kontenery
 tool-list-containers = Wyświetl wszystkie kontenery użytkownika
 tool-create-container = Utwórz nowy kontener (folder lub projekt)
+tool-set-container-status = Przełącz kontener między folderem a projektem (active, done, paused)
 tool-get-container = Pobierz kontener z metrykami postępu
 tool-get-container-children = Pobierz podkontenery i listy wewnątrz kontenera
 tool-get-home = Pobierz panel główny: przypięte, ostatnie, kontenery i listy
@@ -51,8 +53,10 @@ oauth-consent-scope-mcp = Odczyt i modyfikacja Twoich list, elementów, tagów, 
 
 # Opisy nowych narzędzi MCP
 mcp-tool-create_item-desc = Utwórz nowy element w liście. recurrence_rule powtarza element: Nd, Nw lub Nm (np. 7d, 2w, 1m), a następne wystąpienie powstaje po ukończeniu elementu. recurrence_mode to fixed (od zaplanowanej daty, domyślnie) lub floating (od daty ukończenia). Reguła wymaga terminu lub daty rozpoczęcia.
-mcp-tool-update_item-desc = Zaktualizuj pola istniejącego elementu. Użyj tablicy "clear" aby wyzerować pola (np. clear: ["deadline", "description"]); wyzerowanie recurrence_rule zeruje też recurrence_mode. recurrence_rule powtarza element: Nd, Nw lub Nm (np. 7d, 2w, 1m), recurrence_mode to fixed (od zaplanowanej daty, domyślnie) lub floating (od daty ukończenia). Ukończenie powtarzalnego elementu zwraca jego następne wystąpienie jako "spawned".
+mcp-tool-update_item-desc = Zaktualizuj pola istniejącego elementu. Użyj tablicy "clear" aby wyzerować pola (np. clear: ["deadline", "icon"]); wyzerowanie recurrence_rule zeruje też recurrence_mode. recurrence_rule powtarza element: Nd, Nw lub Nm (np. 7d, 2w, 1m), recurrence_mode to fixed (od zaplanowanej daty, domyślnie) lub floating (od daty ukończenia). Ukończenie powtarzalnego elementu zwraca jego następne wystąpienie jako "spawned".
 mcp-tool-toggle_item-desc = Przełącz stan ukończenia elementu. Ukończenie powtarzalnego elementu tworzy jego następne wystąpienie, zwrócone jako "spawned". Lista musi mieć włączoną funkcję checklist, a ukończenie kończy się błędem, gdy element ma nierozwiązane blokady.
+mcp-tool-set_item_status-desc = Ustaw status elementu: "todo", "in_progress" lub "done". "done" to to samo co ukończenie elementu (blokują je nierozwiązane blokery), pozostałe dwa otwierają go ponownie.
+mcp-tool-set_container_status-desc = Przełącz kontener między folderem (null) a projektem ("active", "done", "paused"). Folder z podkontenerami nie może stać się projektem.
 mcp-tool-search_items-desc = Pełnotekstowe wyszukiwanie w elementach i komentarzach.
 mcp-tool-add_comment-desc = Dodaj komentarz do elementu, listy lub kontenera. Pomiń author_name gdy piszesz w imieniu użytkownika (jego głos). Ustaw na swoje imię (np. "Claude") gdy komentarz to Twoja własna obserwacja, sugestia lub analiza.
 mcp-tool-add_relation-desc = Utwórz relację blocks lub relates_to między dwoma elementami.

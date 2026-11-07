@@ -14,6 +14,8 @@ const EXPECTED_TOOL_KEYS: &[&str] = &[
     "tool-get-items",
     "tool-add-item",
     "tool-update-item",
+    "tool-set-item-status",
+    "tool-set-container-status",
     "tool-toggle-item",
     "tool-move-item",
     "tool-list-containers",

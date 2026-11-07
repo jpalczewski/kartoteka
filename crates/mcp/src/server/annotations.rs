@@ -42,6 +42,8 @@ const ADDITIVE_WRITE: &[&str] = &[
 const DESTRUCTIVE: &[&str] = &[
     "update_item",
     "toggle_item",
+    "set_item_status",
+    "set_container_status",
     "remove_relation",
     "stop_timer",
     "move_list_to_container",
