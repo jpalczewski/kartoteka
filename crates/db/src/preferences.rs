@@ -1,4 +1,4 @@
-use crate::DbError;
+use crate::{DbError, settings};
 use sqlx::SqlitePool;
 
 #[tracing::instrument(skip(pool))]
@@ -14,17 +14,7 @@ pub async fn get_timezone(pool: &SqlitePool, user_id: &str) -> Result<String, Db
 
 #[tracing::instrument(skip(pool))]
 pub async fn set_timezone(pool: &SqlitePool, user_id: &str, timezone: &str) -> Result<(), DbError> {
-    sqlx::query(
-        "INSERT INTO user_settings (user_id, key, value, updated_at) \
-         VALUES (?, 'timezone', ?, datetime('now')) \
-         ON CONFLICT (user_id, key) \
-         DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
-    )
-    .bind(user_id)
-    .bind(timezone)
-    .execute(pool)
-    .await
-    .map_err(DbError::Sqlx)?;
+    settings::set(pool, user_id, "timezone", timezone).await?;
     Ok(())
 }
 
@@ -41,17 +31,7 @@ pub async fn get_locale(pool: &SqlitePool, user_id: &str) -> Result<String, DbEr
 
 #[tracing::instrument(skip(pool))]
 pub async fn set_locale(pool: &SqlitePool, user_id: &str, locale: &str) -> Result<(), DbError> {
-    sqlx::query(
-        "INSERT INTO user_settings (user_id, key, value, updated_at) \
-         VALUES (?, 'locale', ?, datetime('now')) \
-         ON CONFLICT (user_id, key) \
-         DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
-    )
-    .bind(user_id)
-    .bind(locale)
-    .execute(pool)
-    .await
-    .map_err(DbError::Sqlx)?;
+    settings::set(pool, user_id, "locale", locale).await?;
     Ok(())
 }
 

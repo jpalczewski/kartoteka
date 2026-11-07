@@ -291,19 +291,6 @@ pub async fn insert(pool: &SqlitePool, input: &InsertItemInput) -> Result<ItemRo
     insert_row(&mut *conn, input).await
 }
 
-/// Insert multiple items through the shared INSERT.
-/// The caller provides the transaction, so the whole batch stays atomic.
-#[tracing::instrument(skip(conn, inputs), fields(count = inputs.len()))]
-pub async fn insert_many_in_tx(
-    conn: &mut SqliteConnection,
-    inputs: &[InsertItemInput],
-) -> Result<(), DbError> {
-    for input in inputs {
-        insert_row(&mut *conn, input).await?;
-    }
-    Ok(())
-}
-
 /// Same INSERT as `insert` but operates on an existing transaction connection.
 #[tracing::instrument(skip(conn))]
 pub async fn insert_in_tx(
@@ -1043,6 +1030,18 @@ mod tests {
 
         let items = list_all_for_user(&pool, &uid2).await.unwrap();
         assert!(items.is_empty(), "should not see other user's items");
+    }
+
+    /// Insert several items through the shared INSERT. Test-only: no production
+    /// path needs a batch insert, so this lives next to the tests that use it.
+    async fn insert_many_in_tx(
+        conn: &mut SqliteConnection,
+        inputs: &[InsertItemInput],
+    ) -> Result<(), DbError> {
+        for input in inputs {
+            insert_row(&mut *conn, input).await?;
+        }
+        Ok(())
     }
 
     #[tokio::test]

@@ -169,23 +169,6 @@ pub async fn find_by_alias(
     .await?)
 }
 
-pub async fn subtree_location_ids(
-    pool: &SqlitePool,
-    root_id: &str,
-) -> Result<Vec<String>, DbError> {
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "WITH subtree AS ( \
-             SELECT id FROM locations WHERE id = ? \
-             UNION ALL \
-             SELECT l.id FROM locations l JOIN subtree s ON l.parent_id = s.id \
-         ) SELECT id FROM subtree",
-    )
-    .bind(root_id)
-    .fetch_all(pool)
-    .await?;
-    Ok(rows.into_iter().map(|(id,)| id).collect())
-}
-
 #[derive(Debug)]
 pub struct InsertLocationInput {
     pub id: String,
@@ -214,6 +197,24 @@ mod tests {
     use super::*;
     use crate::test_helpers::{create_test_user, test_pool};
     use uuid::Uuid;
+
+    /// All location ids in the subtree rooted at `root_id`. Test-only helper.
+    async fn subtree_location_ids(
+        pool: &SqlitePool,
+        root_id: &str,
+    ) -> Result<Vec<String>, DbError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "WITH subtree AS ( \
+                 SELECT id FROM locations WHERE id = ? \
+                 UNION ALL \
+                 SELECT l.id FROM locations l JOIN subtree s ON l.parent_id = s.id \
+             ) SELECT id FROM subtree",
+        )
+        .bind(root_id)
+        .fetch_all(pool)
+        .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
 
     #[tokio::test]
     async fn countries_seeded() {
