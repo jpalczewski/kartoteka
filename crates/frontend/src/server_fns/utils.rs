@@ -15,18 +15,28 @@ use {
 #[cfg(feature = "ssr")]
 pub(crate) type AuthedRequest = (SqlitePool, KartotekaUser);
 
-/// Authenticate the current request: DB pool + logged-in user.
+/// The logged-in user of the current request, without touching the DB pool.
 ///
 /// The error messages are part of the client contract — do not reword them.
 #[cfg(feature = "ssr")]
-pub(crate) async fn require_user() -> Result<AuthedRequest, ServerFnError> {
-    let pool = expect_context::<SqlitePool>();
+pub(crate) async fn current_user() -> Result<KartotekaUser, ServerFnError> {
     let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
         .await
         .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
-    let user = auth
-        .user
-        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    auth.user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))
+}
+
+/// Authenticate the current request: DB pool + logged-in user.
+///
+/// Authenticates first and reads the pool with `use_context`, so a server fn
+/// run without request context (route-list generation, the static fallback
+/// handler) returns an error instead of panicking.
+#[cfg(feature = "ssr")]
+pub(crate) async fn require_user() -> Result<AuthedRequest, ServerFnError> {
+    let user = current_user().await?;
+    let pool = use_context::<SqlitePool>()
+        .ok_or_else(|| ServerFnError::new("database unavailable".to_string()))?;
     Ok((pool, user))
 }
 

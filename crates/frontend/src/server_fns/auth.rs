@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "ssr")]
 use {
-    crate::server_fns::utils::{SfnResultExt, require_user},
+    crate::server_fns::utils::{SfnResultExt, current_user},
     axum_login::AuthSession,
     kartoteka_auth::{KartotekaBackend, LoginCredentials},
     kartoteka_domain as domain,
@@ -25,7 +25,7 @@ pub enum LoginOutcome {
 /// Current user's display name — used by the navbar.
 #[server(prefix = "/leptos")]
 pub async fn get_nav_data() -> Result<String, ServerFnError> {
-    let (_, user) = require_user().await?;
+    let user = current_user().await?;
     Ok(user.name.unwrap_or(user.email))
 }
 
