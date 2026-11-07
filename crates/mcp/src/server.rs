@@ -76,24 +76,115 @@ impl KartotekaServer {
         }
     }
 
+    /// Map any tool failure to a JSON-RPC error for the client.
+    ///
+    /// Every branch also puts a machine-readable code into `data`, so clients can
+    /// react without parsing the localized message:
+    /// `{"error": "already_exists", "kind": "list", "id": "..."}`.
+    /// Internal causes (domain `Internal`, `Db`, serde) are logged on the server
+    /// and never sent to the client.
     pub(crate) fn map_err(&self, e: McpError, locale: &str) -> ErrorData {
-        let (key, args): (&str, Vec<(&str, &str)>) = match &e {
-            McpError::Unauthorized => ("mcp-err-unauthorized", vec![]),
-            McpError::Domain(domain::DomainError::NotFound(k)) => {
-                ("mcp-err-not-found", vec![("entity", k)])
-            }
-            McpError::Domain(domain::DomainError::Validation(r)) => {
-                ("mcp-err-validation", vec![("reason", r)])
-            }
-            McpError::Domain(domain::DomainError::FeatureRequired(f)) => {
-                ("mcp-err-feature-required", vec![("feature", f)])
-            }
-            McpError::Domain(domain::DomainError::Forbidden) => ("mcp-err-forbidden", vec![]),
-            McpError::BadRequest(r) => ("mcp-err-validation", vec![("reason", r.as_str())]),
-            _ => ("mcp-err-internal", vec![]),
+        /// Which JSON-RPC constructor the branch ends up in.
+        enum Code {
+            InvalidRequest,
+            InvalidParams,
+            Internal,
+        }
+
+        // Internal causes stay on the server; the client only sees `mcp-err-internal`.
+        if let McpError::Domain(domain::DomainError::Internal(_) | domain::DomainError::Db(_))
+        | McpError::Serde(_) = &e
+        {
+            tracing::error!(error = %e, "mcp tool call failed with an internal error");
+        }
+
+        let (code, key, args, data): (
+            Code,
+            &'static str,
+            Vec<(&'static str, String)>,
+            Option<serde_json::Value>,
+        ) = match &e {
+            McpError::Unauthorized => (
+                Code::InvalidRequest,
+                "mcp-err-unauthorized",
+                vec![],
+                Some(json!({"error": "unauthorized"})),
+            ),
+            McpError::Domain(domain::DomainError::NotFound(k)) => (
+                Code::InvalidParams,
+                "mcp-err-not-found",
+                vec![("entity", (*k).to_owned())],
+                Some(json!({"error": "not_found", "entity": k})),
+            ),
+            McpError::Domain(domain::DomainError::Validation(r)) => (
+                Code::InvalidParams,
+                "mcp-err-validation",
+                vec![("reason", (*r).to_owned())],
+                Some(json!({"error": "validation", "reason": r})),
+            ),
+            McpError::Domain(domain::DomainError::FeatureRequired(f)) => (
+                Code::InvalidParams,
+                "mcp-err-feature-required",
+                vec![("feature", (*f).to_owned())],
+                Some(json!({"error": "feature_required", "feature": f})),
+            ),
+            // `id` is the entity that already owns the name, so the client can
+            // reuse it instead of retrying the same failing call (#374).
+            McpError::Domain(domain::DomainError::AlreadyExists { kind, id }) => (
+                Code::InvalidParams,
+                "mcp-err-already-exists",
+                vec![("kind", (*kind).to_owned()), ("id", id.clone())],
+                Some(json!({"error": "already_exists", "kind": kind, "id": id})),
+            ),
+            McpError::Domain(domain::DomainError::NotEmpty { kind, items }) => (
+                Code::InvalidRequest,
+                "mcp-err-not-empty",
+                vec![("kind", (*kind).to_owned()), ("items", items.to_string())],
+                Some(json!({"error": "not_empty", "kind": kind, "items": items})),
+            ),
+            McpError::Domain(domain::DomainError::HasChildren {
+                kind,
+                lists,
+                containers,
+            }) => (
+                Code::InvalidRequest,
+                "mcp-err-has-children",
+                vec![
+                    ("kind", (*kind).to_owned()),
+                    ("lists", lists.to_string()),
+                    ("containers", containers.to_string()),
+                ],
+                Some(json!({
+                    "error": "has_children",
+                    "kind": kind,
+                    "lists": lists,
+                    "containers": containers,
+                })),
+            ),
+            McpError::Domain(domain::DomainError::Forbidden) => (
+                Code::InvalidRequest,
+                "mcp-err-forbidden",
+                vec![],
+                Some(json!({"error": "forbidden"})),
+            ),
+            McpError::BadRequest(r) => (
+                Code::InvalidParams,
+                "mcp-err-validation",
+                vec![("reason", r.clone())],
+                Some(json!({"error": "validation", "reason": r})),
+            ),
+            McpError::Domain(domain::DomainError::Internal(_))
+            | McpError::Domain(domain::DomainError::Db(_))
+            | McpError::Serde(_) => (Code::Internal, "mcp-err-internal", vec![], None),
         };
-        let msg = self.i18n.translate_args(locale, key, &args);
-        ErrorData::invalid_request(msg, None)
+
+        let arg_refs: Vec<(&str, &str)> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let msg = self.i18n.translate_args(locale, key, &arg_refs);
+        match code {
+            Code::InvalidRequest => ErrorData::invalid_request(msg, data),
+            Code::InvalidParams => ErrorData::invalid_params(msg, data),
+            Code::Internal => ErrorData::internal_error(msg, data),
+        }
     }
 
     fn extract_user_id_and_locale(parts: &Parts) -> Result<(String, String), McpError> {
@@ -1824,6 +1915,38 @@ mod tests {
         }
     }
 
+    fn parts_for_user_locale(user_id: &str, locale: &str) -> Parts {
+        let mut ext = http::Extensions::new();
+        ext.insert(UserId(user_id.into()));
+        ext.insert(UserLocale(locale.into()));
+        parts_with_extensions(ext)
+    }
+
+    fn domain_container_req(name: &str) -> CreateContainerRequest {
+        CreateContainerRequest {
+            name: name.to_owned(),
+            icon: None,
+            description: None,
+            status: None,
+            parent_container_id: None,
+        }
+    }
+
+    fn domain_list_req(
+        name: &str,
+        container_id: Option<String>,
+    ) -> domain::lists::CreateListRequest {
+        domain::lists::CreateListRequest {
+            name: name.to_owned(),
+            list_type: None,
+            icon: None,
+            description: None,
+            container_id,
+            parent_list_id: None,
+            features: Vec::new(),
+        }
+    }
+
     #[tokio::test]
     async fn create_items_with_deadline_on_list_without_deadlines_feature_is_rejected() {
         let pool = multi_conn_pool().await;
@@ -2375,5 +2498,217 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count.0, 0);
+    }
+
+    // ── map_err: error codes and machine-readable data (#375, #374) ──────────
+
+    #[tokio::test]
+    async fn map_err_gives_each_variant_its_own_code_and_data() {
+        let server = test_server(multi_conn_pool().await);
+        let serde_err = serde_json::from_str::<i32>("not a number").unwrap_err();
+
+        let cases: Vec<(McpError, i32, Option<serde_json::Value>)> = vec![
+            (
+                McpError::Unauthorized,
+                -32600,
+                Some(json!({"error": "unauthorized"})),
+            ),
+            (
+                McpError::Domain(domain::DomainError::NotFound("list")),
+                -32602,
+                Some(json!({"error": "not_found", "entity": "list"})),
+            ),
+            (
+                McpError::Domain(domain::DomainError::Validation("duplicate_id")),
+                -32602,
+                Some(json!({"error": "validation", "reason": "duplicate_id"})),
+            ),
+            (
+                McpError::Domain(domain::DomainError::FeatureRequired("deadlines")),
+                -32602,
+                Some(json!({"error": "feature_required", "feature": "deadlines"})),
+            ),
+            (
+                McpError::Domain(domain::DomainError::AlreadyExists {
+                    kind: "list",
+                    id: "existing-id".to_owned(),
+                }),
+                -32602,
+                Some(json!({"error": "already_exists", "kind": "list", "id": "existing-id"})),
+            ),
+            (
+                McpError::Domain(domain::DomainError::NotEmpty {
+                    kind: "list",
+                    items: 3,
+                }),
+                -32600,
+                Some(json!({"error": "not_empty", "kind": "list", "items": 3})),
+            ),
+            (
+                McpError::Domain(domain::DomainError::HasChildren {
+                    kind: "container",
+                    lists: 2,
+                    containers: 1,
+                }),
+                -32600,
+                Some(json!({
+                    "error": "has_children",
+                    "kind": "container",
+                    "lists": 2,
+                    "containers": 1,
+                })),
+            ),
+            (
+                McpError::Domain(domain::DomainError::Forbidden),
+                -32600,
+                Some(json!({"error": "forbidden"})),
+            ),
+            (
+                McpError::BadRequest("one or more container_id values not found".to_owned()),
+                -32602,
+                Some(json!({
+                    "error": "validation",
+                    "reason": "one or more container_id values not found",
+                })),
+            ),
+            (
+                McpError::Domain(domain::DomainError::Internal(
+                    "db exploded at /srv/secret".to_owned(),
+                )),
+                -32603,
+                None,
+            ),
+            (
+                McpError::Domain(domain::DomainError::Db(db::DbError::NotFound("item"))),
+                -32603,
+                None,
+            ),
+            (McpError::Serde(serde_err), -32603, None),
+        ];
+
+        for (err, expected_code, expected_data) in cases {
+            let mapped = server.map_err(err, "en");
+            assert_eq!(
+                mapped.code.0, expected_code,
+                "wrong code for {:?}: {mapped:?}",
+                mapped.message
+            );
+            assert_eq!(mapped.data, expected_data, "wrong data: {mapped:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn map_err_internal_errors_do_not_leak_details() {
+        let server = test_server(multi_conn_pool().await);
+        let cause = "db exploded at /srv/secret";
+
+        for (locale, expected_message) in [("en", "Internal error."), ("pl", "Błąd wewnętrzny.")]
+        {
+            let mapped = server.map_err(
+                McpError::Domain(domain::DomainError::Internal(cause.to_owned())),
+                locale,
+            );
+            assert_eq!(mapped.code.0, -32603);
+            assert_eq!(mapped.message, expected_message, "locale {locale}");
+            assert!(
+                !mapped.message.contains(cause),
+                "internal cause leaked into the message: {}",
+                mapped.message
+            );
+            assert!(mapped.data.is_none());
+        }
+    }
+
+    /// #374: moving a list onto a name that already exists in the target
+    /// container must tell the client which entity collides, in both locales.
+    #[tokio::test]
+    async fn move_list_to_container_with_duplicate_name_reports_already_exists() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let server = test_server(pool);
+
+        let container_a =
+            domain::containers::create(&server.pool, &uid, &domain_container_req("Maj"))
+                .await
+                .unwrap();
+        let container_b =
+            domain::containers::create(&server.pool, &uid, &domain_container_req("Śmietnik"))
+                .await
+                .unwrap();
+
+        let list_a = domain::lists::create(
+            &server.pool,
+            &uid,
+            &domain_list_req("Wakacje 2026", Some(container_a.id.clone())),
+        )
+        .await
+        .unwrap();
+        let list_b = domain::lists::create(
+            &server.pool,
+            &uid,
+            &domain_list_req("Wakacje 2026", Some(container_b.id.clone())),
+        )
+        .await
+        .unwrap();
+
+        for locale in ["en", "pl"] {
+            let err = server
+                .move_list_to_container(
+                    Extension(parts_for_user_locale(&uid, locale)),
+                    Parameters(MoveListToContainerParams {
+                        list_id: list_a.id.clone(),
+                        container_id: Some(container_b.id.clone()),
+                    }),
+                )
+                .await
+                .unwrap_err();
+
+            assert_eq!(err.code.0, -32602, "[{locale}] unexpected code: {err:?}");
+            let data = err.data.as_ref().expect("already_exists must carry data");
+            assert_eq!(data["error"], "already_exists", "[{locale}] {data}");
+            assert_eq!(data["kind"], "list", "[{locale}] {data}");
+            assert_eq!(
+                data["id"],
+                list_b.id.as_str(),
+                "[{locale}] must point at the colliding list: {data}"
+            );
+            for leaked in ["Internal", "wewnętrzny"] {
+                assert!(
+                    !err.message.contains(leaked),
+                    "[{locale}] message must not contain {leaked:?}: {}",
+                    err.message
+                );
+            }
+        }
+
+        // The move must not have gone through.
+        let row: (Option<String>,) = sqlx::query_as("SELECT container_id FROM lists WHERE id = ?")
+            .bind(&list_a.id)
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+        assert_eq!(row.0.as_deref(), Some(container_a.id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn closed_pool_reports_internal_error() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let server = test_server(pool.clone());
+        pool.close().await;
+
+        let err = server
+            .search_items(
+                Extension(parts_for_user(&uid)),
+                Parameters(SearchItemsParams {
+                    query: "anything".to_owned(),
+                }),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code.0, -32603, "unexpected code: {err:?}");
+        assert_eq!(err.message, "Internal error.", "locale en");
+        assert!(err.data.is_none(), "internal errors carry no data");
     }
 }
