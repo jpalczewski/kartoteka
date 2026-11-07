@@ -38,7 +38,7 @@ async function setup(page: Page, context: BrowserContext) {
 async function createEntity(page: Page, name: string, folder = false): Promise<Locator> {
   const form = page.locator('[data-testid="create-entity-input"]');
   if (folder) {
-    await page.locator('a:has-text("Folder")').first().click();
+    await page.locator('[data-testid="create-entity-tab-folder"]').first().click();
   }
   await form.locator('input[type="text"]').first().fill(name);
   await form.locator("button").first().click();
@@ -58,9 +58,10 @@ async function openList(page: Page, name: string) {
 
 // Add an empty sublist to the currently open list and return its standalone URL.
 async function addSublist(page: Page, name: string): Promise<string> {
-  await page.locator('button:has-text("Dodaj podlistę")').click();
-  await page.locator('input[placeholder="Nazwa podlisty..."]').fill(name);
-  await page.locator('input[placeholder="Nazwa podlisty..."]').press("Enter");
+  await page.locator('[data-testid="add-sublist-button"]').click();
+  const input = page.locator('[data-testid="add-sublist-input"] input[type="text"]');
+  await input.fill(name);
+  await input.press("Enter");
   const section = page.locator('[data-testid="sublist-section"]').filter({ hasText: name });
   await expect(section).toBeVisible();
   const href = await section.locator('[data-testid="sublist-open-link"]').getAttribute("href");
