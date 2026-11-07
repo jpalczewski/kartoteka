@@ -122,6 +122,18 @@ pub async fn recent(pool: &SqlitePool, user_id: &str, limit: i64) -> Result<Vec<
     .map_err(DbError::Sqlx)
 }
 
+/// Record that the user opened a list. Only `last_opened_at` is written —
+/// opening a list is a read and must not bump `updated_at`.
+#[tracing::instrument(skip(pool))]
+pub async fn touch_last_opened(pool: &SqlitePool, id: &str, user_id: &str) -> Result<(), DbError> {
+    sqlx::query("UPDATE lists SET last_opened_at=datetime('now') WHERE id=? AND user_id=?")
+        .bind(id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 /// Root lists: no container, no parent list, not archived, not pinned.
 /// Ordered by updated_at DESC.
 #[tracing::instrument(skip(pool))]
@@ -710,16 +722,42 @@ mod tests {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
         let id = insert_test_list(&pool, &uid, "Recent").await;
-        // Simulate open by updating last_opened_at
-        sqlx::query("UPDATE lists SET last_opened_at = datetime('now') WHERE id = ?")
-            .bind(&id)
-            .execute(&pool)
-            .await
-            .unwrap();
+        touch_last_opened(&pool, &id, &uid).await.unwrap();
 
         let rows = recent(&pool, &uid, 5).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, id);
+    }
+
+    #[tokio::test]
+    async fn touch_last_opened_sets_only_last_opened_at() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let id = insert_test_list(&pool, &uid, "Touched").await;
+        let before = get_one(&pool, &id, &uid).await.unwrap().unwrap();
+        assert!(before.last_opened_at.is_none());
+
+        touch_last_opened(&pool, &id, &uid).await.unwrap();
+
+        let after = get_one(&pool, &id, &uid).await.unwrap().unwrap();
+        assert!(after.last_opened_at.is_some());
+        assert_eq!(
+            after.updated_at, before.updated_at,
+            "opening a list is a read and must not bump updated_at"
+        );
+    }
+
+    #[tokio::test]
+    async fn touch_last_opened_is_scoped_by_user() {
+        let pool = test_pool().await;
+        let owner = create_test_user(&pool).await;
+        let other = create_test_user(&pool).await;
+        let id = insert_test_list(&pool, &owner, "Owned").await;
+
+        touch_last_opened(&pool, &id, &other).await.unwrap();
+
+        let row = get_one(&pool, &id, &owner).await.unwrap().unwrap();
+        assert!(row.last_opened_at.is_none());
     }
 
     #[tokio::test]

@@ -300,6 +300,14 @@ pub struct Item {
     pub updated_at: String,
 }
 
+/// Payload returned by `get_item_detail` — item plus its comments, pre-fetched so the
+/// comment section can render without a nested Resource (which breaks SSR hydration).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItemDetailData {
+    pub item: Item,
+    pub comments: CommentsPayload,
+}
+
 /// Payload returned by `get_list_data` — list header + items + sublists in one call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListData {

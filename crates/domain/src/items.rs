@@ -600,6 +600,26 @@ pub async fn place(
     Ok(())
 }
 
+/// Format `now` as a "YYYY-MM-DD" date in `tz_str`, falling back to UTC when the
+/// timezone name is invalid. Kept pure so timezone-boundary behaviour is testable.
+pub fn date_in_tz(now: chrono::DateTime<chrono::Utc>, tz_str: &str) -> String {
+    let tz: chrono_tz::Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
+    now.with_timezone(&tz)
+        .date_naive()
+        .format("%Y-%m-%d")
+        .to_string()
+}
+
+/// Today's date ("YYYY-MM-DD") in the user's configured timezone.
+///
+/// All "today"-based logic (today view, overdue, list grouping) must go through
+/// this helper so it agrees on the user's local date instead of UTC.
+#[tracing::instrument(skip(pool))]
+pub async fn user_today(pool: &SqlitePool, user_id: &str) -> Result<String, DomainError> {
+    let tz_str = db::preferences::get_timezone(pool, user_id).await?;
+    Ok(date_in_tz(chrono::Utc::now(), &tz_str))
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn by_date(
     pool: &SqlitePool,
@@ -607,13 +627,7 @@ pub async fn by_date(
     date: &str,
 ) -> Result<Vec<Item>, DomainError> {
     let resolved = if date == "today" {
-        let tz_str = db::preferences::get_timezone(pool, user_id).await?;
-        let tz: chrono_tz::Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
-        chrono::Utc::now()
-            .with_timezone(&tz)
-            .date_naive()
-            .format("%Y-%m-%d")
-            .to_string()
+        user_today(pool, user_id).await?
     } else {
         date.to_string()
     };
@@ -653,13 +667,7 @@ pub async fn overdue_for(
 /// Hard deadlines are intentionally excluded — overdue means a missed `deadline` date.
 #[tracing::instrument(skip(pool))]
 pub async fn overdue(pool: &SqlitePool, user_id: &str) -> Result<Vec<Item>, DomainError> {
-    let tz_str = db::preferences::get_timezone(pool, user_id).await?;
-    let tz: chrono_tz::Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
-    let today = chrono::Utc::now()
-        .with_timezone(&tz)
-        .date_naive()
-        .format("%Y-%m-%d")
-        .to_string();
+    let today = user_today(pool, user_id).await?;
     overdue_for(pool, user_id, &today).await
 }
 

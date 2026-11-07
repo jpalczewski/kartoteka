@@ -157,6 +157,12 @@ pub async fn get_container_data(container_id: String) -> Result<ContainerData, S
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
 
+    // Record the open so the home page "recent" section can list it. Best-effort:
+    // a failure here must not break the page.
+    if let Err(e) = domain::containers::touch_last_opened(&pool, &container_id, &user.id).await {
+        leptos::logging::warn!("failed to touch container last_opened_at: {e}");
+    }
+
     let container = domain::containers::get_one(&pool, &container_id, &user.id)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;

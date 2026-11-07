@@ -1101,3 +1101,33 @@ async fn place_rejects_foreign_before_item() {
     assert!(matches!(result, Err(DomainError::NotFound("item"))));
     assert_eq!(stored_position(&pool, &uid, &moving.id).await, (source, 0));
 }
+
+// ── Timezone-aware "today" helper ───────────────────────────────────────────
+
+#[test]
+fn date_in_tz_uses_user_timezone_not_utc() {
+    // 23:30 UTC is already the next day in Warsaw (UTC+1 in winter).
+    let instant = chrono::DateTime::parse_from_rfc3339("2024-01-01T23:30:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    assert_eq!(date_in_tz(instant, "UTC"), "2024-01-01");
+    assert_eq!(date_in_tz(instant, "Europe/Warsaw"), "2024-01-02");
+}
+
+#[test]
+fn date_in_tz_falls_back_to_utc_for_invalid_timezone() {
+    let instant = chrono::DateTime::parse_from_rfc3339("2024-06-15T12:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    assert_eq!(date_in_tz(instant, "Not/AZone"), "2024-06-15");
+}
+
+#[tokio::test]
+async fn user_today_uses_configured_timezone() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    // The helper always returns a valid YYYY-MM-DD date for the default timezone.
+    let today = user_today(&pool, &uid).await.unwrap();
+    assert_eq!(today.len(), 10);
+    assert_eq!(today, chrono::Utc::now().format("%Y-%m-%d").to_string());
+}
