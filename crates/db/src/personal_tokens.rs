@@ -1,6 +1,8 @@
 use crate::{DbError, SqlitePool};
 use serde::{Deserialize, Serialize};
 
+const PERSONAL_TOKEN_COLS: &str = "id, user_id, name, scope, last_used_at, expires_at, created_at";
+
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct PersonalTokenRow {
     pub id: String,
@@ -20,11 +22,11 @@ pub async fn create(
     scope: &str,
     expires_at: Option<&str>,
 ) -> Result<PersonalTokenRow, DbError> {
-    sqlx::query_as::<_, PersonalTokenRow>(
+    sqlx::query_as::<_, PersonalTokenRow>(&format!(
         "INSERT INTO personal_tokens (id, user_id, name, scope, expires_at) \
          VALUES (?, ?, ?, ?, ?) \
-         RETURNING id, user_id, name, scope, last_used_at, expires_at, created_at",
-    )
+         RETURNING {PERSONAL_TOKEN_COLS}"
+    ))
     .bind(id)
     .bind(user_id)
     .bind(name)
@@ -39,10 +41,9 @@ pub async fn list_by_user(
     pool: &SqlitePool,
     user_id: &str,
 ) -> Result<Vec<PersonalTokenRow>, DbError> {
-    sqlx::query_as::<_, PersonalTokenRow>(
-        "SELECT id, user_id, name, scope, last_used_at, expires_at, created_at \
-         FROM personal_tokens WHERE user_id = ? ORDER BY created_at DESC",
-    )
+    sqlx::query_as::<_, PersonalTokenRow>(&format!(
+        "SELECT {PERSONAL_TOKEN_COLS} FROM personal_tokens WHERE user_id = ? ORDER BY created_at DESC"
+    ))
     .bind(user_id)
     .fetch_all(pool)
     .await
@@ -61,10 +62,9 @@ pub async fn delete(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, 
 }
 
 pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<PersonalTokenRow>, DbError> {
-    sqlx::query_as::<_, PersonalTokenRow>(
-        "SELECT id, user_id, name, scope, last_used_at, expires_at, created_at \
-         FROM personal_tokens WHERE id = ?",
-    )
+    sqlx::query_as::<_, PersonalTokenRow>(&format!(
+        "SELECT {PERSONAL_TOKEN_COLS} FROM personal_tokens WHERE id = ?"
+    ))
     .bind(id)
     .fetch_optional(pool)
     .await

@@ -1,6 +1,9 @@
 use crate::{DbError, types::EntityRelationRow};
 use sqlx::SqlitePool;
 
+const RELATION_COLS: &str =
+    "id, from_type, from_id, to_type, to_id, relation_type, user_id, created_at";
+
 // ── Read queries ──────────────────────────────────────────────────────────────
 
 #[tracing::instrument(skip(pool))]
@@ -10,13 +13,12 @@ pub async fn list_for_entity(
     entity_id: &str,
     user_id: &str,
 ) -> Result<Vec<EntityRelationRow>, DbError> {
-    sqlx::query_as::<_, EntityRelationRow>(
-        "SELECT id, from_type, from_id, to_type, to_id, relation_type, user_id, created_at \
-         FROM entity_relations \
+    sqlx::query_as::<_, EntityRelationRow>(&format!(
+        "SELECT {RELATION_COLS} FROM entity_relations \
          WHERE ((from_type = ? AND from_id = ?) OR (to_type = ? AND to_id = ?)) \
            AND user_id = ? \
-         ORDER BY created_at ASC",
-    )
+         ORDER BY created_at ASC"
+    ))
     .bind(entity_type)
     .bind(entity_id)
     .bind(entity_type)
@@ -65,12 +67,12 @@ pub async fn insert(
     pool: &SqlitePool,
     input: InsertRelationInput<'_>,
 ) -> Result<EntityRelationRow, DbError> {
-    sqlx::query_as::<_, EntityRelationRow>(
+    sqlx::query_as::<_, EntityRelationRow>(&format!(
         "INSERT INTO entity_relations \
            (id, from_type, from_id, to_type, to_id, relation_type, user_id) \
          VALUES (?, ?, ?, ?, ?, ?, ?) \
-         RETURNING id, from_type, from_id, to_type, to_id, relation_type, user_id, created_at",
-    )
+         RETURNING {RELATION_COLS}"
+    ))
     .bind(input.id)
     .bind(input.from_type)
     .bind(input.from_id)

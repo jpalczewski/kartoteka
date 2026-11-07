@@ -1,6 +1,11 @@
 use crate::{DbError, types::TimeEntryRow};
 use sqlx::SqlitePool;
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const TIME_ENTRY_COLS: &str =
+    "id, item_id, user_id, description, started_at, ended_at, duration, source, mode, created_at";
+
 // ── Read ──────────────────────────────────────────────────────────────────────
 
 #[tracing::instrument(skip(pool))]
@@ -9,10 +14,9 @@ pub async fn get_one(
     id: &str,
     user_id: &str,
 ) -> Result<Option<TimeEntryRow>, DbError> {
-    sqlx::query_as::<_, TimeEntryRow>(
-        "SELECT id, item_id, user_id, description, started_at, ended_at, duration, source, mode, created_at \
-         FROM time_entries WHERE id = ? AND user_id = ?",
-    )
+    sqlx::query_as::<_, TimeEntryRow>(&format!(
+        "SELECT {TIME_ENTRY_COLS} FROM time_entries WHERE id = ? AND user_id = ?"
+    ))
     .bind(id)
     .bind(user_id)
     .fetch_optional(pool)
@@ -25,10 +29,9 @@ pub async fn get_running(
     pool: &SqlitePool,
     user_id: &str,
 ) -> Result<Option<TimeEntryRow>, DbError> {
-    sqlx::query_as::<_, TimeEntryRow>(
-        "SELECT id, item_id, user_id, description, started_at, ended_at, duration, source, mode, created_at \
-         FROM time_entries WHERE user_id = ? AND ended_at IS NULL ORDER BY started_at ASC LIMIT 1",
-    )
+    sqlx::query_as::<_, TimeEntryRow>(&format!(
+        "SELECT {TIME_ENTRY_COLS} FROM time_entries WHERE user_id = ? AND ended_at IS NULL ORDER BY started_at ASC LIMIT 1"
+    ))
     .bind(user_id)
     .fetch_optional(pool)
     .await
@@ -41,10 +44,9 @@ pub async fn list_for_item(
     item_id: &str,
     user_id: &str,
 ) -> Result<Vec<TimeEntryRow>, DbError> {
-    sqlx::query_as::<_, TimeEntryRow>(
-        "SELECT id, item_id, user_id, description, started_at, ended_at, duration, source, mode, created_at \
-         FROM time_entries WHERE item_id = ? AND user_id = ? ORDER BY created_at DESC",
-    )
+    sqlx::query_as::<_, TimeEntryRow>(&format!(
+        "SELECT {TIME_ENTRY_COLS} FROM time_entries WHERE item_id = ? AND user_id = ? ORDER BY created_at DESC"
+    ))
     .bind(item_id)
     .bind(user_id)
     .fetch_all(pool)
@@ -54,10 +56,9 @@ pub async fn list_for_item(
 
 #[tracing::instrument(skip(pool))]
 pub async fn list_inbox(pool: &SqlitePool, user_id: &str) -> Result<Vec<TimeEntryRow>, DbError> {
-    sqlx::query_as::<_, TimeEntryRow>(
-        "SELECT id, item_id, user_id, description, started_at, ended_at, duration, source, mode, created_at \
-         FROM time_entries WHERE user_id = ? AND item_id IS NULL ORDER BY created_at DESC",
-    )
+    sqlx::query_as::<_, TimeEntryRow>(&format!(
+        "SELECT {TIME_ENTRY_COLS} FROM time_entries WHERE user_id = ? AND item_id IS NULL ORDER BY created_at DESC"
+    ))
     .bind(user_id)
     .fetch_all(pool)
     .await
@@ -69,10 +70,9 @@ pub async fn list_all_for_user(
     pool: &SqlitePool,
     user_id: &str,
 ) -> Result<Vec<TimeEntryRow>, DbError> {
-    sqlx::query_as::<_, TimeEntryRow>(
-        "SELECT id, item_id, user_id, description, started_at, ended_at, duration, source, mode, created_at \
-         FROM time_entries WHERE user_id = ? ORDER BY created_at DESC LIMIT 200",
-    )
+    sqlx::query_as::<_, TimeEntryRow>(&format!(
+        "SELECT {TIME_ENTRY_COLS} FROM time_entries WHERE user_id = ? ORDER BY created_at DESC LIMIT 200"
+    ))
     .bind(user_id)
     .fetch_all(pool)
     .await
@@ -117,12 +117,12 @@ pub async fn insert(
     pool: &SqlitePool,
     input: InsertTimeEntryInput<'_>,
 ) -> Result<TimeEntryRow, DbError> {
-    sqlx::query_as::<_, TimeEntryRow>(
+    sqlx::query_as::<_, TimeEntryRow>(&format!(
         "INSERT INTO time_entries \
            (id, item_id, user_id, description, started_at, source, mode, ended_at, duration) \
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) \
-         RETURNING id, item_id, user_id, description, started_at, ended_at, duration, source, mode, created_at",
-    )
+         RETURNING {TIME_ENTRY_COLS}"
+    ))
     .bind(input.id)
     .bind(input.item_id)
     .bind(input.user_id)

@@ -1,6 +1,8 @@
 use crate::{DbError, SqlitePool};
 use serde::{Deserialize, Serialize};
 
+const CALENDAR_TOKEN_COLS: &str = "id, user_id, list_id, name, last_used_at, created_at";
+
 /// A calendar feed token. `token_hash` is deliberately never selected: the
 /// plaintext token is shown once on creation and only its SHA-256 hash is stored.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
@@ -23,11 +25,11 @@ pub async fn create(
     name: &str,
     token_hash: &str,
 ) -> Result<CalendarTokenRow, DbError> {
-    sqlx::query_as::<_, CalendarTokenRow>(
+    sqlx::query_as::<_, CalendarTokenRow>(&format!(
         "INSERT INTO calendar_tokens (id, user_id, list_id, name, token_hash) \
          VALUES (?, ?, ?, ?, ?) \
-         RETURNING id, user_id, list_id, name, last_used_at, created_at",
-    )
+         RETURNING {CALENDAR_TOKEN_COLS}"
+    ))
     .bind(id)
     .bind(user_id)
     .bind(list_id)
@@ -43,10 +45,9 @@ pub async fn list_by_user(
     pool: &SqlitePool,
     user_id: &str,
 ) -> Result<Vec<CalendarTokenRow>, DbError> {
-    sqlx::query_as::<_, CalendarTokenRow>(
-        "SELECT id, user_id, list_id, name, last_used_at, created_at \
-         FROM calendar_tokens WHERE user_id = ? ORDER BY created_at DESC",
-    )
+    sqlx::query_as::<_, CalendarTokenRow>(&format!(
+        "SELECT {CALENDAR_TOKEN_COLS} FROM calendar_tokens WHERE user_id = ? ORDER BY created_at DESC"
+    ))
     .bind(user_id)
     .fetch_all(pool)
     .await
@@ -70,10 +71,9 @@ pub async fn find_by_hash(
     pool: &SqlitePool,
     token_hash: &str,
 ) -> Result<Option<CalendarTokenRow>, DbError> {
-    sqlx::query_as::<_, CalendarTokenRow>(
-        "SELECT id, user_id, list_id, name, last_used_at, created_at \
-         FROM calendar_tokens WHERE token_hash = ?",
-    )
+    sqlx::query_as::<_, CalendarTokenRow>(&format!(
+        "SELECT {CALENDAR_TOKEN_COLS} FROM calendar_tokens WHERE token_hash = ?"
+    ))
     .bind(token_hash)
     .fetch_optional(pool)
     .await

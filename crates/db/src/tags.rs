@@ -7,7 +7,7 @@ const TAG_COLS: &str =
     "id, user_id, name, icon, color, parent_tag_id, tag_type, metadata, created_at";
 
 /// Prefixed version for JOIN queries where tags is aliased as `t`.
-const TAG_COLS_T: &str = "t.id, t.user_id, t.name, t.icon, t.color, t.parent_tag_id, t.tag_type, t.metadata, t.created_at";
+pub(crate) const TAG_COLS_T: &str = "t.id, t.user_id, t.name, t.icon, t.color, t.parent_tag_id, t.tag_type, t.metadata, t.created_at";
 
 // ── Input types ───────────────────────────────────────────────────────────────
 

@@ -1,17 +1,21 @@
 use crate::{
     DbError,
+    tags::TAG_COLS_T,
     types::{TagRow, TemplateItemRow, TemplateRow},
 };
 use sqlx::{SqliteConnection, SqlitePool};
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const TEMPLATE_COLS: &str = "id, user_id, name, icon, description, created_at";
 
 // ── Read ──────────────────────────────────────────────────────────────────────
 
 #[tracing::instrument(skip(pool))]
 pub async fn list_all(pool: &SqlitePool, user_id: &str) -> Result<Vec<TemplateRow>, DbError> {
-    sqlx::query_as::<_, TemplateRow>(
-        "SELECT id, user_id, name, icon, description, created_at \
-         FROM templates WHERE user_id = ? ORDER BY created_at DESC",
-    )
+    sqlx::query_as::<_, TemplateRow>(&format!(
+        "SELECT {TEMPLATE_COLS} FROM templates WHERE user_id = ? ORDER BY created_at DESC"
+    ))
     .bind(user_id)
     .fetch_all(pool)
     .await
@@ -24,10 +28,9 @@ pub async fn get_one(
     id: &str,
     user_id: &str,
 ) -> Result<Option<TemplateRow>, DbError> {
-    sqlx::query_as::<_, TemplateRow>(
-        "SELECT id, user_id, name, icon, description, created_at \
-         FROM templates WHERE id = ? AND user_id = ?",
-    )
+    sqlx::query_as::<_, TemplateRow>(&format!(
+        "SELECT {TEMPLATE_COLS} FROM templates WHERE id = ? AND user_id = ?"
+    ))
     .bind(id)
     .bind(user_id)
     .fetch_optional(pool)
@@ -54,13 +57,12 @@ pub async fn get_items(
 /// OWNERSHIP NOT CHECKED — caller must verify the template belongs to `user_id` before calling.
 #[tracing::instrument(skip(pool))]
 pub async fn get_tags(pool: &SqlitePool, template_id: &str) -> Result<Vec<TagRow>, DbError> {
-    sqlx::query_as::<_, TagRow>(
-        "SELECT t.id, t.user_id, t.name, t.icon, t.color, t.parent_tag_id, \
-                t.tag_type, t.metadata, t.created_at \
+    sqlx::query_as::<_, TagRow>(&format!(
+        "SELECT {TAG_COLS_T} \
          FROM tags t \
          JOIN template_tags tt ON tt.tag_id = t.id \
-         WHERE tt.template_id = ?",
-    )
+         WHERE tt.template_id = ?"
+    ))
     .bind(template_id)
     .fetch_all(pool)
     .await

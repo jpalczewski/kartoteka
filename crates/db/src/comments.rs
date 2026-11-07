@@ -1,6 +1,8 @@
 use crate::{DbError, types::CommentRow};
 use sqlx::SqlitePool;
 
+const COMMENT_COLS: &str = "id, entity_type, entity_id, content, author_type, author_name, user_id, created_at, updated_at";
+
 // ── Read queries ──────────────────────────────────────────────────────────────
 
 #[tracing::instrument(skip(pool))]
@@ -31,13 +33,12 @@ pub async fn list_for_entity(
     entity_type: &str,
     entity_id: &str,
 ) -> Result<Vec<CommentRow>, DbError> {
-    sqlx::query_as::<_, CommentRow>(
-        "SELECT id, entity_type, entity_id, content, author_type, author_name, \
-         user_id, created_at, updated_at \
+    sqlx::query_as::<_, CommentRow>(&format!(
+        "SELECT {COMMENT_COLS} \
          FROM comments \
          WHERE entity_type = ? AND entity_id = ? \
-         ORDER BY created_at ASC",
-    )
+         ORDER BY created_at ASC"
+    ))
     .bind(entity_type)
     .bind(entity_id)
     .fetch_all(pool)
@@ -62,12 +63,11 @@ pub async fn insert(
     pool: &SqlitePool,
     input: InsertCommentInput<'_>,
 ) -> Result<CommentRow, DbError> {
-    sqlx::query_as::<_, CommentRow>(
+    sqlx::query_as::<_, CommentRow>(&format!(
         "INSERT INTO comments (id, entity_type, entity_id, content, author_type, author_name, user_id) \
          VALUES (?, ?, ?, ?, ?, ?, ?) \
-         RETURNING id, entity_type, entity_id, content, author_type, author_name, \
-                   user_id, created_at, updated_at",
-    )
+         RETURNING {COMMENT_COLS}"
+    ))
     .bind(input.id)
     .bind(input.entity_type)
     .bind(input.entity_id)
