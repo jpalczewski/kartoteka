@@ -5,6 +5,7 @@ use leptos_router::hooks::use_params_map;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
+use crate::components::common::inline_edit::InlineEdit;
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::locations::{
     delete_location_sf, get_location_detail_sf, update_location_sf,
@@ -28,14 +29,9 @@ pub fn AddressDetailPage() -> impl IntoView {
     let city_res = Resource::new(move || city_id.get(), get_location_detail_sf);
 
     let (editing_name, set_editing_name) = signal(false);
-    let (edit_name, set_edit_name) = signal(String::new());
     let show_delete = RwSignal::new(false);
 
-    let on_save_name = Callback::new(move |_: ()| {
-        let name = edit_name.get_untracked();
-        if name.trim().is_empty() {
-            return;
-        }
+    let on_save_name = Callback::new(move |name: String| {
         let id = addr_id.get_untracked();
         set_editing_name.set(false);
         leptos::task::spawn_local(async move {
@@ -88,7 +84,7 @@ pub fn AddressDetailPage() -> impl IntoView {
                 {move || addr_res.get().map(|result| {
                     match result {
                         Err(e) => view! { <p class="text-error">{e.to_string()}</p> }.into_any(),
-                        Ok(None) => view! { <p class="text-base-content/50">"Nie znaleziono adresu."</p> }.into_any(),
+                        Ok(None) => view! { <p class="text-base-content/50">{move_tr!("locations-address-not-found")}</p> }.into_any(),
                         Ok(Some(addr)) => {
                             let addr_name = StoredValue::new(addr.name.clone());
                             let addr_id_str = addr.id.clone();
@@ -100,27 +96,11 @@ pub fn AddressDetailPage() -> impl IntoView {
                                         <div>
                                             {move || if editing_name.get() {
                                                 view! {
-                                                    <div class="flex gap-2 items-center">
-                                                        <input
-                                                            type="text"
-                                                            class="input input-bordered input-sm"
-                                                            prop:value=move || edit_name.get()
-                                                            on:input=move |ev| set_edit_name.set(event_target_value(&ev))
-                                                            on:keydown=move |ev| {
-                                                                match ev.key().as_str() {
-                                                                    "Enter" => on_save_name.run(()),
-                                                                    "Escape" => set_editing_name.set(false),
-                                                                    _ => {}
-                                                                }
-                                                            }
-                                                        />
-                                                        <button class="btn btn-sm btn-primary" on:click=move |_| on_save_name.run(())>
-                                                            {move_tr!("locations-save")}
-                                                        </button>
-                                                        <button class="btn btn-sm btn-ghost" on:click=move |_| set_editing_name.set(false)>
-                                                            {move_tr!("locations-cancel")}
-                                                        </button>
-                                                    </div>
+                                                    <InlineEdit
+                                                        value=addr_name.get_value()
+                                                        on_save=on_save_name
+                                                        on_cancel=Callback::new(move |_: ()| set_editing_name.set(false))
+                                                    />
                                                 }.into_any()
                                             } else {
                                                 view! {
@@ -128,10 +108,7 @@ pub fn AddressDetailPage() -> impl IntoView {
                                                         <h2 class="text-2xl font-bold">{addr_name.get_value()}</h2>
                                                         <button
                                                             class="btn btn-xs btn-ghost"
-                                                            on:click=move |_| {
-                                                                set_edit_name.set(addr_name.get_value());
-                                                                set_editing_name.set(true);
-                                                            }
+                                                            on:click=move |_| set_editing_name.set(true)
                                                         >
                                                             "✎"
                                                         </button>
