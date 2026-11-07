@@ -82,7 +82,7 @@ test("sublist progress counter updates after adding item", async ({ page, contex
 
 // ── Toggle items in sublist ───────────────────────────────────────────────────
 
-// APP BUG: `SublistSection` renders `ItemRow` without `list_features`, so sublist items never
+// APP BUG (#341): `SublistSection` renders `ItemRow` without `list_features`, so sublist items never
 // get a completion checkbox (`ItemRow` only renders one for the `checklist` feature) even though
 // the section tracks and displays a done/total progress counter. Toggle it from the sublist's own
 // page, or extend `SublistSection` to pass the sublist's features.

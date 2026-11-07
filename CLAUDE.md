@@ -68,7 +68,7 @@ Projekt używa szybko ewoluujących bibliotek (Leptos 0.8, DaisyUI 5, rmcp). Prz
 - Unit (`crates/shared/`): `cargo test -p kartoteka-shared`
 - i18n (`crates/i18n/tests/`): kompletność PL/EN, parsowanie FTL, pokrycie MCP
 - E2E (`tests/e2e/`): Playwright, 9 spec files — `just test-e2e`
-  - `just test-e2e` robi `build-css` + `cargo leptos build`, potem `npx playwright test`; serwer WWW
+  - `just test-e2e` robi `build-css` + `cargo leptos build`, potem `npx playwright test`; serwer aplikacji
     startuje sam Playwright (`tests/playwright.config.ts`), więc nie trzeba uruchamiać `just dev`
   - binarka: `target/debug/kartoteka` (albo `$CARGO_TARGET_DIR`), nadpisywalna przez `$KARTOTEKA_BIN`;
     port: 3030, nadpisywalny przez `$E2E_PORT` (kilka checkoutów obok siebie)

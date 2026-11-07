@@ -73,9 +73,12 @@ export async function createListOnCurrentPage(page: Page, name: string): Promise
   await listCard(page, name).waitFor({ timeout: 10_000 });
 }
 
-/** The home page card of the list with the given name. */
+/**
+ * The home page card of the list with the given name. A recently opened list is shown twice
+ * ("recent" section and the root list), so this returns the first match.
+ */
 export function listCard(page: Page, name: string) {
-  return page.locator('[data-testid="list-card"]').filter({ hasText: name });
+  return page.locator('[data-testid="list-card"]').filter({ hasText: name }).first();
 }
 
 /** Open a list from the home page card, returning its id. */
