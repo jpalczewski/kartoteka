@@ -1,4 +1,3 @@
-use crate::app::{ToastContext, ToastKind};
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
 use leptos_router::hooks::use_params_map;
@@ -55,7 +54,6 @@ pub fn ListPage() -> impl IntoView {
     let navigate = leptos_router::hooks::use_navigate();
     // Separate handle for the shared delete flow, so the archive/reset modal keeps `navigate`.
     let nav_delete = navigate.clone();
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let invalidation = use_invalidation();
 
     let (show_completed, set_show_completed) = signal(true);
@@ -221,24 +219,23 @@ pub fn ListPage() -> impl IntoView {
         let Some(plan) = build_item_drop_plan(&ids_map, &dragged, &target) else {
             return;
         };
-        leptos::task::spawn_local(async move {
-            let result = match plan {
-                ItemDropPlan::Reorder {
-                    list_id: lid,
-                    item_ids,
-                } => reorder_items(lid, item_ids).await.map(|_| ()),
-                ItemDropPlan::Move {
-                    item_id,
-                    target_list_id,
-                    before_item_id,
-                    ..
-                } => set_item_placement(item_id, target_list_id, before_item_id).await,
-            };
-            match result {
-                Ok(()) => invalidation.invalidate_many(&[ChangeTopic::Items, ChangeTopic::Lists]),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(
+            async move {
+                match plan {
+                    ItemDropPlan::Reorder {
+                        list_id: lid,
+                        item_ids,
+                    } => reorder_items(lid, item_ids).await.map(|_| ()),
+                    ItemDropPlan::Move {
+                        item_id,
+                        target_list_id,
+                        before_item_id,
+                        ..
+                    } => set_item_placement(item_id, target_list_id, before_item_id).await,
+                }
+            },
+            &[ChangeTopic::Items, ChangeTopic::Lists],
+        );
     });
 
     view! {
