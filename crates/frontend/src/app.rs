@@ -129,6 +129,8 @@ fn login_redirect_path() -> String {
 pub fn App() -> impl IntoView {
     provide_context(ToastContext::new());
     crate::state::invalidation::provide_invalidation();
+    // Server-sent events feeding the invalidation bus (browser only).
+    crate::state::live_updates::provide_live_updates();
 
     // Created once for the whole app so guarded routes are instantiated a single time
     // per render (#218). Login and logout both reload the page, which re-creates it.
