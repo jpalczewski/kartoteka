@@ -1,4 +1,4 @@
-use kartoteka_shared::types::FlexDate;
+use kartoteka_shared::types::{FlexDate, RecurrenceMode, RecurrenceRule};
 
 // --- sqlx row types ---
 
@@ -157,6 +157,8 @@ pub struct ItemRow {
     pub hard_deadline: Option<FlexDate>,
     pub estimated_duration: Option<i32>,
     pub location_id: Option<String>,
+    pub recurrence_rule: Option<RecurrenceRule>,
+    pub recurrence_mode: Option<RecurrenceMode>,
     pub created_at: String,
     pub updated_at: String,
 }

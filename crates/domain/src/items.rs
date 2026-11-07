@@ -323,6 +323,10 @@ pub fn new_item_input(
         deadline_time: req.deadline_time.clone(),
         hard_deadline: req.hard_deadline.clone(),
         estimated_duration: req.estimated_duration,
+        // Not part of CreateItemRequest yet; recurrence behaviour is a separate change.
+        location_id: None,
+        recurrence_rule: None,
+        recurrence_mode: None,
     }
 }
 
@@ -419,6 +423,9 @@ pub async fn update(
         hard_deadline: req.hard_deadline.clone(),
         estimated_duration: req.estimated_duration,
         location_id: req.location_id.clone(),
+        // Recurrence fields stay untouched here; behaviour lands with a separate change.
+        recurrence_rule: None,
+        recurrence_mode: None,
     };
     let found = db::items::update(pool, id, user_id, &input).await?;
     if !found {

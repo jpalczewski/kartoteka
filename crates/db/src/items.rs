@@ -22,6 +22,11 @@ pub struct InsertItemInput {
     pub deadline_time: Option<String>,
     pub hard_deadline: Option<String>,
     pub estimated_duration: Option<i32>,
+    pub location_id: Option<String>,
+    /// Compact rule form, e.g. `"7d"` / `"2w"` / `"1m"`.
+    pub recurrence_rule: Option<String>,
+    /// `"fixed"` or `"floating"`; only meaningful together with `recurrence_rule`.
+    pub recurrence_mode: Option<String>,
 }
 
 #[derive(Debug)]
@@ -39,6 +44,8 @@ pub struct UpdateItemInput {
     pub hard_deadline: Option<Option<String>>,
     pub estimated_duration: Option<Option<i32>>,
     pub location_id: Option<Option<String>>,
+    pub recurrence_rule: Option<Option<String>>,
+    pub recurrence_mode: Option<Option<String>>,
 }
 
 /// One item rendered into an iCal feed, with its list name for the summary/description.
@@ -63,7 +70,7 @@ pub struct CalendarFeedItemRow {
 const ITEM_COLUMNS: &str = "i.id, i.list_id, i.title, i.description, i.completed, i.position, \
      i.quantity, i.actual_quantity, i.unit, i.start_date, i.start_time, \
      i.deadline, i.deadline_time, i.hard_deadline, i.estimated_duration, \
-     i.location_id, i.created_at, i.updated_at";
+     i.location_id, i.recurrence_rule, i.recurrence_mode, i.created_at, i.updated_at";
 
 // ── Read queries ──────────────────────────────────────────────────────────────
 
@@ -86,12 +93,15 @@ pub async fn list_for_list(
     .map_err(DbError::Sqlx)
 }
 
-#[tracing::instrument(skip(pool))]
-pub async fn get_one(
-    pool: &SqlitePool,
+/// Shared item lookup so the pool and the transaction variant stay identical.
+async fn get_one_row<'e, E>(
+    executor: E,
     id: &str,
     user_id: &str,
-) -> Result<Option<ItemRow>, DbError> {
+) -> Result<Option<ItemRow>, DbError>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
     sqlx::query_as::<_, ItemRow>(&format!(
         "SELECT {ITEM_COLUMNS} FROM items i \
          JOIN lists l ON l.id = i.list_id \
@@ -99,9 +109,29 @@ pub async fn get_one(
     ))
     .bind(id)
     .bind(user_id)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await
     .map_err(DbError::Sqlx)
+}
+
+#[tracing::instrument(skip(pool))]
+pub async fn get_one(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+) -> Result<Option<ItemRow>, DbError> {
+    get_one_row(pool, id, user_id).await
+}
+
+/// Same read as [`get_one`] but inside a caller-owned transaction, so a write
+/// and the row it produced can be observed atomically.
+#[tracing::instrument(skip(conn))]
+pub async fn get_one_in_tx(
+    conn: &mut SqliteConnection,
+    id: &str,
+    user_id: &str,
+) -> Result<Option<ItemRow>, DbError> {
+    get_one_row(&mut *conn, id, user_id).await
 }
 
 #[tracing::instrument(skip(pool))]
@@ -233,7 +263,8 @@ pub async fn find_id_by_title_in_list(
         "SELECT id FROM items \
          WHERE list_id = ? \
            AND LOWER(TRIM(title)) = LOWER(TRIM(?)) \
-           AND id != COALESCE(?, '')",
+           AND id != COALESCE(?, '') \
+           AND completed = 0",
     )
     .bind(list_id)
     .bind(title)
@@ -250,7 +281,7 @@ pub async fn find_id_by_title_in_list(
 /// here (plus the matching `InsertItemInput` field and bind in [`insert_row`]).
 const ITEM_INSERT_COLUMNS: &str = "id, list_id, position, title, description, quantity, \
      actual_quantity, unit, start_date, start_time, deadline, deadline_time, \
-     hard_deadline, estimated_duration";
+     hard_deadline, estimated_duration, location_id, recurrence_rule, recurrence_mode";
 
 /// The single item INSERT used by every write path.
 ///
@@ -280,6 +311,9 @@ where
     .bind(&input.deadline_time)
     .bind(&input.hard_deadline)
     .bind(input.estimated_duration)
+    .bind(&input.location_id)
+    .bind(&input.recurrence_rule)
+    .bind(&input.recurrence_mode)
     .fetch_one(executor)
     .await
     .map_err(DbError::Sqlx)
@@ -307,6 +341,31 @@ pub async fn update(
     user_id: &str,
     input: &UpdateItemInput,
 ) -> Result<bool, DbError> {
+    update_row(pool, id, user_id, input).await
+}
+
+/// Same as [`update`] but runs on a caller-owned transaction connection.
+#[tracing::instrument(skip(conn))]
+pub async fn update_in_tx(
+    conn: &mut SqliteConnection,
+    id: &str,
+    user_id: &str,
+    input: &UpdateItemInput,
+) -> Result<bool, DbError> {
+    update_row(&mut *conn, id, user_id, input).await
+}
+
+/// Shared `update` statement so both the pool and the transaction variant stay
+/// identical. Ownership of the item is enforced by the WHERE clause.
+async fn update_row<'e, E>(
+    executor: E,
+    id: &str,
+    user_id: &str,
+    input: &UpdateItemInput,
+) -> Result<bool, DbError>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
     let rows = sqlx::query(
         "UPDATE items SET \
             title = COALESCE(?, title), \
@@ -322,6 +381,8 @@ pub async fn update(
             hard_deadline = CASE WHEN ? = 1 THEN ? ELSE hard_deadline END, \
             estimated_duration = CASE WHEN ? = 1 THEN ? ELSE estimated_duration END, \
             location_id = CASE WHEN ? = 1 THEN ? ELSE location_id END, \
+            recurrence_rule = CASE WHEN ? = 1 THEN ? ELSE recurrence_rule END, \
+            recurrence_mode = CASE WHEN ? = 1 THEN ? ELSE recurrence_mode END, \
             updated_at = datetime('now') \
          WHERE id = ? AND list_id IN (SELECT id FROM lists WHERE user_id = ?)",
     )
@@ -349,9 +410,13 @@ pub async fn update(
     .bind(input.estimated_duration.and_then(|v| v))
     .bind(input.location_id.is_some() as i32)
     .bind(input.location_id.as_ref().and_then(|v| v.as_deref()))
+    .bind(input.recurrence_rule.is_some() as i32)
+    .bind(input.recurrence_rule.as_ref().and_then(|v| v.as_deref()))
+    .bind(input.recurrence_mode.is_some() as i32)
+    .bind(input.recurrence_mode.as_ref().and_then(|v| v.as_deref()))
     .bind(id)
     .bind(user_id)
-    .execute(pool)
+    .execute(executor)
     .await
     .map_err(DbError::Sqlx)?;
     Ok(rows.rows_affected() > 0)
@@ -384,6 +449,47 @@ pub async fn toggle_complete(pool: &SqlitePool, id: &str, user_id: &str) -> Resu
     .await
     .map_err(DbError::Sqlx)?;
     Ok(rows.rows_affected() > 0)
+}
+
+/// Set the completed flag to an explicit value inside a caller-owned
+/// transaction. Unlike [`set_completed`], ownership of the item is checked, so
+/// a caller reading the current state first cannot be tricked into writing
+/// someone else's item. Returns `false` when no owned item matched.
+#[tracing::instrument(skip(conn))]
+pub async fn set_completed_in_tx(
+    conn: &mut SqliteConnection,
+    id: &str,
+    user_id: &str,
+    completed: bool,
+) -> Result<bool, DbError> {
+    let rows = sqlx::query(
+        "UPDATE items SET completed = ?, updated_at = datetime('now') \
+         WHERE id = ? AND list_id IN (SELECT id FROM lists WHERE user_id = ?)",
+    )
+    .bind(completed as i32)
+    .bind(id)
+    .bind(user_id)
+    .execute(&mut *conn)
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(rows.rows_affected() > 0)
+}
+
+/// Next free position at the end of `list_id`, i.e. `MAX(position) + 1` (or 0
+/// for an empty list). Reads inside a caller-owned transaction so a spawn can
+/// append without racing a concurrent insert.
+#[tracing::instrument(skip(conn))]
+pub async fn next_position_in_tx(
+    conn: &mut SqliteConnection,
+    list_id: &str,
+) -> Result<i32, DbError> {
+    let (position,): (i32,) =
+        sqlx::query_as("SELECT COALESCE(MAX(position) + 1, 0) FROM items WHERE list_id = ?")
+            .bind(list_id)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(DbError::Sqlx)?;
+    Ok(position)
 }
 
 #[tracing::instrument(skip(pool))]
@@ -588,6 +694,7 @@ pub async fn list_for_container(
 mod tests {
     use super::*;
     use crate::test_helpers::{create_test_list, create_test_user, test_pool};
+    use kartoteka_shared::types::{RecurrenceMode, RecurrenceRule, RecurrenceUnit};
     use sqlx::SqlitePool;
 
     async fn make_item(pool: &SqlitePool, list_id: &str, title: &str, pos: i32) -> ItemRow {
@@ -807,6 +914,8 @@ mod tests {
                 hard_deadline: None,
                 estimated_duration: None,
                 location_id: None,
+                recurrence_rule: None,
+                recurrence_mode: None,
             },
         )
         .await
@@ -858,6 +967,8 @@ mod tests {
                 hard_deadline: None,
                 estimated_duration: None,
                 location_id: None,
+                recurrence_rule: None,
+                recurrence_mode: None,
             },
         )
         .await
@@ -1390,5 +1501,349 @@ mod tests {
             .unwrap();
         let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
         assert_eq!(titles, vec!["Sooner", "Middle", "Later"]);
+    }
+
+    // ── recurrence columns ────────────────────────────────────────────────────
+
+    fn daily_rule() -> RecurrenceRule {
+        RecurrenceRule {
+            interval: 7,
+            unit: RecurrenceUnit::Day,
+        }
+    }
+
+    #[tokio::test]
+    async fn insert_round_trips_recurrence_columns() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+
+        let item = insert(
+            &pool,
+            &InsertItemInput {
+                id: uuid::Uuid::new_v4().to_string(),
+                list_id: list_id.clone(),
+                position: 0,
+                title: "Water the plants".to_string(),
+                deadline: Some("2026-05-01".to_string()),
+                recurrence_rule: Some("7d".to_string()),
+                recurrence_mode: Some("floating".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        // RETURNING decoded the columns into the typed fields.
+        assert_eq!(item.recurrence_rule, Some(daily_rule()));
+        assert_eq!(item.recurrence_mode, Some(RecurrenceMode::Floating));
+
+        let fetched = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(fetched.recurrence_rule, Some(daily_rule()));
+        assert_eq!(fetched.recurrence_mode, Some(RecurrenceMode::Floating));
+    }
+
+    #[tokio::test]
+    async fn insert_without_recurrence_leaves_columns_null() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+
+        let item = make_item(&pool, &list_id, "Plain", 0).await;
+        assert!(item.recurrence_rule.is_none());
+        assert!(item.recurrence_mode.is_none());
+    }
+
+    #[tokio::test]
+    async fn insert_rejects_unknown_recurrence_mode() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+
+        let err = insert(
+            &pool,
+            &InsertItemInput {
+                id: uuid::Uuid::new_v4().to_string(),
+                list_id: list_id.clone(),
+                position: 0,
+                title: "Bad mode".to_string(),
+                recurrence_rule: Some("7d".to_string()),
+                recurrence_mode: Some("weekly".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_err();
+
+        match err {
+            DbError::Sqlx(sqlx::Error::Database(db_err)) => {
+                assert!(
+                    db_err.message().contains("CHECK"),
+                    "unexpected db error: {}",
+                    db_err.message()
+                );
+            }
+            other => panic!("expected CHECK violation, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn update_sets_recurrence_rule_and_mode() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "Repeat me", 0).await;
+
+        let changed = update(
+            &pool,
+            &item.id,
+            &uid,
+            &UpdateItemInput {
+                recurrence_rule: Some(Some("2w".to_string())),
+                recurrence_mode: Some(Some("fixed".to_string())),
+                title: None,
+                description: None,
+                completed: None,
+                quantity: None,
+                actual_quantity: None,
+                unit: None,
+                start_date: None,
+                start_time: None,
+                deadline: None,
+                deadline_time: None,
+                hard_deadline: None,
+                estimated_duration: None,
+                location_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(changed);
+
+        let updated = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(
+            updated.recurrence_rule,
+            Some(RecurrenceRule {
+                interval: 2,
+                unit: RecurrenceUnit::Week,
+            })
+        );
+        assert_eq!(updated.recurrence_mode, Some(RecurrenceMode::Fixed));
+        // Untouched fields survived the SET ... CASE pattern.
+        assert_eq!(updated.title, "Repeat me");
+    }
+
+    #[tokio::test]
+    async fn update_clears_recurrence_rule_and_mode() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+
+        let item = insert(
+            &pool,
+            &InsertItemInput {
+                id: uuid::Uuid::new_v4().to_string(),
+                list_id: list_id.clone(),
+                position: 0,
+                title: "Repeat me".to_string(),
+                recurrence_rule: Some("1m".to_string()),
+                recurrence_mode: Some("fixed".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        update(
+            &pool,
+            &item.id,
+            &uid,
+            &UpdateItemInput {
+                recurrence_rule: Some(None),
+                recurrence_mode: Some(None),
+                title: None,
+                description: None,
+                completed: None,
+                quantity: None,
+                actual_quantity: None,
+                unit: None,
+                start_date: None,
+                start_time: None,
+                deadline: None,
+                deadline_time: None,
+                hard_deadline: None,
+                estimated_duration: None,
+                location_id: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let cleared = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert!(cleared.recurrence_rule.is_none());
+        assert!(cleared.recurrence_mode.is_none());
+    }
+
+    #[tokio::test]
+    async fn update_in_tx_rolls_back_with_transaction() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "Original", 0).await;
+
+        {
+            let mut tx = pool.begin().await.unwrap();
+            let changed = update_in_tx(
+                &mut tx,
+                &item.id,
+                &uid,
+                &UpdateItemInput {
+                    title: Some("Changed in tx".to_string()),
+                    description: None,
+                    completed: None,
+                    quantity: None,
+                    actual_quantity: None,
+                    unit: None,
+                    start_date: None,
+                    start_time: None,
+                    deadline: None,
+                    deadline_time: None,
+                    hard_deadline: None,
+                    estimated_duration: None,
+                    location_id: None,
+                    recurrence_rule: Some(Some("3d".to_string())),
+                    recurrence_mode: Some(Some("floating".to_string())),
+                },
+            )
+            .await
+            .unwrap();
+            assert!(changed);
+
+            // Visible inside the transaction ...
+            let inside = get_one_in_tx(&mut tx, &item.id, &uid)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(inside.title, "Changed in tx");
+            assert!(inside.recurrence_rule.is_some());
+            // ... and gone when the transaction is dropped without a commit.
+            tx.rollback().await.unwrap();
+        }
+
+        let after = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(after.title, "Original");
+        assert!(after.recurrence_rule.is_none());
+        assert!(after.recurrence_mode.is_none());
+    }
+
+    #[tokio::test]
+    async fn update_in_tx_commits_with_transaction() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "Original", 0).await;
+
+        let mut tx = pool.begin().await.unwrap();
+        update_in_tx(
+            &mut tx,
+            &item.id,
+            &uid,
+            &UpdateItemInput {
+                title: Some("Committed".to_string()),
+                description: None,
+                completed: None,
+                quantity: None,
+                actual_quantity: None,
+                unit: None,
+                start_date: None,
+                start_time: None,
+                deadline: None,
+                deadline_time: None,
+                hard_deadline: None,
+                estimated_duration: None,
+                location_id: None,
+                recurrence_rule: None,
+                recurrence_mode: None,
+            },
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        let after = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(after.title, "Committed");
+    }
+
+    #[tokio::test]
+    async fn set_completed_in_tx_checks_ownership() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let other = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "Owned", 0).await;
+
+        let mut tx = pool.begin().await.unwrap();
+        let by_other = set_completed_in_tx(&mut tx, &item.id, &other, true)
+            .await
+            .unwrap();
+        assert!(!by_other, "other user must not touch the item");
+        let untouched = get_one_in_tx(&mut tx, &item.id, &uid)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!untouched.completed);
+
+        let by_owner = set_completed_in_tx(&mut tx, &item.id, &uid, true)
+            .await
+            .unwrap();
+        assert!(by_owner);
+        let completed = get_one_in_tx(&mut tx, &item.id, &uid)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(completed.completed);
+        tx.commit().await.unwrap();
+
+        let after = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert!(after.completed);
+    }
+
+    #[tokio::test]
+    async fn next_position_in_tx_appends() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+
+        let mut tx = pool.begin().await.unwrap();
+        assert_eq!(next_position_in_tx(&mut tx, &list_id).await.unwrap(), 0);
+        tx.commit().await.unwrap();
+
+        make_item(&pool, &list_id, "First", 0).await;
+        make_item(&pool, &list_id, "Second", 1).await;
+
+        let mut tx = pool.begin().await.unwrap();
+        assert_eq!(next_position_in_tx(&mut tx, &list_id).await.unwrap(), 2);
+        tx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn find_by_title_ignores_completed_items() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let done = make_item(&pool, &list_id, "Buy milk", 0).await;
+        set_completed(&pool, &done.id, true).await.unwrap();
+
+        let found = find_id_by_title_in_list(&pool, &list_id, "Buy milk", None)
+            .await
+            .unwrap();
+        assert!(found.is_none(), "completed items are not title conflicts");
+
+        // A still-open duplicate is found, even next to the completed one.
+        let open = make_item(&pool, &list_id, "Buy milk", 1).await;
+        let found = find_id_by_title_in_list(&pool, &list_id, "Buy milk", None)
+            .await
+            .unwrap();
+        assert_eq!(found, Some(open.id));
     }
 }
