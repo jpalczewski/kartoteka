@@ -16,6 +16,8 @@ pub mod tags;
 pub mod templates;
 pub mod time_entries;
 
+use std::collections::HashSet;
+
 #[derive(Debug, thiserror::Error)]
 pub enum DomainError {
     #[error("not found: {0}")]
@@ -40,6 +42,32 @@ impl DomainError {
             Some(id) => Err(Self::AlreadyExists { kind, id }),
             None => Ok(()),
         }
+    }
+
+    /// Validate a caller-supplied id list against the ids that actually live in
+    /// the target scope (`scope_ids`, already ownership-filtered).
+    ///
+    /// Returns `NotFound(kind)` for any id outside the scope (foreign or
+    /// cross-scope id) and `Validation("duplicate_id")` for repeats, so the
+    /// caller can abort a reorder before writing anything.
+    /// # Errors
+    /// See above.
+    pub fn ensure_ids_in_scope(
+        scope_ids: &[String],
+        requested: &[String],
+        kind: &'static str,
+    ) -> Result<(), Self> {
+        let known: HashSet<&str> = scope_ids.iter().map(String::as_str).collect();
+        let mut seen = HashSet::with_capacity(requested.len());
+        for id in requested {
+            if !known.contains(id.as_str()) {
+                return Err(Self::NotFound(kind));
+            }
+            if !seen.insert(id.as_str()) {
+                return Err(Self::Validation("duplicate_id"));
+            }
+        }
+        Ok(())
     }
 }
 

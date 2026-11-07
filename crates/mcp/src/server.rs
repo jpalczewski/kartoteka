@@ -426,7 +426,7 @@ impl KartotekaServer {
         Parameters(p): Parameters<CreateListFromTemplateParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let (uid, locale) = self.auth(&parts)?;
-        let list_type = p.list_type.as_deref().unwrap_or("custom");
+        let list_type = p.list_type.as_deref().unwrap_or("checklist");
         let list = domain::templates::create_list_from_template(
             &self.pool,
             &uid,
@@ -698,28 +698,6 @@ impl KartotekaServer {
             return self.json_result(Vec::<serde_json::Value>::new(), &locale);
         }
 
-        for tag in &p.tags {
-            domain::tags::validate_tag_input(&tag.name, tag.color.as_deref())
-                .map_err(self.domain_err(&locale))?;
-        }
-
-        let unique_parents: std::collections::HashSet<&str> = p
-            .tags
-            .iter()
-            .filter_map(|t| t.parent_tag_id.as_deref())
-            .collect();
-        for pid in unique_parents {
-            db::tags::get_one(&self.pool, pid, &uid)
-                .await
-                .map_err(self.db_err(&locale))?
-                .ok_or_else(|| {
-                    self.map_err(
-                        McpError::Domain(domain::DomainError::NotFound("parent_tag")),
-                        &locale,
-                    )
-                })?;
-        }
-
         let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
         let mut resolver = RefResolver::new();
         let mut result = Vec::with_capacity(p.tags.len());
@@ -736,6 +714,21 @@ impl KartotekaServer {
                 )
                 .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?
                 .map(str::to_owned);
+
+            // Same rules as the single `create_tag` tool (domain::tags::create):
+            // name/colour validation and parent ownership. A parent created
+            // earlier in this batch is visible inside the transaction.
+            let req = domain::tags::CreateTagRequest {
+                name: tag.name.clone(),
+                icon: None,
+                color: tag.color.clone(),
+                parent_tag_id: parent_id.clone(),
+                tag_type: None,
+                metadata: None,
+            };
+            domain::tags::validate_create_tag(&mut *tx, &uid, &req)
+                .await
+                .map_err(self.domain_err(&locale))?;
 
             let norm_key = (parent_id.clone(), tag.name.trim().to_lowercase());
             if let Some(eid) = seen.get(&norm_key) {
@@ -972,47 +965,57 @@ impl KartotekaServer {
                 )
             })?;
 
+        // Same rules as the single `create_item` tool (domain::items::create).
+        // Everything that needs no DB access is checked up front, before the
+        // transaction is opened, and one invalid entry rejects the whole batch.
+        let requests: Vec<domain::items::CreateItemRequest> = p
+            .items
+            .iter()
+            .map(|item| domain::items::CreateItemRequest {
+                title: item.title.clone(),
+                description: item.description.clone(),
+                quantity: item.quantity,
+                actual_quantity: item.actual_quantity,
+                unit: item.unit.clone(),
+                start_date: item.start_date.clone(),
+                start_time: item.start_time.clone(),
+                deadline: item.deadline.clone(),
+                deadline_time: item.deadline_time.clone(),
+                hard_deadline: item.hard_deadline.clone(),
+                estimated_duration: item.estimated_duration,
+            })
+            .collect();
+        for req in &requests {
+            domain::items::validate_create_item(&ctx.features, req)
+                .map_err(self.domain_err(&locale))?;
+        }
+
         let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
         let mut result = Vec::with_capacity(p.items.len());
         let mut next_pos = ctx.next_position as i32;
         let mut seen: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
-        for item in &p.items {
-            let norm = item.title.trim().to_lowercase();
+        for req in &requests {
+            let norm = req.title.trim().to_lowercase();
             if let Some(eid) = seen.get(&norm) {
-                result.push(serde_json::json!({"id": eid, "title": item.title, "existed": true}));
+                result.push(serde_json::json!({"id": eid, "title": req.title, "existed": true}));
                 continue;
             }
             if let Some(eid) =
-                db::items::find_id_by_title_in_list(&mut *tx, &p.list_id, &item.title, None)
+                db::items::find_id_by_title_in_list(&mut *tx, &p.list_id, &req.title, None)
                     .await
                     .map_err(self.db_err(&locale))?
             {
                 seen.insert(norm, eid.clone());
-                result.push(serde_json::json!({"id": eid, "title": item.title, "existed": true}));
+                result.push(serde_json::json!({"id": eid, "title": req.title, "existed": true}));
                 continue;
             }
-            let input = db::items::InsertItemInput {
-                id: Uuid::new_v4().to_string(),
-                list_id: p.list_id.clone(),
-                position: next_pos,
-                title: item.title.clone(),
-                description: item.description.clone(),
-                start_date: item.start_date.clone(),
-                deadline: item.deadline.clone(),
-                hard_deadline: item.hard_deadline.clone(),
-                start_time: item.start_time.clone(),
-                deadline_time: item.deadline_time.clone(),
-                quantity: item.quantity,
-                actual_quantity: item.actual_quantity,
-                unit: item.unit.clone(),
-                estimated_duration: item.estimated_duration,
-            };
-            db::items::insert_in_tx(&mut tx, &input)
+            let input = domain::items::new_item_input(&p.list_id, next_pos, req);
+            let inserted = domain::items::insert_item_in(&mut tx, &input)
                 .await
-                .map_err(self.db_err(&locale))?;
-            seen.insert(norm, input.id.clone());
-            result.push(serde_json::json!({"id": input.id, "title": input.title}));
+                .map_err(self.domain_err(&locale))?;
+            seen.insert(norm, inserted.id.clone());
+            result.push(serde_json::json!({"id": inserted.id, "title": inserted.title}));
             next_pos += 1;
         }
 
@@ -1074,6 +1077,18 @@ impl KartotekaServer {
             positions.set_base(key.clone(), base);
         }
 
+        // Parse every entry's list type up front, with the same rules and
+        // defaults as `lists::create` (`checklist` when omitted, default
+        // features when the entry lists none). An invalid type rejects the
+        // whole batch before anything is written.
+        let mut resolved = Vec::with_capacity(p.lists.len());
+        for l in &p.lists {
+            resolved.push(
+                domain::lists::resolve_list_type(l.list_type.as_deref(), l.features.as_deref())
+                    .map_err(self.domain_err(&locale))?,
+            );
+        }
+
         let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
         let mut resolver = RefResolver::new();
         let mut result = Vec::with_capacity(p.lists.len());
@@ -1081,7 +1096,7 @@ impl KartotekaServer {
         let mut seen: std::collections::HashMap<(Option<String>, Option<String>, String), String> =
             std::collections::HashMap::new();
 
-        for list in &p.lists {
+        for (list, (list_type, feature_names)) in p.lists.iter().zip(resolved) {
             let container_id = resolver
                 .pick(
                     list.container_id.as_deref(),
@@ -1133,10 +1148,9 @@ impl KartotekaServer {
                 continue;
             }
 
-            let list_type = list.list_type.as_deref().unwrap_or("custom");
             let new_id = Uuid::new_v4().to_string();
 
-            db::lists::insert(
+            domain::lists::insert_list_in(
                 &mut tx,
                 &InsertListInput {
                     id: new_id.clone(),
@@ -1145,22 +1159,14 @@ impl KartotekaServer {
                     name: list.name.clone(),
                     icon: list.icon.clone(),
                     description: list.description.clone(),
-                    list_type: list_type.to_owned(),
+                    list_type: list_type.as_str().to_owned(),
                     container_id: container_id.map(str::to_owned),
                     parent_list_id: parent_list_id.map(str::to_owned),
                 },
+                &feature_names,
             )
             .await
-            .map_err(self.db_err(&locale))?;
-
-            if let Some(features) = &list.features {
-                if !features.is_empty() {
-                    let features_json = domain::lists::features_from_names(features);
-                    db::lists::set_features(&mut tx, &new_id, &features_json)
-                        .await
-                        .map_err(self.db_err(&locale))?;
-                }
-            }
+            .map_err(self.domain_err(&locale))?;
 
             seen.insert(norm_key, new_id.clone());
             resolver
@@ -1197,11 +1203,6 @@ impl KartotekaServer {
             .collect();
         self.ensure_containers_owned(&uid, &parent_ids, "parent_container_id", &locale)
             .await?;
-
-        for c in &p.containers {
-            domain::rules::containers::validate_status(c.status.as_deref())
-                .map_err(self.domain_err(&locale))?;
-        }
 
         // Pre-fetch next_position per parent scope.
         let mut positions: PositionAllocator<Option<String>> = PositionAllocator::new();
@@ -1242,15 +1243,24 @@ impl KartotekaServer {
                 parent_container_id: parent_id.map(str::to_owned),
             };
 
-            db::containers::insert_in_tx(&mut tx, &new_id, &uid, &req, position)
+            // Same rules as the single `create_container` tool
+            // (domain::containers::create): status plus "parent must be an
+            // owned folder". Validated in-tx because a parent created earlier
+            // in this batch only exists inside the transaction.
+            domain::containers::validate_create_container(&mut *tx, &uid, &req)
                 .await
-                .map_err(self.db_err(&locale))?;
+                .map_err(self.domain_err(&locale))?;
+
+            let inserted =
+                domain::containers::insert_container_in(&mut tx, &new_id, &uid, &req, position)
+                    .await
+                    .map_err(self.domain_err(&locale))?;
 
             resolver
                 .register(container.client_ref.as_deref(), &new_id)
                 .map_err(|e| self.map_err(McpError::BadRequest(e.to_string()), &locale))?;
 
-            result.push(serde_json::json!({"id": new_id, "name": container.name}));
+            result.push(serde_json::json!({"id": inserted.id, "name": inserted.name}));
         }
 
         tx.commit().await.map_err(self.sqlx_err(&locale))?;
@@ -1554,7 +1564,11 @@ fn localize_item(mut item: domain::items::Item, tz: &str) -> domain::items::Item
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::items::{CreateItemsInput, CreateListsInput, CreateListsParams};
+    use crate::tools::items::{
+        CreateContainersInput, CreateContainersParams, CreateItemsInput, CreateListsInput,
+        CreateListsParams,
+    };
+    use crate::tools::tags::{CreateTagsInput, CreateTagsParams};
     use kartoteka_db::lists::{InsertListInput, insert as insert_list};
     use kartoteka_db::test_helpers::create_test_user;
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -1688,6 +1702,322 @@ mod tests {
         let parts = parts_with_extensions(http::Extensions::new());
         let err = KartotekaServer::extract_user_id_and_locale(&parts).unwrap_err();
         assert!(matches!(err, McpError::Unauthorized));
+    }
+
+    /// Extract the JSON payload from a tool result and render it as text.
+    fn result_text(result: &CallToolResult) -> String {
+        result
+            .content
+            .iter()
+            .find_map(|c| match c {
+                ContentBlock::Text(t) => Some(t.text.clone()),
+                _ => None,
+            })
+            .expect("text content")
+    }
+
+    fn item_input(title: &str) -> CreateItemsInput {
+        CreateItemsInput {
+            title: title.to_owned(),
+            description: None,
+            start_date: None,
+            deadline: None,
+            hard_deadline: None,
+            start_time: None,
+            deadline_time: None,
+            quantity: None,
+            actual_quantity: None,
+            unit: None,
+            estimated_duration: None,
+        }
+    }
+
+    fn list_input(name: &str, list_type: Option<&str>) -> CreateListsInput {
+        CreateListsInput {
+            name: name.to_owned(),
+            list_type: list_type.map(str::to_owned),
+            icon: None,
+            description: None,
+            features: None,
+            container_id: None,
+            container_ref: None,
+            parent_list_id: None,
+            parent_list_ref: None,
+            client_ref: None,
+        }
+    }
+
+    fn container_input(name: &str, parent_container_id: Option<String>) -> CreateContainersInput {
+        CreateContainersInput {
+            name: name.to_owned(),
+            icon: None,
+            description: None,
+            status: None,
+            parent_container_id,
+            parent_container_ref: None,
+            client_ref: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn create_items_with_deadline_on_list_without_deadlines_feature_is_rejected() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        // insert_test_list seeds an empty feature set, so dates are not allowed.
+        let list_id = insert_test_list(&pool, &uid).await;
+        let server = test_server(pool);
+
+        let mut dated = item_input("Call mom");
+        dated.deadline = Some("2030-01-31".to_owned());
+        let params = CreateItemsParams {
+            list_id: list_id.clone(),
+            items: vec![item_input("Fine"), dated],
+        };
+
+        let err = match server
+            .create_items(Extension(parts_for_user(&uid)), Parameters(params))
+            .await
+        {
+            Ok(_) => panic!("create_items must reject dates on a list without the feature"),
+            Err(e) => e,
+        };
+        assert!(
+            err.message.contains("deadlines"),
+            "unexpected message: {}",
+            err.message
+        );
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE list_id = ?")
+            .bind(&list_id)
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 0, "a rejected batch must not write anything");
+    }
+
+    #[tokio::test]
+    async fn create_items_with_unparsable_date_is_rejected() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list(&pool, &uid).await;
+        let server = test_server(pool);
+
+        let mut broken = item_input("Bad date");
+        broken.start_date = Some("garbage".to_owned());
+        let params = CreateItemsParams {
+            list_id: list_id.clone(),
+            items: vec![broken],
+        };
+
+        let err = match server
+            .create_items(Extension(parts_for_user(&uid)), Parameters(params))
+            .await
+        {
+            Ok(_) => panic!("create_items must reject an unparsable date"),
+            Err(e) => e,
+        };
+        assert!(
+            err.message.contains("invalid_date"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[tokio::test]
+    async fn create_lists_with_unknown_list_type_is_rejected() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let server = test_server(pool);
+
+        let params = CreateListsParams {
+            lists: vec![list_input("Bad type", Some("custom"))],
+        };
+
+        let err = match server
+            .create_lists(Extension(parts_for_user(&uid)), Parameters(params))
+            .await
+        {
+            Ok(_) => panic!("create_lists must reject an unknown list_type"),
+            Err(e) => e,
+        };
+        assert!(
+            err.message.contains("unknown_list_type"),
+            "unexpected message: {}",
+            err.message
+        );
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM lists WHERE user_id = ?")
+            .bind(&uid)
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 0, "a rejected batch must not write anything");
+    }
+
+    #[tokio::test]
+    async fn create_lists_defaults_to_checklist_with_default_features() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let server = test_server(pool);
+
+        let params = CreateListsParams {
+            lists: vec![list_input("Defaulted", None)],
+        };
+        let result = server
+            .create_lists(Extension(parts_for_user(&uid)), Parameters(params))
+            .await
+            .unwrap();
+
+        let lists: Vec<serde_json::Value> = serde_json::from_str(&result_text(&result)).unwrap();
+        let id = lists[0]["id"].as_str().unwrap();
+
+        let row: (String, String) =
+            sqlx::query_as("SELECT list_type, features FROM lists WHERE id = ?")
+                .bind(id)
+                .fetch_one(&server.pool)
+                .await
+                .unwrap();
+        assert_eq!(row.0, "checklist");
+        let features: serde_json::Value = serde_json::from_str(&row.1).unwrap();
+        assert!(
+            features.get("checklist").is_some(),
+            "default features missing: {}",
+            row.1
+        );
+    }
+
+    #[tokio::test]
+    async fn create_containers_rejects_non_folder_parent() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let server = test_server(pool);
+
+        let project = domain::containers::create(
+            &server.pool,
+            &uid,
+            &CreateContainerRequest {
+                name: "Project".to_owned(),
+                icon: None,
+                description: None,
+                status: Some("active".to_owned()),
+                parent_container_id: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let params = CreateContainersParams {
+            containers: vec![container_input("Child", Some(project.id.clone()))],
+        };
+
+        let err = match server
+            .create_containers(Extension(parts_for_user(&uid)), Parameters(params))
+            .await
+        {
+            Ok(_) => panic!("create_containers must reject a non-folder parent"),
+            Err(e) => e,
+        };
+        assert!(
+            err.message.contains("invalid_container_hierarchy"),
+            "unexpected message: {}",
+            err.message
+        );
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM containers WHERE user_id = ?")
+            .bind(&uid)
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1, "only the pre-existing project should remain");
+    }
+
+    #[tokio::test]
+    async fn create_containers_allows_folder_parent_from_same_batch() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let server = test_server(pool);
+
+        let params = CreateContainersParams {
+            containers: vec![
+                CreateContainersInput {
+                    client_ref: Some("folder".to_owned()),
+                    ..container_input("Folder", None)
+                },
+                CreateContainersInput {
+                    parent_container_ref: Some("folder".to_owned()),
+                    ..container_input("Child", None)
+                },
+            ],
+        };
+
+        let result = server
+            .create_containers(Extension(parts_for_user(&uid)), Parameters(params))
+            .await
+            .unwrap();
+        let created: Vec<serde_json::Value> = serde_json::from_str(&result_text(&result)).unwrap();
+        assert_eq!(created.len(), 2);
+
+        let child_id = created[1]["id"].as_str().unwrap();
+        let row: (Option<String>,) =
+            sqlx::query_as("SELECT parent_container_id FROM containers WHERE id = ?")
+                .bind(child_id)
+                .fetch_one(&server.pool)
+                .await
+                .unwrap();
+        assert_eq!(row.0.as_deref(), Some(created[0]["id"].as_str().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn create_tags_rejects_foreign_parent_tag() {
+        let pool = multi_conn_pool().await;
+        let owner = create_test_user(&pool).await;
+        let intruder = create_test_user(&pool).await;
+        let server = test_server(pool);
+
+        let parent = domain::tags::create(
+            &server.pool,
+            &owner,
+            &domain::tags::CreateTagRequest {
+                name: "Work".to_owned(),
+                icon: None,
+                color: None,
+                parent_tag_id: None,
+                tag_type: None,
+                metadata: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let params = CreateTagsParams {
+            tags: vec![CreateTagsInput {
+                name: "Child".to_owned(),
+                color: None,
+                parent_tag_id: Some(parent.id.clone()),
+                parent_tag_ref: None,
+                client_ref: None,
+            }],
+        };
+
+        let err = match server
+            .create_tags(Extension(parts_for_user(&intruder)), Parameters(params))
+            .await
+        {
+            Ok(_) => panic!("create_tags must reject a foreign parent tag"),
+            Err(e) => e,
+        };
+        assert!(
+            err.message.contains("parent_tag"),
+            "unexpected message: {}",
+            err.message
+        );
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tags WHERE user_id = ?")
+            .bind(&intruder)
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 0);
     }
 
     #[tokio::test]
