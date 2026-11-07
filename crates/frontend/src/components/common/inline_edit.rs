@@ -99,7 +99,7 @@ pub fn InlineEdit(
                     _ => {}
                 }
                 autofocus=true
-                attr:data-testid=testid
+                data-testid=testid
             />
             <button type="button" class=size.save_class() on:click=move |_| save()>
                 {move_tr!("common-save")}

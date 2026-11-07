@@ -61,7 +61,7 @@ pub fn EditableText(
                         class=format!("{display_class}{}", if is_empty { " italic opacity-50" } else { "" })
                         on:click=move |_| editing.set(true)
                         title=move_tr!("common-click-to-edit-title")
-                        attr:data-testid=testid
+                        data-testid=testid
                     >
                         {display_text}
                     </span>
@@ -80,7 +80,7 @@ pub fn EditableText(
                             }
                             rows=3
                             autofocus=true
-                            attr:data-testid=textarea_testid.clone()
+                            data-testid=textarea_testid.clone()
                         />
                         <div class="flex gap-2">
                             <button
