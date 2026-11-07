@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use kartoteka_shared::{FilterMode, types::Tag};
 use leptos::prelude::*;
+use leptos_fluent::{I18n, move_tr};
 
 use crate::components::tags::tag_badge::TagBadge;
 
@@ -14,6 +15,8 @@ pub fn HomeTagFilterBar(
     related_tag_ids: Signal<HashSet<String>>,
     is_loading: Signal<bool>,
 ) -> impl IntoView {
+    let i18n = expect_context::<I18n>();
+
     view! {
         <div class="mb-3 flex flex-col gap-2">
 
@@ -21,10 +24,10 @@ pub fn HomeTagFilterBar(
             <div class="flex items-center gap-2">
                 <div class="join">
                     {[
-                        (FilterMode::Listwise, "Listy"),
-                        (FilterMode::Itemwise, "Elementy"),
-                        (FilterMode::Joined, "Oba"),
-                    ].map(|(mode, label)| {
+                        (FilterMode::Listwise, "tags-filter-mode-lists"),
+                        (FilterMode::Itemwise, "tags-filter-mode-items"),
+                        (FilterMode::Joined, "tags-filter-mode-both"),
+                    ].map(|(mode, label_key)| {
                         let mode_for_cmp = mode.clone();
                         let mode_for_set = mode.clone();
                         view! {
@@ -37,7 +40,7 @@ pub fn HomeTagFilterBar(
                                 }
                                 on:click=move |_| filter_mode.set(mode_for_set.clone())
                             >
-                                {label}
+                                {move || i18n.tr(label_key)}
                             </button>
                         }
                     })}
@@ -96,7 +99,9 @@ pub fn HomeTagFilterBar(
 
                 if available.is_empty() && !active.is_empty() {
                     return view! {
-                        <p class="text-sm text-base-content/50">"Brak pasujących tagów"</p>
+                        <p class="text-sm text-base-content/50">
+                            {move_tr!("tags-filter-no-matches")}
+                        </p>
                     }.into_any();
                 }
                 if available.is_empty() {

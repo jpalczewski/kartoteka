@@ -1,3 +1,4 @@
+use kartoteka_shared::DEFAULT_TAG_COLOR;
 use kartoteka_shared::types::Tag;
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
@@ -120,7 +121,7 @@ pub fn TagList(
                         >
                             {unassigned_tags.into_iter().map(|tag| {
                                 let tid = tag.id.clone();
-                                let color = tag.color.clone().unwrap_or_else(|| "#6366f1".to_string());
+                                let color = tag.color.clone().unwrap_or_else(|| DEFAULT_TAG_COLOR.to_string());
                                 view! {
                                     <li>
                                         <button
@@ -146,9 +147,9 @@ pub fn TagList(
 
         <ConfirmModal
             open=Signal::derive(move || pending_remove.get().is_some())
-            title="Odepnij tag".to_string()
-            message="Czy na pewno chcesz odpiąć ten tag?".to_string()
-            confirm_label="Odepnij".to_string()
+            title=move_tr!("tags-unassign-title").get()
+            message=move_tr!("tags-unassign-message").get()
+            confirm_label=move_tr!("tags-unassign-confirm").get()
             variant=ConfirmVariant::Warning
             on_close=Callback::new(move |_| pending_remove.set(None))
             on_confirm=Callback::new(move |_| {
