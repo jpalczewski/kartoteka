@@ -1,12 +1,16 @@
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::dnd::{DragHandleButton, ItemDropTargetMarker};
-use crate::components::items::item_row::ItemRow;
+use crate::components::items::item_row::{DateSavePayload, ItemRow};
 use crate::components::lists::add_input::AddInput;
 use crate::components::ui::{ActionMenu, ActionMenuItem, CompletionBar, Icon};
-use crate::server_fns::items::{create_item, delete_item, get_list_data, move_item, toggle_item};
+use crate::server_fns::items::{
+    create_item, delete_item, get_list_data, move_item, toggle_item, update_actual_quantity,
+    update_item_dates, update_item_description,
+};
 use crate::state::dnd::{DndState, EntityKind, ItemDndState, ItemDropTarget};
-use crate::state::invalidation::use_invalidation;
+use crate::state::invalidation::{mutate_with, use_invalidation};
 use kartoteka_shared::ChangeTopic;
+use kartoteka_shared::FEATURE_QUANTITY;
 use kartoteka_shared::types::{Item, List};
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
@@ -31,7 +35,26 @@ pub fn SublistSection(
     let open_href = format!("/lists/{}", sublist.id);
     let menu_open = RwSignal::new(false);
 
+    // Rows are driven by the *sublist's* own features, not the parent list's: a sublist
+    // created as "checklist" must render checkboxes even under a quantity parent.
+    let list_features: Vec<String> = sublist
+        .features
+        .iter()
+        .map(|f| f.feature_name.clone())
+        .collect();
+    let has_quantity = list_features.iter().any(|f| f == FEATURE_QUANTITY);
+
     let items = RwSignal::new(initial_items);
+
+    // Refetch this sublist's rows after a mutation so the progress bar and the row state follow.
+    let refresh_items = move || {
+        let lid = list_id.get_value();
+        leptos::task::spawn_local(async move {
+            if let Ok(data) = get_list_data(lid).await {
+                items.set(data.items);
+            }
+        });
+    };
 
     let on_add = Callback::new(move |title: String| {
         let lid = list_id.get_value();
@@ -49,18 +72,42 @@ pub fn SublistSection(
     });
 
     let on_toggle = Callback::new(move |item_id: String| {
-        let lid = list_id.get_value();
-        leptos::task::spawn_local(async move {
-            match toggle_item(item_id).await {
-                Ok(_) => {
-                    if let Ok(data) = get_list_data(lid).await {
-                        items.set(data.items);
-                    }
-                    on_any_change.run(());
-                }
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
+        mutate_with(toggle_item(item_id), &[ChangeTopic::Items], move |_| {
+            refresh_items();
+            on_any_change.run(());
         });
+    });
+
+    let on_quantity_change = Callback::new(move |(item_id, new_actual): (String, i32)| {
+        mutate_with(
+            update_actual_quantity(item_id, new_actual),
+            &[ChangeTopic::Items],
+            move |_| refresh_items(),
+        );
+    });
+
+    let on_description_save = Callback::new(move |(item_id, description): (String, String)| {
+        mutate_with(
+            update_item_description(item_id, description),
+            &[ChangeTopic::Items],
+            move |_| refresh_items(),
+        );
+    });
+
+    let on_date_save = Callback::new(move |payload: DateSavePayload| {
+        let (item_id, start, start_time, deadline, deadline_time, hard_deadline) = payload;
+        mutate_with(
+            update_item_dates(
+                item_id,
+                start,
+                start_time,
+                deadline,
+                deadline_time,
+                hard_deadline,
+            ),
+            &[ChangeTopic::Items],
+            move |_| refresh_items(),
+        );
     });
 
     let on_delete = Callback::new(move |item_id: String| {
@@ -156,12 +203,14 @@ pub fn SublistSection(
                             .then(a.position.cmp(&b.position))
                     });
                     let targets = move_targets_stored.get_value();
+                    let features = list_features.clone();
                     view! {
                         <div class="flex flex-col gap-1">
                             {sorted
                                 .into_iter()
                                 .map(|item| {
                                     let mt = targets.clone();
+                                    let features = features.clone();
                                     let iid = item.id.clone();
                                     match item_dnd_state.zip(on_item_drop) {
                                         Some((state, cb)) => {
@@ -179,6 +228,11 @@ pub fn SublistSection(
                                                     item=item
                                                     on_toggle=on_toggle
                                                     on_delete=on_delete
+                                                    list_features=features
+                                                    has_quantity=has_quantity
+                                                    on_quantity_change=on_quantity_change
+                                                    on_description_save=on_description_save
+                                                    on_date_save=on_date_save
                                                     move_targets=mt
                                                     on_move=on_move_item
                                                     dnd_state=state
@@ -191,6 +245,11 @@ pub fn SublistSection(
                                                 item=item
                                                 on_toggle=on_toggle
                                                 on_delete=on_delete
+                                                list_features=features
+                                                has_quantity=has_quantity
+                                                on_quantity_change=on_quantity_change
+                                                on_description_save=on_description_save
+                                                on_date_save=on_date_save
                                                 move_targets=mt
                                                 on_move=on_move_item
                                             />
