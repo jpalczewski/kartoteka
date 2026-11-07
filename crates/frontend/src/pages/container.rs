@@ -129,19 +129,15 @@ pub fn ContainerPage() -> impl IntoView {
                                 s.dragged.as_ref().map(|d| (d.kind, d.id.clone()))
                             }) else { return };
                             let ctr = parent_for_detach.clone();
-                            leptos::task::spawn_local(async move {
-                                let result = match kind {
-                                    EntityKind::Container => move_container(id, ctr).await.map(|_| ()),
-                                    EntityKind::List => move_list(id, ctr, None).await.map(|_| ()),
-                                };
-                                match result {
-                                    Ok(()) => invalidation.invalidate_many(&[
-                                        ChangeTopic::Containers,
-                                        ChangeTopic::Lists,
-                                    ]),
-                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                }
-                            });
+                            mutate(
+                                async move {
+                                    match kind {
+                                        EntityKind::Container => move_container(id, ctr).await.map(|_| ()),
+                                        EntityKind::List => move_list(id, ctr, None).await.map(|_| ()),
+                                    }
+                                },
+                                &[ChangeTopic::Containers, ChangeTopic::Lists],
+                            );
                         });
 
                         // Drop on container card: Container → reparent, List → attach.
@@ -153,19 +149,15 @@ pub fn ContainerPage() -> impl IntoView {
                                 s.dragged.as_ref().map(|d| (d.kind, d.id.clone()))
                             }) else { return };
                             if id == nest_id { return; }
-                            leptos::task::spawn_local(async move {
-                                let result = match kind {
-                                    EntityKind::Container => move_container(id, Some(nest_id)).await.map(|_| ()),
-                                    EntityKind::List => move_list(id, Some(nest_id), None).await.map(|_| ()),
-                                };
-                                match result {
-                                    Ok(()) => invalidation.invalidate_many(&[
-                                        ChangeTopic::Containers,
-                                        ChangeTopic::Lists,
-                                    ]),
-                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                }
-                            });
+                            mutate(
+                                async move {
+                                    match kind {
+                                        EntityKind::Container => move_container(id, Some(nest_id)).await.map(|_| ()),
+                                        EntityKind::List => move_list(id, Some(nest_id), None).await.map(|_| ()),
+                                    }
+                                },
+                                &[ChangeTopic::Containers, ChangeTopic::Lists],
+                            );
                             let _ = (&current_for_container_drop, &child_container_ids_drop);
                         });
 
@@ -176,12 +168,10 @@ pub fn ContainerPage() -> impl IntoView {
                                 s.dragged.as_ref().map(|d| (d.kind, d.id.clone()))
                             }) else { return };
                             if kind != EntityKind::List || id == nest_id { return; }
-                            leptos::task::spawn_local(async move {
-                                match move_list(id, None, Some(nest_id)).await {
-                                    Ok(_) => invalidation.invalidate(ChangeTopic::Lists),
-                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                }
-                            });
+                            mutate(
+                                async move { move_list(id, None, Some(nest_id)).await.map(|_| ()) },
+                                &[ChangeTopic::Lists],
+                            );
                         });
 
                         // Reorder drop for containers (children at same level as `current`).
@@ -201,12 +191,10 @@ pub fn ContainerPage() -> impl IntoView {
                             };
                             ids.insert(insert_at, dragged_id);
                             let parent = Some(current_for_reorder.clone());
-                            leptos::task::spawn_local(async move {
-                                match reorder_containers(parent, ids).await {
-                                    Ok(()) => invalidation.invalidate(ChangeTopic::Containers),
-                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                }
-                            });
+                            mutate(
+                                reorder_containers(parent, ids),
+                                &[ChangeTopic::Containers],
+                            );
                         });
 
                         // Reorder drop for lists at this container level.
@@ -226,12 +214,7 @@ pub fn ContainerPage() -> impl IntoView {
                             };
                             ids.insert(insert_at, dragged_id);
                             let ctr = Some(current_for_list_reorder.clone());
-                            leptos::task::spawn_local(async move {
-                                match reorder_lists(ctr, None, ids).await {
-                                    Ok(()) => invalidation.invalidate(ChangeTopic::Lists),
-                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                }
-                            });
+                            mutate(reorder_lists(ctr, None, ids), &[ChangeTopic::Lists]);
                         });
 
                         let on_create_list = Callback::new(move |req| {
