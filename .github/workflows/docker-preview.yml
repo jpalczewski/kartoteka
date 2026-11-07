@@ -4,8 +4,10 @@ on:
   pull_request:
     branches: [develop, main]
 
+# One group per PR: a push only cancels that PR's own stale build, never another PR's.
+# The shared :preview tag is last-writer-wins: it points at the most recently finished PR build.
 concurrency:
-  group: docker-preview
+  group: docker-preview-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
