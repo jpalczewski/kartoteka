@@ -7,8 +7,8 @@ use crate::server_fns::items::create_item;
 use crate::state::dnd::{DndState, EntityKind};
 use crate::state::invalidation::mutate;
 use crate::state::item_store::{ItemRows, tracked_items};
-use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::Item;
+use kartoteka_shared::{ChangeTopic, CreateItemRequest};
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
 use leptos_router::hooks::use_navigate;
@@ -89,9 +89,11 @@ pub fn SublistSection(
             let lid = id.clone();
             mutate(
                 async move {
-                    create_item(lid, title, None, None, None, None, None, None)
-                        .await
-                        .map(|_| ())
+                    let req = CreateItemRequest {
+                        title,
+                        ..Default::default()
+                    };
+                    create_item(lid, req).await.map(|_| ())
                 },
                 &[ChangeTopic::Items],
             );

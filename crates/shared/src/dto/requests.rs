@@ -68,10 +68,13 @@ pub struct FeatureConfigRequest {
     pub config: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// One item to create. Blank optional strings count as unset; the domain validates the rest.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CreateItemRequest {
     pub title: String,
     pub description: Option<String>,
+    /// `lucide:<name>`, `emoji:<e>` or a legacy bare emoji.
+    pub icon: Option<String>,
     pub quantity: Option<i32>,
     pub unit: Option<String>,
     pub start_date: Option<String>,
@@ -79,6 +82,12 @@ pub struct CreateItemRequest {
     pub deadline: Option<String>,
     pub deadline_time: Option<String>,
     pub hard_deadline: Option<String>,
+    /// Estimated duration in minutes.
+    pub estimated_duration: Option<i32>,
+    /// Compact rule form, e.g. `"7d"` / `"2w"` / `"1m"`.
+    pub recurrence_rule: Option<String>,
+    /// `"fixed"` (default when a rule is set) or `"floating"`.
+    pub recurrence_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

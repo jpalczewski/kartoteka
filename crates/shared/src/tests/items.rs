@@ -43,14 +43,7 @@ fn create_items_request_accepts_non_empty_items() {
     let req = CreateItemsRequest {
         items: vec![CreateItemRequest {
             title: "Buy milk".into(),
-            description: None,
-            quantity: None,
-            unit: None,
-            start_date: None,
-            start_time: None,
-            deadline: None,
-            deadline_time: None,
-            hard_deadline: None,
+            ..Default::default()
         }],
     };
     assert!(req.validate().is_ok());
