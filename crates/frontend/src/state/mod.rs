@@ -7,6 +7,7 @@
 
 pub mod dnd;
 pub mod invalidation;
+pub mod item_actions;
 pub mod item_store;
 pub mod live_updates;
 pub mod reorder;
