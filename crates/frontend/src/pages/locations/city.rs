@@ -5,6 +5,7 @@ use leptos_router::hooks::use_params_map;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
+use crate::components::common::inline_edit::{InlineEdit, InlineEditSize};
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::locations::{
     delete_location_sf, get_city_addresses_sf, get_countries, get_country_regions_sf,
@@ -49,16 +50,11 @@ pub fn CityDetailPage() -> impl IntoView {
     );
 
     let (editing_name, set_editing_name) = signal(false);
-    let (edit_name, set_edit_name) = signal(String::new());
     let (editing_region, set_editing_region) = signal(false);
     let (edit_region, set_edit_region) = signal(String::new());
     let show_delete = RwSignal::new(false);
 
-    let on_save_name = Callback::new(move |_: ()| {
-        let name = edit_name.get_untracked();
-        if name.trim().is_empty() {
-            return;
-        }
+    let on_save_name = Callback::new(move |name: String| {
         let id = city_id.get_untracked();
         set_editing_name.set(false);
         leptos::task::spawn_local(async move {
@@ -69,11 +65,13 @@ pub fn CityDetailPage() -> impl IntoView {
         });
     });
 
-    let on_save_region = Callback::new(move |_: ()| {
-        let region = edit_region.get_untracked();
+    let on_save_region = Callback::new(move |region: String| {
         let id = city_id.get_untracked();
         set_editing_region.set(false);
         if region.trim().is_empty() {
+            // Clearing a region is not supported by `update_location_sf`: `region: None`
+            // means "keep" and there is no clear flag (unlike alias/address), so an
+            // empty save is a no-op rather than storing an empty-string region.
             return;
         }
         leptos::task::spawn_local(async move {
@@ -110,7 +108,7 @@ pub fn CityDetailPage() -> impl IntoView {
                 {move || city_res.get().map(|result| {
                     match result {
                         Err(e) => view! { <p class="text-error">{e.to_string()}</p> }.into_any(),
-                        Ok(None) => view! { <p class="text-base-content/50">"Nie znaleziono miasta."</p> }.into_any(),
+                        Ok(None) => view! { <p class="text-base-content/50">{move_tr!("locations-city-not-found")}</p> }.into_any(),
                         Ok(Some(city)) => {
                             let country_name = countries_res.get()
                                 .and_then(|r| r.ok())
@@ -131,27 +129,11 @@ pub fn CityDetailPage() -> impl IntoView {
                                         <div>
                                             {move || if editing_name.get() {
                                                 view! {
-                                                    <div class="flex gap-2 items-center">
-                                                        <input
-                                                            type="text"
-                                                            class="input input-bordered input-sm"
-                                                            prop:value=move || edit_name.get()
-                                                            on:input=move |ev| set_edit_name.set(event_target_value(&ev))
-                                                            on:keydown=move |ev| {
-                                                                match ev.key().as_str() {
-                                                                    "Enter" => on_save_name.run(()),
-                                                                    "Escape" => set_editing_name.set(false),
-                                                                    _ => {}
-                                                                }
-                                                            }
-                                                        />
-                                                        <button class="btn btn-sm btn-primary" on:click=move |_| on_save_name.run(())>
-                                                            {move_tr!("locations-save")}
-                                                        </button>
-                                                        <button class="btn btn-sm btn-ghost" on:click=move |_| set_editing_name.set(false)>
-                                                            {move_tr!("locations-cancel")}
-                                                        </button>
-                                                    </div>
+                                                    <InlineEdit
+                                                        value=city_name.get_value()
+                                                        on_save=on_save_name
+                                                        on_cancel=Callback::new(move |_: ()| set_editing_name.set(false))
+                                                    />
                                                 }.into_any()
                                             } else {
                                                 view! {
@@ -159,10 +141,7 @@ pub fn CityDetailPage() -> impl IntoView {
                                                         <h2 class="text-2xl font-bold">{city_name.get_value()}</h2>
                                                         <button
                                                             class="btn btn-xs btn-ghost"
-                                                            on:click=move |_| {
-                                                                set_edit_name.set(city_name.get_value());
-                                                                set_editing_name.set(true);
-                                                            }
+                                                            on:click=move |_| set_editing_name.set(true)
                                                         >
                                                             "✎"
                                                         </button>
@@ -174,25 +153,10 @@ pub fn CityDetailPage() -> impl IntoView {
                                                     let regions = regions_res.get()
                                                         .and_then(|r| r.ok())
                                                         .unwrap_or_default();
+                                                    let uses_select = !regions.is_empty();
                                                     view! {
                                                         <div class="flex gap-2 items-center">
-                                                            {if regions.is_empty() {
-                                                                view! {
-                                                                    <input
-                                                                        type="text"
-                                                                        class="input input-bordered input-xs"
-                                                                        prop:value=move || edit_region.get()
-                                                                        on:input=move |ev| set_edit_region.set(event_target_value(&ev))
-                                                                        on:keydown=move |ev| {
-                                                                            match ev.key().as_str() {
-                                                                                "Enter" => on_save_region.run(()),
-                                                                                "Escape" => set_editing_region.set(false),
-                                                                                _ => {}
-                                                                            }
-                                                                        }
-                                                                    />
-                                                                }.into_any()
-                                                            } else {
+                                                            {if uses_select {
                                                                 let current = edit_region.get_untracked();
                                                                 view! {
                                                                     <select
@@ -209,13 +173,27 @@ pub fn CityDetailPage() -> impl IntoView {
                                                                         }).collect_view()}
                                                                     </select>
                                                                 }.into_any()
+                                                            } else {
+                                                                view! {
+                                                                    <InlineEdit
+                                                                        value=city_region_sv.get_value().unwrap_or_default()
+                                                                        on_save=on_save_region
+                                                                        on_cancel=Callback::new(move |_: ()| set_editing_region.set(false))
+                                                                        size=InlineEditSize::Xs
+                                                                    />
+                                                                }.into_any()
                                                             }}
-                                                            <button class="btn btn-xs btn-primary" on:click=move |_| on_save_region.run(())>
-                                                                {move_tr!("locations-save")}
-                                                            </button>
-                                                            <button class="btn btn-xs btn-ghost" on:click=move |_| set_editing_region.set(false)>
-                                                                {move_tr!("locations-cancel")}
-                                                            </button>
+                                                            {uses_select.then(|| view! {
+                                                                <button
+                                                                    class="btn btn-xs btn-primary"
+                                                                    on:click=move |_| on_save_region.run(edit_region.get_untracked())
+                                                                >
+                                                                    {move_tr!("common-save")}
+                                                                </button>
+                                                                <button class="btn btn-xs btn-ghost" on:click=move |_| set_editing_region.set(false)>
+                                                                    {move_tr!("common-cancel")}
+                                                                </button>
+                                                            })}
                                                         </div>
                                                     }.into_any()
                                                 } else {
@@ -251,12 +229,12 @@ pub fn CityDetailPage() -> impl IntoView {
                                     </div>
 
                                     // Addresses list
-                                    <h3 class="font-semibold mb-3">"Adresy"</h3>
+                                    <h3 class="font-semibold mb-3">{move_tr!("locations-addresses-title")}</h3>
                                     <Suspense fallback=|| view! { <LoadingSpinner/> }>
                                         {move || addresses_res.get().map(|result| match result {
                                             Err(e) => view! { <p class="text-error">{e.to_string()}</p> }.into_any(),
                                             Ok(addrs) if addrs.is_empty() => view! {
-                                                <p class="text-base-content/50 text-sm">"Brak adresow."</p>
+                                                <p class="text-base-content/50 text-sm">{move_tr!("locations-addresses-empty")}</p>
                                             }.into_any(),
                                             Ok(addrs) => view! {
                                                 <div class="flex flex-col gap-2">

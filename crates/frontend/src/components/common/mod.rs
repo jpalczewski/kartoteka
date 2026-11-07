@@ -3,5 +3,6 @@ pub mod confirm_modal;
 pub mod container_selector_dropdown;
 pub mod dnd;
 pub mod editable_text;
+pub mod inline_edit;
 pub mod list_filter_chips;
 pub mod loading;

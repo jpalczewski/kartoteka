@@ -7,6 +7,7 @@ use leptos_router::components::A;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
+use crate::components::common::inline_edit::{InlineEdit, InlineEditSize};
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::locations::{
     delete_location_sf, get_countries, get_locations_sf, parse_location_sf, update_location_sf,
@@ -127,7 +128,7 @@ pub fn LocationsPage() -> impl IntoView {
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            <h2 class="text-2xl font-bold mb-4">"Lokalizacje"</h2>
+            <h2 class="text-2xl font-bold mb-4">{move_tr!("locations-title")}</h2>
 
             // Parser input
             <div class="flex gap-2 mb-6">
@@ -256,14 +257,9 @@ fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoVie
     let city_alias_sv = StoredValue::new(city.alias.clone());
 
     let (editing, set_editing) = signal(false);
-    let (edit_name, set_edit_name) = signal(city.name.clone());
     let show_delete = RwSignal::new(false);
 
-    let on_save = Callback::new(move |_: ()| {
-        let name = edit_name.get_untracked();
-        if name.trim().is_empty() {
-            return;
-        }
+    let on_save = Callback::new(move |name: String| {
         set_editing.set(false);
         let id = city_id.get_value();
         leptos::task::spawn_local(async move {
@@ -293,31 +289,11 @@ fn CityRow(city_group: CityGroup, set_refresh: WriteSignal<u32>) -> impl IntoVie
             {move || {
                 if editing.get() {
                     view! {
-                        <div class="flex gap-2 items-center">
-                            <input
-                                type="text"
-                                class="input input-bordered input-sm flex-1"
-                                prop:value=move || edit_name.get()
-                                on:input=move |ev| set_edit_name.set(event_target_value(&ev))
-                                on:keydown=move |ev| {
-                                    if ev.key() == "Enter" {
-                                        on_save.run(());
-                                    }
-                                }
-                            />
-                            <button
-                                class="btn btn-sm btn-primary"
-                                on:click=move |_| on_save.run(())
-                            >
-                                {move_tr!("locations-save")}
-                            </button>
-                            <button
-                                class="btn btn-sm btn-ghost"
-                                on:click=move |_| set_editing.set(false)
-                            >
-                                {move_tr!("locations-cancel")}
-                            </button>
-                        </div>
+                        <InlineEdit
+                            value=display_name.get_value()
+                            on_save=on_save
+                            on_cancel=Callback::new(move |_: ()| set_editing.set(false))
+                        />
                     }
                     .into_any()
                 } else {
@@ -388,14 +364,9 @@ fn AddressRow(addr: Location, set_refresh: WriteSignal<u32>) -> impl IntoView {
     let addr_alias_sv = StoredValue::new(addr.alias.clone());
 
     let (editing, set_editing) = signal(false);
-    let (edit_name, set_edit_name) = signal(addr.name.clone());
     let show_delete = RwSignal::new(false);
 
-    let on_save = Callback::new(move |_: ()| {
-        let name = edit_name.get_untracked();
-        if name.trim().is_empty() {
-            return;
-        }
+    let on_save = Callback::new(move |name: String| {
         set_editing.set(false);
         let id = addr_id.get_value();
         leptos::task::spawn_local(async move {
@@ -424,29 +395,12 @@ fn AddressRow(addr: Location, set_refresh: WriteSignal<u32>) -> impl IntoView {
             {move || {
                 if editing.get() {
                     view! {
-                        <input
-                            type="text"
-                            class="input input-bordered input-xs flex-1"
-                            prop:value=move || edit_name.get()
-                            on:input=move |ev| set_edit_name.set(event_target_value(&ev))
-                            on:keydown=move |ev| {
-                                if ev.key() == "Enter" {
-                                    on_save.run(());
-                                }
-                            }
+                        <InlineEdit
+                            value=display_name.get_value()
+                            on_save=on_save
+                            on_cancel=Callback::new(move |_: ()| set_editing.set(false))
+                            size=InlineEditSize::Xs
                         />
-                        <button
-                            class="btn btn-xs btn-primary"
-                            on:click=move |_| on_save.run(())
-                        >
-                            {move_tr!("locations-save")}
-                        </button>
-                        <button
-                            class="btn btn-xs btn-ghost"
-                            on:click=move |_| set_editing.set(false)
-                        >
-                            {move_tr!("locations-cancel")}
-                        </button>
                     }
                     .into_any()
                 } else {
@@ -492,13 +446,13 @@ pub(super) fn InlineAlias(
     set_refresh: WriteSignal<u32>,
 ) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let i18n = expect_context::<I18n>();
     let id_sv = StoredValue::new(id);
     let alias_sv = StoredValue::new(initial);
     let (editing, set_editing) = signal(false);
-    let (edit_value, set_edit_value) = signal(alias_sv.get_value().unwrap_or_default());
+    let placeholder = i18n.tr("locations-alias-placeholder");
 
-    let on_save = Callback::new(move |_: ()| {
-        let alias = edit_value.get_untracked();
+    let on_save = Callback::new(move |alias: String| {
         set_editing.set(false);
         let id = id_sv.get_value();
         leptos::task::spawn_local(async move {
@@ -528,39 +482,22 @@ pub(super) fn InlineAlias(
         {move || {
             if editing.get() {
                 view! {
-                    <div class="flex gap-1 items-center">
-                        <input
-                            type="text"
-                            class="input input-bordered input-xs"
-                            placeholder=move_tr!("locations-alias-placeholder")
-                            prop:value=move || edit_value.get()
-                            on:input=move |ev| set_edit_value.set(event_target_value(&ev))
-                            on:keydown=move |ev| {
-                                match ev.key().as_str() {
-                                    "Enter" => on_save.run(()),
-                                    "Escape" => set_editing.set(false),
-                                    _ => {}
-                                }
-                            }
-                        />
-                        <button class="btn btn-xs btn-primary" on:click=move |_| on_save.run(())>
-                            {move_tr!("locations-save")}
-                        </button>
-                        <button class="btn btn-xs btn-ghost" on:click=move |_| set_editing.set(false)>
-                            {move_tr!("locations-cancel")}
-                        </button>
-                    </div>
+                    <InlineEdit
+                        value=alias_sv.get_value().unwrap_or_default()
+                        on_save=on_save
+                        on_cancel=Callback::new(move |_: ()| set_editing.set(false))
+                        size=InlineEditSize::Xs
+                        placeholder=Some(placeholder.clone())
+                        allow_empty=true
+                    />
                 }
                 .into_any()
             } else {
                 let alias = alias_sv.get_value();
                 view! {
                     <AliasBadge
-                        alias=alias.clone()
-                        on_edit=Callback::new(move |_: ()| {
-                            set_edit_value.set(alias.clone().unwrap_or_default());
-                            set_editing.set(true);
-                        })
+                        alias=alias
+                        on_edit=Callback::new(move |_: ()| set_editing.set(true))
                         on_clear=on_clear
                     />
                 }
