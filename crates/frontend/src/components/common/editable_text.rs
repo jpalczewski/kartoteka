@@ -4,14 +4,15 @@ use leptos_fluent::move_tr;
 use super::inline_edit::InlineEdit;
 
 /// Click-to-edit text field. Calls `on_save` with the new value; parent handles persistence.
-/// Re-renders with updated `value` after the parent refetches data.
+/// Follows `value` when it changes (after a refetch, or an edit from another tab) unless the
+/// field is being edited, so a page can keep this component alive across refetches.
 ///
 /// Single-line edit mode delegates to [`InlineEdit`] (Enter saves, Escape cancels).
 /// There is deliberately **no** save-on-blur: clicking Cancel must never save first.
 /// Multiline mode keeps its own textarea with the same Save/Cancel semantics.
 #[component]
 pub fn EditableText(
-    value: String,
+    #[prop(into)] value: Signal<String>,
     on_save: Callback<String>,
     #[prop(default = false)] multiline: bool,
     #[prop(optional)] placeholder: Option<&'static str>,
@@ -20,9 +21,16 @@ pub fn EditableText(
 ) -> impl IntoView {
     let editing = RwSignal::new(false);
     // Value shown while not editing; updated on save so the new text appears before refetch.
-    let current = RwSignal::new(value);
+    let current = RwSignal::new(value.get_untracked());
     // Last committed value, restored when a multiline edit is cancelled.
     let committed = StoredValue::new(current.get_untracked());
+    Effect::new(move |_| {
+        let latest = value.get();
+        committed.set_value(latest.clone());
+        if !editing.get_untracked() {
+            current.set(latest);
+        }
+    });
 
     let display_class = class.unwrap_or("cursor-pointer hover:underline decoration-dotted");
     let fallback_placeholder = move_tr!("common-click-to-edit");

@@ -9,8 +9,14 @@
 //!    recurrence/status chips, icon), each reading one keyed store row;
 //! 3. `Compact` variant ([`super::item_compact::ItemCompact`]), replacing the per-page rows of
 //!    Today, All, calendar and tag detail (done);
-//! 4. the `Row` variant (expandable editor, action menu, drag handle), replacing `ItemRow`;
-//! 5. the list page and sublists on keyed stores with the `Row` variant.
+//! 4. the `Row` variant ([`super::item_row::ItemRow`]: expandable editor, action menu, drag
+//!    handle), replacing the by-value `ItemRow` (done);
+//! 5. the list page and sublists on keyed stores with the `Row` variant, rows keyed by id in
+//!    [`super::item_list::ItemRowList`] (done).
+//!
+//! There is no single dispatching component: the two variants take different inputs (`Row`
+//! gets move targets, tags and drag state, `Compact` a layout and test ids) and every page
+//! uses exactly one of them, so each page renders `ItemRow` or `ItemCompact` directly.
 //!
 //! Data contract: a view gets `store: Store<ItemRows<T>>` + `id` and reads its item through
 //! [`crate::state::item_store::row_item`], so it is created once per item and updates in
