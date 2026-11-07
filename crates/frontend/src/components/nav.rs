@@ -37,7 +37,11 @@ pub fn Nav() -> impl IntoView {
             </div>
             <div class="navbar-end">
                 <Suspense>
-                    {move || match nav.get().and_then(|r| r.ok()) {
+                    {move || {
+                    // Read in the same Suspense as the nav data: a nested Suspense inside the
+                    // dropdown broke hydration of the whole page.
+                    let pending_count = pending.get().and_then(|r| r.ok()).unwrap_or(0);
+                    match nav.get().and_then(|r| r.ok()) {
                         Some(name) => view! {
                             <a href="/today" class="btn btn-ghost btn-sm">{move_tr!("nav-today")}</a>
                             <a href="/calendar" class="btn btn-ghost btn-sm">{move_tr!("nav-calendar")}</a>
@@ -54,22 +58,14 @@ pub fn Nav() -> impl IntoView {
                                         <a href="/trash" data-testid="nav-trash">
                                             <Icon name="trash" size=16 />
                                             {move_tr!("nav-trash")}
-                                            <Suspense fallback=|| ()>
-                                                {move || {
-                                                    pending
-                                                        .get()
-                                                        .and_then(|r| r.ok())
-                                                        .filter(|count| *count > 0)
-                                                        .map(|count| view! {
-                                                            <span
-                                                                class="badge badge-error badge-sm"
-                                                                data-testid="nav-trash-count"
-                                                            >
-                                                                {count}
-                                                            </span>
-                                                        })
-                                                }}
-                                            </Suspense>
+                                            {(pending_count > 0).then(|| view! {
+                                                <span
+                                                    class="badge badge-error badge-sm"
+                                                    data-testid="nav-trash-count"
+                                                >
+                                                    {pending_count}
+                                                </span>
+                                            })}
                                         </a>
                                     </li>
                                     <li>
@@ -99,6 +95,7 @@ pub fn Nav() -> impl IntoView {
                                 {move_tr!("nav-login")}
                             </a>
                         }.into_any(),
+                    }
                     }}
                 </Suspense>
             </div>
