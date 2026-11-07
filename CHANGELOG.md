@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0](https://github.com/jpalczewski/kartoteka/compare/v1.10.0...v1.11.0) (2026-11-07)
+
+
+### Features
+
+* **frontend:** /trash review page for pending deletions ([df4b078](https://github.com/jpalczewski/kartoteka/commit/df4b078d403ca7601fe36155800043215bfbe56b))
+* **server:** stream live updates over GET /api/events ([a86deb0](https://github.com/jpalczewski/kartoteka/commit/a86deb0f8ff6106a561be3af1358b09faedba61a))
+
+
+### Bug Fixes
+
+* **frontend:** keep trash badge in the nav Suspense, delete only shown rows ([27f4570](https://github.com/jpalczewski/kartoteka/commit/27f457043a95805111dd3ccdea634d7ff429adc3))
+
 ## [1.10.0](https://github.com/jpalczewski/kartoteka/compare/v1.9.0...v1.10.0) (2026-11-07)
 
 
