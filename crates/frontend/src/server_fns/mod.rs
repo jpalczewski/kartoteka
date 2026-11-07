@@ -6,6 +6,7 @@ pub mod home;
 pub mod items;
 pub mod lists;
 pub mod locations;
+pub mod pending_deletions;
 pub mod relations;
 pub mod search;
 pub mod settings;

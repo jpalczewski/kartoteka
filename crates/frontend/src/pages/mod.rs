@@ -13,3 +13,4 @@ pub mod signup;
 pub mod tags;
 pub mod time;
 pub mod today;
+pub mod trash;
