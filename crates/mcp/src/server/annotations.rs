@@ -26,6 +26,7 @@ const READ_ONLY: &[&str] = &[
     "list_marked_for_delete",
     "list_comments",
     "list_time_inbox",
+    "list_archived",
 ];
 
 const ADDITIVE_WRITE: &[&str] = &[
@@ -61,6 +62,13 @@ const DESTRUCTIVE: &[&str] = &[
     "reorder_items",
     "move_item",
     "reorder_lists",
+    "update_list",
+    "update_container",
+    "set_list_features",
+    "update_list_feature_config",
+    "set_archived",
+    "set_pinned",
+    "reset_list",
 ];
 
 pub fn for_tool(name: &str) -> ToolAnnotations {
