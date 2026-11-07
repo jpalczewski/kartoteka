@@ -315,6 +315,9 @@ pub async fn toggle_pin(
 }
 
 /// Get progress statistics for a container.
+///
+/// Recursive: counts cover the container itself, every sub-container at any
+/// depth, every list in that subtree and those lists' sublists at any depth.
 #[tracing::instrument(skip(pool))]
 pub async fn get_progress(
     pool: &SqlitePool,
@@ -884,6 +887,80 @@ mod tests {
             stored_parent_and_position(&pool, &uid, &mine.id).await,
             (None, 0)
         );
+    }
+
+    // ── Recursive progress ────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn progress_counts_subcontainers_and_sublists() {
+        use kartoteka_db::test_helpers::{
+            create_test_item, create_test_list_in_container, create_test_sublist,
+        };
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+
+        let root = make_container(&pool, &uid, "Root").await;
+        let child = make_child(&pool, &uid, "Child", &root.id).await;
+
+        // Root list with two items, one completed.
+        let root_list = create_test_list_in_container(&pool, &uid, &root.id).await;
+        let a = create_test_item(&pool, &root_list).await;
+        create_test_item(&pool, &root_list).await;
+        sqlx::query("UPDATE items SET completed = 1 WHERE id = ?")
+            .bind(&a)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Child list with one item, plus a sublist with one completed item.
+        let child_list = create_test_list_in_container(&pool, &uid, &child.id).await;
+        create_test_item(&pool, &child_list).await;
+        let sublist = create_test_sublist(&pool, &uid, &child_list).await;
+        let done = create_test_item(&pool, &sublist).await;
+        sqlx::query("UPDATE items SET completed = 1 WHERE id = ?")
+            .bind(&done)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let progress = get_progress(&pool, &root.id, &uid).await.unwrap();
+        assert_eq!(progress.total_lists, 3);
+        assert_eq!(progress.total_items, 4);
+        assert_eq!(progress.completed_items, 2);
+
+        // The child sees only its own subtree.
+        let progress = get_progress(&pool, &child.id, &uid).await.unwrap();
+        assert_eq!(progress.total_lists, 2);
+        assert_eq!(progress.total_items, 2);
+        assert_eq!(progress.completed_items, 1);
+    }
+
+    #[tokio::test]
+    async fn progress_is_zero_for_empty_container() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let empty = make_container(&pool, &uid, "Empty").await;
+
+        let progress = get_progress(&pool, &empty.id, &uid).await.unwrap();
+        assert_eq!(progress.total_lists, 0);
+        assert_eq!(progress.total_items, 0);
+        assert_eq!(progress.completed_items, 0);
+    }
+
+    #[tokio::test]
+    async fn progress_ignores_other_users_lists() {
+        use kartoteka_db::test_helpers::{create_test_item, create_test_list_in_container};
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let other = create_test_user(&pool).await;
+        let root = make_container(&pool, &uid, "Root").await;
+
+        let foreign_list = create_test_list_in_container(&pool, &other, &root.id).await;
+        create_test_item(&pool, &foreign_list).await;
+
+        let progress = get_progress(&pool, &root.id, &uid).await.unwrap();
+        assert_eq!(progress.total_lists, 0);
+        assert_eq!(progress.total_items, 0);
     }
 
     #[tokio::test]

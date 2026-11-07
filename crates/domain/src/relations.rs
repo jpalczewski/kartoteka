@@ -16,6 +16,13 @@ pub struct Relation {
     pub relation_type: String,
     pub user_id: String,
     pub created_at: String,
+    /// `item` / `list` / `container` of the side opposite to the queried entity.
+    /// `None` on relations returned by [`create`], which does not resolve titles.
+    pub other_type: Option<String>,
+    /// Display title of the opposite side: item title, list name or container name.
+    pub other_title: Option<String>,
+    /// Whether the opposite side is a completed item (only set for items).
+    pub other_completed: Option<bool>,
 }
 
 fn row_to_relation(row: db::types::EntityRelationRow) -> Relation {
@@ -28,6 +35,25 @@ fn row_to_relation(row: db::types::EntityRelationRow) -> Relation {
         relation_type: row.relation_type,
         user_id: row.user_id,
         created_at: row.created_at,
+        other_type: None,
+        other_title: None,
+        other_completed: None,
+    }
+}
+
+fn titled_row_to_relation(row: db::relations::EntityRelationWithTitleRow) -> Relation {
+    Relation {
+        id: row.id,
+        from_type: row.from_type,
+        from_id: row.from_id,
+        to_type: row.to_type,
+        to_id: row.to_id,
+        relation_type: row.relation_type,
+        user_id: row.user_id,
+        created_at: row.created_at,
+        other_type: Some(row.other_type),
+        other_title: row.other_title,
+        other_completed: row.other_completed,
     }
 }
 
@@ -64,6 +90,9 @@ async fn entity_exists_for_user(
 
 // ── Orchestration ─────────────────────────────────────────────────────────────
 
+/// All relations touching an entity, each carrying the display title (and, for
+/// items, the completed flag) of the entity on the other side, so the UI never
+/// has to render raw ids.
 #[tracing::instrument(skip(pool))]
 pub async fn get_for_entity(
     pool: &SqlitePool,
@@ -75,8 +104,9 @@ pub async fn get_for_entity(
     if !entity_exists_for_user(pool, user_id, entity_type, entity_id).await? {
         return Err(DomainError::Forbidden);
     }
-    let rows = db::relations::list_for_entity(pool, entity_type, entity_id, user_id).await?;
-    Ok(rows.into_iter().map(row_to_relation).collect())
+    let rows =
+        db::relations::list_for_entity_with_titles(pool, entity_type, entity_id, user_id).await?;
+    Ok(rows.into_iter().map(titled_row_to_relation).collect())
 }
 
 #[tracing::instrument(skip(pool))]
@@ -191,6 +221,60 @@ mod tests {
 
         let rels = get_for_entity(&pool, &uid, "item", &item_a).await.unwrap();
         assert_eq!(rels.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn get_for_entity_includes_other_side_titles_and_completion() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_a = create_test_item(&pool, &list_id).await;
+        let item_b = create_test_item(&pool, &list_id).await;
+
+        create(&pool, &uid, "item", &item_b, "item", &item_a, "blocks")
+            .await
+            .unwrap();
+        sqlx::query("UPDATE items SET completed = 1 WHERE id = ?")
+            .bind(&item_b)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let rels = get_for_entity(&pool, &uid, "item", &item_a).await.unwrap();
+        assert_eq!(rels.len(), 1);
+        assert_eq!(rels[0].other_type.as_deref(), Some("item"));
+        assert_eq!(rels[0].other_title.as_deref(), Some("Test Item"));
+        assert_eq!(rels[0].other_completed, Some(true));
+    }
+
+    #[tokio::test]
+    async fn get_for_entity_includes_list_name_title() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_id = create_test_item(&pool, &list_id).await;
+
+        create(
+            &pool,
+            &uid,
+            "item",
+            &item_id,
+            "list",
+            &list_id,
+            "relates_to",
+        )
+        .await
+        .unwrap();
+
+        let rels = get_for_entity(&pool, &uid, "item", &item_id).await.unwrap();
+        assert_eq!(rels[0].other_type.as_deref(), Some("list"));
+        assert_eq!(rels[0].other_title.as_deref(), Some("Test List"));
+        assert!(rels[0].other_completed.is_none());
+
+        // From the list side the item is "other".
+        let rels = get_for_entity(&pool, &uid, "list", &list_id).await.unwrap();
+        assert_eq!(rels[0].other_type.as_deref(), Some("item"));
+        assert_eq!(rels[0].other_title.as_deref(), Some("Test Item"));
     }
 
     #[tokio::test]
