@@ -1865,7 +1865,7 @@ name = "kartoteka-domain"
 version = "0.4.1"
 dependencies = [
  "argon2",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "chrono-tz",
  "getrandom 0.4.3",
@@ -1938,7 +1938,7 @@ name = "kartoteka-mcp"
 version = "0.4.1"
 dependencies = [
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "chrono-tz",
  "fluent-bundle",
@@ -1966,7 +1966,7 @@ version = "0.4.1"
 dependencies = [
  "axum",
  "axum-login",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "hmac 0.13.0",
  "http",
@@ -1999,7 +1999,7 @@ dependencies = [
  "axum",
  "axum-login",
  "axum-macros",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "ipnet",
  "kartoteka-auth",

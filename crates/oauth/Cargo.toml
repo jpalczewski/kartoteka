@@ -20,7 +20,7 @@ tower-sessions = { workspace = true }
 http = "1"
 jsonwebtoken = { workspace = true }
 sha2 = "0.11"
-base64 = "0.22"
+base64 = "0.23"
 rand = "0.10"
 rand_core = "0.10"
 serde = { workspace = true }
