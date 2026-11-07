@@ -415,7 +415,7 @@ fn default_item_status() -> String {
 
 /// Shared Item type for server function return values.
 /// Mirrors domain::items::Item — kept in shared so WASM hydrate build can deserialize.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Item {
     pub id: String,
     pub list_id: String,
@@ -497,7 +497,7 @@ pub struct ListData {
 /// Used in Today, CalendarDay and All pages where items from multiple lists are shown together.
 /// `list_type` lets the UI adapt rendering per list type (e.g. notes/log items have no checkbox
 /// and show their description instead).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DateItem {
     pub item: Item,
     pub list_name: String,
