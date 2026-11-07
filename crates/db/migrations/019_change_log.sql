@@ -39,26 +39,15 @@ BEGIN
     SELECT NEW.user_id, 'lists', NEW.id WHERE NEW.user_id IS NOT NULL;
 END;
 
--- Skips a pure touch_last_opened_at write: opening a list is a read of the
--- user's data and must not wake the live-update pump. Every other column is
--- compared, so a real change fires even when it arrives together with
--- last_opened_at (and with a bumped updated_at, which is why that column is not
--- compared either).
--- !!! Columns added to lists must be added here, or an UPDATE that touches only
--- !!! the new column stays silent.
+-- Skips the touch_last_opened write (crates/db/src/lists.rs touch_last_opened):
+-- opening a list is a read of the user's data and must not wake the live-update
+-- pump. Any UPDATE that leaves last_opened_at alone fires, so new columns are
+-- covered without editing this trigger.
+-- !!! Rule: last_opened_at is written ONLY by touch_last_opened, never together
+-- !!! with another column, or that other change stays silent. touch_last_opened
+-- !!! skips same-second writes, so a repeated open does not fire either.
 CREATE TRIGGER IF NOT EXISTS lists_change_update AFTER UPDATE ON lists
-WHEN OLD.user_id        IS NOT NEW.user_id
-  OR OLD.name           IS NOT NEW.name
-  OR OLD.icon           IS NOT NEW.icon
-  OR OLD.description    IS NOT NEW.description
-  OR OLD.list_type      IS NOT NEW.list_type
-  OR OLD.parent_list_id IS NOT NEW.parent_list_id
-  OR OLD.position       IS NOT NEW.position
-  OR OLD.archived       IS NOT NEW.archived
-  OR OLD.container_id   IS NOT NEW.container_id
-  OR OLD.pinned         IS NOT NEW.pinned
-  OR OLD.features       IS NOT NEW.features
-  OR OLD.location_id    IS NOT NEW.location_id
+WHEN OLD.last_opened_at IS NEW.last_opened_at
 BEGIN
     INSERT INTO change_log (user_id, topic, entity_id)
     SELECT NEW.user_id, 'lists', NEW.id WHERE NEW.user_id IS NOT NULL;
@@ -77,19 +66,9 @@ BEGIN
     SELECT NEW.user_id, 'containers', NEW.id WHERE NEW.user_id IS NOT NULL;
 END;
 
--- Same last_opened_at exclusion as lists_change_update; keep both column lists
--- in sync and extend them when containers gains a column.
+-- Same last_opened_at rule as lists_change_update (containers touch_last_opened).
 CREATE TRIGGER IF NOT EXISTS containers_change_update AFTER UPDATE ON containers
-WHEN OLD.user_id            IS NOT NEW.user_id
-  OR OLD.name               IS NOT NEW.name
-  OR OLD.icon               IS NOT NEW.icon
-  OR OLD.description        IS NOT NEW.description
-  OR OLD.status             IS NOT NEW.status
-  OR OLD.parent_container_id IS NOT NEW.parent_container_id
-  OR OLD.position           IS NOT NEW.position
-  OR OLD.pinned             IS NOT NEW.pinned
-  OR OLD.archived           IS NOT NEW.archived
-  OR OLD.location_id        IS NOT NEW.location_id
+WHEN OLD.last_opened_at IS NEW.last_opened_at
 BEGIN
     INSERT INTO change_log (user_id, topic, entity_id)
     SELECT NEW.user_id, 'containers', NEW.id WHERE NEW.user_id IS NOT NULL;
