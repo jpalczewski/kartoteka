@@ -60,6 +60,8 @@ pub struct List {
     pub user_id: String,
     pub name: String,
     pub icon: Option<String>,
+    /// Accent colour as `#rrggbb`; None = neutral.
+    pub color: Option<String>,
     pub description: Option<String>,
     pub list_type: String,
     pub parent_list_id: Option<String>,
@@ -81,6 +83,8 @@ pub struct CreateListRequest {
     pub name: String,
     pub list_type: Option<String>, // defaults to "checklist"
     pub icon: Option<String>,
+    /// Accent colour as `#rrggbb`; None = neutral.
+    pub color: Option<String>,
     pub description: Option<String>,
     pub container_id: Option<String>,
     pub parent_list_id: Option<String>,
@@ -90,7 +94,8 @@ pub struct CreateListRequest {
 #[derive(Debug, Deserialize)]
 pub struct UpdateListRequest {
     pub name: Option<String>,
-    pub icon: Option<Option<String>>, // Some(None) clears the field
+    pub icon: Option<Option<String>>,  // Some(None) clears the field
+    pub color: Option<Option<String>>, // Accent colour: Some(None) = neutral
     pub description: Option<Option<String>>,
     pub list_type: Option<String>,
     pub location_id: Option<Option<String>>,
@@ -176,6 +181,7 @@ pub(crate) fn row_to_list(row: db::lists::ListRow) -> Result<List, DomainError> 
         user_id: row.user_id,
         name: row.name,
         icon: row.icon,
+        color: row.color,
         description: row.description,
         list_type: row.list_type,
         parent_list_id: row.parent_list_id,
@@ -302,6 +308,9 @@ pub async fn create(
         },
     )?;
 
+    let icon = rules::appearance::normalize_icon(req.icon.as_deref())?;
+    let color = rules::appearance::normalize_color(req.color.as_deref())?;
+
     let position = db::lists::next_position(
         pool,
         user_id,
@@ -319,7 +328,8 @@ pub async fn create(
             user_id: user_id.to_owned(),
             position,
             name: req.name.clone(),
-            icon: req.icon.clone(),
+            icon,
+            color,
             description: req.description.clone(),
             list_type: list_type.as_str().to_owned(),
             container_id: req.container_id.clone(),
@@ -335,6 +345,33 @@ pub async fn create(
         .map(row_to_list)
         .transpose()?
         .ok_or_else(|| DomainError::Internal("list disappeared after create".into()))
+}
+
+/// Set the icon and/or accent colour of a list.
+///
+/// Both arguments use the `Option<Option<_>>` patch convention: `None` keeps the
+/// stored value, `Some(None)` clears it, `Some(Some(v))` sets it. Colours must
+/// be `#rrggbb`; icons are trimmed and capped (see [`rules::appearance`]).
+#[tracing::instrument(skip(pool, icon, color), fields(list_id = %id))]
+pub async fn set_appearance(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    icon: Option<Option<String>>,
+    color: Option<Option<String>>,
+) -> Result<Option<List>, DomainError> {
+    if icon.is_none() && color.is_none() {
+        return get_one(pool, id, user_id).await;
+    }
+    let req = UpdateListRequest {
+        name: None,
+        icon,
+        color,
+        description: None,
+        list_type: None,
+        location_id: None,
+    };
+    update(pool, id, user_id, &req).await
 }
 
 #[tracing::instrument(skip(pool))]
@@ -367,6 +404,16 @@ pub async fn update(
     }
 
     crate::locations::ensure_owned(pool, &req.location_id, user_id).await?;
+    let icon = req
+        .icon
+        .as_ref()
+        .map(|v| rules::appearance::normalize_icon(v.as_deref()))
+        .transpose()?;
+    let color = req
+        .color
+        .as_ref()
+        .map(|v| rules::appearance::normalize_color(v.as_deref()))
+        .transpose()?;
 
     // Phase 3: WRITE
     let updated = db::lists::update(
@@ -375,7 +422,8 @@ pub async fn update(
         user_id,
         &db::lists::UpdateListInput {
             name: req.name.clone(),
-            icon: req.icon.clone(),
+            icon,
+            color,
             description: req.description.clone(),
             list_type: req.list_type.clone(),
             location_id: req.location_id.clone(),
@@ -665,6 +713,7 @@ mod tests {
             container_id: None,
             parent_list_id: None,
             features: vec![],
+            color: None,
         }
     }
 
@@ -698,6 +747,7 @@ mod tests {
             container_id: None,
             parent_list_id: None,
             features: vec!["deadlines".into(), "quantity".into()],
+            color: None,
         };
         let list = create(&pool, &uid, &req).await.unwrap();
         assert_eq!(list.features.len(), 2);
@@ -722,6 +772,7 @@ mod tests {
             description: None,
             container_id: None,
             parent_list_id: None,
+            color: None,
         };
         let list = create(&pool, &uid, &req).await.unwrap();
         let names: Vec<&str> = list
@@ -745,6 +796,7 @@ mod tests {
             container_id: None,
             parent_list_id: None,
             features: vec![],
+            color: None,
         };
         let list = create(&pool, &uid, &req).await.unwrap();
         assert_eq!(list.list_type, "notes");
@@ -763,6 +815,7 @@ mod tests {
             container_id: None,
             parent_list_id: None,
             features: vec![],
+            color: None,
         };
         let list = create(&pool, &uid, &req).await.unwrap();
         assert_eq!(list.list_type, "schedule");
@@ -787,6 +840,7 @@ mod tests {
             container_id: None,
             parent_list_id: None,
             features: vec![],
+            color: None,
         };
         let list = create(&pool, &uid, &req).await.unwrap();
         assert_eq!(list.list_type, "schedule");
@@ -936,6 +990,7 @@ mod tests {
                 description: None,
                 list_type: None,
                 location_id: None,
+                color: None,
             },
         )
         .await
@@ -962,6 +1017,7 @@ mod tests {
                     description: None,
                     list_type: None,
                     location_id: None,
+                    color: None,
                 },
             )
             .await
@@ -979,6 +1035,7 @@ mod tests {
                 description: None,
                 status: None,
                 parent_container_id: None,
+                color: None,
             },
         )
         .await
@@ -991,6 +1048,7 @@ mod tests {
             name: name.to_string(),
             list_type: Some("checklist".into()),
             icon: None,
+            color: None,
             description: None,
             container_id: None,
             parent_list_id: Some(parent_list_id.to_string()),
@@ -1205,6 +1263,7 @@ mod tests {
             &uid,
             &CreateListRequest {
                 container_id: Some(container_id.clone()),
+                color: None,
                 ..checklist_req("A")
             },
         )
@@ -1215,6 +1274,7 @@ mod tests {
             &uid,
             &CreateListRequest {
                 container_id: Some(container_id.clone()),
+                color: None,
                 ..checklist_req("B")
             },
         )
@@ -1276,6 +1336,7 @@ mod tests {
             &uid,
             &CreateListRequest {
                 parent_list_id: Some(a.id.clone()),
+                color: None,
                 ..checklist_req("B")
             },
         )
@@ -1327,6 +1388,7 @@ mod tests {
             &uid,
             &CreateListRequest {
                 container_id: Some(container_id.clone()),
+                color: None,
                 ..checklist_req("Inside")
             },
         )
@@ -1512,6 +1574,78 @@ mod tests {
                 .await
                 .unwrap_err(),
             DomainError::NotFound("list")
+        ));
+    }
+
+    #[tokio::test]
+    async fn set_appearance_sets_icon_and_color() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list = create(&pool, &uid, &checklist_req("Styled")).await.unwrap();
+        assert!(list.color.is_none());
+
+        let updated = set_appearance(
+            &pool,
+            &list.id,
+            &uid,
+            Some(Some("lucide:star".into())),
+            Some(Some("#ff8800".into())),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(updated.icon.as_deref(), Some("lucide:star"));
+        assert_eq!(updated.color.as_deref(), Some("#ff8800"));
+
+        // clearing only the colour keeps the icon
+        let cleared = set_appearance(&pool, &list.id, &uid, None, Some(None))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(cleared.color.is_none());
+        assert_eq!(cleared.icon.as_deref(), Some("lucide:star"));
+    }
+
+    #[tokio::test]
+    async fn set_appearance_rejects_bad_color() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list = create(&pool, &uid, &checklist_req("Bad")).await.unwrap();
+
+        let err = set_appearance(&pool, &list.id, &uid, None, Some(Some("red".into())))
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            DomainError::Validation("color_invalid_format")
+        ));
+        assert!(
+            get_one(&pool, &list.id, &uid)
+                .await
+                .unwrap()
+                .unwrap()
+                .color
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn create_rejects_bad_color() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let err = create(
+            &pool,
+            &uid,
+            &CreateListRequest {
+                color: Some("#abc".into()),
+                ..checklist_req("Bad colour")
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            DomainError::Validation("color_invalid_format")
         ));
     }
 }

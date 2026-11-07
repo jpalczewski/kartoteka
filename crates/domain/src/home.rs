@@ -9,6 +9,7 @@ fn row_to_container(r: kartoteka_db::types::ContainerRow) -> Container {
         user_id: r.user_id,
         name: r.name,
         icon: r.icon,
+        color: r.color,
         description: r.description,
         status: r.status,
         parent_container_id: r.parent_container_id,
@@ -30,6 +31,7 @@ fn row_to_list(r: kartoteka_db::lists::ListRow) -> Result<List, DomainError> {
         user_id: r.user_id,
         name: r.name,
         icon: r.icon,
+        color: r.color,
         description: r.description,
         list_type: r.list_type,
         parent_list_id: r.parent_list_id,
@@ -108,6 +110,7 @@ mod tests {
                 description: None,
                 status: None,
                 parent_container_id: None,
+                color: None,
             },
         )
         .await

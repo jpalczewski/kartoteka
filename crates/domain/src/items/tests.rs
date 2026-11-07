@@ -34,6 +34,7 @@ fn basic_req(title: &str) -> CreateItemRequest {
         estimated_duration: None,
         recurrence_rule: None,
         recurrence_mode: None,
+        icon: None,
     }
 }
 
@@ -94,6 +95,7 @@ async fn create_item_dates_without_deadlines_feature_rejected() {
 
     let req = CreateItemRequest {
         deadline: Some("2026-05-15".to_string()),
+        icon: None,
         ..basic_req("Deadline item")
     };
 
@@ -110,6 +112,7 @@ async fn create_item_dates_with_deadlines_feature_ok() {
 
     let req = CreateItemRequest {
         deadline: Some("2026-05-15".to_string()),
+        icon: None,
         ..basic_req("Deadline item")
     };
 
@@ -126,6 +129,7 @@ async fn create_item_quantity_without_feature_rejected() {
 
     let req = CreateItemRequest {
         quantity: Some(3),
+        icon: None,
         ..basic_req("Qty item")
     };
 
@@ -196,6 +200,7 @@ async fn update_title() {
         location_id: None,
         recurrence_rule: None,
         recurrence_mode: None,
+        icon: None,
     };
 
     let updated = update(&pool, &user_id, &item.id, &req)
@@ -218,6 +223,7 @@ async fn update_triggers_auto_complete() {
         &list_id,
         &CreateItemRequest {
             quantity: Some(5),
+            icon: None,
             ..basic_req("Qty item")
         },
     )
@@ -240,6 +246,7 @@ async fn update_triggers_auto_complete() {
         location_id: None,
         recurrence_rule: None,
         recurrence_mode: None,
+        icon: None,
     };
 
     let updated = update(&pool, &user_id, &item.id, &req)
@@ -262,6 +269,7 @@ async fn update_does_not_auto_complete_when_below_target() {
         &list_id,
         &CreateItemRequest {
             quantity: Some(5),
+            icon: None,
             ..basic_req("Qty item")
         },
     )
@@ -284,6 +292,7 @@ async fn update_does_not_auto_complete_when_below_target() {
         location_id: None,
         recurrence_rule: None,
         recurrence_mode: None,
+        icon: None,
     };
 
     let updated = update(&pool, &user_id, &item.id, &req)
@@ -408,6 +417,233 @@ async fn toggle_complete_blocked_by_incomplete_item() {
     assert!(item.item.completed);
 }
 
+// ── set_status ────────────────────────────────────────────────────────────────
+
+/// An update request that touches nothing but `icon`.
+fn icon_req() -> UpdateItemRequest {
+    UpdateItemRequest {
+        title: None,
+        description: None,
+        completed: None,
+        icon: None,
+        quantity: None,
+        actual_quantity: None,
+        unit: None,
+        start_date: None,
+        start_time: None,
+        deadline: None,
+        deadline_time: None,
+        hard_deadline: None,
+        estimated_duration: None,
+        location_id: None,
+        recurrence_rule: None,
+        recurrence_mode: None,
+    }
+}
+
+#[tokio::test]
+async fn set_status_done_completes_item() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["checklist"]).await;
+    let item = create(&pool, &uid, &list_id, &basic_req("Task"))
+        .await
+        .unwrap();
+
+    let done = set_status(&pool, &uid, &item.id, "done")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(done.status, "done");
+    assert!(done.completed);
+}
+
+#[tokio::test]
+async fn set_status_in_progress_and_todo_clear_completed() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["checklist"]).await;
+    let item = create(&pool, &uid, &list_id, &basic_req("Task"))
+        .await
+        .unwrap();
+    set_status(&pool, &uid, &item.id, "done").await.unwrap();
+
+    let in_progress = set_status(&pool, &uid, &item.id, "in_progress")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(in_progress.status, "in_progress");
+    assert!(!in_progress.completed);
+
+    let todo = set_status(&pool, &uid, &item.id, "todo")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(todo.status, "todo");
+    assert!(!todo.completed);
+}
+
+#[tokio::test]
+async fn set_status_rejects_unknown_value() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["checklist"]).await;
+    let item = create(&pool, &uid, &list_id, &basic_req("Task"))
+        .await
+        .unwrap();
+
+    let err = set_status(&pool, &uid, &item.id, "blocked")
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        DomainError::Validation("invalid_item_status")
+    ));
+
+    let unchanged = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+    assert_eq!(unchanged.status, "todo");
+}
+
+#[tokio::test]
+async fn set_status_done_blocked_by_incomplete_item() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["checklist"]).await;
+    let blocker = create(&pool, &uid, &list_id, &basic_req("Blocker"))
+        .await
+        .unwrap();
+    let target = create(&pool, &uid, &list_id, &basic_req("Target"))
+        .await
+        .unwrap();
+    let relation_id = uuid::Uuid::new_v4().to_string();
+    kartoteka_db::relations::insert(
+        &pool,
+        kartoteka_db::relations::InsertRelationInput {
+            id: &relation_id,
+            from_type: "item",
+            from_id: &blocker.id,
+            to_type: "item",
+            to_id: &target.id,
+            relation_type: "blocks",
+            user_id: &uid,
+        },
+    )
+    .await
+    .unwrap();
+
+    let err = set_status(&pool, &uid, &target.id, "done")
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        DomainError::Validation("has_unresolved_blockers")
+    ));
+    let unchanged = get_one(&pool, &target.id, &uid).await.unwrap().unwrap();
+    assert_eq!(unchanged.status, "todo");
+    assert!(!unchanged.completed);
+
+    // in_progress is not a completion, so it is allowed
+    let in_progress = set_status(&pool, &uid, &target.id, "in_progress")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(in_progress.status, "in_progress");
+}
+
+#[tokio::test]
+async fn set_status_done_requires_checklist_feature() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &[]).await;
+    let item = create(&pool, &uid, &list_id, &basic_req("Note"))
+        .await
+        .unwrap();
+
+    let err = set_status(&pool, &uid, &item.id, "done").await.unwrap_err();
+    assert!(matches!(err, DomainError::FeatureRequired("checklist")));
+}
+
+#[tokio::test]
+async fn set_status_missing_item_is_none() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    assert!(
+        set_status(&pool, &uid, "nonexistent-item", "done")
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn create_and_update_icon() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &[]).await;
+
+    let item = create(
+        &pool,
+        &uid,
+        &list_id,
+        &CreateItemRequest {
+            icon: Some("lucide:leaf".into()),
+            ..basic_req("Iconned")
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(item.icon.as_deref(), Some("lucide:leaf"));
+
+    let updated = update(
+        &pool,
+        &uid,
+        &item.id,
+        &UpdateItemRequest {
+            icon: Some(Some("emoji:🌱".into())),
+            ..icon_req()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(updated.item.icon.as_deref(), Some("emoji:🌱"));
+
+    // Some(None) clears it
+    let cleared = update(
+        &pool,
+        &uid,
+        &item.id,
+        &UpdateItemRequest {
+            icon: Some(None),
+            ..icon_req()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(cleared.item.icon.is_none());
+}
+
+#[tokio::test]
+async fn create_rejects_overlong_icon() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &[]).await;
+
+    let err = create(
+        &pool,
+        &uid,
+        &list_id,
+        &CreateItemRequest {
+            icon: Some("x".repeat(65)),
+            ..basic_req("Too long")
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, DomainError::Validation("icon_too_long")));
+}
+
 #[tokio::test]
 async fn move_item_changes_position() {
     let pool = test_pool().await;
@@ -443,6 +679,7 @@ async fn by_date_returns_items_on_date() {
         &list_id,
         &CreateItemRequest {
             deadline: Some("2026-06-01".to_string()),
+            icon: None,
             ..basic_req("June item")
         },
     )
@@ -468,6 +705,7 @@ async fn calendar_returns_items_in_month() {
         &list_id,
         &CreateItemRequest {
             deadline: Some("2026-07-15".to_string()),
+            icon: None,
             ..basic_req("July item")
         },
     )
@@ -511,6 +749,7 @@ async fn overdue_returns_only_past_incomplete() {
         &list_id,
         &CreateItemRequest {
             deadline: Some("2000-01-01".to_string()),
+            icon: None,
             ..basic_req("Past task")
         },
     )
@@ -524,6 +763,7 @@ async fn overdue_returns_only_past_incomplete() {
         &list_id,
         &CreateItemRequest {
             deadline: Some("9999-12-31".to_string()),
+            icon: None,
             ..basic_req("Future task")
         },
     )
@@ -537,6 +777,7 @@ async fn overdue_returns_only_past_incomplete() {
         &list_id,
         &CreateItemRequest {
             deadline: Some("2000-01-01".to_string()),
+            icon: None,
             ..basic_req("Done overdue")
         },
     )
@@ -572,6 +813,7 @@ async fn create_item_start_after_deadline_rejected() {
     let req = CreateItemRequest {
         start_date: Some("2026-05-10".to_string()),
         deadline: Some("2026-05-01".to_string()),
+        icon: None,
         ..basic_req("Bad dates")
     };
     let err = create(&pool, &user_id, &list_id, &req).await.unwrap_err();
@@ -590,6 +832,7 @@ async fn create_item_deadline_after_hard_deadline_rejected() {
     let req = CreateItemRequest {
         deadline: Some("2026-05-30".to_string()),
         hard_deadline: Some("2026-05-20".to_string()),
+        icon: None,
         ..basic_req("Bad hard deadline")
     };
     let err = create(&pool, &user_id, &list_id, &req).await.unwrap_err();
@@ -607,6 +850,7 @@ async fn create_item_deadline_time_without_date_rejected() {
 
     let req = CreateItemRequest {
         deadline_time: Some("18:00".to_string()),
+        icon: None,
         ..basic_req("Time no date")
     };
     let err = create(&pool, &user_id, &list_id, &req).await.unwrap_err();
@@ -641,6 +885,7 @@ async fn update_item_empty_title_rejected() {
         location_id: None,
         recurrence_rule: None,
         recurrence_mode: None,
+        icon: None,
     };
     let err = update(&pool, &user_id, &item.id, &req).await.unwrap_err();
     assert!(matches!(err, DomainError::Validation("title_empty")));
@@ -657,6 +902,7 @@ async fn update_item_date_order_violation_rejected() {
         &list_id,
         &CreateItemRequest {
             deadline: Some("2026-05-10".to_string()),
+            icon: None,
             ..basic_req("Has deadline")
         },
     )
@@ -680,6 +926,7 @@ async fn update_item_date_order_violation_rejected() {
         location_id: None,
         recurrence_rule: None,
         recurrence_mode: None,
+        icon: None,
     };
     let err = update(&pool, &user_id, &item.id, &req).await.unwrap_err();
     assert!(matches!(
@@ -755,6 +1002,7 @@ async fn update_title_to_existing_rejected() {
             location_id: None,
             recurrence_rule: None,
             recurrence_mode: None,
+            icon: None,
         },
     )
     .await
@@ -880,6 +1128,7 @@ async fn update_same_title_as_self_ok() {
                 location_id: None,
                 recurrence_rule: None,
                 recurrence_mode: None,
+                icon: None,
             },
         )
         .await
@@ -1326,6 +1575,35 @@ async fn update_with_completed_true_spawns_next_occurrence() {
     assert_eq!(date_str(&spawned.deadline).as_deref(), Some("2026-05-12"));
     assert!(!spawned.completed);
     assert_eq!(spawned.recurrence_rule, Some("2d".parse().unwrap()));
+}
+
+#[tokio::test]
+async fn set_status_done_spawns_next_occurrence() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &["checklist", "deadlines"]).await;
+    let item = create_recurring(&pool, &uid, &list_id, "Ping", "2026-05-10", "2d", None).await;
+
+    let done = set_status(&pool, &uid, &item.id, "done")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(done.completed);
+    assert_eq!(done.status, "done");
+    assert_eq!(done.recurrence_rule, None);
+
+    let rows: Vec<(String, String, i64)> = sqlx::query_as(
+        "SELECT deadline, status, completed FROM items WHERE list_id = ? AND id != ?",
+    )
+    .bind(&list_id)
+    .bind(&item.id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![("2026-05-12".to_string(), "todo".to_string(), 0)]
+    );
 }
 
 #[tokio::test]
