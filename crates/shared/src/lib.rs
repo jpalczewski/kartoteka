@@ -20,8 +20,9 @@ pub mod types;
 // frontend deserializes). Re-exported here so the old crate-root names (`kartoteka_shared::List`,
 // …) keep resolving.
 pub use types::{
-    Container, CreateContainerRequest, CreateListRequest, DateItem, HomeData, Item, ItemTagLink,
-    List, ListFeature, ListTagLink, MoveContainerRequest, Tag, UpdateContainerRequest, UserSetting,
+    Container, CreateContainerRequest, CreateListRequest, DateItem, HomeData, Item, ItemChange,
+    ItemTagLink, List, ListFeature, ListTagLink, MoveContainerRequest, RecurrenceMode,
+    RecurrenceParseError, RecurrenceRule, RecurrenceUnit, Tag, UpdateContainerRequest, UserSetting,
 };
 pub(crate) mod validation;
 

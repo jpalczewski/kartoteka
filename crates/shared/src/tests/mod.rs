@@ -6,6 +6,7 @@ mod human_date;
 mod items;
 mod lists;
 mod patch_requests;
+mod recurrence;
 mod redirect;
 mod reminder_defaults;
 mod search;
