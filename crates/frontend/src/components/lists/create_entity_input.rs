@@ -105,6 +105,7 @@ pub fn CreateEntityInput(
                                     type="radio"
                                     name="list-type"
                                     class="radio radio-sm"
+                                    data-testid=format!("list-type-{lt}")
                                     prop:checked=move || list_type.get() == lt_cmp
                                     on:change=move |_| set_list_type.set(lt_set.clone())
                                 />

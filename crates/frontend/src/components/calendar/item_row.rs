@@ -57,7 +57,7 @@ pub fn CalendarItemRow(
     let id_delete = id;
 
     view! {
-        <div class=row_class>
+        <div class=row_class data-testid="calendar-item-row">
             <input
                 type="checkbox"
                 class=checkbox_class

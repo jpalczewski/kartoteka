@@ -259,7 +259,7 @@ fn TodayRow(store: Store<ItemRows<DateItem>>, id: String) -> impl IntoView {
     let id_delete = id;
 
     view! {
-        <div class="flex items-center gap-3 p-2 bg-base-200 rounded-lg group">
+        <div class="flex items-center gap-3 p-2 bg-base-200 rounded-lg group" data-testid="today-row">
             <input
                 type="checkbox"
                 class="checkbox checkbox-sm checkbox-primary"

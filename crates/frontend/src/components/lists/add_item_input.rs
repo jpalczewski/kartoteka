@@ -124,6 +124,7 @@ pub fn AddItemInput(
                 <button
                     type="button"
                     class="btn btn-ghost btn-xs text-base-content/50"
+                    data-testid="add-item-dates-toggle"
                     on:click=move |_| set_show_dates.update(|v| *v = !*v)
                 >
                     <Icon
@@ -138,7 +139,7 @@ pub fn AddItemInput(
                 {move || show_dates.get().then(|| view! {
                     <div class="flex flex-col gap-1 mt-2">
                         <DateFieldInput label=move_tr!("item-dates-start") value=start_date/>
-                        <DateFieldInput label=move_tr!("item-dates-deadline") value=deadline/>
+                        <DateFieldInput label=move_tr!("item-dates-deadline") value=deadline data_testid="add-item-deadline"/>
                         <DateFieldInput label=move_tr!("item-dates-hard-deadline") value=hard_deadline/>
                     </div>
                 })}
