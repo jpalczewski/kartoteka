@@ -10,6 +10,7 @@ pub mod comments;
 pub mod containers;
 pub mod items;
 pub mod lists;
+pub mod pending_deletions;
 pub mod relations;
 pub mod search;
 pub mod tags;

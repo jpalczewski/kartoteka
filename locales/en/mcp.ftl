@@ -71,3 +71,5 @@ mcp-tool-create_containers-desc = Create multiple folders/projects atomically. U
 
 mcp-tool-move_list_to_container-desc = Move a list into a container, or detach it from its current container (container_id: null).
 mcp-tool-move_container_to_parent-desc = Move a container under a parent folder, or detach to root level (parent_container_id: null). Only folders (status null) are valid parents.
+mcp-tool-toggle_mark_for_delete-desc = Mark an entity for deletion, or unmark it. entity_type: "item", "list", "container" or "comment". Nothing gets deleted: the entity lands in the user's delete queue, which the user reviews in the app on /trash and decides there. Calling this again on a marked entity unmarks it. This is the only way to delete over MCP.
+mcp-tool-list_marked_for_delete-desc = List everything currently waiting in the user's delete queue (entity type, label, where it lives, and for lists and containers what else would go with them). Nothing is deleted. Call it before toggling, so you do not unmark something you already marked.
