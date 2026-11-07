@@ -58,6 +58,9 @@ const DESTRUCTIVE: &[&str] = &[
     "move_container_to_parent",
     "unassign_tag",
     "assign_time_entry",
+    "reorder_items",
+    "move_item",
+    "reorder_lists",
 ];
 
 pub fn for_tool(name: &str) -> ToolAnnotations {

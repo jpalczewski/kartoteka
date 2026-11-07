@@ -59,6 +59,7 @@ impl KartotekaServer {
     fn combined_router() -> ToolRouter<Self> {
         Self::items_router()
             + Self::lists_router()
+            + Self::lists_order_router()
             + Self::containers_router()
             + Self::comments_router()
             + Self::relations_router()
