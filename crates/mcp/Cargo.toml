@@ -12,7 +12,7 @@ kartoteka-shared = { path = "../shared" }
 kartoteka-domain = { path = "../domain" }
 kartoteka-db     = { path = "../db" }
 
-base64 = "0.22"
+base64 = "0.23"
 rmcp = { version = "3.8", features = ["server", "transport-streamable-http-server", "transport-worker", "macros"] }
 schemars = "1"
 sqlx = { workspace = true }
