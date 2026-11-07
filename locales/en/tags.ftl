@@ -8,8 +8,8 @@ tags-add-subtag = Add subtag
 # Tag detail page
 tags-back = ← All tags
 tags-not-found = Tag not found
-tags-move-button = ↕ Move
-tags-merge-button = ⊕ Merge
+tags-move-button = Move
+tags-merge-button = Merge
 tags-delete-button = Delete
 tags-no-parent-option = — No parent —
 tags-merge-select-option = — Select target tag —
