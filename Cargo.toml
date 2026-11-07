@@ -45,21 +45,6 @@ leptos_router = { version = "0.8", default-features = false }
 leptos_meta = { version = "0.8" }
 leptos_axum = { version = "0.8" }
 leptos-fluent = { version = "0.2" }
-# Icons are SVG components; category features keep the crate to the icon sets we use.
-lucide-leptos = { version = "3", default-features = false, features = [
-    "account",
-    "arrows",
-    "cursors",
-    "files",
-    "layout",
-    "navigation",
-    "notifications",
-    "shapes",
-    "shopping",
-    "text",
-    "time",
-    "travel",
-] }
 wasm-bindgen = { version = "0.2" }
 js-sys = { version = "0.3" }
 web-sys = { version = "0.3" }
