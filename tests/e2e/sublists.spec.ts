@@ -84,11 +84,22 @@ test("sublist progress counter updates after adding item", async ({ page, contex
 
 // ── Toggle items in sublist ───────────────────────────────────────────────────
 
-// APP BUG (#341): `SublistSection` renders `ItemRow` without `list_features`, so sublist items never
-// get a completion checkbox (`ItemRow` only renders one for the `checklist` feature) even though
-// the section tracks and displays a done/total progress counter. Toggle it from the sublist's own
-// page, or extend `SublistSection` to pass the sublist's features.
-test.fixme("toggling item in sublist updates progress counter", async ({ page, context }) => {
+test("sublist item rows expose the completion checkbox", async ({ page, context }) => {
+  await registerAndLogin(page, context, "Sub User");
+  const listId = await createListAndOpen(page, "Checkbox Parent");
+
+  await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
+  await createSublist(page, "Checkbox Sub");
+
+  const section = sublistSection(page, "Checkbox Sub");
+  await addSublistItem(page, section, "Has Checkbox");
+
+  // The sublist row is driven by the sublist's own `checklist` feature.
+  await expect(section.locator('[data-testid="item-toggle"]')).toHaveCount(1);
+});
+
+test("toggling item in sublist updates progress counter", async ({ page, context }) => {
   await registerAndLogin(page, context, "Sub User");
   const listId = await createListAndOpen(page, "Toggle Parent");
 
