@@ -1,3 +1,4 @@
+use kartoteka_shared::DeletePreview;
 #[cfg(feature = "ssr")]
 use kartoteka_shared::types::{
     CommentsPayload, Container, ContainerData, ContainerOption, CreateContainerRequest, List,
@@ -30,8 +31,10 @@ pub async fn create_container(req: CreateContainerRequest) -> Result<Container, 
         .map_err(|e| ServerFnError::new(e.to_string()))
 }
 
+/// What deleting this container would remove: descendant lists/containers and the items
+/// in the whole subtree. Used by the delete confirmation UI.
 #[server(prefix = "/leptos")]
-pub async fn delete_container(id: String) -> Result<(), ServerFnError> {
+pub async fn delete_container_preview(id: String) -> Result<DeletePreview, ServerFnError> {
     let pool = expect_context::<SqlitePool>();
     let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
         .await
@@ -39,7 +42,25 @@ pub async fn delete_container(id: String) -> Result<(), ServerFnError> {
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    domain::containers::delete(&pool, &id, &user.id)
+    domain::containers::delete_preview(&pool, &id, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))
+}
+
+/// Delete a container together with its subtree.
+///
+/// Refused while anything in the subtree holds items; an empty subtree that only has
+/// descendants needs `force`.
+#[server(prefix = "/leptos")]
+pub async fn delete_container(id: String, force: bool) -> Result<(), ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    domain::containers::delete(&pool, &id, &user.id, force)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))
 }

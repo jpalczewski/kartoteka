@@ -1,7 +1,7 @@
-use crate::{AppState, error::AppError, extractors::UserId};
+use crate::{AppState, error::AppError, extractors::UserId, lists::DeleteQuery};
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, patch},
 };
@@ -74,8 +74,9 @@ async fn delete_container(
     State(state): State<AppState>,
     UserId(user_id): UserId,
     Path(id): Path<String>,
+    Query(query): Query<DeleteQuery>,
 ) -> Result<StatusCode, AppError> {
-    domain::delete(&state.pool, &id, &user_id).await?;
+    domain::delete(&state.pool, &id, &user_id, query.force).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

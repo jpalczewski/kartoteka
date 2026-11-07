@@ -55,12 +55,38 @@ lists-pin-container-aria = Pin
 # Container card — progress bar
 lists-tasks-progress = { $completed }/{ $total } tasks
 
-# Confirm delete modal
+# Confirm delete modal (lists and containers)
 lists-confirm-delete-title = Delete list
+lists-confirm-delete-container-title = Delete container
 lists-confirm-delete-loading = Loading details…
-lists-confirm-delete-message = Are you sure you want to delete the list { $name }? It contains { $count } items. This operation is irreversible.
-lists-confirm-delete-message-unknown = Are you sure you want to delete the list { $name }? This operation is irreversible.
+lists-confirm-delete-message = Are you sure you want to delete the list "{ $name }"? This operation is irreversible.
+lists-confirm-delete-container-message = Are you sure you want to delete the container "{ $name }"? This operation is irreversible.
 lists-confirm-delete-button = Delete list
+lists-confirm-delete-container-button = Delete container
+lists-confirm-delete-blocked = The list "{ $name }" still contains { $count ->
+        [one] { $count } item
+       *[other] { $count } items
+    } — remove them or archive the list instead.
+lists-confirm-delete-container-blocked = The tree of the container "{ $name }" still contains { $count ->
+        [one] { $count } item
+       *[other] { $count } items
+    } — remove them or archive the container instead.
+lists-confirm-delete-descendant-lists = This will also delete { $count ->
+        [one] { $count } empty sublist
+       *[other] { $count } empty sublists
+    }.
+lists-confirm-delete-descendant-containers = This will also delete { $count ->
+        [one] { $count } empty subcontainer
+       *[other] { $count } empty subcontainers
+    }.
+lists-confirm-delete-descendant-both = This will also delete { $lists ->
+        [one] { $lists } empty sublist
+       *[other] { $lists } empty sublists
+    } and { $containers ->
+        [one] { $containers } empty subcontainer
+       *[other] { $containers } empty subcontainers
+    }.
+lists-confirm-delete-preview-error = Could not load the delete details. { $detail }
 
 # Drag and drop
 lists-dnd-drop-here = Drop here

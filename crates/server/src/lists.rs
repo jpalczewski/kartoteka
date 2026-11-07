@@ -1,7 +1,7 @@
 use crate::{AppError, AppState, UserId};
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post, put},
@@ -9,6 +9,14 @@ use axum::{
 use kartoteka_domain::lists::{
     CreateListRequest, MoveListRequest, SetFeaturesRequest, UpdateListRequest,
 };
+
+/// Query parameters for `DELETE` endpoints that may remove a whole subtree.
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct DeleteQuery {
+    /// Delete the subtree even when it has descendants. Items still block the delete.
+    #[serde(default)]
+    pub force: bool,
+}
 
 pub fn lists_router() -> Router<AppState> {
     Router::new()
@@ -91,13 +99,10 @@ async fn delete_list(
     State(state): State<AppState>,
     UserId(uid): UserId,
     Path(id): Path<String>,
+    Query(query): Query<DeleteQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let deleted = kartoteka_domain::lists::delete(&state.pool, &id, &uid).await?;
-    if deleted {
-        Ok(StatusCode::NO_CONTENT)
-    } else {
-        Err(AppError::NotFound("list"))
-    }
+    kartoteka_domain::lists::delete(&state.pool, &id, &uid, query.force).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[tracing::instrument(skip_all, fields(action = "toggle_list_archive", list_id = %id))]

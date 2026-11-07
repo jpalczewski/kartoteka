@@ -7,6 +7,9 @@ pub fn AddInput(
     #[prop(into)] placeholder: Signal<String>,
     #[prop(into)] button_label: Signal<String>,
     on_submit: Callback<String>,
+    /// Optional `data-testid` for the wrapper, used by e2e tests.
+    #[prop(optional)]
+    testid: Option<&'static str>,
 ) -> impl IntoView {
     let (value, set_value) = signal(String::new());
 
@@ -22,7 +25,7 @@ pub fn AddInput(
     let submit_click = submit.clone();
 
     view! {
-        <div class="flex gap-2">
+        <div class="flex gap-2" data-testid=testid>
             <input
                 type="text"
                 class="input input-bordered flex-1"

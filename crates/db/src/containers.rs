@@ -1,4 +1,4 @@
-use crate::types::ContainerRow;
+use crate::types::{ContainerRow, DeleteTreeOutcome, SubtreeSummary};
 use crate::{DbError, SqlitePool};
 use kartoteka_shared::types::{CreateContainerRequest, UpdateContainerRequest};
 use sqlx::{Sqlite, SqliteConnection};
@@ -157,15 +157,139 @@ pub async fn update(
     Ok(row)
 }
 
-/// Delete a container. Returns true if a row was deleted.
+// ── Subtree inspection and tree deletion ────────────────────────────────────
+
+/// Count lists, containers and items in the subtree rooted at `id`: the container
+/// itself, all subcontainers, every list assigned to any of those containers and all
+/// their sublists (recursively; archived rows included).
+///
+/// Returns `Ok(None)` when the container does not exist or belongs to another user.
 #[tracing::instrument(skip(pool))]
-pub async fn delete(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, DbError> {
-    let result = sqlx::query("DELETE FROM containers WHERE id=? AND user_id=?")
-        .bind(id)
-        .bind(user_id)
-        .execute(pool)
-        .await?;
-    Ok(result.rows_affected() > 0)
+pub async fn subtree_summary(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+) -> Result<Option<SubtreeSummary>, DbError> {
+    let mut conn = pool.acquire().await?;
+    summary_in(&mut conn, id, user_id).await
+}
+
+async fn summary_in(
+    conn: &mut SqliteConnection,
+    id: &str,
+    user_id: &str,
+) -> Result<Option<SubtreeSummary>, DbError> {
+    let exists: Option<(i64,)> =
+        sqlx::query_as("SELECT 1 FROM containers WHERE id = ? AND user_id = ?")
+            .bind(id)
+            .bind(user_id)
+            .fetch_optional(&mut *conn)
+            .await?;
+    if exists.is_none() {
+        return Ok(None);
+    }
+
+    let summary = sqlx::query_as(
+        "WITH RECURSIVE ctree(id) AS (
+             SELECT id FROM containers WHERE id = ? AND user_id = ?
+             UNION
+             SELECT c.id FROM containers c
+             JOIN ctree t ON c.parent_container_id = t.id
+             WHERE c.user_id = ?
+         ),
+         ltree(id) AS (
+             SELECT l.id FROM lists l
+             WHERE l.container_id IN (SELECT id FROM ctree) AND l.user_id = ?
+             UNION
+             SELECT l.id FROM lists l
+             JOIN ltree t ON l.parent_list_id = t.id
+             WHERE l.user_id = ?
+         )
+         SELECT (SELECT COUNT(*) FROM ctree) - 1 AS containers,
+                (SELECT COUNT(*) FROM ltree) AS lists,
+                (SELECT COUNT(*) FROM items WHERE list_id IN (SELECT id FROM ltree)) AS items",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(Some(summary))
+}
+
+/// Delete a container and its whole subtree in a single transaction.
+///
+/// The summary is recomputed inside the transaction, so an item added after a
+/// preview still blocks the deletion. Nothing is deleted when the tree holds items.
+#[tracing::instrument(skip(pool))]
+pub async fn delete_tree(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+) -> Result<DeleteTreeOutcome, DbError> {
+    let mut tx = pool.begin().await?;
+
+    let Some(summary) = summary_in(&mut tx, id, user_id).await? else {
+        return Ok(DeleteTreeOutcome::NotFound);
+    };
+    if summary.items > 0 {
+        return Ok(DeleteTreeOutcome::NotEmpty {
+            items: summary.items,
+        });
+    }
+
+    // Lists first: a list references its container. One statement per table is enough
+    // because SQLite checks immediate foreign keys at the end of a statement, so the
+    // missing ON DELETE actions on `lists.container_id` / `lists.parent_list_id` /
+    // `containers.parent_container_id` never trip inside a subtree delete.
+    sqlx::query(
+        "WITH RECURSIVE ctree(id) AS (
+             SELECT id FROM containers WHERE id = ? AND user_id = ?
+             UNION
+             SELECT c.id FROM containers c
+             JOIN ctree t ON c.parent_container_id = t.id
+             WHERE c.user_id = ?
+         ),
+         ltree(id) AS (
+             SELECT l.id FROM lists l
+             WHERE l.container_id IN (SELECT id FROM ctree) AND l.user_id = ?
+             UNION
+             SELECT l.id FROM lists l
+             JOIN ltree t ON l.parent_list_id = t.id
+             WHERE l.user_id = ?
+         )
+         DELETE FROM lists WHERE id IN (SELECT id FROM ltree) AND user_id = ?",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        "WITH RECURSIVE ctree(id) AS (
+             SELECT id FROM containers WHERE id = ? AND user_id = ?
+             UNION
+             SELECT c.id FROM containers c
+             JOIN ctree t ON c.parent_container_id = t.id
+             WHERE c.user_id = ?
+         )
+         DELETE FROM containers WHERE id IN (SELECT id FROM ctree) AND user_id = ?",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(DeleteTreeOutcome::Deleted)
 }
 
 /// Toggle archived state for a container and all its descendants + their lists.
@@ -445,6 +569,35 @@ pub async fn touch_last_opened(pool: &SqlitePool, id: &str, user_id: &str) -> Re
 }
 
 #[cfg(test)]
+async fn create_test_list(
+    pool: &SqlitePool,
+    user_id: &str,
+    name: &str,
+    container_id: Option<&str>,
+    parent_list_id: Option<&str>,
+) -> String {
+    use crate::lists as db_lists;
+    let id = uuid::Uuid::new_v4().to_string();
+    let mut tx = pool.begin().await.unwrap();
+    db_lists::insert(
+        &mut tx,
+        &db_lists::InsertListInput {
+            id: id.clone(),
+            user_id: user_id.to_owned(),
+            name: name.to_owned(),
+            list_type: "checklist".to_owned(),
+            container_id: container_id.map(str::to_owned),
+            parent_list_id: parent_list_id.map(str::to_owned),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    id
+}
+
+#[cfg(test)]
 async fn create_test_container(
     pool: &SqlitePool,
     user_id: &str,
@@ -576,29 +729,158 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delete_removes_container() {
+    async fn delete_tree_removes_empty_container() {
         let pool = test_pool().await;
         let uid = create_test_user(&pool).await;
 
         let created = insert(&pool, &uid, &make_req("To Delete"), 0)
             .await
             .unwrap();
-        let deleted = delete(&pool, &created.id, &uid).await.unwrap();
-        assert!(deleted);
+
+        let summary = subtree_summary(&pool, &created.id, &uid)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            summary,
+            SubtreeSummary {
+                lists: 0,
+                containers: 0,
+                items: 0
+            }
+        );
+
+        let outcome = delete_tree(&pool, &created.id, &uid).await.unwrap();
+        assert_eq!(outcome, DeleteTreeOutcome::Deleted);
 
         let fetched = get_one(&pool, &created.id, &uid).await.unwrap();
         assert!(fetched.is_none());
     }
 
     #[tokio::test]
-    async fn delete_wrong_user_returns_false() {
+    async fn delete_tree_other_user_is_not_found() {
         let pool = test_pool().await;
         let uid_a = create_test_user(&pool).await;
         let uid_b = create_test_user(&pool).await;
 
         let created = insert(&pool, &uid_a, &make_req("A's"), 0).await.unwrap();
-        let result = delete(&pool, &created.id, &uid_b).await.unwrap();
-        assert!(!result);
+
+        assert!(
+            subtree_summary(&pool, &created.id, &uid_b)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            delete_tree(&pool, &created.id, &uid_b).await.unwrap(),
+            DeleteTreeOutcome::NotFound
+        );
+        assert!(get_one(&pool, &created.id, &uid_a).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn delete_tree_removes_container_with_nested_list_and_sublist() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+
+        let parent = create_test_container(&pool, &uid, "Parent", None).await;
+        let child = create_test_container(&pool, &uid, "Child", Some(&parent.id)).await;
+        let list = create_test_list(&pool, &uid, "List", Some(&child.id), None).await;
+        let sublist = create_test_list(&pool, &uid, "Sublist", Some(&child.id), Some(&list)).await;
+
+        let summary = subtree_summary(&pool, &parent.id, &uid)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            summary,
+            SubtreeSummary {
+                lists: 2,
+                containers: 1,
+                items: 0
+            }
+        );
+
+        let outcome = delete_tree(&pool, &parent.id, &uid).await.unwrap();
+        assert_eq!(outcome, DeleteTreeOutcome::Deleted);
+
+        for id in [&parent.id, &child.id] {
+            assert!(
+                get_one(&pool, id, &uid).await.unwrap().is_none(),
+                "container {id} should be gone"
+            );
+        }
+        for id in [&list, &sublist] {
+            assert!(
+                crate::lists::get_one(&pool, id, &uid)
+                    .await
+                    .unwrap()
+                    .is_none(),
+                "list {id} should be gone"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_tree_removes_deep_sublist_chain_in_container() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+
+        let container = create_test_container(&pool, &uid, "Box", None).await;
+        let a = create_test_list(&pool, &uid, "A", Some(&container.id), None).await;
+        let b = create_test_list(&pool, &uid, "B", Some(&container.id), Some(&a)).await;
+        let c = create_test_list(&pool, &uid, "C", Some(&container.id), Some(&b)).await;
+
+        let outcome = delete_tree(&pool, &container.id, &uid).await.unwrap();
+        assert_eq!(outcome, DeleteTreeOutcome::Deleted);
+
+        assert!(get_one(&pool, &container.id, &uid).await.unwrap().is_none());
+        for id in [&a, &b, &c] {
+            assert!(
+                crate::lists::get_one(&pool, id, &uid)
+                    .await
+                    .unwrap()
+                    .is_none(),
+                "list {id} should be gone"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_tree_blocks_on_item_in_nested_list() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+
+        let parent = create_test_container(&pool, &uid, "Parent", None).await;
+        let child = create_test_container(&pool, &uid, "Child", Some(&parent.id)).await;
+        let list = create_test_list(&pool, &uid, "List", Some(&child.id), None).await;
+        sqlx::query("INSERT INTO items (id, list_id, title, completed) VALUES (?, ?, 'Item', 0)")
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(&list)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let summary = subtree_summary(&pool, &parent.id, &uid)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(summary.items, 1);
+        assert_eq!(summary.lists, 1);
+        assert_eq!(summary.containers, 1);
+
+        let outcome = delete_tree(&pool, &parent.id, &uid).await.unwrap();
+        assert_eq!(outcome, DeleteTreeOutcome::NotEmpty { items: 1 });
+
+        // Nothing was deleted.
+        assert!(get_one(&pool, &parent.id, &uid).await.unwrap().is_some());
+        assert!(get_one(&pool, &child.id, &uid).await.unwrap().is_some());
+        assert!(
+            crate::lists::get_one(&pool, &list, &uid)
+                .await
+                .unwrap()
+                .is_some()
+        );
     }
 
     #[tokio::test]

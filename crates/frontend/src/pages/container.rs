@@ -5,8 +5,8 @@ use leptos_router::hooks::{use_navigate, use_params_map};
 use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::CommentSection;
 use crate::components::common::breadcrumbs::Breadcrumbs;
-use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::container_selector_dropdown::ContainerSelectorDropdown;
+use crate::components::common::delete_entity_modal::{DeleteEntityModal, DeleteTarget};
 use crate::components::common::dnd::{DetachDropZone, ReorderDropTarget};
 use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
@@ -15,10 +15,10 @@ use crate::components::lists::{
     list_preview::ListPreview,
 };
 use crate::server_fns::containers::{
-    archive_container, create_container, delete_container, get_container_data,
-    get_containers_for_move, move_container, rename_container, reorder_containers,
+    archive_container, create_container, get_container_data, get_containers_for_move,
+    move_container, rename_container, reorder_containers,
 };
-use crate::server_fns::lists::{archive_list, create_list, delete_list, move_list, reorder_lists};
+use crate::server_fns::lists::{archive_list, create_list, move_list, reorder_lists};
 use crate::state::dnd::{DndState, DropTarget, EntityKind};
 use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
 use kartoteka_shared::ChangeTopic;
@@ -36,9 +36,10 @@ fn container_status_icon(status: Option<&str>) -> &'static str {
 #[component]
 pub fn ContainerPage() -> impl IntoView {
     let i18n = expect_context::<I18n>();
-    let (confirm_delete_self, set_confirm_delete_self) = signal(false);
     let params = use_params_map();
     let container_id = Signal::derive(move || params.read().get("id").unwrap_or_default());
+    // Delete of this container or one of its children goes through the shared flow.
+    let delete_target: RwSignal<Option<DeleteTarget>> = RwSignal::new(None);
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let invalidation = use_invalidation();
     let navigate = StoredValue::new(use_navigate());
@@ -83,6 +84,17 @@ pub fn ContainerPage() -> impl IntoView {
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
+            <DeleteEntityModal
+                target=delete_target
+                on_deleted=Callback::new(move |target: DeleteTarget| {
+                    // Deleted this container — nothing left to show here. Children
+                    // vanish through the invalidation done by the modal.
+                    if target.id == container_id.get_untracked() {
+                        navigate.with_value(|nav| nav("/", Default::default()));
+                    }
+                })
+            />
+
             <Suspense fallback=|| view! { <LoadingSpinner/> }>
                 {move || data_res.get().map(|result| match result {
                     Err(e) => view! {
@@ -251,15 +263,15 @@ pub fn ContainerPage() -> impl IntoView {
                             })
                         };
 
+                        // Names are needed for the delete dialog; cards only pass ids.
+                        let child_container_names: std::collections::HashMap<String, String> =
+                            children.iter().map(|c| (c.id.clone(), c.name.clone())).collect();
+                        let child_list_names: std::collections::HashMap<String, String> =
+                            lists.iter().map(|l| (l.id.clone(), l.name.clone())).collect();
+
                         let on_delete_child_container = Callback::new(move |id: String| {
-                            mutate(
-                                delete_container(id),
-                                &[
-                                    ChangeTopic::Containers,
-                                    ChangeTopic::Lists,
-                                    ChangeTopic::Items,
-                                ],
-                            );
+                            let name = child_container_names.get(&id).cloned().unwrap_or_default();
+                            delete_target.set(Some(DeleteTarget::container(id, name)));
                         });
 
                         // Callbacks for lists
@@ -268,15 +280,14 @@ pub fn ContainerPage() -> impl IntoView {
                         });
 
                         let on_delete_list_cb = Callback::new(move |id: String| {
-                            mutate(
-                                delete_list(id),
-                                &[ChangeTopic::Lists, ChangeTopic::Items],
-                            );
+                            let name = child_list_names.get(&id).cloned().unwrap_or_default();
+                            delete_target.set(Some(DeleteTarget::list(id, name)));
                         });
 
                         // Callbacks for the current container itself (archive/delete → navigate away)
                         let cid_for_archive = data.container.id.clone();
                         let cid_for_delete = data.container.id.clone();
+                        let name_for_delete = name.clone();
 
                         let on_archive_self = {
                             let msg = archived_msg.clone();
@@ -295,37 +306,14 @@ pub fn ContainerPage() -> impl IntoView {
                         };
 
                         let on_request_delete_self = Callback::new(move |_: ()| {
-                            set_confirm_delete_self.set(true);
-                        });
-
-                        let on_delete_self_confirmed = Callback::new(move |_: ()| {
-                            let id = cid_for_delete.clone();
-                            mutate_with(
-                                delete_container(id),
-                                &[
-                                    ChangeTopic::Containers,
-                                    ChangeTopic::Lists,
-                                    ChangeTopic::Items,
-                                ],
-                                move |()| navigate.with_value(|nav| nav("/", Default::default())),
-                            );
+                            delete_target.set(Some(DeleteTarget::container(
+                                cid_for_delete.clone(),
+                                name_for_delete.clone(),
+                            )));
                         });
 
                         view! {
                             <div class="flex flex-col gap-6">
-                                <ConfirmModal
-                                    open=Signal::derive(move || confirm_delete_self.get())
-                                    title="Usuń kontener".to_string()
-                                    message="Czy na pewno chcesz usunąć ten kontener? Tej operacji nie można cofnąć.".to_string()
-                                    confirm_label="Usuń".to_string()
-                                    variant=ConfirmVariant::Danger
-                                    on_confirm=Callback::new(move |_| {
-                                        set_confirm_delete_self.set(false);
-                                        on_delete_self_confirmed.run(());
-                                    })
-                                    on_close=Callback::new(move |_| set_confirm_delete_self.set(false))
-                                />
-
                                 <DetachDropZone
                                     dnd_state=dnd_state
                                     visible=detach_visible
@@ -413,7 +401,7 @@ pub fn ContainerPage() -> impl IntoView {
                                         <button
                                             type="button"
                                             class="btn btn-ghost btn-sm"
-                                            title="Archiwizuj kontener"
+                                            title=move_tr!("lists-header-archive-button")
                                             on:click=move |_| on_archive_self.run(())
                                         >
                                             {"🗄"}
@@ -421,7 +409,8 @@ pub fn ContainerPage() -> impl IntoView {
                                         <button
                                             type="button"
                                             class="btn btn-ghost btn-sm text-error"
-                                            title="Usuń kontener"
+                                            title=move_tr!("lists-delete-container-aria")
+                                            data-testid="container-delete-self"
                                             on:click=move |_| on_request_delete_self.run(())
                                         >
                                             {"✕"}

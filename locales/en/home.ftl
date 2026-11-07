@@ -12,5 +12,3 @@ home-container-archived = Container archived
 home-container-restored = Container restored
 home-restore-button = Restore
 home-heading = Home
-home-delete-list-title = Delete list
-home-delete-list-confirm = Are you sure you want to delete "{ $name }"?

@@ -55,12 +55,44 @@ lists-pin-container-aria = Przypnij
 # Pasek postępu kontenera
 lists-tasks-progress = { $completed }/{ $total } zadań
 
-# Modal potwierdzenia usunięcia
+# Modal potwierdzenia usunięcia (listy i kontenery)
 lists-confirm-delete-title = Usuń listę
+lists-confirm-delete-container-title = Usuń kontener
 lists-confirm-delete-loading = Wczytywanie szczegółów…
-lists-confirm-delete-message = Czy na pewno chcesz usunąć listę { $name }? Zawiera { $count } elementów. Operacja jest nieodwracalna.
-lists-confirm-delete-message-unknown = Czy na pewno chcesz usunąć listę { $name }? Operacja jest nieodwracalna.
+lists-confirm-delete-message = Czy na pewno chcesz usunąć listę „{ $name }"? Operacja jest nieodwracalna.
+lists-confirm-delete-container-message = Czy na pewno chcesz usunąć kontener „{ $name }"? Operacja jest nieodwracalna.
 lists-confirm-delete-button = Usuń listę
+lists-confirm-delete-container-button = Usuń kontener
+lists-confirm-delete-blocked = Lista „{ $name }" wciąż zawiera { $count ->
+        [one] { $count } element
+        [few] { $count } elementy
+        *[other] { $count } elementów
+    } — usuń je albo zamiast tego zarchiwizuj listę.
+lists-confirm-delete-container-blocked = Kontener „{ $name }" wciąż zawiera { $count ->
+        [one] { $count } element
+        [few] { $count } elementy
+        *[other] { $count } elementów
+    } — usuń je albo zamiast tego zarchiwizuj kontener.
+lists-confirm-delete-descendant-lists = To usunie także { $count ->
+        [one] { $count } pustą podlistę
+        [few] { $count } puste podlisty
+        *[other] { $count } pustych podlist
+    }.
+lists-confirm-delete-descendant-containers = To usunie także { $count ->
+        [one] { $count } pusty podkontener
+        [few] { $count } puste podkontenery
+        *[other] { $count } pustych podkontenerów
+    }.
+lists-confirm-delete-descendant-both = To usunie także { $lists ->
+        [one] { $lists } pustą podlistę
+        [few] { $lists } puste podlisty
+        *[other] { $lists } pustych podlist
+    } i { $containers ->
+        [one] { $containers } pusty podkontener
+        [few] { $containers } puste podkontenery
+        *[other] { $containers } pustych podkontenerów
+    }.
+lists-confirm-delete-preview-error = Nie udało się wczytać szczegółów usunięcia. { $detail }
 
 # Drag and drop
 lists-dnd-drop-here = Upuść tutaj

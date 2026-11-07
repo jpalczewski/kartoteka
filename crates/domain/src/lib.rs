@@ -16,6 +16,7 @@ pub mod tags;
 pub mod templates;
 pub mod time_entries;
 
+use kartoteka_shared::DeletePreview;
 use std::collections::HashSet;
 
 #[derive(Debug, thiserror::Error)]
@@ -28,6 +29,16 @@ pub enum DomainError {
     FeatureRequired(&'static str),
     #[error("already exists: {kind} id={id}")]
     AlreadyExists { kind: &'static str, id: String },
+    /// Something in the subtree still holds items, so it cannot be deleted (not even with force).
+    #[error("not empty: {kind} has {items} items")]
+    NotEmpty { kind: &'static str, items: i64 },
+    /// The subtree has descendants; deleting it requires an explicit `force`.
+    #[error("has children: {kind} has {lists} lists and {containers} containers")]
+    HasChildren {
+        kind: &'static str,
+        lists: i64,
+        containers: i64,
+    },
     #[error("forbidden")]
     Forbidden,
     #[error("{0}")]
@@ -68,6 +79,15 @@ impl DomainError {
             }
         }
         Ok(())
+    }
+}
+
+/// Map a db subtree summary onto the shared delete-preview DTO.
+pub(crate) fn delete_preview(summary: kartoteka_db::types::SubtreeSummary) -> DeletePreview {
+    DeletePreview {
+        lists: summary.lists,
+        containers: summary.containers,
+        items: summary.items,
     }
 }
 

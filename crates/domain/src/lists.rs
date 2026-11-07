@@ -1,5 +1,6 @@
 use crate::{DomainError, rules};
 use kartoteka_db as db;
+use kartoteka_db::types::DeleteTreeOutcome;
 use kartoteka_shared::types::ListFeature;
 use serde::{Deserialize, Serialize};
 use sqlx::{SqliteConnection, SqlitePool};
@@ -392,9 +393,58 @@ pub async fn update(
         .transpose()
 }
 
+/// Preview what deleting this list would remove.
 #[tracing::instrument(skip(pool))]
-pub async fn delete(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, DomainError> {
-    Ok(db::lists::delete(pool, id, user_id).await?)
+pub async fn delete_preview(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+) -> Result<kartoteka_shared::DeletePreview, DomainError> {
+    let summary = db::lists::subtree_summary(pool, id, user_id)
+        .await?
+        .ok_or(DomainError::NotFound("list"))?;
+    Ok(crate::delete_preview(summary))
+}
+
+/// Delete a list together with its whole subtree.
+///
+/// Deletion is refused while any list in the subtree still holds items. A subtree that
+/// only has descendants (sublists) requires `force`; forcing never bypasses the item
+/// check. The item check is repeated inside the delete transaction, so a concurrent
+/// insert cannot slip through.
+#[tracing::instrument(skip(pool))]
+pub async fn delete(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    force: bool,
+) -> Result<(), DomainError> {
+    let summary = db::lists::subtree_summary(pool, id, user_id)
+        .await?
+        .ok_or(DomainError::NotFound("list"))?;
+
+    if summary.items > 0 {
+        return Err(DomainError::NotEmpty {
+            kind: "list",
+            items: summary.items,
+        });
+    }
+    if !force && summary.lists > 0 {
+        return Err(DomainError::HasChildren {
+            kind: "list",
+            lists: summary.lists,
+            containers: summary.containers,
+        });
+    }
+
+    match db::lists::delete_tree(pool, id, user_id).await? {
+        DeleteTreeOutcome::Deleted => Ok(()),
+        DeleteTreeOutcome::NotFound => Err(DomainError::NotFound("list")),
+        DeleteTreeOutcome::NotEmpty { items } => Err(DomainError::NotEmpty {
+            kind: "list",
+            items,
+        }),
+    }
 }
 
 #[tracing::instrument(skip(pool))]
@@ -936,6 +986,28 @@ mod tests {
         .id
     }
 
+    fn sublist_req(name: &str, parent_list_id: &str) -> CreateListRequest {
+        CreateListRequest {
+            name: name.to_string(),
+            list_type: Some("checklist".into()),
+            icon: None,
+            description: None,
+            container_id: None,
+            parent_list_id: Some(parent_list_id.to_string()),
+            features: vec![],
+        }
+    }
+
+    async fn make_item(pool: &SqlitePool, list_id: &str, title: &str) {
+        sqlx::query("INSERT INTO items (id, list_id, title, completed) VALUES (?, ?, ?, 0)")
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(list_id)
+            .bind(title)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn create_sublist_under_own_list_ok() {
         let pool = test_pool().await;
@@ -1307,5 +1379,139 @@ mod tests {
             stored_placement(&pool, &uid, &list.id).await,
             (None, None, 0)
         );
+    }
+
+    // ── delete matrix ───────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn delete_empty_leaf_list_ok_without_force() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list = create(&pool, &uid, &checklist_req("Doomed")).await.unwrap();
+
+        delete(&pool, &list.id, &uid, false).await.unwrap();
+
+        assert!(
+            get_one(&pool, &list.id, &uid).await.unwrap().is_none(),
+            "list should be gone"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_list_with_empty_sublists_requires_force() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let root = create(&pool, &uid, &checklist_req("Root")).await.unwrap();
+        let child = create(&pool, &uid, &sublist_req("Child", &root.id))
+            .await
+            .unwrap();
+
+        let err = delete(&pool, &root.id, &uid, false).await.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                DomainError::HasChildren {
+                    kind: "list",
+                    lists: 1,
+                    containers: 0
+                }
+            ),
+            "got {err:?}"
+        );
+        assert!(
+            get_one(&pool, &root.id, &uid).await.unwrap().is_some(),
+            "nothing should be deleted on HasChildren"
+        );
+
+        delete(&pool, &root.id, &uid, true).await.unwrap();
+
+        assert!(get_one(&pool, &root.id, &uid).await.unwrap().is_none());
+        assert!(get_one(&pool, &child.id, &uid).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn delete_list_with_items_is_rejected_even_with_force() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let root = create(&pool, &uid, &checklist_req("Root")).await.unwrap();
+        let child = create(&pool, &uid, &sublist_req("Child", &root.id))
+            .await
+            .unwrap();
+        make_item(&pool, &child.id, "Deep item").await;
+
+        let err = delete(&pool, &root.id, &uid, true).await.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                DomainError::NotEmpty {
+                    kind: "list",
+                    items: 1
+                }
+            ),
+            "got {err:?}"
+        );
+        assert!(get_one(&pool, &root.id, &uid).await.unwrap().is_some());
+        assert!(get_one(&pool, &child.id, &uid).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn delete_item_in_root_list_blocks_deletion() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let root = create(&pool, &uid, &checklist_req("Root")).await.unwrap();
+        make_item(&pool, &root.id, "Top item").await;
+
+        let err = delete(&pool, &root.id, &uid, false).await.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                DomainError::NotEmpty {
+                    kind: "list",
+                    items: 1
+                }
+            ),
+            "got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_list_of_other_user_is_not_found() {
+        let pool = test_pool().await;
+        let owner = create_test_user(&pool).await;
+        let intruder = create_test_user(&pool).await;
+        let list = create(&pool, &owner, &checklist_req("Mine")).await.unwrap();
+
+        let err = delete(&pool, &list.id, &intruder, true).await.unwrap_err();
+        assert!(matches!(err, DomainError::NotFound("list")), "got {err:?}");
+        assert!(get_one(&pool, &list.id, &owner).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn delete_preview_reports_subtree_counts() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let root = create(&pool, &uid, &checklist_req("Root")).await.unwrap();
+        let child = create(&pool, &uid, &sublist_req("Child", &root.id))
+            .await
+            .unwrap();
+        make_item(&pool, &child.id, "Item").await;
+
+        let preview = delete_preview(&pool, &root.id, &uid).await.unwrap();
+        assert_eq!(
+            preview,
+            kartoteka_shared::DeletePreview {
+                lists: 1,
+                containers: 0,
+                items: 1
+            }
+        );
+
+        let intruder = create_test_user(&pool).await;
+        assert!(matches!(
+            delete_preview(&pool, &root.id, &intruder)
+                .await
+                .unwrap_err(),
+            DomainError::NotFound("list")
+        ));
     }
 }

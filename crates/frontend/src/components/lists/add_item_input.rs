@@ -78,11 +78,12 @@ pub fn AddItemInput(
     };
 
     view! {
-        <form on:submit=on_submit class="flex flex-col gap-2">
+        <form on:submit=on_submit class="flex flex-col gap-2" data-testid="add-item-form">
             <div class="flex gap-2">
                 <input
                     type="text"
                     class="input input-bordered flex-1"
+                    data-testid="add-item-title"
                     placeholder="Nowy element..."
                     prop:value=move || title.get()
                     on:input=move |ev| set_title.set(event_target_value(&ev))

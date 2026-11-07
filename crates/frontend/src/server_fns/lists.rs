@@ -1,3 +1,4 @@
+use kartoteka_shared::DeletePreview;
 use kartoteka_shared::PreviewItem;
 use kartoteka_shared::types::{CreateListRequest, List};
 use leptos::prelude::*;
@@ -37,9 +38,10 @@ pub async fn create_list(req: CreateListRequest) -> Result<List, ServerFnError> 
     Ok(domain_list_to_shared(list))
 }
 
-/// Delete a list and all its items.
+/// What deleting this list would remove: descendant lists/containers and the items
+/// in the whole subtree. Used by the delete confirmation UI.
 #[server(prefix = "/leptos")]
-pub async fn delete_list(id: String) -> Result<(), ServerFnError> {
+pub async fn delete_list_preview(id: String) -> Result<DeletePreview, ServerFnError> {
     let pool = expect_context::<SqlitePool>();
     let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
         .await
@@ -47,7 +49,25 @@ pub async fn delete_list(id: String) -> Result<(), ServerFnError> {
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    domain::lists::delete(&pool, &id, &user.id)
+    domain::lists::delete_preview(&pool, &id, &user.id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))
+}
+
+/// Delete a list together with its subtree.
+///
+/// Refused while anything in the subtree holds items; an empty subtree that only has
+/// sublists needs `force`.
+#[server(prefix = "/leptos")]
+pub async fn delete_list(id: String, force: bool) -> Result<(), ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
+        .await
+        .map_err(|_| ServerFnError::new("auth extraction failed".to_string()))?;
+    let user = auth
+        .user
+        .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
+    domain::lists::delete(&pool, &id, &user.id, force)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
     Ok(())

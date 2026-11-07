@@ -12,5 +12,3 @@ home-container-archived = Kontener zarchiwizowany
 home-container-restored = Kontener przywrócony
 home-restore-button = Przywróć
 home-heading = Strona główna
-home-delete-list-title = Usuń listę
-home-delete-list-confirm = Czy na pewno chcesz usunąć listę „{ $name }"?

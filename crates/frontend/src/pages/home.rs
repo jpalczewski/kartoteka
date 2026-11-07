@@ -8,10 +8,10 @@ use leptos::prelude::*;
 use leptos_fluent::{I18n, move_tr};
 
 use crate::app::{ToastContext, ToastKind};
-use crate::components::common::{
-    confirm_modal::{ConfirmModal, ConfirmVariant},
-    loading::LoadingSpinner,
+use crate::components::common::delete_entity_modal::{
+    DeleteEntityKind, DeleteEntityModal, DeleteTarget,
 };
+use crate::components::common::loading::LoadingSpinner;
 use crate::components::home::{
     pinned_section::PinnedSection, recent_section::RecentSection, root_section::RootSection,
     tag_filter_bar::HomeTagFilterBar,
@@ -20,9 +20,9 @@ use crate::components::lists::create_entity_input::CreateEntityInput;
 use crate::pages::landing::LandingPage;
 use crate::server_fns::auth::get_auth_status;
 use crate::server_fns::{
-    containers::{archive_container, create_container, delete_container, toggle_container_pin},
+    containers::{archive_container, create_container, toggle_container_pin},
     home::{get_archived_containers, get_archived_lists, get_home_data},
-    lists::{archive_list, create_list, delete_list},
+    lists::{archive_list, create_list},
     tags::{
         assign_tag_to_list, filter_home_by_tags, get_all_tags, get_list_tag_links,
         remove_tag_from_list,
@@ -58,8 +58,8 @@ fn HomeContent() -> impl IntoView {
     let active_tags: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
     let filter_mode: RwSignal<FilterMode> = RwSignal::new(FilterMode::default());
 
-    // Pending delete state — (list_id, list_name)
-    let pending_delete: RwSignal<Option<(String, String)>> = RwSignal::new(None);
+    // The entity a delete was requested for; the shared modal fetches its preview.
+    let delete_target: RwSignal<Option<DeleteTarget>> = RwSignal::new(None);
 
     // Resources — fetched server-side at initial render, refetched when a topic they depend on is invalidated
     let home_res = Resource::new(
@@ -163,33 +163,12 @@ fn HomeContent() -> impl IntoView {
         mutate(create_container(req), &[ChangeTopic::Containers]);
     });
 
-    let on_delete_list_confirmed = Callback::new(move |list_id: String| {
-        let msg = i18n.tr("home-list-deleted");
-        mutate_with(
-            delete_list(list_id),
-            &[
-                ChangeTopic::Lists,
-                ChangeTopic::Containers,
-                ChangeTopic::Items,
-            ],
-            move |()| {
-                pending_delete.set(None);
-                toast.push(msg, ToastKind::Success);
-            },
-        );
-    });
-
-    let on_delete_container = Callback::new(move |container_id: String| {
-        let msg = i18n.tr("home-container-deleted");
-        mutate_with(
-            delete_container(container_id),
-            &[
-                ChangeTopic::Containers,
-                ChangeTopic::Lists,
-                ChangeTopic::Items,
-            ],
-            move |()| toast.push(msg, ToastKind::Success),
-        );
+    let on_deleted = Callback::new(move |target: DeleteTarget| {
+        let msg = i18n.tr(match target.kind {
+            DeleteEntityKind::List => "home-list-deleted",
+            DeleteEntityKind::Container => "home-container-deleted",
+        });
+        toast.push(msg, ToastKind::Success);
     });
 
     let on_pin_container = Callback::new(move |container_id: String| {
@@ -241,23 +220,7 @@ fn HomeContent() -> impl IntoView {
         <div class="container mx-auto max-w-2xl p-4">
             <h2 class="text-2xl font-bold mb-4">{move_tr!("home-heading")}</h2>
 
-            {move || pending_delete.get().map(|(lid, lname)| {
-                let lid_confirm = lid.clone();
-                view! {
-                    <ConfirmModal
-                        open=Signal::derive(move || pending_delete.get().is_some())
-                        title=i18n.tr("home-delete-list-title")
-                        message=i18n.tr("home-delete-list-confirm").replace("{ $name }", &lname)
-                        confirm_label=i18n.tr("common-delete")
-                        variant=ConfirmVariant::Danger
-                        on_close=Callback::new(move |_| pending_delete.set(None))
-                        on_confirm=Callback::new(move |_| {
-                            pending_delete.set(None);
-                            on_delete_list_confirmed.run(lid_confirm.clone());
-                        })
-                    />
-                }
-            })}
+            <DeleteEntityModal target=delete_target on_deleted=on_deleted />
 
             // Tag filter bar — inside Transition so tags_res is serialized for hydration
             <Transition fallback=|| view! {}>
@@ -288,19 +251,25 @@ fn HomeContent() -> impl IntoView {
 
                     match (home, links, all_tags) {
                         (Some(Ok(data)), Some(Ok(all_links)), Some(Ok(tags))) => {
-                            // Pre-extract list names for delete modal
-                            let all_lists_for_name: Vec<(String, String)> = data.pinned_lists.iter()
+                            // Names for the delete dialog: sections only hand back ids.
+                            let list_names: std::collections::HashMap<String, String> = data.pinned_lists.iter()
                                 .chain(data.recent_lists.iter())
                                 .chain(data.root_lists.iter())
                                 .map(|l| (l.id.clone(), l.name.clone()))
                                 .collect();
+                            let container_names: std::collections::HashMap<String, String> = data.pinned_containers.iter()
+                                .chain(data.recent_containers.iter())
+                                .chain(data.root_containers.iter())
+                                .map(|c| (c.id.clone(), c.name.clone()))
+                                .collect();
 
                             let del_cb = Callback::new(move |list_id: String| {
-                                let name = all_lists_for_name.iter()
-                                    .find(|(id, _)| id == &list_id)
-                                    .map(|(_, n)| n.clone())
-                                    .unwrap_or_default();
-                                pending_delete.set(Some((list_id, name)));
+                                let name = list_names.get(&list_id).cloned().unwrap_or_default();
+                                delete_target.set(Some(DeleteTarget::list(list_id, name)));
+                            });
+                            let del_container_cb = Callback::new(move |container_id: String| {
+                                let name = container_names.get(&container_id).cloned().unwrap_or_default();
+                                delete_target.set(Some(DeleteTarget::container(container_id, name)));
                             });
 
                             view! {
@@ -335,7 +304,7 @@ fn HomeContent() -> impl IntoView {
                                         matching_container_ids=matching_container_ids
                                         on_tag_toggle=on_tag_toggle
                                         on_delete_list=del_cb
-                                        on_delete_container=on_delete_container
+                                        on_delete_container=del_container_cb
                                         on_pin_container=on_pin_container
                                     />
                                 </div>

@@ -87,6 +87,19 @@ pub struct PreviewItem {
     pub has_comments: bool,
 }
 
+// ── Delete preview ────────────────────────────────────────────────────────────
+
+/// What a delete of a list/container would remove, used by the delete confirmation UI.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeletePreview {
+    /// Descendant lists, excluding the list/container being deleted itself.
+    pub lists: i64,
+    /// Descendant containers, excluding the container being deleted itself.
+    pub containers: i64,
+    /// Items anywhere in the tree; a non-zero value blocks the deletion.
+    pub items: i64,
+}
+
 // ── Location responses ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
