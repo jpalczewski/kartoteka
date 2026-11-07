@@ -36,6 +36,7 @@ pub async fn create_list(req: CreateListRequest) -> Result<List, ServerFnError> 
             container_id: req.container_id,
             parent_list_id: req.parent_list_id,
             features: req.features,
+            inherit_from_parent: req.inherit_from_parent,
         },
     )
     .await

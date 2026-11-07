@@ -215,6 +215,7 @@ impl KartotekaServer {
             container_id: p.container_id,
             parent_list_id: p.parent_list_id,
             features: p.features.unwrap_or_default(),
+            inherit_from_parent: true,
         };
         self.domain_or_existing(domain::lists::create(&self.pool, &uid, &req).await, &locale)
     }

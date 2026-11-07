@@ -140,6 +140,7 @@ fn create_list_request_rejects_two_targets() {
         parent_list_id: Some("parent".into()),
         container_id: Some("container".into()),
         color: None,
+        inherit_from_parent: true,
     };
     assert_eq!(
         req.validate_placement(),
@@ -158,6 +159,7 @@ fn create_list_request_allows_parent_list_id() {
         parent_list_id: Some("parent".into()),
         container_id: None,
         color: None,
+        inherit_from_parent: true,
     };
     assert!(req.validate_placement().is_ok());
 }

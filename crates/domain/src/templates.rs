@@ -245,6 +245,7 @@ mod tests {
                 parent_list_id: None,
                 features: vec![],
                 color: None,
+                inherit_from_parent: true,
             },
         )
         .await

@@ -548,6 +548,7 @@ mod tests {
                 container_id: Some(container_id.to_string()),
                 parent_list_id: parent_list_id.map(str::to_string),
                 features: vec![],
+                inherit_from_parent: true,
             },
         )
         .await
