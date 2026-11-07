@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
-use kartoteka_shared::{ChangeTopic, FEATURE_QUANTITY};
+use kartoteka_shared::ChangeTopic;
 
 use self::header::{ConfirmAction, ConfirmRequest, ListHeader};
 use self::items::ListItems;
@@ -26,12 +26,10 @@ use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::delete_entity_modal::{DeleteEntityModal, DeleteTarget};
 use crate::components::common::dnd::DetachDropZone;
 use crate::components::common::loading::LoadingSpinner;
+use crate::components::items::item_composer::{AddItemDraft, ItemComposer};
 use crate::components::items::item_list::ItemDnd;
-use crate::components::lists::{
-    add_input::AddInput,
-    add_item_input::{AddItemDraft, AddItemInput},
-    sublist_section::SublistSection,
-};
+use crate::components::items::item_view::ItemCaps;
+use crate::components::lists::{add_input::AddInput, sublist_section::SublistSection};
 use crate::components::tags::tag_filter_bar::TagFilterBar;
 use crate::components::tags::tag_list::TagList;
 use crate::components::ui::SectionHeader;
@@ -201,7 +199,8 @@ pub fn ListPage() -> impl IntoView {
         on_drop: on_item_drop,
     };
 
-    let has_quantity = state.field(|m| m.features.iter().any(|f| f == FEATURE_QUANTITY));
+    let features = state.field(|m| m.features.clone());
+    let composer_caps = Memo::new(move |_| features.with(|f| ItemCaps::from_features(f)));
     let sublist_ids = Memo::new(move |_| {
         state
             .sublists
@@ -284,17 +283,14 @@ pub fn ListPage() -> impl IntoView {
                             />
                         }}
 
-                        // Add item input. The draft is owned by the page, so it also survives
-                        // the form being re-created when the quantity feature is switched.
+                        // Add item form. The draft is owned by the page, so the text survives
+                        // the form being re-created by a refetch.
                         <div class="mb-4">
-                            {move || view! {
-                                <AddItemInput
-                                    list_id=list_id
-                                    has_quantity=has_quantity.get()
-                                    on_created=Callback::new(move |_| invalidation.invalidate(ChangeTopic::Items))
-                                    draft=add_item_draft
-                                />
-                            }}
+                            <ItemComposer
+                                list_id=list_id
+                                caps=composer_caps
+                                draft=add_item_draft
+                            />
                         </div>
 
                         // Sublist detach zone — visible when dragging a sublist of this list.

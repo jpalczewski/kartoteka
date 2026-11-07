@@ -45,7 +45,7 @@ item-timer-start = Start
 item-timer-start-stops-other = Start (zatrzyma inny)
 item-timer-stop = Stop
 
-# Powtarzalność (tylko odczyt: reguły ustawia się poza UI)
+# Powtarzalność
 item-recurrence-label = Powtarza się co
 item-recurrence-every = Powtarza się co { $rule }
 item-recurrence-mode-fixed = stały
@@ -53,3 +53,24 @@ item-recurrence-mode-floating = płynny
 
 # Status
 item-status-in-progress = W toku
+
+# Edytor powtarzania
+item-recurrence-invalid = Podaj liczbę i d, w lub m, np. 7d, 2w, 1m
+item-recurrence-needs-date = Ustaw datę rozpoczęcia lub termin, aby element się powtarzał
+item-recurrence-mode-title = Stały: od zaplanowanej daty. Płynny: od daty ukończenia.
+
+# Szacowany czas
+item-estimate-label = Szacunek
+item-estimate-placeholder = np. 1h30m
+item-estimate-invalid = Podaj minuty lub godziny, np. 45, 2h, 1h30m
+item-estimate-chip = Szacowany czas { $value }
+
+# Edytor statusu
+item-status-todo = Do zrobienia
+item-status-done = Gotowe
+
+# Dodawanie elementu
+composer-more = Więcej opcji
+composer-fewer = Mniej opcji
+composer-description-placeholder = Opis (opcjonalnie)...
+composer-quantity-placeholder = Ilość

@@ -1,6 +1,7 @@
 pub mod auth_ctx;
 pub mod constants;
 pub mod date_utils;
+pub mod duration;
 pub mod human_date;
 pub mod icon_value;
 pub mod item_display;
@@ -8,6 +9,9 @@ pub mod locale;
 pub mod redirect;
 pub mod tag_utils;
 pub use constants::*;
+pub use duration::{
+    MAX_ESTIMATE_MINUTES, estimate_input_text, format_estimate_minutes, parse_estimate_minutes,
+};
 pub use icon_value::{IconValue, default_container_icon, default_list_icon, parse_icon_value};
 pub use item_display::{
     DateChip, DateChipKind, default_unit, is_item_overdue, item_date_chips, item_href,
