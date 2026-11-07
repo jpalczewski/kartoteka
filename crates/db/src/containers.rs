@@ -229,19 +229,26 @@ async fn summary_in(
 /// Delete a container and its whole subtree in a single transaction.
 ///
 /// The summary is recomputed inside the transaction, so an item added after a
-/// preview still blocks the deletion. Nothing is deleted when the tree holds items.
+/// preview still blocks the deletion. Unless `allow_items` is set, nothing is
+/// deleted when the tree holds items.
+///
+/// `allow_items = true` skips the item check; the lists go first and the foreign key
+/// (`items.list_id ON DELETE CASCADE`) takes their items along. That is only for
+/// deleting from the pending-deletions queue, where the user confirmed that the whole
+/// subtree goes; every other path must keep the #223 rule and pass `false`.
 #[tracing::instrument(skip(pool))]
 pub async fn delete_tree(
     pool: &SqlitePool,
     id: &str,
     user_id: &str,
+    allow_items: bool,
 ) -> Result<DeleteTreeOutcome, DbError> {
     let mut tx = pool.begin().await?;
 
     let Some(summary) = summary_in(&mut tx, id, user_id).await? else {
         return Ok(DeleteTreeOutcome::NotFound);
     };
-    if summary.items > 0 {
+    if !allow_items && summary.items > 0 {
         return Ok(DeleteTreeOutcome::NotEmpty {
             items: summary.items,
         });
@@ -826,7 +833,7 @@ mod tests {
             }
         );
 
-        let outcome = delete_tree(&pool, &created.id, &uid).await.unwrap();
+        let outcome = delete_tree(&pool, &created.id, &uid, false).await.unwrap();
         assert_eq!(outcome, DeleteTreeOutcome::Deleted);
 
         let fetched = get_one(&pool, &created.id, &uid).await.unwrap();
@@ -848,7 +855,9 @@ mod tests {
                 .is_none()
         );
         assert_eq!(
-            delete_tree(&pool, &created.id, &uid_b).await.unwrap(),
+            delete_tree(&pool, &created.id, &uid_b, false)
+                .await
+                .unwrap(),
             DeleteTreeOutcome::NotFound
         );
         assert!(get_one(&pool, &created.id, &uid_a).await.unwrap().is_some());
@@ -877,7 +886,7 @@ mod tests {
             }
         );
 
-        let outcome = delete_tree(&pool, &parent.id, &uid).await.unwrap();
+        let outcome = delete_tree(&pool, &parent.id, &uid, false).await.unwrap();
         assert_eq!(outcome, DeleteTreeOutcome::Deleted);
 
         for id in [&parent.id, &child.id] {
@@ -907,7 +916,9 @@ mod tests {
         let b = create_test_list(&pool, &uid, "B", Some(&container.id), Some(&a)).await;
         let c = create_test_list(&pool, &uid, "C", Some(&container.id), Some(&b)).await;
 
-        let outcome = delete_tree(&pool, &container.id, &uid).await.unwrap();
+        let outcome = delete_tree(&pool, &container.id, &uid, false)
+            .await
+            .unwrap();
         assert_eq!(outcome, DeleteTreeOutcome::Deleted);
 
         assert!(get_one(&pool, &container.id, &uid).await.unwrap().is_none());
@@ -945,7 +956,7 @@ mod tests {
         assert_eq!(summary.lists, 1);
         assert_eq!(summary.containers, 1);
 
-        let outcome = delete_tree(&pool, &parent.id, &uid).await.unwrap();
+        let outcome = delete_tree(&pool, &parent.id, &uid, false).await.unwrap();
         assert_eq!(outcome, DeleteTreeOutcome::NotEmpty { items: 1 });
 
         // Nothing was deleted.

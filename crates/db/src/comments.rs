@@ -5,6 +5,24 @@ const COMMENT_COLS: &str = "id, entity_type, entity_id, content, author_type, au
 
 // ── Read queries ──────────────────────────────────────────────────────────────
 
+/// Fetch a single comment when it belongs to `user_id` (ownership check for callers
+/// that act on a bare comment id).
+#[tracing::instrument(skip(pool))]
+pub async fn get_owned(
+    pool: &SqlitePool,
+    comment_id: &str,
+    user_id: &str,
+) -> Result<Option<CommentRow>, DbError> {
+    sqlx::query_as::<_, CommentRow>(&format!(
+        "SELECT {COMMENT_COLS} FROM comments WHERE id = ? AND user_id = ?"
+    ))
+    .bind(comment_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(DbError::Sqlx)
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn get_comments_for_list_items(
     pool: &SqlitePool,
