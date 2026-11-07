@@ -17,7 +17,9 @@ use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::items::item_row::ItemRow;
 use crate::components::lists::{
-    add_input::AddInput, add_item_input::AddItemInput, deadlines_config::DeadlinesConfig,
+    add_input::AddInput,
+    add_item_input::{AddItemDraft, AddItemInput},
+    deadlines_config::DeadlinesConfig,
     sublist_section::SublistSection,
 };
 use crate::components::tags::tag_filter_bar::TagFilterBar;
@@ -179,6 +181,18 @@ pub fn ListPage() -> impl IntoView {
 
     let (adding_sublist, set_adding_sublist) = signal(false);
 
+    // The page body below is rebuilt from `data_res` on every refetch, including live
+    // updates, so the add-item draft lives here instead of in the form (#426). A different
+    // list starts with an empty draft.
+    let add_item_draft = AddItemDraft::new();
+    Effect::new(move |previous: Option<String>| {
+        let current = list_id();
+        if previous.is_some_and(|previous| previous != current) {
+            add_item_draft.clear();
+        }
+        current
+    });
+
     let confirm_action: RwSignal<Option<ConfirmAction>> = RwSignal::new(None);
     let confirm_list_name: RwSignal<String> = RwSignal::new(String::new());
     // Delete goes through the shared preview + confirmation flow.
@@ -240,7 +254,8 @@ pub fn ListPage() -> impl IntoView {
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            <Suspense fallback=|| view! { <LoadingSpinner/> }>
+            // Transition: a refetch keeps the current page on screen instead of the spinner.
+            <Transition fallback=|| view! { <LoadingSpinner/> }>
                 {move || data_res.get().map(|result| match result {
                     Err(e) => view! {
                         <p class="text-error">"Błąd: " {e.to_string()}</p>
@@ -583,6 +598,7 @@ pub fn ListPage() -> impl IntoView {
                                         list_id=Signal::derive(list_id)
                                         has_quantity=has_quantity
                                         on_created=Callback::new(move |_| invalidation.invalidate(ChangeTopic::Items))
+                                        draft=add_item_draft
                                     />
                                 </div>
 
@@ -847,7 +863,7 @@ pub fn ListPage() -> impl IntoView {
                         }.into_any()
                     }
                 })}
-            </Suspense>
+            </Transition>
 
             <DeleteEntityModal
                 target=delete_target
