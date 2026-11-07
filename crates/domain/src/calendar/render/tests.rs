@@ -22,7 +22,7 @@ fn base_item() -> FeedItem {
 }
 
 fn render(items: &[FeedItem], reminders: &ReminderDefaults) -> String {
-    render_feed("Moja lista", items, Europe::Warsaw, reminders)
+    render_feed("Moja lista", items, Europe::Warsaw, reminders, Locale::En)
 }
 
 fn events(feed: &str) -> Vec<&str> {
@@ -358,7 +358,37 @@ fn timezone_name_and_zone_are_reflected() {
         deadline_time: Some("12:00".to_string()),
         ..base_item()
     };
-    let feed = render_feed("Moja lista", &[item], Tz::UTC, &ReminderDefaults::default());
+    let feed = render_feed(
+        "Moja lista",
+        &[item],
+        Tz::UTC,
+        &ReminderDefaults::default(),
+        Locale::En,
+    );
     assert!(feed.contains("X-WR-TIMEZONE:UTC\r\n"));
     assert!(feed.contains("DTSTART:20240507T120000Z\r\n"));
+}
+
+#[test]
+fn description_label_follows_locale() {
+    let item = FeedItem {
+        deadline: Some("2024-05-07".to_string()),
+        ..base_item()
+    };
+    let feed = render_feed(
+        "Moja lista",
+        std::slice::from_ref(&item),
+        Tz::UTC,
+        &ReminderDefaults::default(),
+        Locale::Pl,
+    );
+    assert!(feed.contains("DESCRIPTION:Lista: "));
+    let feed = render_feed(
+        "Moja lista",
+        &[item],
+        Tz::UTC,
+        &ReminderDefaults::default(),
+        Locale::En,
+    );
+    assert!(feed.contains("DESCRIPTION:List: "));
 }

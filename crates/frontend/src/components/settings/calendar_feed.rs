@@ -94,10 +94,10 @@ pub fn CalendarFeedSettings() -> impl IntoView {
             </p>
 
             {move || created_urls.get().map(|urls| view! {
-                <div class="alert alert-success mb-3">
+                <div class="alert alert-success alert-soft mb-3">
                     <div class="w-full">
                         <p class="font-semibold">{move_tr!("settings-calendar-created-title")}</p>
-                        <p class="text-xs text-base-content/70 mt-1">
+                        <p class="text-xs opacity-80 mt-1">
                             {move_tr!("settings-calendar-created-hint")}
                         </p>
                         <div class="mt-2 flex items-center gap-2">
@@ -114,7 +114,7 @@ pub fn CalendarFeedSettings() -> impl IntoView {
                         </div>
                         <button
                             type="button"
-                            class="btn btn-xs btn-ghost mt-2"
+                            class="btn btn-xs btn-outline mt-2"
                             on:click=move |_| set_created_urls.set(None)
                         >
                             {move_tr!("common-close")}
@@ -127,7 +127,7 @@ pub fn CalendarFeedSettings() -> impl IntoView {
                 <div class="flex flex-col gap-2 sm:flex-row">
                     <input
                         type="text"
-                        class="input input-bordered input-sm flex-1"
+                        class="input input-bordered input-sm w-full sm:flex-1"
                         data-testid="calendar-feed-name"
                         placeholder=move_tr!("settings-calendar-name-placeholder")
                         prop:value=move || new_name.get()
@@ -198,6 +198,9 @@ pub fn CalendarFeedSettings() -> impl IntoView {
                     </h4>
                     <p class="text-xs text-base-content/60 mb-2">
                         {move_tr!("settings-calendar-reminders-description")}
+                    </p>
+                    <p class="text-xs text-base-content/60 mb-2">
+                        {move_tr!("settings-calendar-reminders-allday-hint")}
                     </p>
                     {move || match reminders_res.get() {
                         Some(Ok(defaults)) => view! {
@@ -470,7 +473,7 @@ fn CopyButton(text: String) -> impl IntoView {
     view! {
         <button
             type="button"
-            class="btn btn-xs btn-ghost"
+            class="btn btn-xs btn-neutral shrink-0"
             title=move_tr!("common-copy")
             on:click=move |_| {
                 copy_to_clipboard(&text);

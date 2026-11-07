@@ -429,9 +429,12 @@ pub async fn get_item_detail(item_id: String) -> Result<ItemDetailData, ServerFn
         domain::preferences::get(&pool, &user.id),
     )
     .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let item = item
+    let mut item = item
         .map(Item::from)
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
+    // Display-only fields: shown on the item page in the user's timezone.
+    item.created_at = format_datetime_in_tz(&item.created_at, &prefs.timezone);
+    item.updated_at = format_datetime_in_tz(&item.updated_at, &prefs.timezone);
     Ok(ItemDetailData {
         item,
         comments: CommentsPayload {

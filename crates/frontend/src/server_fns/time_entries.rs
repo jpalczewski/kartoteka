@@ -3,8 +3,8 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    axum_login::AuthSession, kartoteka_auth::KartotekaBackend, kartoteka_domain as domain,
-    sqlx::SqlitePool,
+    crate::server_fns::utils::format_datetime_in_tz, axum_login::AuthSession,
+    kartoteka_auth::KartotekaBackend, kartoteka_domain as domain, sqlx::SqlitePool,
 };
 
 #[cfg(feature = "ssr")]
@@ -21,6 +21,14 @@ fn domain_entry_to_shared(e: domain::time_entries::TimeEntry) -> TimeEntry {
         mode: e.mode,
         created_at: e.created_at,
     }
+}
+
+#[cfg(feature = "ssr")]
+async fn user_timezone(pool: &SqlitePool, user_id: &str) -> Result<String, ServerFnError> {
+    Ok(domain::preferences::get(pool, user_id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?
+        .timezone)
 }
 
 #[cfg(feature = "ssr")]
@@ -99,7 +107,16 @@ pub async fn get_inbox() -> Result<Vec<TimeEntry>, ServerFnError> {
     let entries = domain::time_entries::list_inbox(&pool, &uid)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
-    Ok(entries.into_iter().map(domain_entry_to_shared).collect())
+    let tz = user_timezone(&pool, &uid).await?;
+    Ok(entries
+        .into_iter()
+        .map(domain_entry_to_shared)
+        .map(|mut entry| {
+            // Display-only listing: started_at is shown in the user's timezone.
+            entry.started_at = format_datetime_in_tz(&entry.started_at, &tz);
+            entry
+        })
+        .collect())
 }
 
 #[server(prefix = "/leptos")]
@@ -109,7 +126,16 @@ pub async fn list_all_entries() -> Result<Vec<TimeEntry>, ServerFnError> {
     let entries = domain::time_entries::list_all_for_user(&pool, &uid)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
-    Ok(entries.into_iter().map(domain_entry_to_shared).collect())
+    let tz = user_timezone(&pool, &uid).await?;
+    Ok(entries
+        .into_iter()
+        .map(domain_entry_to_shared)
+        .map(|mut entry| {
+            // Display-only listing: started_at is shown in the user's timezone.
+            entry.started_at = format_datetime_in_tz(&entry.started_at, &tz);
+            entry
+        })
+        .collect())
 }
 
 #[server(prefix = "/leptos")]

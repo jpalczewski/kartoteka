@@ -26,6 +26,7 @@ settings-calendar-never-used = nigdy
 settings-calendar-revoke = Unieważnij
 settings-calendar-reminders-title = Domyślne przypomnienia
 settings-calendar-reminders-description = Alarmy dopisywane do wydarzeń w kalendarzu. Maksymalnie 5 przypomnień na pole.
+settings-calendar-reminders-allday-hint = Dla zadań bez godziny przypomnienie liczy się od północy tego dnia: „1 godz.” przed terminem zadzwoni o 23:00 dzień wcześniej.
 settings-calendar-reminders-start = Data rozpoczęcia
 settings-calendar-reminders-deadline = Termin
 settings-calendar-reminders-hard-deadline = Termin ostateczny
