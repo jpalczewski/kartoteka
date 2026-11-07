@@ -13,7 +13,7 @@ use super::utils::build_ancestors;
 use {
     crate::server_fns::comments::domain_comment_to_shared,
     crate::server_fns::home::domain_list_to_shared, axum_login::AuthSession,
-    kartoteka_auth::KartotekaBackend, kartoteka_db, kartoteka_domain as domain, sqlx::SqlitePool,
+    kartoteka_auth::KartotekaBackend, kartoteka_domain as domain, sqlx::SqlitePool,
 };
 
 #[server(prefix = "/leptos")]
@@ -86,6 +86,7 @@ pub async fn rename_container(
 }
 
 /// Rewrite container positions among siblings under `parent_container_id`.
+/// Validated and written in one domain transaction.
 #[server(prefix = "/leptos")]
 pub async fn reorder_containers(
     parent_container_id: Option<String>,
@@ -98,18 +99,14 @@ pub async fn reorder_containers(
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    for (pos, id) in container_ids.iter().enumerate() {
-        kartoteka_db::containers::move_container(
-            &pool,
-            id,
-            &user.id,
-            parent_container_id.as_deref(),
-            pos as i32,
-        )
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-    }
-    Ok(())
+    domain::containers::reorder(
+        &pool,
+        &user.id,
+        parent_container_id.as_deref(),
+        &container_ids,
+    )
+    .await
+    .map_err(|e| ServerFnError::new(e.to_string()))
 }
 
 /// Move a container under a new parent (or to root if `parent_container_id` is None).

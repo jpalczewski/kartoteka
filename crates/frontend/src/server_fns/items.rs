@@ -226,8 +226,9 @@ pub async fn toggle_item(item_id: String) -> Result<Option<Item>, ServerFnError>
     Ok(result.map(Item::from))
 }
 
-/// Rewrite item positions in `list_id` according to `item_ids`. Ids not in
-/// the list are ignored; missing ids keep their old position.
+/// Rewrite item positions in `list_id` according to `item_ids`. Every id must
+/// be an item of that (owned) list; ids missing from `item_ids` keep their old
+/// position. The whole rewrite runs in one domain transaction.
 #[server(prefix = "/leptos")]
 pub async fn reorder_items(list_id: String, item_ids: Vec<String>) -> Result<(), ServerFnError> {
     let pool = expect_context::<SqlitePool>();
@@ -237,25 +238,15 @@ pub async fn reorder_items(list_id: String, item_ids: Vec<String>) -> Result<(),
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    // Ownership guard — ensure caller owns the list.
-    if domain::lists::get_one(&pool, &list_id, &user.id)
+    domain::items::reorder(&pool, &user.id, &list_id, &item_ids)
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?
-        .is_none()
-    {
-        return Err(ServerFnError::new("list not found".to_string()));
-    }
-    for (pos, id) in item_ids.iter().enumerate() {
-        kartoteka_db::items::move_item(&pool, id, &user.id, pos as i32, None)
-            .await
-            .map_err(|e| ServerFnError::new(e.to_string()))?;
-    }
-    Ok(())
+        .map_err(|e| ServerFnError::new(e.to_string()))
 }
 
 /// Cross-list item move: put `item_id` into `target_list_id` right before
-/// `before_item_id` (None = append). Rewrites positions on the target list so
-/// the new order is stable.
+/// `before_item_id` (None = append). The domain layer re-validates target list
+/// ownership, the duplicate-title rule and rewrites positions in one
+/// transaction.
 #[server(prefix = "/leptos")]
 pub async fn set_item_placement(
     item_id: String,
@@ -269,34 +260,15 @@ pub async fn set_item_placement(
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    // Fetch current items of target list (ordered).
-    let target_items = domain::items::list_for_list(&pool, &target_list_id, &user.id)
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-    let mut target_ids: Vec<String> = target_items
-        .into_iter()
-        .map(|it| it.id)
-        .filter(|id| id != &item_id)
-        .collect();
-    let insert_at = match before_item_id.as_deref() {
-        Some(before) => target_ids
-            .iter()
-            .position(|id| id == before)
-            .unwrap_or(target_ids.len()),
-        None => target_ids.len(),
-    };
-    target_ids.insert(insert_at, item_id.clone());
-    // First move the dragged item into the target list (any position); then
-    // rewrite positions so the sequence matches target_ids.
-    kartoteka_db::items::move_item(&pool, &item_id, &user.id, 0, Some(&target_list_id))
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-    for (pos, id) in target_ids.iter().enumerate() {
-        kartoteka_db::items::move_item(&pool, id, &user.id, pos as i32, None)
-            .await
-            .map_err(|e| ServerFnError::new(e.to_string()))?;
-    }
-    Ok(())
+    domain::items::place(
+        &pool,
+        &user.id,
+        &item_id,
+        &target_list_id,
+        before_item_id.as_deref(),
+    )
+    .await
+    .map_err(|e| ServerFnError::new(e.to_string()))
 }
 
 /// Move an item to a different list (appended at the end of the target list).

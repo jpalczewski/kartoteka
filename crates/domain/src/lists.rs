@@ -1,4 +1,4 @@
-use crate::DomainError;
+use crate::{DomainError, rules};
 use kartoteka_db as db;
 use kartoteka_shared::types::ListFeature;
 use serde::{Deserialize, Serialize};
@@ -444,6 +444,53 @@ pub async fn move_list(
         .await?
         .map(row_to_list)
         .transpose()
+}
+
+/// Rewrite list positions inside one scope, atomically.
+///
+/// The scope is given by `container_id` and/or `parent_list_id` (both `None` =
+/// root) and must belong to `user_id`. Every id in `ordered_ids` must be a list
+/// owned by `user_id` that already sits in that scope. A list can never be made
+/// its own parent and no cycle may be created, otherwise nothing is written.
+#[tracing::instrument(skip(pool, ordered_ids), fields(container_id = ?container_id, parent_list_id = ?parent_list_id, count = ordered_ids.len()))]
+pub async fn reorder(
+    pool: &SqlitePool,
+    user_id: &str,
+    container_id: Option<&str>,
+    parent_list_id: Option<&str>,
+    ordered_ids: &[String],
+) -> Result<(), DomainError> {
+    // Phase 1 READ / THINK: scope ownership, self-parent, cycles
+    ensure_placement_owned(pool, user_id, container_id, parent_list_id).await?;
+    if let Some(parent_id) = parent_list_id {
+        for id in ordered_ids {
+            rules::lists::validate_move(id, Some(parent_id))?;
+            if db::lists::is_descendant(pool, user_id, id, parent_id).await? {
+                return Err(DomainError::Validation("circular_list_move"));
+            }
+        }
+    }
+    let scope = db::lists::ids_in_scope(pool, user_id, container_id, parent_list_id).await?;
+    DomainError::ensure_ids_in_scope(&scope, ordered_ids, "list")?;
+
+    // Phase 3 WRITE: one transaction, all or nothing
+    let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
+    for (pos, id) in ordered_ids.iter().enumerate() {
+        let moved = db::lists::move_list_in_tx(
+            &mut tx,
+            id,
+            user_id,
+            pos as i64,
+            container_id,
+            parent_list_id,
+        )
+        .await?;
+        if !moved {
+            return Err(DomainError::NotFound("list"));
+        }
+    }
+    tx.commit().await.map_err(db::DbError::Sqlx)?;
+    Ok(())
 }
 
 /// Replace all features for a list.
@@ -988,6 +1035,236 @@ mod tests {
         assert!(
             matches!(err, DomainError::NotFound("container")),
             "got {err:?}"
+        );
+    }
+
+    // ── reorder (atomic, authorization-checked) ─────────────────────────────
+
+    async fn stored_placement(
+        pool: &SqlitePool,
+        user_id: &str,
+        id: &str,
+    ) -> (Option<String>, Option<String>, i64) {
+        let row = db::lists::get_one(pool, id, user_id)
+            .await
+            .unwrap()
+            .expect("list row");
+        (row.container_id, row.parent_list_id, row.position)
+    }
+
+    #[tokio::test]
+    async fn reorder_root_lists_assigns_positions_in_given_order() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let a = create(&pool, &uid, &checklist_req("A")).await.unwrap();
+        let b = create(&pool, &uid, &checklist_req("B")).await.unwrap();
+        let c = create(&pool, &uid, &checklist_req("C")).await.unwrap();
+
+        reorder(
+            &pool,
+            &uid,
+            None,
+            None,
+            &[c.id.clone(), b.id.clone(), a.id.clone()],
+        )
+        .await
+        .unwrap();
+
+        let ordered = db::lists::ids_in_scope(&pool, &uid, None, None)
+            .await
+            .unwrap();
+        assert_eq!(ordered, vec![c.id.clone(), b.id.clone(), a.id.clone()]);
+        for (expected, id) in [&c.id, &b.id, &a.id].iter().enumerate() {
+            assert_eq!(
+                stored_placement(&pool, &uid, id).await,
+                (None, None, expected as i64)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn reorder_lists_inside_container_keeps_scope() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let container_id = make_container(&pool, &uid, "Box").await;
+        let a = create(
+            &pool,
+            &uid,
+            &CreateListRequest {
+                container_id: Some(container_id.clone()),
+                ..checklist_req("A")
+            },
+        )
+        .await
+        .unwrap();
+        let b = create(
+            &pool,
+            &uid,
+            &CreateListRequest {
+                container_id: Some(container_id.clone()),
+                ..checklist_req("B")
+            },
+        )
+        .await
+        .unwrap();
+
+        reorder(
+            &pool,
+            &uid,
+            Some(&container_id),
+            None,
+            &[b.id.clone(), a.id.clone()],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            stored_placement(&pool, &uid, &b.id).await,
+            (Some(container_id.clone()), None, 0)
+        );
+        assert_eq!(
+            stored_placement(&pool, &uid, &a.id).await,
+            (Some(container_id), None, 1)
+        );
+    }
+
+    #[tokio::test]
+    async fn reorder_making_list_its_own_parent_is_rejected() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list = create(&pool, &uid, &checklist_req("Self")).await.unwrap();
+
+        let err = reorder(
+            &pool,
+            &uid,
+            None,
+            Some(&list.id),
+            std::slice::from_ref(&list.id),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(err, DomainError::Validation("cannot_move_to_self")),
+            "got {err:?}"
+        );
+        assert_eq!(
+            stored_placement(&pool, &uid, &list.id).await,
+            (None, None, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn reorder_creating_list_cycle_is_rejected() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let a = create(&pool, &uid, &checklist_req("A")).await.unwrap();
+        let b = create(
+            &pool,
+            &uid,
+            &CreateListRequest {
+                parent_list_id: Some(a.id.clone()),
+                ..checklist_req("B")
+            },
+        )
+        .await
+        .unwrap();
+
+        // `a` is the parent of `b`, so nesting `a` under `b` would be a cycle.
+        let err = reorder(&pool, &uid, None, Some(&b.id), std::slice::from_ref(&a.id))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, DomainError::Validation("circular_list_move")),
+            "got {err:?}"
+        );
+        assert_eq!(stored_placement(&pool, &uid, &a.id).await, (None, None, 0));
+    }
+
+    #[tokio::test]
+    async fn reorder_with_foreign_id_writes_nothing() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let intruder = create_test_user(&pool).await;
+        let a = create(&pool, &uid, &checklist_req("A")).await.unwrap();
+        let b = create(&pool, &uid, &checklist_req("B")).await.unwrap();
+        let foreign = create(&pool, &intruder, &checklist_req("X")).await.unwrap();
+
+        // `b` first: a partial write would already have changed its position.
+        let err = reorder(
+            &pool,
+            &uid,
+            None,
+            None,
+            &[b.id.clone(), foreign.id.clone(), a.id.clone()],
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, DomainError::NotFound("list")), "got {err:?}");
+        assert_eq!(stored_placement(&pool, &uid, &b.id).await, (None, None, 1));
+        assert_eq!(stored_placement(&pool, &uid, &a.id).await, (None, None, 0));
+    }
+
+    #[tokio::test]
+    async fn reorder_with_id_from_other_scope_is_rejected() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let container_id = make_container(&pool, &uid, "Box").await;
+        let inside = create(
+            &pool,
+            &uid,
+            &CreateListRequest {
+                container_id: Some(container_id.clone()),
+                ..checklist_req("Inside")
+            },
+        )
+        .await
+        .unwrap();
+        let root_list = create(&pool, &uid, &checklist_req("Root")).await.unwrap();
+
+        let err = reorder(
+            &pool,
+            &uid,
+            Some(&container_id),
+            None,
+            &[inside.id.clone(), root_list.id.clone()],
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, DomainError::NotFound("list")), "got {err:?}");
+        assert_eq!(
+            stored_placement(&pool, &uid, &inside.id).await,
+            (Some(container_id), None, 0)
+        );
+        assert_eq!(
+            stored_placement(&pool, &uid, &root_list.id).await,
+            (None, None, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn reorder_with_foreign_scope_is_rejected() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let intruder = create_test_user(&pool).await;
+        let foreign_container = make_container(&pool, &intruder, "Foreign").await;
+        let list = create(&pool, &uid, &checklist_req("Mine")).await.unwrap();
+
+        let err = reorder(
+            &pool,
+            &uid,
+            Some(&foreign_container),
+            None,
+            std::slice::from_ref(&list.id),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(err, DomainError::NotFound("container")),
+            "got {err:?}"
+        );
+        assert_eq!(
+            stored_placement(&pool, &uid, &list.id).await,
+            (None, None, 0)
         );
     }
 }

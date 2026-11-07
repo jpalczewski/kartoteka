@@ -1,7 +1,7 @@
 use crate::types::ContainerRow;
 use crate::{DbError, SqlitePool};
 use kartoteka_shared::types::{CreateContainerRequest, UpdateContainerRequest};
-use sqlx::SqliteConnection;
+use sqlx::{Sqlite, SqliteConnection};
 use std::collections::HashSet;
 use uuid::Uuid;
 
@@ -322,14 +322,16 @@ pub async fn toggle_pin(
 }
 
 /// Move a container to a new parent and position.
-#[tracing::instrument(skip(pool))]
-pub async fn move_container(
-    pool: &SqlitePool,
+async fn move_container_row<'e, E>(
+    executor: E,
     id: &str,
     user_id: &str,
     parent_id: Option<&str>,
     position: i32,
-) -> Result<Option<ContainerRow>, DbError> {
+) -> Result<Option<ContainerRow>, DbError>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
     let row = sqlx::query_as(
         r#"UPDATE containers
            SET parent_container_id=?, position=?, updated_at=datetime('now')
@@ -340,9 +342,53 @@ pub async fn move_container(
     .bind(position)
     .bind(id)
     .bind(user_id)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?;
     Ok(row)
+}
+
+/// Move a container to a new parent and position.
+#[tracing::instrument(skip(pool))]
+pub async fn move_container(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    parent_id: Option<&str>,
+    position: i32,
+) -> Result<Option<ContainerRow>, DbError> {
+    move_container_row(pool, id, user_id, parent_id, position).await
+}
+
+/// Same as [`move_container`] but runs on a caller-owned transaction connection.
+#[tracing::instrument(skip(conn))]
+pub async fn move_container_in_tx(
+    conn: &mut SqliteConnection,
+    id: &str,
+    user_id: &str,
+    parent_id: Option<&str>,
+    position: i32,
+) -> Result<Option<ContainerRow>, DbError> {
+    move_container_row(&mut *conn, id, user_id, parent_id, position).await
+}
+
+/// Ids of all containers owned by `user_id` that are direct children of
+/// `parent_id` (root when `None`), ordered by position. Used to validate a
+/// reorder request against the real scope before writing.
+pub async fn child_ids(
+    executor: impl sqlx::Executor<'_, Database = Sqlite>,
+    user_id: &str,
+    parent_id: Option<&str>,
+) -> Result<Vec<String>, DbError> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT id FROM containers \
+         WHERE user_id = ? AND parent_container_id IS ? \
+         ORDER BY position, id",
+    )
+    .bind(user_id)
+    .bind(parent_id)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
 }
 
 /// Check if `possible_descendant_id` is a descendant (or equal to) `ancestor_id`.

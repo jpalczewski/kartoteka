@@ -198,9 +198,10 @@ pub async fn get_all_lists() -> Result<Vec<List>, ServerFnError> {
         .collect())
 }
 
-/// Rewrite list positions among siblings. All `list_ids` must share the same
-/// parent (caller responsibility). `container_id` / `parent_list_id` indicate
-/// the scope — one of them may be `Some`, or both `None` for root.
+/// Rewrite list positions among siblings. `container_id` / `parent_list_id`
+/// indicate the scope — one of them may be `Some`, or both `None` for root.
+/// Every id must already live in that (owned) scope; validated and written in
+/// one domain transaction.
 #[server(prefix = "/leptos")]
 pub async fn reorder_lists(
     container_id: Option<String>,
@@ -214,27 +215,15 @@ pub async fn reorder_lists(
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    domain::lists::ensure_placement_owned(
+    domain::lists::reorder(
         &pool,
         &user.id,
         container_id.as_deref(),
         parent_list_id.as_deref(),
+        &list_ids,
     )
     .await
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
-    for (pos, id) in list_ids.iter().enumerate() {
-        kartoteka_db::lists::move_list(
-            &pool,
-            id,
-            &user.id,
-            pos as i64,
-            container_id.as_deref(),
-            parent_list_id.as_deref(),
-        )
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-    }
-    Ok(())
+    .map_err(|e| ServerFnError::new(e.to_string()))
 }
 
 /// Move a list: set its container and/or parent list. Both None = root.

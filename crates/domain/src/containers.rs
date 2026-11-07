@@ -175,6 +175,55 @@ pub async fn move_container(
     .ok_or(DomainError::NotFound("container"))
 }
 
+/// Rewrite the order of `parent_container_id`'s direct children, atomically.
+///
+/// Rules (same as [`move_container`]): the parent must belong to `user_id`, must
+/// be a folder (`status IS NULL`), no container may become its own parent and no
+/// cycle may be created. Every id must already live under `parent_container_id`
+/// and belong to `user_id`, otherwise nothing is written.
+#[tracing::instrument(skip(pool, ordered_ids), fields(parent = ?parent_container_id, count = ordered_ids.len()))]
+pub async fn reorder(
+    pool: &SqlitePool,
+    user_id: &str,
+    parent_container_id: Option<&str>,
+    ordered_ids: &[String],
+) -> Result<(), DomainError> {
+    if let Some(parent_id) = parent_container_id {
+        // Phase 1 READ: parent ownership
+        let parent = db_containers::get_one(pool, parent_id, user_id)
+            .await?
+            .ok_or(DomainError::NotFound("container"))?;
+        // Phase 2 THINK: folder rule, self-parent, cycles
+        rules::containers::validate_hierarchy(parent.status.as_deref())?;
+        for id in ordered_ids {
+            rules::containers::validate_move(id, Some(parent_id))?;
+            if db_containers::is_descendant(pool, user_id, id, parent_id).await? {
+                return Err(DomainError::Validation("circular_container_move"));
+            }
+        }
+    }
+    let scope = db_containers::child_ids(pool, user_id, parent_container_id).await?;
+    DomainError::ensure_ids_in_scope(&scope, ordered_ids, "container")?;
+
+    // Phase 3 WRITE: one transaction, all or nothing
+    let mut tx = pool.begin().await.map_err(kartoteka_db::DbError::Sqlx)?;
+    for (pos, id) in ordered_ids.iter().enumerate() {
+        let moved = db_containers::move_container_in_tx(
+            &mut tx,
+            id,
+            user_id,
+            parent_container_id,
+            pos as i32,
+        )
+        .await?;
+        if moved.is_none() {
+            return Err(DomainError::NotFound("container"));
+        }
+    }
+    tx.commit().await.map_err(kartoteka_db::DbError::Sqlx)?;
+    Ok(())
+}
+
 /// Toggle the pinned state of a container.
 #[tracing::instrument(skip(pool))]
 pub async fn toggle_pin(
@@ -520,5 +569,220 @@ mod tests {
         let archived = list_archived(&pool, &uid).await.unwrap();
         assert_eq!(archived.len(), 1);
         assert_eq!(archived[0].name, "A");
+    }
+
+    // ── reorder (atomic, authorization-checked) ─────────────────────────────
+
+    async fn make_child(pool: &SqlitePool, user_id: &str, name: &str, parent: &str) -> Container {
+        create(
+            pool,
+            user_id,
+            &CreateContainerRequest {
+                name: name.into(),
+                icon: None,
+                description: None,
+                status: None,
+                parent_container_id: Some(parent.into()),
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn stored_parent_and_position(
+        pool: &SqlitePool,
+        user_id: &str,
+        id: &str,
+    ) -> (Option<String>, i32) {
+        let row = db_containers::get_one(pool, id, user_id)
+            .await
+            .unwrap()
+            .expect("container row");
+        (row.parent_container_id, row.position)
+    }
+
+    #[tokio::test]
+    async fn reorder_assigns_positions_in_given_order() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let parent = make_container(&pool, &uid, "Parent").await;
+        let a = make_child(&pool, &uid, "A", &parent.id).await;
+        let b = make_child(&pool, &uid, "B", &parent.id).await;
+        let c = make_child(&pool, &uid, "C", &parent.id).await;
+
+        reorder(
+            &pool,
+            &uid,
+            Some(&parent.id),
+            &[c.id.clone(), a.id.clone(), b.id.clone()],
+        )
+        .await
+        .unwrap();
+
+        let ordered = db_containers::child_ids(&pool, &uid, Some(&parent.id))
+            .await
+            .unwrap();
+        assert_eq!(ordered, vec![c.id.clone(), a.id.clone(), b.id.clone()]);
+        for (expected, id) in [&c.id, &a.id, &b.id].iter().enumerate() {
+            assert_eq!(
+                stored_parent_and_position(&pool, &uid, id).await,
+                (Some(parent.id.clone()), expected as i32)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn reorder_creating_cycle_is_rejected() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+
+        // a → b, so moving `a` under `b` would create a cycle.
+        let a = make_container(&pool, &uid, "A").await;
+        let b = make_child(&pool, &uid, "B", &a.id).await;
+
+        let err = reorder(&pool, &uid, Some(&b.id), std::slice::from_ref(&a.id))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, DomainError::Validation("circular_container_move")),
+            "got {err:?}"
+        );
+        assert_eq!(
+            stored_parent_and_position(&pool, &uid, &a.id).await,
+            (None, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn reorder_making_container_its_own_parent_is_rejected() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let folder = make_container(&pool, &uid, "Folder").await;
+
+        let err = reorder(
+            &pool,
+            &uid,
+            Some(&folder.id),
+            std::slice::from_ref(&folder.id),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(err, DomainError::Validation("cannot_move_to_self")),
+            "got {err:?}"
+        );
+        assert_eq!(
+            stored_parent_and_position(&pool, &uid, &folder.id).await,
+            (None, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn reorder_under_project_parent_is_rejected() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let project = create(
+            &pool,
+            &uid,
+            &CreateContainerRequest {
+                name: "Project".into(),
+                icon: None,
+                description: None,
+                status: Some("active".into()),
+                parent_container_id: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        // A folder nested in a project is not creatable through the domain, so
+        // write the bad state directly to prove `reorder` rejects it.
+        let child_id = uuid::Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO containers (id, user_id, name, parent_container_id, position) \
+             VALUES (?, ?, 'Child', ?, 0)",
+        )
+        .bind(&child_id)
+        .bind(&uid)
+        .bind(&project.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let err = reorder(
+            &pool,
+            &uid,
+            Some(&project.id),
+            std::slice::from_ref(&child_id),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(err, DomainError::Validation("invalid_container_hierarchy")),
+            "got {err:?}"
+        );
+        assert_eq!(
+            stored_parent_and_position(&pool, &uid, &child_id).await,
+            (Some(project.id.clone()), 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn reorder_under_foreign_parent_is_rejected() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let intruder = create_test_user(&pool).await;
+        let foreign_folder = make_container(&pool, &intruder, "Foreign").await;
+        let mine = make_container(&pool, &uid, "Mine").await;
+
+        let err = reorder(
+            &pool,
+            &uid,
+            Some(&foreign_folder.id),
+            std::slice::from_ref(&mine.id),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(err, DomainError::NotFound("container")),
+            "got {err:?}"
+        );
+        assert_eq!(
+            stored_parent_and_position(&pool, &uid, &mine.id).await,
+            (None, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn reorder_with_foreign_id_writes_nothing() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let intruder = create_test_user(&pool).await;
+        let parent = make_container(&pool, &uid, "Parent").await;
+        let a = make_child(&pool, &uid, "A", &parent.id).await;
+        let b = make_child(&pool, &uid, "B", &parent.id).await;
+        let foreign = make_container(&pool, &intruder, "Foreign").await;
+
+        // `a` first: a partial write would already have changed its position.
+        let err = reorder(
+            &pool,
+            &uid,
+            Some(&parent.id),
+            &[b.id.clone(), foreign.id.clone(), a.id.clone()],
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(err, DomainError::NotFound("container")),
+            "got {err:?}"
+        );
+        assert_eq!(
+            stored_parent_and_position(&pool, &uid, &a.id).await,
+            (Some(parent.id.clone()), 0)
+        );
+        assert_eq!(
+            stored_parent_and_position(&pool, &uid, &b.id).await,
+            (Some(parent.id), 1)
+        );
     }
 }

@@ -416,15 +416,17 @@ pub async fn uncheck_items(pool: &SqlitePool, list_id: &str) -> Result<u64, DbEr
     Ok(result.rows_affected())
 }
 
-#[tracing::instrument(skip(pool))]
-pub async fn move_list(
-    pool: &SqlitePool,
+async fn move_list_row<'e, E>(
+    executor: E,
     id: &str,
     user_id: &str,
     position: i64,
     container_id: Option<&str>,
     parent_list_id: Option<&str>,
-) -> Result<bool, DbError> {
+) -> Result<bool, DbError>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
     let rows = sqlx::query(
         "UPDATE lists SET position = ?, container_id = ?, parent_list_id = ?, \
                           updated_at = datetime('now') \
@@ -435,10 +437,96 @@ pub async fn move_list(
     .bind(parent_list_id)
     .bind(id)
     .bind(user_id)
-    .execute(pool)
+    .execute(executor)
     .await
     .map_err(DbError::Sqlx)?;
     Ok(rows.rows_affected() > 0)
+}
+
+/// NOTE: the destination container/parent list ownership and cycle rules are
+/// NOT checked here — callers must validate them first.
+#[tracing::instrument(skip(pool))]
+pub async fn move_list(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    position: i64,
+    container_id: Option<&str>,
+    parent_list_id: Option<&str>,
+) -> Result<bool, DbError> {
+    move_list_row(pool, id, user_id, position, container_id, parent_list_id).await
+}
+
+/// Same as [`move_list`] but runs on a caller-owned transaction connection.
+#[tracing::instrument(skip(conn))]
+pub async fn move_list_in_tx(
+    conn: &mut SqliteConnection,
+    id: &str,
+    user_id: &str,
+    position: i64,
+    container_id: Option<&str>,
+    parent_list_id: Option<&str>,
+) -> Result<bool, DbError> {
+    move_list_row(
+        &mut *conn,
+        id,
+        user_id,
+        position,
+        container_id,
+        parent_list_id,
+    )
+    .await
+}
+
+/// Ids of all lists owned by `user_id` that sit in the given scope
+/// (`container_id` and/or `parent_list_id`, both `None` = root), ordered by
+/// position. Used to validate a reorder request before writing.
+pub async fn ids_in_scope(
+    executor: impl sqlx::Executor<'_, Database = Sqlite>,
+    user_id: &str,
+    container_id: Option<&str>,
+    parent_list_id: Option<&str>,
+) -> Result<Vec<String>, DbError> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT id FROM lists \
+         WHERE user_id = ? AND container_id IS ? AND parent_list_id IS ? \
+         ORDER BY position, id",
+    )
+    .bind(user_id)
+    .bind(container_id)
+    .bind(parent_list_id)
+    .fetch_all(executor)
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
+}
+
+/// Check if `possible_descendant_id` is a descendant (or equal to) `ancestor_id`
+/// following the `parent_list_id` chain.
+#[tracing::instrument(skip(pool))]
+pub async fn is_descendant(
+    pool: &SqlitePool,
+    user_id: &str,
+    ancestor_id: &str,
+    possible_descendant_id: &str,
+) -> Result<bool, DbError> {
+    let row: (i64,) = sqlx::query_as(
+        r#"WITH RECURSIVE subtree AS (
+               SELECT id FROM lists WHERE id = ? AND user_id = ?
+               UNION ALL
+               SELECT l.id FROM lists l
+               JOIN subtree s ON l.parent_list_id = s.id
+               WHERE l.user_id = ?
+           )
+           SELECT COUNT(*) FROM subtree WHERE id = ?"#,
+    )
+    .bind(ancestor_id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(possible_descendant_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.0 > 0)
 }
 
 // ── db-level tests ────────────────────────────────────────────────────────────

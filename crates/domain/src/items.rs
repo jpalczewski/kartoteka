@@ -478,6 +478,94 @@ pub async fn move_item(
     Ok(db::items::get_one(pool, id, user_id).await?.map(Item::from))
 }
 
+/// Rewrite item positions inside one list, atomically.
+///
+/// Every id in `ordered_ids` must be an item of `list_id` owned by `user_id`,
+/// otherwise the call fails with [`DomainError::NotFound`] before anything is
+/// written (no partial reorder). Positions of ids that are not mentioned keep
+/// their current value.
+#[tracing::instrument(skip(pool, ordered_ids), fields(list_id = %list_id, count = ordered_ids.len()))]
+pub async fn reorder(
+    pool: &SqlitePool,
+    user_id: &str,
+    list_id: &str,
+    ordered_ids: &[String],
+) -> Result<(), DomainError> {
+    if db::lists::get_one(pool, list_id, user_id).await?.is_none() {
+        return Err(DomainError::NotFound("list"));
+    }
+    let scope = db::items::ordered_ids_in_list(pool, user_id, list_id).await?;
+    DomainError::ensure_ids_in_scope(&scope, ordered_ids, "item")?;
+
+    let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
+    for (pos, id) in ordered_ids.iter().enumerate() {
+        if !db::items::set_position_in_tx(&mut tx, id, user_id, list_id, pos as i32).await? {
+            // Cannot happen after the scope check above; keep the guard so a
+            // concurrent change can never produce a silent partial write.
+            return Err(DomainError::NotFound("item"));
+        }
+    }
+    tx.commit().await.map_err(db::DbError::Sqlx)?;
+    Ok(())
+}
+
+/// Move `item_id` into `target_list_id` right before `before_item_id`
+/// (`None` = append), then rewrite the target list positions in the same
+/// transaction.
+///
+/// The target list must belong to `user_id` and the item title must stay unique
+/// inside it (same rule as [`move_item`]).
+#[tracing::instrument(skip(pool, before_item_id), fields(item_id = %item_id, target_list_id = %target_list_id))]
+pub async fn place(
+    pool: &SqlitePool,
+    user_id: &str,
+    item_id: &str,
+    target_list_id: &str,
+    before_item_id: Option<&str>,
+) -> Result<(), DomainError> {
+    // Phase 1 READ: item (owner-scoped) + target list ownership
+    let current = db::items::get_one(pool, item_id, user_id)
+        .await?
+        .map(Item::from)
+        .ok_or(DomainError::NotFound("item"))?;
+    if db::lists::get_one(pool, target_list_id, user_id)
+        .await?
+        .is_none()
+    {
+        return Err(DomainError::NotFound("list"));
+    }
+    // Phase 2 THINK: duplicate-title rule of the target list
+    DomainError::ensure_unique(
+        db::items::find_id_by_title_in_list(pool, target_list_id, &current.title, Some(item_id))
+            .await?,
+        "item",
+    )?;
+
+    let mut target_ids = db::items::ordered_ids_in_list(pool, user_id, target_list_id).await?;
+    target_ids.retain(|id| id != item_id);
+    let insert_at = match before_item_id.filter(|before| *before != item_id) {
+        Some(before) => target_ids
+            .iter()
+            .position(|id| id == before)
+            .ok_or(DomainError::NotFound("item"))?,
+        None => target_ids.len(),
+    };
+    target_ids.insert(insert_at, item_id.to_string());
+
+    // Phase 3 WRITE: one transaction — move first, then rewrite positions
+    let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
+    if !db::items::move_item_in_tx(&mut tx, item_id, user_id, 0, Some(target_list_id)).await? {
+        return Err(DomainError::NotFound("item"));
+    }
+    for (pos, id) in target_ids.iter().enumerate() {
+        if !db::items::set_position_in_tx(&mut tx, id, user_id, target_list_id, pos as i32).await? {
+            return Err(DomainError::NotFound("item"));
+        }
+    }
+    tx.commit().await.map_err(db::DbError::Sqlx)?;
+    Ok(())
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn by_date(
     pool: &SqlitePool,

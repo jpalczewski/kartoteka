@@ -888,3 +888,216 @@ async fn update_same_title_as_self_ok() {
         .is_ok()
     );
 }
+
+// ── reorder / place (atomic, authorization-checked) ───────────────────────────
+
+/// Position of `id` as stored in the DB, or panic when the row is gone.
+async fn stored_position(pool: &SqlitePool, user_id: &str, id: &str) -> (String, i32) {
+    let row = db::items::get_one(pool, id, user_id)
+        .await
+        .unwrap()
+        .expect("item row");
+    (row.list_id, row.position)
+}
+
+#[tokio::test]
+async fn reorder_assigns_positions_in_given_order() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &[]).await;
+    let a = create(&pool, &uid, &list_id, &basic_req("A"))
+        .await
+        .unwrap();
+    let b = create(&pool, &uid, &list_id, &basic_req("B"))
+        .await
+        .unwrap();
+    let c = create(&pool, &uid, &list_id, &basic_req("C"))
+        .await
+        .unwrap();
+
+    reorder(
+        &pool,
+        &uid,
+        &list_id,
+        &[c.id.clone(), a.id.clone(), b.id.clone()],
+    )
+    .await
+    .unwrap();
+
+    let ordered = db::items::ordered_ids_in_list(&pool, &uid, &list_id)
+        .await
+        .unwrap();
+    assert_eq!(ordered, vec![c.id.clone(), a.id.clone(), b.id.clone()]);
+    for (expected, id) in [&c.id, &a.id, &b.id].iter().enumerate() {
+        let (list, pos) = stored_position(&pool, &uid, id).await;
+        assert_eq!(list, list_id);
+        assert_eq!(pos, expected as i32);
+    }
+}
+
+#[tokio::test]
+async fn reorder_with_foreign_id_writes_nothing() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let other_uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &[]).await;
+    let other_list_id = create_list(&pool, &other_uid, &[]).await;
+
+    let a = create(&pool, &uid, &list_id, &basic_req("A"))
+        .await
+        .unwrap();
+    let b = create(&pool, &uid, &list_id, &basic_req("B"))
+        .await
+        .unwrap();
+    let foreign = create(&pool, &other_uid, &other_list_id, &basic_req("X"))
+        .await
+        .unwrap();
+
+    // `a` comes first, so a partial write would already have moved it.
+    let result = reorder(
+        &pool,
+        &uid,
+        &list_id,
+        &[a.id.clone(), foreign.id.clone(), b.id.clone()],
+    )
+    .await;
+    assert!(matches!(result, Err(DomainError::NotFound("item"))));
+
+    assert_eq!(
+        stored_position(&pool, &uid, &a.id).await,
+        (list_id.clone(), 0)
+    );
+    assert_eq!(stored_position(&pool, &uid, &b.id).await, (list_id, 1));
+    assert_eq!(
+        stored_position(&pool, &other_uid, &foreign.id).await,
+        (other_list_id, 0)
+    );
+}
+
+#[tokio::test]
+async fn reorder_rejects_duplicate_ids() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &[]).await;
+    let a = create(&pool, &uid, &list_id, &basic_req("A"))
+        .await
+        .unwrap();
+
+    let result = reorder(&pool, &uid, &list_id, &[a.id.clone(), a.id.clone()]).await;
+    assert!(matches!(
+        result,
+        Err(DomainError::Validation("duplicate_id"))
+    ));
+}
+
+#[tokio::test]
+async fn reorder_foreign_list_is_rejected() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let other_uid = create_test_user(&pool).await;
+    let other_list_id = create_list(&pool, &other_uid, &[]).await;
+
+    let result = reorder(&pool, &uid, &other_list_id, &[]).await;
+    assert!(matches!(result, Err(DomainError::NotFound("list"))));
+}
+
+#[tokio::test]
+async fn place_into_foreign_list_fails_and_leaves_item_unchanged() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let other_uid = create_test_user(&pool).await;
+    let list_id = create_list(&pool, &uid, &[]).await;
+    let foreign_list_id = create_list(&pool, &other_uid, &[]).await;
+
+    let item = create(&pool, &uid, &list_id, &basic_req("Share me"))
+        .await
+        .unwrap();
+
+    let result = place(&pool, &uid, &item.id, &foreign_list_id, None).await;
+    assert!(matches!(result, Err(DomainError::NotFound("list"))));
+    assert_eq!(stored_position(&pool, &uid, &item.id).await, (list_id, 0));
+    // Nothing leaked into the foreign list either.
+    let foreign_items = db::items::ordered_ids_in_list(&pool, &other_uid, &foreign_list_id)
+        .await
+        .unwrap();
+    assert!(foreign_items.is_empty());
+}
+
+#[tokio::test]
+async fn place_rejects_duplicate_title_in_target_list() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let source = create_list(&pool, &uid, &[]).await;
+    let target = create_list(&pool, &uid, &[]).await;
+
+    let moving = create(&pool, &uid, &source, &basic_req("Milk"))
+        .await
+        .unwrap();
+    create(&pool, &uid, &target, &basic_req("Milk"))
+        .await
+        .unwrap();
+
+    let result = place(&pool, &uid, &moving.id, &target, None).await;
+    assert!(matches!(result, Err(DomainError::AlreadyExists { .. })));
+    assert_eq!(stored_position(&pool, &uid, &moving.id).await, (source, 0));
+}
+
+#[tokio::test]
+async fn place_inserts_before_given_item_and_keeps_positions_dense() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let source = create_list(&pool, &uid, &[]).await;
+    let target = create_list(&pool, &uid, &[]).await;
+
+    let moving = create(&pool, &uid, &source, &basic_req("Milk"))
+        .await
+        .unwrap();
+    let first = create(&pool, &uid, &target, &basic_req("Bread"))
+        .await
+        .unwrap();
+    let second = create(&pool, &uid, &target, &basic_req("Eggs"))
+        .await
+        .unwrap();
+
+    place(&pool, &uid, &moving.id, &target, Some(&second.id))
+        .await
+        .unwrap();
+
+    let ordered = db::items::ordered_ids_in_list(&pool, &uid, &target)
+        .await
+        .unwrap();
+    assert_eq!(
+        ordered,
+        vec![first.id.clone(), moving.id.clone(), second.id.clone()]
+    );
+    for (expected, id) in [&first.id, &moving.id, &second.id].iter().enumerate() {
+        assert_eq!(stored_position(&pool, &uid, id).await.1, expected as i32);
+    }
+    assert!(
+        db::items::ordered_ids_in_list(&pool, &uid, &source)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn place_rejects_foreign_before_item() {
+    let pool = test_pool().await;
+    let uid = create_test_user(&pool).await;
+    let other_uid = create_test_user(&pool).await;
+    let source = create_list(&pool, &uid, &[]).await;
+    let target = create_list(&pool, &uid, &[]).await;
+    let foreign_list = create_list(&pool, &other_uid, &[]).await;
+
+    let moving = create(&pool, &uid, &source, &basic_req("Milk"))
+        .await
+        .unwrap();
+    let foreign = create(&pool, &other_uid, &foreign_list, &basic_req("X"))
+        .await
+        .unwrap();
+
+    let result = place(&pool, &uid, &moving.id, &target, Some(&foreign.id)).await;
+    assert!(matches!(result, Err(DomainError::NotFound("item"))));
+    assert_eq!(stored_position(&pool, &uid, &moving.id).await, (source, 0));
+}
