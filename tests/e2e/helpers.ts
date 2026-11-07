@@ -15,7 +15,29 @@ export async function waitForHydration(page: Page): Promise<void> {
 }
 
 /**
- * Register a fresh account through the REST endpoint, then log in through the UI.
+ * `page.goto` that retries a navigation which stalled or was aborted (#422).
+ *
+ * On the shared dev VM a document navigation sometimes never reaches the server (no response
+ * for 15 s, or `net::ERR_ABORTED` right after the previous page hydrated). The request is
+ * cancelled by the next attempt, so retrying once keeps the test on its real assertion. The
+ * root cause is not identified yet; this only stops the flake from failing the run.
+ */
+export async function gotoPage(page: Page, path: string): Promise<void> {
+  try {
+    await page.goto(path, { timeout: 15_000 });
+  } catch (err) {
+    if (!/ERR_ABORTED|Timeout/.test(String(err))) throw err;
+    await page.goto(path);
+  }
+}
+
+/**
+ * Register a fresh account and sign in, then open the home page.
+ *
+ * The session is created through the REST endpoints, not the login form: the form's success
+ * path is a full-page redirect (`location.set_href`) that can still be in flight when the next
+ * `page.goto` starts, and that goto is then aborted with `net::ERR_ABORTED` (#422). The login
+ * form itself is covered by `auth.spec.ts` through `login()`.
  * Returns the e-mail address that was registered.
  */
 export async function registerAndLogin(
@@ -25,8 +47,23 @@ export async function registerAndLogin(
 ): Promise<string> {
   const email = await registerAccount(context, name);
   await context.clearCookies();
-  await login(page, email);
+  await loginAccount(context, email);
+  await page.goto("/");
+  await waitForHydration(page);
   return email;
+}
+
+/** Sign in through the REST endpoint; the session cookie lands in the browser context. */
+export async function loginAccount(
+  context: BrowserContext,
+  email: string,
+  password = PASSWORD,
+): Promise<void> {
+  const res = await context.request.post(`${BASE_URL}/auth/login`, {
+    headers: { "Content-Type": "application/json" },
+    data: { email, password },
+  });
+  expect(res.ok()).toBeTruthy();
 }
 
 /** Create an account through the REST endpoint; returns its e-mail address. */
@@ -49,10 +86,12 @@ export async function login(page: Page, email: string, password = PASSWORD): Pro
   await waitForHydration(page);
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);
-  await Promise.all([
-    page.waitForURL(`${BASE_URL}/`),
-    page.click('button[type="submit"]'),
-  ]);
+  // The form answers with a server call and then redirects the whole page: wait for the call,
+  // then for the redirected home page, before anything else navigates.
+  const loggedIn = page.waitForResponse((r) => r.url().includes("/leptos/do_login") && r.ok());
+  await page.click('button[type="submit"]');
+  await loggedIn;
+  await page.waitForURL(`${BASE_URL}/`);
   await waitForHydration(page);
 }
 
@@ -131,6 +170,18 @@ export async function submitAddItem(
     if (await created) return;
   }
   throw new Error(`add-item form never submitted "${title}"`);
+}
+
+/**
+ * Save the item detail form and wait until the `update_item` call has finished.
+ *
+ * Navigating or reloading while the save is still in flight cancels it (`net::ERR_ABORTED`),
+ * so the save has to be confirmed before the test moves on (#422).
+ */
+export async function saveItemDetail(page: Page): Promise<void> {
+  const saved = page.waitForResponse((r) => /\/leptos\/update_item\d+/.test(r.url()) && r.ok());
+  await page.locator('[data-testid="item-detail-save"]').click();
+  await saved;
 }
 
 /** Open the actions dropdown of the list page and pick one of its entries. */

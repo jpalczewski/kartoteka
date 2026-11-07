@@ -1,10 +1,16 @@
 import { test, expect, Page } from "@playwright/test";
 
-import { createList, listCard, registerAndLogin, waitForHydration } from "./helpers";
+import {
+  createList,
+  gotoPage,
+  listCard,
+  registerAndLogin,
+  waitForHydration,
+} from "./helpers";
 
 /** Create a tag on the tags page and wait until it is listed. */
 async function createTag(page: Page, name: string) {
-  await page.goto("/tags");
+  await gotoPage(page, "/tags");
   await waitForHydration(page);
   await page.locator('[data-testid="new-tag-input"]').fill(name);
   await page.locator('[data-testid="create-tag-btn"]').click();
@@ -20,12 +26,23 @@ async function assignTag(page: Page, container: ReturnType<Page["locator"]>, nam
     .click();
 }
 
-/** Remove a tag by hovering its badge and confirming the removal dialog. */
+/**
+ * Remove a tag by hovering its badge and confirming the removal dialog.
+ *
+ * The dialog's open state lives in the tag list component. A live-update refetch of the card
+ * can re-create that component while the dialog is open, which drops the dialog and detaches
+ * its confirm button (#422). So the open-then-confirm steps are retried as one unit until the
+ * confirm click lands on a visible dialog.
+ */
 async function removeTag(page: Page, container: ReturnType<Page["locator"]>, name: string) {
   const badge = container.locator(".tag-badge").filter({ hasText: name });
-  await badge.hover();
-  await container.locator('[data-testid="tag-remove-btn"]').first().click();
-  await page.locator('[data-testid="confirm-modal-confirm"]').click();
+  const modal = page.locator('[data-testid="confirm-modal"]');
+  await expect(async () => {
+    await badge.hover();
+    await container.locator('[data-testid="tag-remove-btn"]').first().click();
+    await expect(modal).toBeVisible({ timeout: 2_000 });
+    await page.locator('[data-testid="confirm-modal-confirm"]').click({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
 }
 
 test("assign tag to list from home page card", async ({ page, context }) => {
@@ -33,7 +50,7 @@ test("assign tag to list from home page card", async ({ page, context }) => {
   await createTag(page, "Praca");
   await createList(page, "Moja Lista");
 
-  await page.goto("/");
+  await gotoPage(page, "/");
   await waitForHydration(page);
   const card = listCard(page, "Moja Lista");
 
@@ -47,7 +64,7 @@ test("remove tag from list on home page card", async ({ page, context }) => {
   await createTag(page, "Dom");
   await createList(page, "Lista Do Usunięcia");
 
-  await page.goto("/");
+  await gotoPage(page, "/");
   await waitForHydration(page);
   const card = listCard(page, "Lista Do Usunięcia");
 
@@ -67,7 +84,7 @@ test("assign tag to list from list detail page", async ({ page, context }) => {
   await createList(page, "Lista Projektów");
 
   // Navigate to list detail via title click
-  await page.goto("/");
+  await gotoPage(page, "/");
   await waitForHydration(page);
   await listCard(page, "Lista Projektów").locator('[data-testid="list-card-title"]').click();
   await page.waitForURL(/\/lists\/.+/);
@@ -83,7 +100,7 @@ test("remove tag from list on detail page", async ({ page, context }) => {
   await createTag(page, "Zakupy");
   await createList(page, "Lista Zakupów");
 
-  await page.goto("/");
+  await gotoPage(page, "/");
   await waitForHydration(page);
   await listCard(page, "Lista Zakupów").locator('[data-testid="list-card-title"]').click();
   await page.waitForURL(/\/lists\/.+/);
@@ -106,7 +123,7 @@ test("tag assigned on detail page appears on home page card", async ({ page, con
   await createList(page, "Lista Ważna");
 
   // Assign from detail page
-  await page.goto("/");
+  await gotoPage(page, "/");
   await waitForHydration(page);
   await listCard(page, "Lista Ważna").locator('[data-testid="list-card-title"]').click();
   await page.waitForURL(/\/lists\/.+/);
@@ -116,7 +133,7 @@ test("tag assigned on detail page appears on home page card", async ({ page, con
   await expect(tagsSection.locator(".tag-badge").filter({ hasText: "Ważne" })).toBeVisible();
 
   // Navigate home and verify the badge shows on the card
-  await page.goto("/");
+  await gotoPage(page, "/");
   await waitForHydration(page);
   const homeCard = listCard(page, "Lista Ważna");
   await expect(homeCard.locator(".tag-badge").filter({ hasText: "Ważne" })).toBeVisible();
