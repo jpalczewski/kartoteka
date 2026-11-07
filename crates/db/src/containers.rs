@@ -533,6 +533,11 @@ pub async fn is_descendant(
 }
 
 /// Get progress statistics for a container (lists and items).
+///
+/// **Recursive**: the counts cover the container itself, every sub-container at
+/// any depth, every list in that subtree and those lists' sublists at any depth.
+/// `total_items` counts all items in those lists; `completed_items` counts the
+/// ones with `completed = 1`.
 #[tracing::instrument(skip(pool))]
 pub async fn progress(
     pool: &SqlitePool,
@@ -540,14 +545,29 @@ pub async fn progress(
     user_id: &str,
 ) -> Result<ContainerProgressRow, DbError> {
     let row = sqlx::query_as(
-        r#"SELECT COUNT(DISTINCT l.id) as total_lists,
+        r#"WITH RECURSIVE sub(id) AS (
+               SELECT id FROM containers WHERE id = ? AND user_id = ?
+               UNION
+               SELECT c.id FROM containers c
+               JOIN sub s ON c.parent_container_id = s.id
+               WHERE c.user_id = ?
+           ),
+           sub_lists(id) AS (
+               SELECT l.id FROM lists l WHERE l.user_id = ? AND l.container_id IN (SELECT id FROM sub)
+               UNION
+               SELECT l.id FROM lists l JOIN sub_lists sl ON l.parent_list_id = sl.id
+               WHERE l.user_id = ?
+           )
+           SELECT (SELECT COUNT(*) FROM sub_lists) as total_lists,
                   COUNT(i.id) as total_items,
                   COALESCE(SUM(CASE WHEN i.completed=1 THEN 1 ELSE 0 END), 0) as completed_items
-           FROM lists l
-           LEFT JOIN items i ON i.list_id = l.id
-           WHERE l.container_id = ? AND l.user_id = ?"#,
+           FROM sub_lists s
+           LEFT JOIN items i ON i.list_id = s.id"#,
     )
     .bind(id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
     .bind(user_id)
     .fetch_one(pool)
     .await?;
