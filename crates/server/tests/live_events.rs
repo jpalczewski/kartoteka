@@ -168,6 +168,7 @@ async fn create_list(pool: &SqlitePool, user_id: &str, name: &str) -> String {
         container_id: None,
         parent_list_id: None,
         features: Vec::new(),
+        inherit_from_parent: true,
     };
     kartoteka_domain::lists::create(pool, user_id, &request)
         .await
