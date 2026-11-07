@@ -41,6 +41,7 @@ const ADDITIVE_WRITE: &[&str] = &[
 
 const DESTRUCTIVE: &[&str] = &[
     "update_item",
+    "toggle_item",
     "remove_relation",
     "stop_timer",
     "move_list_to_container",
@@ -93,6 +94,14 @@ mod tests {
         let a = for_tool("update_item");
         assert_eq!(a.read_only_hint, Some(false));
         assert_eq!(a.destructive_hint, Some(true));
+    }
+
+    #[test]
+    fn toggle_item_tool_is_flagged_destructive() {
+        let a = for_tool("toggle_item");
+        assert_eq!(a.read_only_hint, Some(false));
+        assert_eq!(a.destructive_hint, Some(true));
+        assert_eq!(a.idempotent_hint, Some(false));
     }
 
     #[test]

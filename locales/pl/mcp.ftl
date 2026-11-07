@@ -50,8 +50,9 @@ oauth-consent-deny = Odrzuć
 oauth-consent-scope-mcp = Odczyt i modyfikacja Twoich list, elementów, tagów, komentarzy i śledzenia czasu.
 
 # Opisy nowych narzędzi MCP
-mcp-tool-create_item-desc = Utwórz nowy element w liście.
-mcp-tool-update_item-desc = Zaktualizuj pola istniejącego elementu. Użyj tablicy "clear" aby wyzerować pola (np. clear: ["deadline", "description"]).
+mcp-tool-create_item-desc = Utwórz nowy element w liście. recurrence_rule powtarza element: Nd, Nw lub Nm (np. 7d, 2w, 1m), a następne wystąpienie powstaje po ukończeniu elementu. recurrence_mode to fixed (od zaplanowanej daty, domyślnie) lub floating (od daty ukończenia). Reguła wymaga terminu lub daty rozpoczęcia.
+mcp-tool-update_item-desc = Zaktualizuj pola istniejącego elementu. Użyj tablicy "clear" aby wyzerować pola (np. clear: ["deadline", "description"]); wyzerowanie recurrence_rule zeruje też recurrence_mode. recurrence_rule powtarza element: Nd, Nw lub Nm (np. 7d, 2w, 1m), recurrence_mode to fixed (od zaplanowanej daty, domyślnie) lub floating (od daty ukończenia). Ukończenie powtarzalnego elementu zwraca jego następne wystąpienie jako "spawned".
+mcp-tool-toggle_item-desc = Przełącz stan ukończenia elementu. Ukończenie powtarzalnego elementu tworzy jego następne wystąpienie, zwrócone jako "spawned". Lista musi mieć włączoną funkcję checklist, a ukończenie kończy się błędem, gdy element ma nierozwiązane blokady.
 mcp-tool-search_items-desc = Pełnotekstowe wyszukiwanie w elementach i komentarzach.
 mcp-tool-add_comment-desc = Dodaj komentarz do elementu, listy lub kontenera. Pomiń author_name gdy piszesz w imieniu użytkownika (jego głos). Ustaw na swoje imię (np. "Claude") gdy komentarz to Twoja własna obserwacja, sugestia lub analiza.
 mcp-tool-add_relation-desc = Utwórz relację blocks lub relates_to między dwoma elementami.
