@@ -182,7 +182,7 @@ pub struct MoveContainerRequest {
     pub position: Option<i32>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerProgress {
     pub total_lists: i64,
     pub total_items: i64,
@@ -473,6 +473,12 @@ pub struct Relation {
     pub relation_type: String,
     pub user_id: String,
     pub created_at: String,
+    /// `item` / `list` / `container` of the side opposite to the queried entity.
+    pub other_type: Option<String>,
+    /// Display title of the other side: item title, list name or container name.
+    pub other_title: Option<String>,
+    /// Whether the other side is a completed item (only set for items).
+    pub other_completed: Option<bool>,
 }
 
 // --- Time Entries ---
@@ -495,6 +501,17 @@ pub struct TimeEntry {
 pub struct ItemTimeSummary {
     pub total_seconds: i64,
     pub entry_count: i64,
+}
+
+/// Tracked time for one entity (item, list subtree or container subtree).
+///
+/// `seconds` includes the live elapsed time of a running entry, so a project
+/// total is already correct while the timer runs; `running_since` is that entry's
+/// `started_at` (UTC) when there is one.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimeTotal {
+    pub seconds: i64,
+    pub running_since: Option<String>,
 }
 
 // --- Settings ---
@@ -575,6 +592,10 @@ pub struct ContainerData {
     pub ancestors: Vec<(String, String)>,
     /// Comments for this container — pre-fetched to avoid nested Resource hydration.
     pub comments: CommentsPayload,
+    /// Recursive progress over sub-containers, their lists and sublists.
+    pub progress: ContainerProgress,
+    /// Recursive tracked time (completed entries + live running entry).
+    pub time_total: TimeTotal,
 }
 
 /// A container option for move/reparent dropdowns with a pre-built display path.
