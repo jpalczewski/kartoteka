@@ -7,6 +7,7 @@ pub mod items;
 pub mod lists;
 pub mod locations;
 pub mod paging;
+pub mod pending_deletions;
 pub mod preferences;
 pub mod relations;
 pub mod rules;
