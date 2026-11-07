@@ -174,6 +174,7 @@ pub async fn create_item(
         &domain::items::CreateItemRequest {
             title,
             description: desc,
+            icon: None,
             quantity,
             actual_quantity: None,
             unit,
@@ -200,6 +201,51 @@ pub async fn toggle_item(item_id: String) -> Result<Option<Item>, ServerFnError>
         .await
         .sfn()?;
     Ok(result.map(|change| Item::from(change.item)))
+}
+
+/// Set the three-state status of an item: `todo`, `in_progress` or `done`.
+///
+/// `done` is the same as completing the item — the domain refuses it while an
+/// unresolved blocker remains (or on a list without the checklist feature).
+/// The other two reopen the item.
+#[server(prefix = "/leptos")]
+pub async fn set_item_status(item_id: String, status: String) -> Result<Item, ServerFnError> {
+    let (pool, user) = require_user().await?;
+    let item = domain::items::set_status(&pool, &user.id, &item_id, &status)
+        .await
+        .sfn()?
+        .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
+    Ok(item.into())
+}
+
+/// Set (or clear, with `None` / an empty string) an item's icon.
+///
+/// `Option<Option<_>>`-style nesting is not needed here: an item always keeps an
+/// icon or has none, so one level is enough.
+#[server(prefix = "/leptos")]
+pub async fn set_item_icon(item_id: String, icon: Option<String>) -> Result<Item, ServerFnError> {
+    let (pool, user) = require_user().await?;
+    let req = domain::items::UpdateItemRequest {
+        title: None,
+        description: None,
+        completed: None,
+        icon: Some(icon),
+        quantity: None,
+        actual_quantity: None,
+        unit: None,
+        start_date: None,
+        start_time: None,
+        deadline: None,
+        deadline_time: None,
+        hard_deadline: None,
+        estimated_duration: None,
+        location_id: None,
+    };
+    let item = domain::items::update(&pool, &user.id, &item_id, &req)
+        .await
+        .sfn()?
+        .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
+    Ok(item.into())
 }
 
 /// Rewrite item positions in `list_id` according to `item_ids`. Every id must
@@ -287,6 +333,7 @@ pub async fn update_actual_quantity(
         title: None,
         description: None,
         completed: if auto_complete { Some(true) } else { None },
+        icon: None,
         quantity: None,
         actual_quantity: Some(Some(new_actual)),
         unit: None,
@@ -326,6 +373,7 @@ pub async fn update_item_quantity(
         title: None,
         description: None,
         completed: None,
+        icon: None,
         quantity: Some(quantity),
         actual_quantity: Some(actual_quantity),
         unit: Some(unit_val),
@@ -392,6 +440,7 @@ pub async fn update_item_description(
             Some(description)
         }),
         completed: None,
+        icon: None,
         quantity: None,
         actual_quantity: None,
         unit: None,
@@ -431,6 +480,7 @@ pub async fn update_item_dates(
         title: None,
         description: None,
         completed: None,
+        icon: None,
         quantity: None,
         actual_quantity: None,
         unit: None,
@@ -471,6 +521,7 @@ pub async fn update_item(
             Some(description)
         }),
         completed: None,
+        icon: None,
         quantity: None,
         actual_quantity: None,
         unit: None,

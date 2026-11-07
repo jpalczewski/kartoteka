@@ -36,6 +36,7 @@ pub fn CreateEntityInput(
                     container_id: parent_id.clone(),
                     parent_list_id: None,
                     features: vec![],
+                    color: None,
                 });
             }
             EntityMode::Folder => {
@@ -45,6 +46,7 @@ pub fn CreateEntityInput(
                     description: None,
                     status: None,
                     parent_container_id: parent_id.clone(),
+                    color: None,
                 });
             }
             EntityMode::Project => {
@@ -54,6 +56,7 @@ pub fn CreateEntityInput(
                     description: None,
                     status: Some("active".to_string()),
                     parent_container_id: parent_id.clone(),
+                    color: None,
                 });
             }
         }

@@ -10,3 +10,7 @@ error-tag-not-found = Tag not found
 error-validation = Validation error: { $detail }
 error-unknown = An unexpected error occurred
 error-http = HTTP error { $status }
+error-invalid-item-status = Invalid item status
+error-invalid-color = Colour must be given as #rrggbb
+error-icon-too-long = Icon value is too long
+error-container-has-children = This container has sub-containers; move or delete them first

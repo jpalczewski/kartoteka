@@ -13,8 +13,12 @@ use super::utils::build_ancestors;
 #[cfg(feature = "ssr")]
 use {
     crate::server_fns::comments::domain_comment_to_shared,
-    crate::server_fns::home::domain_list_to_shared, axum_login::AuthSession,
-    kartoteka_auth::KartotekaBackend, kartoteka_domain as domain, sqlx::SqlitePool,
+    crate::server_fns::home::domain_list_to_shared,
+    crate::server_fns::utils::{SfnResultExt, require_user},
+    axum_login::AuthSession,
+    kartoteka_auth::KartotekaBackend,
+    kartoteka_domain as domain,
+    sqlx::SqlitePool,
 };
 
 #[server(prefix = "/leptos")]
@@ -100,6 +104,7 @@ pub async fn rename_container(
         icon: None,
         status: None,
         location_id: None,
+        color: None,
     };
     domain::containers::update(&pool, &id, &user.id, &req)
         .await
@@ -315,4 +320,45 @@ fn build_path_label(container: &Container, all: &[Container]) -> String {
     parts.reverse();
     parts.push(container.name.clone());
     parts.join(" / ")
+}
+
+/// Set or clear the icon and accent colour of a container.
+///
+/// Same convention as [`crate::server_fns::lists::set_list_appearance`]: `None`
+/// keeps the stored value, an empty string clears it, anything else sets it.
+#[server(prefix = "/leptos")]
+pub async fn set_container_appearance(
+    id: String,
+    icon: Option<String>,
+    color: Option<String>,
+) -> Result<Container, ServerFnError> {
+    let (pool, user) = require_user().await?;
+    domain::containers::set_appearance(
+        &pool,
+        &id,
+        &user.id,
+        clear_on_empty(icon),
+        clear_on_empty(color),
+    )
+    .await
+    .sfn()
+}
+
+/// Switch a container between folder (`None`) and project (`active` / `done` /
+/// `paused`). A folder that still has sub-containers cannot become a project.
+#[server(prefix = "/leptos")]
+pub async fn set_container_status(
+    id: String,
+    status: Option<String>,
+) -> Result<Container, ServerFnError> {
+    let (pool, user) = require_user().await?;
+    domain::containers::set_status(&pool, &id, &user.id, status.as_deref())
+        .await
+        .sfn()
+}
+
+/// `None` = keep, `Some("")` = clear, `Some(v)` = set.
+#[cfg(feature = "ssr")]
+fn clear_on_empty(value: Option<String>) -> Option<Option<String>> {
+    value.map(|v| if v.trim().is_empty() { None } else { Some(v) })
 }

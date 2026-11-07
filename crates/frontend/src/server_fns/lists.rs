@@ -5,8 +5,12 @@ use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use {
-    crate::server_fns::home::domain_list_to_shared, axum_login::AuthSession,
-    kartoteka_auth::KartotekaBackend, kartoteka_db, kartoteka_domain as domain, sqlx::SqlitePool,
+    crate::server_fns::home::domain_list_to_shared,
+    crate::server_fns::utils::{SfnResultExt, require_user},
+    axum_login::AuthSession,
+    kartoteka_auth::KartotekaBackend,
+    kartoteka_db, kartoteka_domain as domain,
+    sqlx::SqlitePool,
 };
 
 /// Create a new list. `container_id` puts the list inside a container;
@@ -27,6 +31,7 @@ pub async fn create_list(req: CreateListRequest) -> Result<List, ServerFnError> 
             name: req.name,
             list_type: req.list_type,
             icon: req.icon,
+            color: None,
             description: req.description,
             container_id: req.container_id,
             parent_list_id: req.parent_list_id,
@@ -109,6 +114,7 @@ pub async fn rename_list(
     let req = domain::lists::UpdateListRequest {
         name: Some(name),
         icon: None,
+        color: None,
         description: description.map(|d| if d.trim().is_empty() { None } else { Some(d) }),
         list_type: None,
         location_id: None,
@@ -354,4 +360,36 @@ pub async fn get_list_preview_items(list_id: String) -> Result<Vec<PreviewItem>,
             }
         })
         .collect())
+}
+
+/// Set or clear the icon and accent colour of a list.
+///
+/// Both arguments are optional and follow the convention used by the other
+/// server fns here: `None` keeps what is stored, an empty / whitespace-only
+/// string clears the field, anything else sets it. `color` must be `#rrggbb`;
+/// `icon` is `lucide:<name>`, `emoji:<e>` or a bare emoji.
+#[server(prefix = "/leptos")]
+pub async fn set_list_appearance(
+    id: String,
+    icon: Option<String>,
+    color: Option<String>,
+) -> Result<List, ServerFnError> {
+    let (pool, user) = require_user().await?;
+    let list = domain::lists::set_appearance(
+        &pool,
+        &id,
+        &user.id,
+        clear_on_empty(icon),
+        clear_on_empty(color),
+    )
+    .await
+    .sfn()?
+    .ok_or_else(|| ServerFnError::new("list not found".to_string()))?;
+    Ok(domain_list_to_shared(list))
+}
+
+/// `None` = keep, `Some("")` = clear, `Some(v)` = set.
+#[cfg(feature = "ssr")]
+fn clear_on_empty(value: Option<String>) -> Option<Option<String>> {
+    value.map(|v| if v.trim().is_empty() { None } else { Some(v) })
 }
