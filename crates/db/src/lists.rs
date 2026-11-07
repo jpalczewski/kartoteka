@@ -1255,4 +1255,154 @@ mod tests {
             archived.iter().map(|r| &r.name).collect::<Vec<_>>()
         );
     }
+
+    // ── migration 022: sublists inherit their parent's type and features ─────────
+
+    /// Insert a list directly, with an explicit type, features and parent — the shapes the
+    /// migration test needs (`features: None` leaves the column's `{}` default).
+    async fn insert_list_with_setup(
+        pool: &SqlitePool,
+        user_id: &str,
+        name: &str,
+        list_type: &str,
+        parent_list_id: Option<&str>,
+        features: Option<serde_json::Value>,
+    ) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut tx = pool.begin().await.unwrap();
+        insert(
+            &mut tx,
+            &InsertListInput {
+                id: id.clone(),
+                user_id: user_id.to_owned(),
+                position: 0,
+                name: name.to_owned(),
+                list_type: list_type.to_owned(),
+                parent_list_id: parent_list_id.map(str::to_owned),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        if let Some(features) = features {
+            set_features(&mut tx, &id, &features).await.unwrap();
+        }
+        tx.commit().await.unwrap();
+        id
+    }
+
+    async fn fetch_row(pool: &SqlitePool, user_id: &str, id: &str) -> ListRow {
+        get_one(pool, id, user_id).await.unwrap().unwrap()
+    }
+
+    #[tokio::test]
+    async fn migration_022_backfills_default_sublists_from_the_nearest_configured_ancestor() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+
+        // Parent configured with quantity + deadlines.
+        let parent = insert_list_with_setup(
+            &pool,
+            &uid,
+            "Groceries",
+            "shopping",
+            None,
+            Some(serde_json::json!({"checklist": {}, "quantity": {}, "deadlines": {}})),
+        )
+        .await;
+        // A default sublist (what a typeless, featureless create produced) …
+        let default_sublist = insert_list_with_setup(
+            &pool,
+            &uid,
+            "Default child",
+            "checklist",
+            Some(&parent),
+            Some(serde_json::json!({"checklist": {}})),
+        )
+        .await;
+        // … and a default grandchild under it: two levels to climb.
+        let default_grandchild = insert_list_with_setup(
+            &pool,
+            &uid,
+            "Default grandchild",
+            "checklist",
+            Some(&default_sublist),
+            Some(serde_json::json!({"checklist": {}})),
+        )
+        .await;
+        // A sublist the user configured stays untouched, and its own default child inherits
+        // *it*, not the grandparent.
+        let configured_sublist = insert_list_with_setup(
+            &pool,
+            &uid,
+            "Configured child",
+            "notes",
+            Some(&parent),
+            None,
+        )
+        .await;
+        let default_under_configured = insert_list_with_setup(
+            &pool,
+            &uid,
+            "Default under configured",
+            "checklist",
+            Some(&configured_sublist),
+            Some(serde_json::json!({"checklist": {}})),
+        )
+        .await;
+        // Lists outside the parent chain are untouched.
+        let root_default = insert_list_with_setup(
+            &pool,
+            &uid,
+            "Top-level checklist",
+            "checklist",
+            None,
+            Some(serde_json::json!({"checklist": {}})),
+        )
+        .await;
+
+        // The migration must not disturb the open-tracking column.
+        sqlx::query("UPDATE lists SET last_opened_at = '2020-01-01 00:00:00' WHERE id = ?")
+            .bind(&default_sublist)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../migrations/022_sublists_inherit_parent_features.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let parent_row = fetch_row(&pool, &uid, &parent).await;
+        let sublist_row = fetch_row(&pool, &uid, &default_sublist).await;
+        let grandchild_row = fetch_row(&pool, &uid, &default_grandchild).await;
+        let configured_row = fetch_row(&pool, &uid, &configured_sublist).await;
+        let under_configured_row = fetch_row(&pool, &uid, &default_under_configured).await;
+        let root_row = fetch_row(&pool, &uid, &root_default).await;
+
+        // Default sublist and grandchild now carry the parent's setup.
+        for backfilled in [&sublist_row, &grandchild_row] {
+            assert_eq!(backfilled.list_type, "shopping");
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&backfilled.features).unwrap(),
+                serde_json::from_str::<serde_json::Value>(&parent_row.features).unwrap()
+            );
+        }
+        assert_eq!(
+            sublist_row.last_opened_at.as_deref(),
+            Some("2020-01-01 00:00:00")
+        );
+
+        // The user's own configuration survives, and its default child inherits it.
+        assert_eq!(configured_row.list_type, "notes");
+        assert_eq!(configured_row.features, "{}");
+        assert_eq!(under_configured_row.list_type, "notes");
+        assert_eq!(under_configured_row.features, "{}");
+
+        // A top-level list has nothing to inherit.
+        assert_eq!(root_row.list_type, "checklist");
+        assert_eq!(root_row.features, "{\"checklist\":{}}");
+    }
 }
