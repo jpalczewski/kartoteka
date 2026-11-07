@@ -2002,6 +2002,7 @@ dependencies = [
  "axum-macros",
  "base64 0.23.1",
  "chrono",
+ "futures-util",
  "ipnet",
  "kartoteka-auth",
  "kartoteka-db",

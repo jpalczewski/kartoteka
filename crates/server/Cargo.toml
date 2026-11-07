@@ -38,6 +38,7 @@ tower-sessions-sqlx-store.workspace = true
 tower-http.workspace = true
 tower_governor = { version = "0.8", default-features = false, features = ["axum"] }
 ipnet.workspace = true
+futures-util.workspace = true
 time.workspace = true
 chrono.workspace = true
 

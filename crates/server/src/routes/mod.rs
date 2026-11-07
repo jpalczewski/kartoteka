@@ -23,5 +23,8 @@ pub fn routes(state: AppState) -> Router<AppState> {
         .nest("/settings", crate::settings::settings_router())
         .nest("/preferences", crate::settings::preferences_router())
         .nest("/server-config", admin_routes)
+        // Live updates (SSE). Under /api so `require_auth` applies; the per-user
+        // stream cap and the wire format live in `crate::live`.
+        .route("/events", axum::routing::get(crate::live::events))
         .route_layer(middleware::from_fn_with_state(state, auth::require_auth))
 }
