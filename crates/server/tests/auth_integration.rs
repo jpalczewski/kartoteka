@@ -1,6 +1,9 @@
 //! Integration tests for auth endpoints (C1 + C2 combined).
 
-const TEST_PW: &str = "test-placeholder-pw";
+mod common;
+
+use common::{TEST_PW, extract_session_cookie, json_body, register_and_login};
+
 const WRONG_PW: &str = "test-wrong-pw";
 
 use axum::{
@@ -25,19 +28,6 @@ async fn test_app() -> axum::Router {
     )
 }
 
-fn json_body(json: serde_json::Value) -> Body {
-    Body::from(serde_json::to_vec(&json).unwrap())
-}
-
-/// Extract the session cookie value from a Set-Cookie header (just name=value, no attributes).
-fn extract_session_cookie(response: &axum::http::Response<Body>) -> Option<String> {
-    response
-        .headers()
-        .get("set-cookie")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.split(';').next().unwrap_or("").to_string())
-}
-
 /// Generate the current TOTP code for a base32 secret.
 /// Mirrors domain::auth::make_totp (SHA-1, 6 digits, skew 1, 30s step).
 fn generate_totp_code(secret_b32: &str) -> String {
@@ -54,38 +44,7 @@ fn generate_totp_code(secret_b32: &str) -> String {
     totp.generate_current().to_string()
 }
 
-/// Register a user and return the session cookie after login.
-async fn register_and_login(app: axum::Router, email: &str, password: &str) -> String {
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/auth/register")
-                .header("content-type", "application/json")
-                .body(json_body(
-                    serde_json::json!({"email": email, "password": password}),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/auth/login")
-                .header("content-type", "application/json")
-                .body(json_body(
-                    serde_json::json!({"email": email, "password": password}),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    extract_session_cookie(&resp).expect("session cookie after login")
-}
+/// Session cookie helpers live in `common`.
 
 // ── C1 tests (unchanged) ──────────────────────────────────────────────────
 
