@@ -1,9 +1,9 @@
 use kartoteka_shared::{
     FEATURE_DEADLINES,
-    types::{Item, Tag},
+    types::{Item, RecurrenceMode, Tag},
 };
 use leptos::prelude::*;
-use leptos_fluent::move_tr;
+use leptos_fluent::{I18n, move_tr};
 use leptos_router::components::A;
 use web_sys::DragEvent;
 
@@ -106,6 +106,17 @@ pub fn ItemRow(
 
     let chips = date_chips(&item);
     let has_date_save = on_date_save.is_some();
+
+    // Read-only recurrence badge: the rule (`2w`) plus the mode as a tooltip.
+    let i18n = expect_context::<I18n>();
+    let recurrence = item.recurrence_rule.map(|rule| {
+        let mode_key = match item.recurrence_mode.unwrap_or_default() {
+            RecurrenceMode::Fixed => "item-recurrence-mode-fixed",
+            RecurrenceMode::Floating => "item-recurrence-mode-floating",
+        };
+        (rule.to_string(), mode_key)
+    });
+    let recurrence_class = if completed { "opacity-40" } else { "" };
 
     let show_stepper = has_quantity && item.quantity.is_some();
     let stepper = show_stepper.then(|| {
@@ -210,6 +221,25 @@ pub fn ItemRow(
                     }).collect();
                     view! { <div class="flex gap-1 flex-wrap shrink-0">{views}</div> }
                 })}
+                {move || {
+                    let (rule, mode_key) = recurrence.clone()?;
+                    // The macro's arg closure needs its own copy: it is re-run on locale changes.
+                    let every_rule = rule.clone();
+                    let every = move_tr!("item-recurrence-every", { "rule" => every_rule.clone() });
+                    let title = format!("{} · {}", every.get(), i18n.tr(mode_key));
+                    Some(view! {
+                        <div class="flex gap-1 shrink-0">
+                            <Chip
+                                icon="repeat"
+                                title=title
+                                testid=Some("item-recurrence-chip")
+                                class=recurrence_class
+                            >
+                                {rule}
+                            </Chip>
+                        </div>
+                    })
+                }}
                 {stepper}
                 {on_move
                     .filter(|_| !move_targets.is_empty())

@@ -5,7 +5,7 @@ use lucide_leptos::{
     ChevronLeft, ChevronRight, ChevronUp, Circle, CircleAlert, CircleCheck, Clock, ClockAlert,
     Columns3, Copy, Ellipsis, EllipsisVertical, ExternalLink, Folder, FolderKanban, FolderOpen,
     GripVertical, Hourglass, House, Inbox, LayoutGrid, Link, List, LogOut, Luggage, MapPin,
-    Package, PackageOpen, Pencil, Pin, PinOff, Play, Plus, RotateCcw, Search, Settings,
+    Package, PackageOpen, Pencil, Pin, PinOff, Play, Plus, Repeat, RotateCcw, Search, Settings,
     ShoppingCart, Shuffle, Square, SquareCheck, Star, Tag, Timer, Trash, TriangleAlert, Undo2, X,
 };
 
@@ -103,6 +103,7 @@ fn render_icon(name: &str, size: Signal<usize>, color: Signal<String>) -> AnyVie
         "pin-off" => PinOff,
         "play" => Play,
         "plus" => Plus,
+        "repeat" => Repeat,
         "rotate-ccw" => RotateCcw,
         "search" => Search,
         "settings" => Settings,

@@ -1,10 +1,11 @@
 use leptos::prelude::*;
-use leptos_fluent::move_tr;
+use leptos_fluent::{I18n, move_tr};
 use leptos_router::{components::A, hooks::use_params_map};
 
 use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::{
-    FEATURE_CHECKLIST, FEATURE_DEADLINES, FEATURE_LOCATION, FEATURE_QUANTITY, FEATURE_TIME_TRACKING,
+    FEATURE_CHECKLIST, FEATURE_DEADLINES, FEATURE_LOCATION, FEATURE_QUANTITY,
+    FEATURE_TIME_TRACKING, types::RecurrenceMode,
 };
 
 use crate::components::comments::CommentSection;
@@ -13,7 +14,7 @@ use crate::components::items::date_field::DateFieldInput;
 use crate::components::relations::RelatedEntities;
 use crate::components::tags::tag_list::TagList;
 use crate::components::time_entries::ItemTimerWidget;
-use crate::components::ui::Icon;
+use crate::components::ui::{Chip, Icon};
 use crate::server_fns::items::{
     get_item_detail, toggle_item, update_item, update_item_dates, update_item_quantity,
 };
@@ -41,6 +42,7 @@ pub fn ItemDetailPage() -> impl IntoView {
     let item_id = move || params.read().get("id").unwrap_or_default();
 
     let invalidation = use_invalidation();
+    let i18n = expect_context::<I18n>();
 
     let item_res = Resource::new(
         move || {
@@ -320,6 +322,31 @@ pub fn ItemDetailPage() -> impl IntoView {
                                             show_quick=true
                                             large=true
                                         />
+                                        // Read-only recurrence info: rules are set outside this UI.
+                                        {item.recurrence_rule.map(|rule| {
+                                            let mode_key = match item.recurrence_mode.unwrap_or_default() {
+                                                RecurrenceMode::Fixed => "item-recurrence-mode-fixed",
+                                                RecurrenceMode::Floating => "item-recurrence-mode-floating",
+                                            };
+                                            view! {
+                                                <div
+                                                    class="flex items-center gap-2 text-sm text-base-content/70"
+                                                    data-testid="item-detail-recurrence"
+                                                >
+                                                    <Chip icon="repeat" testid=Some("item-detail-recurrence-chip")>
+                                                        {rule.to_string()}
+                                                    </Chip>
+                                                    <span>
+                                                        {format!(
+                                                            "{} {} ({})",
+                                                            i18n.tr("item-recurrence-label"),
+                                                            rule,
+                                                            i18n.tr(mode_key),
+                                                        )}
+                                                    </span>
+                                                </div>
+                                            }
+                                        })}
                                         <button
                                             type="button"
                                             class="btn btn-secondary w-full"

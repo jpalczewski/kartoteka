@@ -44,3 +44,9 @@ item-move-to = Move to…
 item-timer-start = Start
 item-timer-start-stops-other = Start (stops the running one)
 item-timer-stop = Stop
+
+# Recurrence (read-only: rules are set outside the UI)
+item-recurrence-label = Repeats every
+item-recurrence-every = Repeats every { $rule }
+item-recurrence-mode-fixed = fixed
+item-recurrence-mode-floating = floating
