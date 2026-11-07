@@ -1,6 +1,9 @@
 use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::Relation;
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
+
+use crate::components::ui::{IconButton, IconButtonVariant};
 
 use crate::server_fns::relations::{add_relation, get_relations, remove_relation};
 use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
@@ -84,13 +87,12 @@ pub fn RelatedEntities(entity_id: Signal<String>) -> impl IntoView {
                                             view! {
                                                 <div class="flex items-center justify-between rounded-lg bg-base-200 px-3 py-2">
                                                     <span class="text-sm">{label}</span>
-                                                    <button
-                                                        type="button"
-                                                        class="btn btn-ghost btn-xs btn-circle text-error"
-                                                        on:click=move |_| on_delete.run(rid.clone())
-                                                    >
-                                                        {"✕"}
-                                                    </button>
+                                                    <IconButton
+                                                        icon="x"
+                                                        label=move_tr!("common-delete")
+                                                        variant=IconButtonVariant::Danger
+                                                        on_click=Callback::new(move |_| on_delete.run(rid.clone()))
+                                                    />
                                                 </div>
                                             }
                                         })

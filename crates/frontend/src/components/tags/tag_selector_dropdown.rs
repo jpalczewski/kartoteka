@@ -1,6 +1,8 @@
 use kartoteka_shared::types::Tag;
 use leptos::prelude::*;
 
+use crate::components::ui::Icon;
+
 /// Dropdown button for assigning/removing tags from an item.
 /// Calls `on_toggle(tag_id)` — parent decides assign vs remove based on current state.
 #[component]
@@ -23,7 +25,7 @@ pub fn TagSelectorDropdown(
                 class="btn btn-xs btn-ghost"
                 title="Zarządzaj tagami"
             >
-                "🏷"
+                <Icon name="tag" size=14 />
                 {if assigned_count > 0 {
                     view! { <span class="badge badge-xs badge-primary ml-1">{assigned_count}</span> }.into_any()
                 } else {

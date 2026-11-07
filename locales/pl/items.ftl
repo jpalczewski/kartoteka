@@ -19,9 +19,9 @@ item-save-quantity = Zapisz ilość
 
 # Sekcja dat
 item-dates-section = Terminy
-item-dates-start = 📅 Rozpoczęcie
-item-dates-deadline = ⏰ Termin
-item-dates-hard-deadline = 🚨 Ostateczny
+item-dates-start = Rozpoczęcie
+item-dates-deadline = Termin
+item-dates-hard-deadline = Ostateczny
 item-save-dates = Zapisz terminy
 
 # Sekcja tagów
@@ -38,3 +38,9 @@ all-completed-count = { $progress } ukończone
 all-hide-completed = Ukryj ukończone
 all-all-completed = Wszystkie elementy ukończone — odznacz filtr aby je zobaczyć.
 all-loading-error = Błąd: { $detail }
+
+# Akcje wiersza elementu
+item-move-to = Przenieś do…
+item-timer-start = Start
+item-timer-start-stops-other = Start (zatrzyma inny)
+item-timer-stop = Stop

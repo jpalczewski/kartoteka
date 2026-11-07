@@ -40,3 +40,10 @@ search-entity-item = Element
 search-entity-list = Lista
 search-entity-container = Kontener
 common-home = Strona główna
+
+# Wspólne akcje przycisków z ikonami
+common-actions = Więcej akcji
+common-dismiss = Odrzuć
+common-clear = Wyczyść
+common-expand = Rozwiń
+common-collapse = Zwiń

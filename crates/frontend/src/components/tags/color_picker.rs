@@ -1,5 +1,7 @@
 use leptos::prelude::*;
 
+use crate::components::ui::IconButton;
+
 #[cfg(target_arch = "wasm32")]
 fn random_hex_color() -> String {
     let r = (web_sys::js_sys::Math::random() * 256.0) as u8;
@@ -14,7 +16,7 @@ fn random_hex_color() -> String {
     "#6366f1".to_string()
 }
 
-/// Color swatch + 🎲 randomize button. Calls `on_change` with the new hex color.
+/// Color swatch plus a randomize button. Calls `on_change` with the new hex color.
 #[component]
 pub fn TagColorPicker(
     #[prop(into)] value: Signal<String>,
@@ -31,14 +33,11 @@ pub fn TagColorPicker(
                 prop:value=move || value.get()
                 on:change=move |ev| on_change.run(event_target_value(&ev))
             />
-            <button
-                type="button"
-                class="btn btn-ghost btn-xs"
-                title="Losuj kolor"
-                on:click=move |_| on_change_clone.run(random_hex_color())
-            >
-                "🎲"
-            </button>
+            <IconButton
+                icon="sparkles"
+                label="Losuj kolor"
+                on_click=Callback::new(move |_| on_change_clone.run(random_hex_color()))
+            />
         </div>
     }
 }

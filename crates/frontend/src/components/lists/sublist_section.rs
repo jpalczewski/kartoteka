@@ -2,12 +2,15 @@ use crate::app::{ToastContext, ToastKind};
 use crate::components::common::dnd::{DragHandleButton, ItemDropTargetMarker};
 use crate::components::items::item_row::ItemRow;
 use crate::components::lists::add_input::AddInput;
+use crate::components::ui::{ActionMenu, ActionMenuItem, CompletionBar, Icon};
 use crate::server_fns::items::{create_item, delete_item, get_list_data, move_item, toggle_item};
 use crate::state::dnd::{DndState, EntityKind, ItemDndState, ItemDropTarget};
 use crate::state::invalidation::use_invalidation;
 use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::{Item, List};
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
+use leptos_router::hooks::use_navigate;
 
 #[component]
 pub fn SublistSection(
@@ -24,6 +27,9 @@ pub fn SublistSection(
     let invalidation = use_invalidation();
     let list_id = StoredValue::new(sublist.id.clone());
     let list_name = sublist.name.clone();
+    let navigate = use_navigate();
+    let open_href = format!("/lists/{}", sublist.id);
+    let menu_open = RwSignal::new(false);
 
     let items = RwSignal::new(initial_items);
 
@@ -102,6 +108,8 @@ pub fn SublistSection(
                         <DragHandleButton dnd_state=state kind=EntityKind::List dragged_id=sid aria_label="Przeciągnij podlistę" />
                     }
                 })}
+                // The title stays a real link (primary open action, used by e2e);
+                // the secondary "open" action lives in the shared action menu.
                 <a
                     href=format!("/lists/{}", sublist.id)
                     class="relative z-[2] font-semibold hover:underline decoration-dotted"
@@ -109,18 +117,34 @@ pub fn SublistSection(
                     on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()
                 >
                     {list_name}
-                    <span class="ml-1 text-xs opacity-50">"↗"</span>
+                    <Icon name="external-link" size=12 class="ml-1 opacity-50" />
                 </a>
                 {move || {
                     let current = items.get();
                     let done = current.iter().filter(|i| i.completed).count();
                     let total = current.len();
                     view! {
-                        <span class="text-sm text-base-content/60 ml-auto mr-4" data-testid="sublist-progress">
-                            {done} "/" {total}
+                        <span class="ml-auto mr-4 w-32" data-testid="sublist-progress">
+                            <CompletionBar done=done total=total />
                         </span>
                     }
                 }}
+                <ActionMenu
+                    items=vec![
+                        ActionMenuItem::new(
+                            "external-link",
+                            move_tr!("lists-preview-open-full"),
+                            Callback::new(move |_: ()| {
+                                navigate(&open_href, Default::default());
+                            }),
+                        )
+                            .testid("sublist-action-open"),
+                    ]
+                    open=menu_open
+                    label=move_tr!("common-actions")
+                    testid=Some("sublist-menu")
+                    class="relative z-[3]"
+                />
             </div>
             <div class="collapse-content">
                 {move || {

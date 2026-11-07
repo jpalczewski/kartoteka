@@ -1,4 +1,7 @@
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
+
+use crate::components::ui::{IconButton, IconButtonSize};
 
 /// Today's date in the browser's local timezone as YYYY-MM-DD. On SSR falls back to empty
 /// — time-sensitive quick buttons are click-only so SSR correctness is not required.
@@ -78,6 +81,11 @@ pub fn DateFieldInput(
     };
 
     let btn_size = if large { "btn-sm" } else { "btn-xs" };
+    let icon_button_size = if large {
+        IconButtonSize::Sm
+    } else {
+        IconButtonSize::Xs
+    };
     let testid_str = data_testid.unwrap_or("");
 
     let set_date_to = move |d: String| value.set(d);
@@ -100,12 +108,13 @@ pub fn DateFieldInput(
                     on:input=move |ev| value.set(event_target_value(&ev))
                 />
                 {show_clear.then(move || view! {
-                    <button
-                        type="button"
-                        class=format!("btn btn-ghost {btn_size} text-base-content/30")
-                        title="Wyczyść"
-                        on:click=move |_| clear_all()
-                    >"✕"</button>
+                    <IconButton
+                        icon="x"
+                        label=move_tr!("common-clear")
+                        size=icon_button_size
+                        class="text-base-content/30"
+                        on_click=Callback::new(move |_| clear_all())
+                    />
                 })}
             </div>
 
@@ -153,6 +162,11 @@ fn TimePickerRow(
     date: RwSignal<String>,
     btn_size: &'static str,
 ) -> impl IntoView {
+    let icon_button_size = if btn_size == "btn-sm" {
+        IconButtonSize::Sm
+    } else {
+        IconButtonSize::Xs
+    };
     // Parse current HH:MM into (hour, minute) components. Empty string → None.
     let parse = move || {
         let t = time.get();
@@ -188,7 +202,7 @@ fn TimePickerRow(
         let m = cm.unwrap_or(45);
         set_hm(ch.unwrap_or(12), (m + 15) % 60);
     };
-    let clear_time = move |_: leptos::ev::MouseEvent| time.set(String::new());
+    let clear_time = move || time.set(String::new());
 
     view! {
         {move || {
@@ -221,11 +235,13 @@ fn TimePickerRow(
                     <button type="button" class=format!("btn btn-ghost {btn_size}") on:click=inc_hour>"+1h"</button>
                     <button type="button" class=format!("btn btn-ghost {btn_size}") on:click=plus15m>"+15m"</button>
                     {move || (!time.get().is_empty()).then(|| view! {
-                        <button
-                            type="button"
-                            class=format!("btn btn-ghost {btn_size} text-base-content/30")
-                            on:click=clear_time
-                        >"✕"</button>
+                        <IconButton
+                            icon="x"
+                            label=move_tr!("common-clear")
+                            size=icon_button_size
+                            class="text-base-content/30"
+                            on_click=Callback::new(move |_| clear_time())
+                        />
                     })}
                 </div>
             }.into_any()

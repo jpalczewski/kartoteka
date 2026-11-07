@@ -3,6 +3,7 @@ tags-empty = No tags. Add your first one!
 tags-new-placeholder = New tag...
 tags-color-aria = Tag color
 tags-remove-aria = Remove tag
+tags-add-subtag = Add subtag
 
 # Tag detail page
 tags-back = ← All tags

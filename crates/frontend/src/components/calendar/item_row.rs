@@ -1,5 +1,8 @@
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::components::A;
+
+use crate::components::ui::{IconButton, IconButtonVariant};
 
 #[component]
 pub fn CalendarItemRow(
@@ -46,12 +49,13 @@ pub fn CalendarItemRow(
             >
                 {title}
             </A>
-            <button
-                class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100 text-error"
-                on:click=move |_| on_delete.run(())
-            >
-                "×"
-            </button>
+            <IconButton
+                icon="x"
+                label=move_tr!("common-delete")
+                variant=IconButtonVariant::Danger
+                class="opacity-0 group-hover:opacity-100"
+                on_click=Callback::new(move |_| on_delete.run(()))
+            />
         </div>
     }
 }

@@ -10,3 +10,4 @@ pub mod settings;
 pub mod tags;
 pub mod time_entries;
 pub mod toast_container;
+pub mod ui;

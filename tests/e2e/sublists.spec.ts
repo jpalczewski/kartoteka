@@ -106,7 +106,7 @@ test.fixme("toggling item in sublist updates progress counter", async ({ page, c
 
 // ── Open sublist as full page ─────────────────────────────────────────────────
 
-test("↗ link opens sublist as standalone list page", async ({ page, context }) => {
+test("sublist open link opens it as a standalone list page", async ({ page, context }) => {
   await registerAndLogin(page, context, "Sub User");
   const listId = await createListAndOpen(page, "Nav Parent");
 

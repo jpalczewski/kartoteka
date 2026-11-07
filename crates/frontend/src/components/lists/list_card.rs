@@ -1,21 +1,13 @@
+use kartoteka_shared::default_list_icon;
 use kartoteka_shared::types::{List, Tag};
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::hooks::use_navigate;
 
 use crate::components::common::dnd::{DragHandleButton, DragShell, DragSurface};
 use crate::components::tags::tag_list::TagList;
+use crate::components::ui::{ActionMenu, ActionMenuItem, EntityIcon};
 use crate::state::dnd::{DndState, DropTarget, EntityKind};
-
-pub fn list_type_icon(lt: &str) -> &'static str {
-    match lt {
-        "checklist" => "✅",
-        "shopping" => "🛒",
-        "schedule" | "habits" => "📅",
-        "log" => "⏱",
-        "notes" => "📓",
-        _ => "📝",
-    }
-}
 
 #[component]
 pub fn ListCard(
@@ -29,7 +21,8 @@ pub fn ListCard(
     #[prop(optional)] on_nest_drop: Option<Callback<DropTarget>>,
 ) -> impl IntoView {
     let href = format!("/lists/{}", list.id);
-    let icon = list_type_icon(&list.list_type.clone());
+    let icon = list.icon.clone();
+    let icon_fallback = default_list_icon(&list.list_type);
     let navigate = use_navigate();
     let href_nav = href.clone();
 
@@ -38,47 +31,58 @@ pub fn ListCard(
     let list_id_archive = list.id.clone();
     let list_name = list.name.clone();
 
+    let list_archived = list.archived;
+    let menu_open = RwSignal::new(false);
+    let mut menu_items = Vec::new();
+    if let Some(cb) = on_archive {
+        let lid = list_id_archive.clone();
+        menu_items.push(
+            ActionMenuItem::new(
+                "archive",
+                if list_archived {
+                    move_tr!("lists-restore-aria")
+                } else {
+                    move_tr!("lists-archive-aria")
+                },
+                Callback::new(move |_: ()| cb.run(lid.clone())),
+            )
+            .testid("list-action-archive"),
+        );
+    }
+    if let Some(cb) = on_delete {
+        let lid = list_id_del.clone();
+        menu_items.push(
+            ActionMenuItem::new(
+                "trash",
+                move_tr!("lists-header-delete-button"),
+                Callback::new(move |_: ()| cb.run(lid.clone())),
+            )
+            .danger()
+            .testid("list-card-delete"),
+        );
+    }
+
     let body = view! {
         <div
             class="card bg-base-200 border border-base-300 cursor-pointer card-neon relative flex-1"
             data-testid="list-card"
             on:click=move |_| { navigate(&href_nav, Default::default()); }
         >
-            <div class="flex absolute top-2 right-2 z-10 gap-1" on:click=move |ev| ev.stop_propagation()>
-                {on_archive.map(|cb| {
-                    let lid = list_id_archive.clone();
-                    view! {
-                        <button
-                            type="button"
-                            class="btn btn-ghost btn-xs btn-circle"
-                            title="Archiwizuj"
-                            on:click=move |_| cb.run(lid.clone())
-                        >
-                            {"🗄"}
-                        </button>
-                    }
-                })}
-                {on_delete.map(|cb| {
-                    let lid = list_id_del.clone();
-                    view! {
-                        <button
-                            type="button"
-                            class="btn btn-ghost btn-xs btn-circle text-error"
-                            data-testid="list-card-delete"
-                            on:click=move |ev| {
-                                ev.stop_propagation();
-                                cb.run(lid.clone());
-                            }
-                        >
-                            {"✕"}
-                        </button>
-                    }
-                })}
-            </div>
+
             <div class="card-body p-4">
                 <div class="flex items-center gap-2">
-                    <span>{icon}</span>
+                    <EntityIcon raw=icon fallback=icon_fallback />
                     <span class="card-title text-base" data-testid="list-card-title">{list_name}</span>
+                    {(!menu_items.is_empty()).then(move || view! {
+                        <div class="ml-auto">
+                            <ActionMenu
+                                items=menu_items
+                                open=menu_open
+                                label=move_tr!("common-actions")
+                                testid=Some("list-card-menu")
+                            />
+                        </div>
+                    })}
                 </div>
                 {match on_tag_toggle {
                     Some(cb) => view! {

@@ -55,18 +55,18 @@ test("pin then unpin via dropdown", async ({ page, context }) => {
   // Pin
   await listAction(page, "action-pin");
 
-  // After pin: reload page and verify label changed to Odepnij
+  // After pin: reload page and verify label changed to Unpin (UI renders EN by default)
   await page.goto(`/lists/${listId}`);
   await waitForHydration(page);
   await page.locator('[data-testid="list-actions-btn"]').click();
-  await expect(page.locator('[data-testid="action-pin"]')).toContainText("Odepnij");
+  await expect(page.locator('[data-testid="action-pin"]')).toHaveText(/^\s*(Unpin|Odepnij)\s*$/);
 
   // Unpin
   await page.locator('[data-testid="action-pin"]').click();
   await page.goto(`/lists/${listId}`);
   await waitForHydration(page);
   await page.locator('[data-testid="list-actions-btn"]').click();
-  await expect(page.locator('[data-testid="action-pin"]')).toContainText("Przypnij");
+  await expect(page.locator('[data-testid="action-pin"]')).toHaveText(/^\s*(Pin|Przypnij)\s*$/);
 });
 
 test("reset marks completed items as incomplete", async ({ page, context }) => {

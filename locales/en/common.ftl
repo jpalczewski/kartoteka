@@ -40,3 +40,10 @@ search-entity-item = Item
 search-entity-list = List
 search-entity-container = Container
 common-home = Home
+
+# Shared labels for icon buttons
+common-actions = More actions
+common-dismiss = Dismiss
+common-clear = Clear
+common-expand = Expand
+common-collapse = Collapse

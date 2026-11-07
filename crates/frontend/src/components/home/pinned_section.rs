@@ -2,8 +2,10 @@ use std::collections::HashSet;
 
 use kartoteka_shared::types::{Container, List, ListTagLink, Tag};
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 use crate::components::lists::{container_card::ContainerCard, list_card::ListCard};
+use crate::components::ui::SectionHeader;
 
 #[component]
 pub fn PinnedSection(
@@ -39,8 +41,8 @@ pub fn PinnedSection(
     view! {
         <div class="collapse collapse-arrow bg-base-200 mb-4">
             <input type="checkbox" checked />
-            <div class="collapse-title font-semibold">
-                "📌 Przypięte"
+            <div class="collapse-title">
+                <SectionHeader title=move_tr!("home-pinned") icon="pin" />
             </div>
             <div class="collapse-content">
                 <div class="flex flex-col gap-3 pt-2">

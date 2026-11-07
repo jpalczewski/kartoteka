@@ -14,6 +14,7 @@ use crate::components::lists::{
     container_card::ContainerCard, create_entity_input::CreateEntityInput,
     list_preview::ListPreview,
 };
+use crate::components::ui::{EntityIcon, Icon, IconButton, IconButtonSize, IconButtonVariant};
 use crate::server_fns::containers::{
     archive_container, create_container, get_container_data, get_containers_for_move,
     move_container, rename_container, reorder_containers,
@@ -21,17 +22,7 @@ use crate::server_fns::containers::{
 use crate::server_fns::lists::{archive_list, create_list, move_list, reorder_lists};
 use crate::state::dnd::{DndState, DropTarget, EntityKind};
 use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
-use kartoteka_shared::ChangeTopic;
-
-fn container_status_icon(status: Option<&str>) -> &'static str {
-    match status {
-        None => "📁",
-        Some("active") => "🚀",
-        Some("done") => "✅",
-        Some("paused") => "⏸️",
-        _ => "📁",
-    }
-}
+use kartoteka_shared::{ChangeTopic, default_container_icon};
 
 #[component]
 pub fn ContainerPage() -> impl IntoView {
@@ -101,7 +92,8 @@ pub fn ContainerPage() -> impl IntoView {
                         <p class="text-error">"Błąd: " {e.to_string()}</p>
                     }.into_any(),
                     Ok(data) => {
-                        let icon = container_status_icon(data.container.status.as_deref());
+                        let container_icon_raw = data.container.icon.clone();
+                        let container_icon_fallback = default_container_icon(data.container.status.is_some());
                         let name = data.container.name.clone();
                         let desc = data.container.description.clone();
                         let ancestors = data.ancestors.clone();
@@ -325,7 +317,7 @@ pub fn ContainerPage() -> impl IntoView {
 
                                 // Header
                                 <div class="flex items-center gap-3">
-                                    <span class="text-3xl">{icon}</span>
+                                    <EntityIcon raw=container_icon_raw fallback=container_icon_fallback size=30 />
                                     <div class="flex-1 flex flex-col gap-1">
                                         <EditableText
                                             value=name.clone()
@@ -363,32 +355,31 @@ pub fn ContainerPage() -> impl IntoView {
                                                 view! {
                                                     <div class="flex items-center gap-1">
                                                         <span class="text-xs text-base-content/60 flex items-center gap-1">
-                                                            "📁 "
+                                                            <Icon name="folder" size=12 />
                                                             <span class="max-w-24 truncate">{pname}</span>
                                                         </span>
-                                                        <button
-                                                            type="button"
-                                                            class="btn btn-ghost btn-xs btn-circle text-error"
-                                                            title=move_tr!("lists-detach-from-parent")
-                                                            on:click=move |_| {
+                                                        <IconButton
+                                                            icon="x"
+                                                            label=move_tr!("lists-detach-from-parent")
+                                                            variant=IconButtonVariant::Danger
+                                                            on_click=Callback::new(move |_| {
                                                                 let cid = current_id_for_move_sv.get_value();
                                                                 mutate(
                                                                     move_container(cid, None),
                                                                     &[ChangeTopic::Containers],
                                                                 );
-                                                            }
-                                                        >{"✕"}</button>
+                                                            })
+                                                        />
                                                     </div>
                                                 }.into_any()
                                             } else {
                                                 view! {
                                                     <div class="relative">
-                                                        <button
-                                                            type="button"
-                                                            class="btn btn-ghost btn-sm btn-square"
-                                                            title=move_tr!("lists-move-to-parent")
-                                                            on:click=move |_| container_dropdown_open.update(|v| *v = !*v)
-                                                        >{"📁"}</button>
+                                                        <IconButton
+                                                            icon="folder"
+                                                            label=move_tr!("lists-move-to-parent")
+                                                            on_click=Callback::new(move |_| container_dropdown_open.update(|v| *v = !*v))
+                                                        />
                                                         <ContainerSelectorDropdown
                                                             open=container_dropdown_open
                                                             options=opts
@@ -398,23 +389,20 @@ pub fn ContainerPage() -> impl IntoView {
                                                 }.into_any()
                                             }
                                         }}
-                                        <button
-                                            type="button"
-                                            class="btn btn-ghost btn-sm"
-                                            title=move_tr!("lists-header-archive-button")
-                                            on:click=move |_| on_archive_self.run(())
-                                        >
-                                            {"🗄"}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="btn btn-ghost btn-sm text-error"
-                                            title=move_tr!("lists-delete-container-aria")
-                                            data-testid="container-delete-self"
-                                            on:click=move |_| on_request_delete_self.run(())
-                                        >
-                                            {"✕"}
-                                        </button>
+                                        <IconButton
+                                            icon="archive"
+                                            label=move_tr!("lists-archive-container-aria")
+                                            size=IconButtonSize::Sm
+                                            on_click=Callback::new(move |_| on_archive_self.run(()))
+                                        />
+                                        <IconButton
+                                            icon="trash"
+                                            label=move_tr!("lists-delete-container-aria")
+                                            variant=IconButtonVariant::Danger
+                                            size=IconButtonSize::Sm
+                                            testid=Some("container-delete-self")
+                                            on_click=Callback::new(move |_| on_request_delete_self.run(()))
+                                        />
                                     </div>
                                 </div>
 

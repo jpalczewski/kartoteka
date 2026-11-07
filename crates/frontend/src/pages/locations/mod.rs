@@ -9,6 +9,7 @@ use leptos_router::components::A;
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::inline_edit::{InlineEdit, InlineEditSize};
 use crate::components::common::loading::LoadingSpinner;
+use crate::components::ui::{IconButton, IconButtonVariant};
 use crate::server_fns::locations::{
     delete_location_sf, get_countries, get_locations_sf, parse_location_sf, update_location_sf,
 };
@@ -357,18 +358,17 @@ fn LocationRow(
                             </A>
                             <InlineAlias id=id.get_value() initial=alias.get_value() />
                             <div class="ml-auto flex gap-1">
-                                <button
-                                    class="btn btn-xs btn-ghost"
-                                    on:click=move |_| set_editing.set(true)
-                                >
-                                    "✎"
-                                </button>
-                                <button
-                                    class="btn btn-xs btn-ghost text-error"
-                                    on:click=move |_| show_delete.set(true)
-                                >
-                                    "✕"
-                                </button>
+                                <IconButton
+                                    icon="pencil"
+                                    label=move_tr!("common-edit")
+                                    on_click=Callback::new(move |_| set_editing.set(true))
+                                />
+                                <IconButton
+                                    icon="trash"
+                                    label=move_tr!("common-delete")
+                                    variant=IconButtonVariant::Danger
+                                    on_click=Callback::new(move |_| show_delete.set(true))
+                                />
                             </div>
                         </div>
                     }
@@ -466,13 +466,12 @@ fn AliasBadge(
                 >
                     {a}
                 </button>
-                <button
-                    type="button"
-                    class="leading-none opacity-50 hover:opacity-100"
-                    on:click=move |_| on_clear.run(())
-                >
-                    "x"
-                </button>
+                <IconButton
+                    icon="x"
+                    label=move_tr!("common-clear")
+                    class="opacity-60 hover:opacity-100"
+                    on_click=Callback::new(move |_| on_clear.run(()))
+                />
             </span>
         }
         .into_any(),

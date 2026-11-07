@@ -75,7 +75,12 @@ async function addItem(page: Page, title: string) {
 }
 
 // Ask for a delete from the home card and return the modal message element.
+// The delete action lives in the card's action menu, so open it first.
 async function openDeleteDialog(page: Page, card: Locator, kind: "list" | "container") {
+  await card
+    .locator(kind === "list" ? '[data-testid="list-card-menu"]' : '[data-testid="container-card-menu"]')
+    .first()
+    .click();
   await card
     .locator(kind === "list" ? '[data-testid="list-card-delete"]' : '[data-testid="container-card-delete"]')
     .first()
