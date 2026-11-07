@@ -8,8 +8,8 @@ use kartoteka_shared::ChangeTopic;
 use leptos::prelude::*;
 
 use crate::server_fns::items::{
-    delete_item, move_item, toggle_item, update_actual_quantity, update_item_dates,
-    update_item_description,
+    delete_item, move_item, set_item_estimate, set_item_recurrence, set_item_status, toggle_item,
+    update_actual_quantity, update_item_dates, update_item_description,
 };
 use crate::server_fns::tags::{assign_tag_to_item, remove_tag_from_item};
 use crate::state::invalidation::mutate;
@@ -40,6 +40,13 @@ pub struct ItemActions {
     pub move_to_list: Callback<(String, String)>,
     /// Save start/deadline dates and times. Invalidates `Items`.
     pub save_dates: Callback<DateSavePayload>,
+    /// `(item_id, status)` for `todo` / `in_progress`. Completing goes through `toggle`.
+    /// Invalidates `Items`.
+    pub set_status: Callback<(String, String)>,
+    /// `(item_id, rule, mode)`; a `None` rule clears the recurrence. Invalidates `Items`.
+    pub set_recurrence: Callback<(String, Option<String>, Option<String>)>,
+    /// `(item_id, minutes)`; `None` clears the estimate. Invalidates `Items`.
+    pub set_estimate: Callback<(String, Option<i32>)>,
 }
 
 /// Build the [`ItemActions`] bundle. Call it in a component body, not in a closure.
@@ -75,6 +82,20 @@ pub fn use_item_actions() -> ItemActions {
                 update_item_dates(item_id, start, start_time, deadline, deadline_time, hard),
                 &[ChangeTopic::Items],
             );
+        }),
+        set_status: Callback::new(|(item_id, status): (String, String)| {
+            mutate(set_item_status(item_id, status), &[ChangeTopic::Items]);
+        }),
+        set_recurrence: Callback::new(
+            |(item_id, rule, mode): (String, Option<String>, Option<String>)| {
+                mutate(
+                    set_item_recurrence(item_id, rule, mode),
+                    &[ChangeTopic::Items],
+                );
+            },
+        ),
+        set_estimate: Callback::new(|(item_id, minutes): (String, Option<i32>)| {
+            mutate(set_item_estimate(item_id, minutes), &[ChangeTopic::Items]);
         }),
     }
 }

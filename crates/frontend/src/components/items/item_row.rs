@@ -15,8 +15,11 @@ use web_sys::DragEvent;
 
 use super::date_field::DateFieldInput;
 use super::item_view::ItemCaps;
-use super::parts::{DateChips, ItemCheckbox, ItemIcon, ItemTitle, RecurrenceChip, StatusChip};
+use super::parts::{
+    DateChips, EstimateChip, ItemCheckbox, ItemIcon, ItemTitle, RecurrenceChip, StatusChip,
+};
 use super::quantity_stepper::QuantityStepper;
+use super::row_editors::{EstimateEditor, RecurrenceEditor, StatusEditor};
 use crate::components::common::dnd::ItemDragHandleButton;
 use crate::components::tags::tag_badge::TagBadge;
 use crate::components::tags::tag_selector_dropdown::TagSelectorDropdown;
@@ -57,6 +60,7 @@ pub fn ItemRow(
     let checkbox = Memo::new(move |_| caps.with(|c| c.checkbox));
     let dates = Memo::new(move |_| caps.with(|c| c.dates));
     let quantity = Memo::new(move |_| caps.with(|c| c.quantity));
+    let time = Memo::new(move |_| caps.with(|c| c.time));
     let show_tags = Memo::new(move |_| caps.with(|c| c.tags));
     let delete = Memo::new(move |_| caps.with(|c| c.delete));
     let drag = Memo::new(move |_| caps.with(|c| c.drag));
@@ -194,6 +198,9 @@ pub fn ItemRow(
                     </div>
                 </Show>
                 <RecurrenceChip item=item_sig />
+                <Show when=move || time.get()>
+                    <EstimateChip item=item_sig />
+                </Show>
                 <Show when=move || quantity.get() && stepper_quantity.get().is_some()>
                     <QuantityStepper
                         actual=Signal::derive(move || {
@@ -260,7 +267,7 @@ pub fn ItemRow(
             </div>
 
             <Show when=move || expanded.get()>
-                <ItemEditor item=item id=id_editor.clone() dates=dates />
+                <ItemEditor item=item id=id_editor.clone() caps=caps />
             </Show>
             {move || (!expanded.get()).then(|| description.get()).flatten().map(|desc| view! {
                 <p class="pl-16 pt-1 text-sm text-base-content/60">{desc}</p>
@@ -269,12 +276,16 @@ pub fn ItemRow(
     }
 }
 
-/// The expanded part of a row: description and (with the deadlines feature) date fields.
-/// The drafts start from the item as it is when the editor opens; later updates of the item
-/// do not overwrite what is being typed.
+/// The expanded part of a row: description, status, and what the list's features allow:
+/// date fields and recurrence (deadlines), estimate (time tracking). The drafts start from
+/// the item as it is when the editor opens; later updates of the item do not overwrite what
+/// is being typed.
 #[component]
-fn ItemEditor(item: Memo<Option<Item>>, id: String, dates: Memo<bool>) -> impl IntoView {
+fn ItemEditor(item: Memo<Option<Item>>, id: String, caps: Signal<ItemCaps>) -> impl IntoView {
     let actions = use_item_actions();
+    let dates = Memo::new(move |_| caps.with(|c| c.dates));
+    let time = Memo::new(move |_| caps.with(|c| c.time));
+    let checkbox = Memo::new(move |_| caps.with(|c| c.checkbox));
     let current = item.get_untracked();
     let current = current.as_ref();
 
@@ -299,6 +310,9 @@ fn ItemEditor(item: Memo<Option<Item>>, id: String, dates: Memo<bool>) -> impl I
         RwSignal::new(date_input(current.and_then(|i| i.hard_deadline.as_ref())));
 
     let id_desc = id.clone();
+    let id_status = id.clone();
+    let id_recurrence = id.clone();
+    let id_estimate = id.clone();
     view! {
         <div class="pl-16 pt-2 flex flex-col gap-2">
             <textarea
@@ -316,6 +330,13 @@ fn ItemEditor(item: Memo<Option<Item>>, id: String, dates: Memo<bool>) -> impl I
             >
                 "Zapisz opis"
             </button>
+
+            <div class="flex flex-col gap-2 text-sm">
+                <StatusEditor item=item id=id_status can_complete=checkbox />
+                <Show when=move || time.get()>
+                    <EstimateEditor item=item id=id_estimate.clone() />
+                </Show>
+            </div>
 
             <Show when=move || dates.get()>
                 <div class="flex flex-col gap-2 text-sm">
@@ -358,6 +379,7 @@ fn ItemEditor(item: Memo<Option<Item>>, id: String, dates: Memo<bool>) -> impl I
                     >
                         "Zapisz daty"
                     </button>
+                    <RecurrenceEditor item=item id=id_recurrence.clone() />
                 </div>
             </Show>
         </div>
