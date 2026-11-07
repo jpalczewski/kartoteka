@@ -211,6 +211,7 @@ pub fn ListPage() -> impl IntoView {
             container_id: None,
             parent_list_id: Some(parent_id),
             features: vec![],
+            color: None,
         };
         mutate(
             create_list(req),

@@ -10,3 +10,7 @@ error-tag-not-found = Nie znaleziono taga
 error-validation = Błąd walidacji: { $detail }
 error-unknown = Wystąpił nieoczekiwany błąd
 error-http = Błąd HTTP { $status }
+error-invalid-item-status = Nieprawidłowy status elementu
+error-invalid-color = Kolor musi być podany jako #rrggbb
+error-icon-too-long = Wartość ikony jest zbyt długa
+error-container-has-children = Ten kontener ma podkontenery; najpierw je przenieś lub usuń

@@ -17,6 +17,7 @@ pub(crate) fn domain_list_to_shared(l: domain::lists::List) -> List {
         user_id: l.user_id,
         name: l.name,
         icon: l.icon,
+        color: l.color,
         description: l.description,
         list_type: l.list_type,
         parent_list_id: l.parent_list_id,
