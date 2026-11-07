@@ -9,7 +9,7 @@ use leptos::prelude::*;
 use leptos_fluent::move_tr;
 
 use super::fields::{
-    EstimateField, RecurrenceFields, estimate_is_valid, mode_value, recurrence_issue,
+    EstimateField, IconField, RecurrenceFields, estimate_is_valid, mode_value, recurrence_issue,
     recurrence_request,
 };
 use crate::state::item_actions::use_item_actions;
@@ -134,5 +134,20 @@ pub fn EstimateEditor(item: Memo<Option<Item>>, id: String) -> impl IntoView {
                 {move_tr!("common-save")}
             </button>
         </div>
+    }
+}
+
+/// Icon button and picker; picking saves right away.
+#[component]
+pub fn IconEditor(item: Memo<Option<Item>>, id: String) -> impl IntoView {
+    let actions = use_item_actions();
+    let icon = Memo::new(move |_| item.with(|i| i.as_ref().and_then(|i| i.icon.clone())));
+
+    view! {
+        <IconField
+            value=icon
+            testid="item-icon-button"
+            on_change=Callback::new(move |icon| actions.set_icon.run((id.clone(), icon)))
+        />
     }
 }

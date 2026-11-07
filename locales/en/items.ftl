@@ -59,6 +59,8 @@ item-recurrence-invalid = Use a number with d, w or m, e.g. 7d, 2w, 1m
 item-recurrence-needs-date = Set a start date or deadline to repeat the item
 item-recurrence-mode-title = Fixed: from the scheduled date. Floating: from the completion date.
 
+item-icon-label = Icon
+
 # Estimate
 item-estimate-label = Estimate
 item-estimate-placeholder = e.g. 1h30m

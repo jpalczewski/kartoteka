@@ -8,8 +8,8 @@ use kartoteka_shared::ChangeTopic;
 use leptos::prelude::*;
 
 use crate::server_fns::items::{
-    delete_item, move_item, set_item_estimate, set_item_recurrence, set_item_status, toggle_item,
-    update_actual_quantity, update_item_dates, update_item_description,
+    delete_item, move_item, set_item_estimate, set_item_icon, set_item_recurrence, set_item_status,
+    toggle_item, update_actual_quantity, update_item_dates, update_item_description,
 };
 use crate::server_fns::tags::{assign_tag_to_item, remove_tag_from_item};
 use crate::state::invalidation::mutate;
@@ -47,6 +47,8 @@ pub struct ItemActions {
     pub set_recurrence: Callback<(String, Option<String>, Option<String>)>,
     /// `(item_id, minutes)`; `None` clears the estimate. Invalidates `Items`.
     pub set_estimate: Callback<(String, Option<i32>)>,
+    /// `(item_id, icon)`; `None` removes the icon. Invalidates `Items`.
+    pub set_icon: Callback<(String, Option<String>)>,
 }
 
 /// Build the [`ItemActions`] bundle. Call it in a component body, not in a closure.
@@ -96,6 +98,9 @@ pub fn use_item_actions() -> ItemActions {
         ),
         set_estimate: Callback::new(|(item_id, minutes): (String, Option<i32>)| {
             mutate(set_item_estimate(item_id, minutes), &[ChangeTopic::Items]);
+        }),
+        set_icon: Callback::new(|(item_id, icon): (String, Option<String>)| {
+            mutate(set_item_icon(item_id, icon), &[ChangeTopic::Items]);
         }),
     }
 }

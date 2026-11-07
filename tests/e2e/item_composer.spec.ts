@@ -36,6 +36,13 @@ function tomorrowIso(): string {
   return new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
 }
 
+/** Pick an emoji in the icon picker that the given button opens. */
+async function pickEmoji(scope: Page | ReturnType<Page["locator"]>, button: string, emoji: string) {
+  await scope.locator(`[data-testid="${button}"]`).click();
+  await scope.locator('[data-testid="icon-picker-tab-emoji"]').click();
+  await scope.locator(`[data-testid="icon-picker-emoji"][aria-label="${emoji}"]`).click();
+}
+
 const row = (page: Page, title: string) =>
   page.locator('[data-testid="item-row"]').filter({ hasText: title });
 
@@ -117,6 +124,7 @@ test("the expanded composer adds description, quantity, deadline, recurrence and
     await page.locator('[data-testid="add-item-deadline"]').fill(deadline);
     await page.locator('[data-testid="composer-recurrence-input"]').fill("1w");
     await page.locator('[data-testid="composer-estimate-input"]').fill("1h30m");
+    await pickEmoji(page, "composer-icon-button", "🚀");
   });
 
   const created = row(page, "Detailed");
@@ -131,6 +139,7 @@ test("the expanded composer adds description, quantity, deadline, recurrence and
   await expect(created.locator('[data-testid="item-recurrence-chip"]')).toHaveText("1w");
   await expect(created).toContainText("3 l");
   await expect(created).toContainText("with notes");
+  await expect(created).toContainText("🚀");
 });
 
 test("an invalid estimate in the composer is reported and keeps the draft", async ({
@@ -180,12 +189,16 @@ test("the row editor sets status, recurrence and estimate, and they persist", as
   await item.locator('[data-testid="item-estimate-save"]').click();
   await expect(item.locator('[data-testid="item-estimate-chip"]')).toHaveText("45m");
 
+  await pickEmoji(item, "item-icon-button", "🚀");
+  await expect(item).toContainText("🚀");
+
   await page.goto(`/lists/${listId}`);
   await waitForHydration(page);
   const reloaded = row(page, "Edit me");
   await expect(reloaded).toContainText("In progress");
   await expect(reloaded.locator('[data-testid="item-recurrence-chip"]')).toHaveText("2w");
   await expect(reloaded.locator('[data-testid="item-estimate-chip"]')).toHaveText("45m");
+  await expect(reloaded).toContainText("🚀");
 
   // The editor starts from what is stored.
   await reloaded.locator('[data-testid="item-expand-btn"]').click();
@@ -203,6 +216,11 @@ test("the row editor sets status, recurrence and estimate, and they persist", as
   await reloaded.locator('[data-testid="item-estimate-save"]').click();
   await expect(reloaded.locator('[data-testid="item-recurrence-chip"]')).toHaveCount(0);
   await expect(reloaded.locator('[data-testid="item-estimate-chip"]')).toHaveCount(0);
+
+  // The default icon removes the item's icon.
+  await reloaded.locator('[data-testid="item-icon-button"]').click();
+  await reloaded.locator('[data-testid="icon-picker-default"]').click();
+  await expect(reloaded).not.toContainText("🚀");
 });
 
 test("setting the status to done completes the item", async ({ page, context }) => {

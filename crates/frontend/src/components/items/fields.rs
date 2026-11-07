@@ -8,6 +8,8 @@ use kartoteka_shared::types::{RecurrenceMode, RecurrenceRule};
 use leptos::prelude::*;
 use leptos_fluent::{I18n, move_tr};
 
+use crate::components::ui::{EntityIcon, IconPicker};
+
 /// Why a recurrence input cannot be saved yet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecurrenceIssue {
@@ -136,6 +138,51 @@ pub fn EstimateField(
             </div>
             <Show when=move || invalid.get()>
                 <p class="text-xs text-error">{move_tr!("item-estimate-invalid")}</p>
+            </Show>
+        </div>
+    }
+}
+
+/// Icon button that opens the shared icon picker below it. Picking an icon (or "default")
+/// reports it through `on_change` and closes the picker.
+#[component]
+pub fn IconField(
+    #[prop(into)] value: Signal<Option<String>>,
+    on_change: Callback<Option<String>>,
+    /// `data-testid` of the button; the picker panel gets `<testid>-picker`.
+    testid: &'static str,
+) -> impl IntoView {
+    let open = RwSignal::new(false);
+    let picker_testid = format!("{testid}-picker");
+    let label = move_tr!("item-icon-label");
+
+    view! {
+        <div class="flex flex-col gap-2">
+            <div class="flex items-center gap-2">
+                <span class="text-base-content/50 text-xs w-28">{label}</span>
+                <button
+                    type="button"
+                    class="btn btn-xs btn-square btn-ghost border border-base-300"
+                    aria-expanded=move || open.get().to_string()
+                    aria-label=label
+                    title=label
+                    data-testid=testid
+                    on:click=move |_| open.update(|o| *o = !*o)
+                >
+                    {move || view! { <EntityIcon raw=value.get() fallback="plus" size=14 /> }}
+                </button>
+            </div>
+            <Show when=move || open.get()>
+                <div data-testid=picker_testid.clone()>
+                    <IconPicker
+                        value=value
+                        default_icon="circle"
+                        on_change=Callback::new(move |icon: Option<String>| {
+                            on_change.run(icon);
+                            open.set(false);
+                        })
+                    />
+                </div>
             </Show>
         </div>
     }

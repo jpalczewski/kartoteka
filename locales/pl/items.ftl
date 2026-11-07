@@ -59,6 +59,8 @@ item-recurrence-invalid = Podaj liczbę i d, w lub m, np. 7d, 2w, 1m
 item-recurrence-needs-date = Ustaw datę rozpoczęcia lub termin, aby element się powtarzał
 item-recurrence-mode-title = Stały: od zaplanowanej daty. Płynny: od daty ukończenia.
 
+item-icon-label = Ikona
+
 # Szacowany czas
 item-estimate-label = Szacunek
 item-estimate-placeholder = np. 1h30m
