@@ -166,7 +166,7 @@ pub fn ItemRow(
                 >
                     {move || if expanded.get() { "▲" } else { "▼" }}
                 </button>
-                <A href=item_href attr:class=link_class>
+                <A href=item_href attr:class=link_class attr:data-testid="item-title-link">
                     {item.title.clone()}
                 </A>
                 {(!item_tags.is_empty()).then(|| view! {

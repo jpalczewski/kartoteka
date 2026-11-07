@@ -1,48 +1,24 @@
-import { test, expect, Page, BrowserContext } from "@playwright/test";
+import { test, expect, Page } from "@playwright/test";
 
-const BASE_URL = "http://localhost:3030";
-const PASSWORD = "testpassword123";
+import {
+  addItem,
+  createList,
+  createListOnCurrentPage,
+  openList,
+  registerAndLogin,
+  waitForHydration,
+} from "./helpers";
 
-function uniqueEmail() {
-  return `test+all+${Date.now()}+${Math.random().toString(36).slice(2)}@example.com`;
-}
-
-async function setup(page: Page, context: BrowserContext) {
-  const email = uniqueEmail();
-  const res = await context.request.post(`${BASE_URL}/auth/register`, {
-    headers: { "Content-Type": "application/json" },
-    data: { name: "All User", email, password: PASSWORD },
-  });
-  expect(res.ok()).toBeTruthy();
-  await context.clearCookies();
-  await page.goto("/login");
-  await page.waitForSelector("[data-hydrated]");
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', PASSWORD);
-  await Promise.all([
-    page.waitForURL(`${BASE_URL}/`),
-    page.click('button[type="submit"]'),
-  ]);
-  await page.waitForSelector("[data-hydrated]");
-}
-
+/** Create a list, open it and add the given items. */
 async function createListWithItems(page: Page, listName: string, items: string[]) {
-  await page.goto("/");
-  await page.waitForSelector("[data-hydrated]");
-  await page.fill('input[placeholder="Nazwa listy..."]', listName);
-  await page.locator('button:has-text("Utwórz")').first().click();
-  const card = page.locator('[data-testid="list-card"]').filter({ hasText: listName });
-  await card.waitFor({ timeout: 5000 });
-  await card.locator('[data-testid="list-card-title"]').click();
-  await page.waitForURL(/\/lists\/.+/);
-
+  await createList(page, listName);
+  await openList(page, listName);
   for (const item of items) {
-    await page.fill('input[placeholder="Nowy element..."]', item);
-    await page.click('button:has-text("Dodaj")');
-    await page.getByText(item, { exact: true }).waitFor();
+    await addItem(page, item);
   }
 }
 
+/** Create a notes list with a single item that has a description. */
 async function createNotesListWithDescribedItem(
   page: Page,
   listName: string,
@@ -50,20 +26,13 @@ async function createNotesListWithDescribedItem(
   description: string,
 ) {
   await page.goto("/");
-  await page.waitForSelector("[data-hydrated]");
+  await waitForHydration(page);
   await page.getByLabel("Notes").check();
-  await page.fill('input[placeholder="Nazwa listy..."]', listName);
-  await page.locator('button:has-text("Utwórz")').first().click();
-  const card = page.locator('[data-testid="list-card"]').filter({ hasText: listName });
-  await card.waitFor({ timeout: 5000 });
-  await card.locator('[data-testid="list-card-title"]').click();
-  await page.waitForURL(/\/lists\/.+/);
+  await createListOnCurrentPage(page, listName);
+  await openList(page, listName);
 
-  await page.fill('input[placeholder="Nowy element..."]', itemTitle);
-  await page.click('button:has-text("Dodaj")');
-  await page.getByText(itemTitle, { exact: true }).waitFor();
-
-  await page.getByText(itemTitle, { exact: true }).click();
+  await addItem(page, itemTitle);
+  await page.locator('[data-testid="item-title-link"]').filter({ hasText: itemTitle }).click();
   await page.waitForURL(/\/lists\/.+\/items\/.+/);
   await page.locator('[data-testid="item-detail-description"]').fill(description);
   await page.locator('[data-testid="item-detail-save"]').click();
@@ -72,42 +41,42 @@ async function createNotesListWithDescribedItem(
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 test("all items page shows empty state with no items", async ({ page, context }) => {
-  await setup(page, context);
+  await registerAndLogin(page, context, "All User");
   await page.goto("/all");
-  await page.waitForSelector("[data-hydrated]");
-  await expect(page.locator('text=No items.')).toBeVisible();
+  await waitForHydration(page);
+  await expect(page.getByText("No items.", { exact: true })).toBeVisible();
 });
 
 // ── Displays items ────────────────────────────────────────────────────────────
 
 test("items from all lists appear on all items page", async ({ page, context }) => {
-  await setup(page, context);
+  await registerAndLogin(page, context, "All User");
   await createListWithItems(page, "Lista A", ["Item Alpha"]);
   await createListWithItems(page, "Lista B", ["Item Beta"]);
 
   await page.goto("/all");
-  await page.waitForSelector("[data-hydrated]");
-  await expect(page.locator('text=Item Alpha')).toBeVisible();
-  await expect(page.locator('text=Item Beta')).toBeVisible();
+  await waitForHydration(page);
+  await expect(page.getByText("Item Alpha", { exact: true })).toBeVisible();
+  await expect(page.getByText("Item Beta", { exact: true })).toBeVisible();
 });
 
 test("completion count reflects all items", async ({ page, context }) => {
-  await setup(page, context);
+  await registerAndLogin(page, context, "All User");
   await createListWithItems(page, "Count List", ["One", "Two", "Three"]);
 
   await page.goto("/all");
-  await page.waitForSelector("[data-hydrated]");
+  await waitForHydration(page);
   await expect(page.locator('[data-testid="all-completion-count"]')).toContainText("0/3");
 });
 
 // ── Toggle from all items page ────────────────────────────────────────────────
 
 test("toggling item on all page updates completion count", async ({ page, context }) => {
-  await setup(page, context);
+  await registerAndLogin(page, context, "All User");
   await createListWithItems(page, "Toggle All List", ["Task X"]);
 
   await page.goto("/all");
-  await page.waitForSelector("[data-hydrated]");
+  await waitForHydration(page);
   await expect(page.locator('[data-testid="all-completion-count"]')).toContainText("0/1");
 
   await page.locator('[data-testid="all-item-toggle"]').first().click();
@@ -117,11 +86,11 @@ test("toggling item on all page updates completion count", async ({ page, contex
 // ── Hide completed filter ─────────────────────────────────────────────────────
 
 test("hiding completed removes completed items from view", async ({ page, context }) => {
-  await setup(page, context);
+  await registerAndLogin(page, context, "All User");
   await createListWithItems(page, "Filter All List", ["Done Task", "Pending Task"]);
 
   await page.goto("/all");
-  await page.waitForSelector("[data-hydrated]");
+  await waitForHydration(page);
 
   // Complete the first item
   await page.locator('[data-testid="all-item-toggle"]').first().click();
@@ -129,33 +98,33 @@ test("hiding completed removes completed items from view", async ({ page, contex
 
   // Hide completed
   await page.locator('[data-testid="hide-completed-toggle"]').click();
-  await expect(page.locator('text=Done Task')).not.toBeVisible();
-  await expect(page.locator('text=Pending Task')).toBeVisible();
+  await expect(page.getByText("Done Task", { exact: true })).not.toBeVisible();
+  await expect(page.getByText("Pending Task", { exact: true })).toBeVisible();
 });
 
 test("all completed + hide filter shows helpful message", async ({ page, context }) => {
-  await setup(page, context);
+  await registerAndLogin(page, context, "All User");
   await createListWithItems(page, "All Done List", ["Solo Task"]);
 
   await page.goto("/all");
-  await page.waitForSelector("[data-hydrated]");
+  await waitForHydration(page);
 
   await page.locator('[data-testid="all-item-toggle"]').first().click();
   await expect(page.locator('[data-testid="all-completion-count"]')).toContainText("1/1");
 
   await page.locator('[data-testid="hide-completed-toggle"]').click();
-  await expect(page.locator('text=All items completed')).toBeVisible();
+  await expect(page.getByText("All items completed", { exact: false })).toBeVisible();
 });
 
 // ── Item link navigates to detail ─────────────────────────────────────────────
 
 test("clicking item title on all page navigates to item detail", async ({ page, context }) => {
-  await setup(page, context);
+  await registerAndLogin(page, context, "All User");
   await createListWithItems(page, "Link List", ["Detail Link Item"]);
 
   await page.goto("/all");
-  await page.waitForSelector("[data-hydrated]");
-  await page.locator('text=Detail Link Item').click();
+  await waitForHydration(page);
+  await page.getByText("Detail Link Item", { exact: true }).click();
 
   await expect(page).toHaveURL(/\/lists\/.+\/items\/.+/);
 });
@@ -163,7 +132,7 @@ test("clicking item title on all page navigates to item detail", async ({ page, 
 // ── Notes list items ──────────────────────────────────────────────────────────
 
 test("notes items have no checkbox and show their description", async ({ page, context }) => {
-  await setup(page, context);
+  await registerAndLogin(page, context, "All User");
   await createNotesListWithDescribedItem(
     page,
     "Notes List",
@@ -172,9 +141,9 @@ test("notes items have no checkbox and show their description", async ({ page, c
   );
 
   await page.goto("/all");
-  await page.waitForSelector("[data-hydrated]");
+  await waitForHydration(page);
 
-  await expect(page.locator('text=Notes Item')).toBeVisible();
+  await expect(page.getByText("Notes Item", { exact: true })).toBeVisible();
   await expect(page.locator('[data-testid="all-item-toggle"]')).toHaveCount(0);
   await expect(page.locator('[data-testid="all-item-description"]')).toBeVisible();
   await expect(page.locator('[data-testid="all-item-description"]')).toContainText(

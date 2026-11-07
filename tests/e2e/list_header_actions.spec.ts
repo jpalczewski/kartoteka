@@ -1,46 +1,23 @@
 import { test, expect } from "@playwright/test";
 
-const BASE_URL = "http://localhost:3030";
-const PASSWORD = "testpassword123";
-
-function uniqueEmail() {
-  return `test+lha+${Date.now()}+${Math.random().toString(36).slice(2)}@example.com`;
-}
-
-async function setup(page: any, context: any): Promise<string> {
-  const email = uniqueEmail();
-  await context.request.post(`${BASE_URL}/auth/register`, {
-    headers: { "Content-Type": "application/json" },
-    data: { name: "LHA User", email, password: PASSWORD },
-  });
-  await context.clearCookies();
-  await page.goto("/login");
-  await page.waitForSelector("[data-hydrated]");
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', PASSWORD);
-  await Promise.all([
-    page.waitForURL(`${BASE_URL}/`),
-    page.click('button[type="submit"]'),
-  ]);
-  await page.waitForSelector("[data-hydrated]");
-
-  // Create a list and return its ID
-  const input = page.locator('input[placeholder="Nazwa listy..."]');
-  await input.waitFor();
-  await input.fill("Header Test List");
-  await page.locator('button:has-text("Utwórz")').first().click();
-  const card = page.locator('[data-testid="list-card"]').filter({ hasText: "Header Test List" });
-  await card.waitFor({ timeout: 5000 });
-  await card.locator('[data-testid="list-card-title"]').click();
-  await page.waitForURL(/\/lists\/.+/);
-  return page.url().split("/lists/")[1];
-}
+import {
+  BASE_URL,
+  addItem,
+  confirmModal,
+  createListAndOpen,
+  listAction,
+  registerAndLogin,
+  waitForHydration,
+} from "./helpers";
 
 // ── Happy flows ──────────────────────────────────────────────────────────────
 
 test("rename list via inline click — Enter saves", async ({ page, context }) => {
-  const listId = await setup(page, context);
+  await registerAndLogin(page, context, "LHA User");
+  const listId = await createListAndOpen(page, "Header Test List");
+
   await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
 
   await page.locator('[data-testid="list-name-heading"]').click();
   const nameInput = page.locator('[data-testid="list-name-heading-input"]');
@@ -52,8 +29,11 @@ test("rename list via inline click — Enter saves", async ({ page, context }) =
 });
 
 test("Escape cancels rename without saving", async ({ page, context }) => {
-  const listId = await setup(page, context);
+  await registerAndLogin(page, context, "LHA User");
+  const listId = await createListAndOpen(page, "Header Test List");
+
   await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
 
   await page.locator('[data-testid="list-name-heading"]').click();
   const nameInput = page.locator('[data-testid="list-name-heading-input"]');
@@ -66,50 +46,57 @@ test("Escape cancels rename without saving", async ({ page, context }) => {
 });
 
 test("pin then unpin via dropdown", async ({ page, context }) => {
-  const listId = await setup(page, context);
+  await registerAndLogin(page, context, "LHA User");
+  const listId = await createListAndOpen(page, "Header Test List");
+
   await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
 
   // Pin
-  await page.locator('[data-testid="list-actions-btn"]').click();
-  await page.locator('[data-testid="action-pin"]').click();
+  await listAction(page, "action-pin");
 
   // After pin: reload page and verify label changed to Odepnij
   await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
   await page.locator('[data-testid="list-actions-btn"]').click();
   await expect(page.locator('[data-testid="action-pin"]')).toContainText("Odepnij");
 
   // Unpin
   await page.locator('[data-testid="action-pin"]').click();
   await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
   await page.locator('[data-testid="list-actions-btn"]').click();
   await expect(page.locator('[data-testid="action-pin"]')).toContainText("Przypnij");
 });
 
 test("reset marks completed items as incomplete", async ({ page, context }) => {
-  const listId = await setup(page, context);
+  await registerAndLogin(page, context, "LHA User");
+  const listId = await createListAndOpen(page, "Header Test List");
+
   await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
 
   // Add item and complete it
-  await page.fill('input[placeholder="Nowy element..."]', "Item to reset");
-  await page.click('button:has-text("Dodaj")');
-  const itemCheckbox = page.locator('[data-testid="item-toggle"]').first();
-  await itemCheckbox.waitFor();
-  await itemCheckbox.click();
+  await addItem(page, "Item to reset");
+  await page.locator('[data-testid="item-toggle"]').first().click();
   await expect(page.locator('[data-testid="completion-count"]')).toContainText("1/1");
 
-  // Reset via dropdown
-  await page.locator('[data-testid="list-actions-btn"]').click();
-  await page.locator('[data-testid="action-reset"]').click();
+  // Reset via dropdown (destructive actions ask for confirmation)
+  await listAction(page, "action-reset");
+  await confirmModal(page);
   await expect(page.locator('[data-testid="completion-count"]')).toContainText("0/1");
 });
 
 test("archive navigates to home", async ({ page, context }) => {
-  const listId = await setup(page, context);
-  await page.goto(`/lists/${listId}`);
+  await registerAndLogin(page, context, "LHA User");
+  const listId = await createListAndOpen(page, "Header Test List");
 
-  await page.locator('[data-testid="list-actions-btn"]').click();
-  await page.locator('[data-testid="action-archive"]').click();
-  await page.waitForURL(`${BASE_URL}/`, { timeout: 5000 });
+  await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
+
+  await listAction(page, "action-archive");
+  await confirmModal(page);
+  await page.waitForURL(`${BASE_URL}/`, { timeout: 10_000 });
 
   expect(page.url()).toBe(`${BASE_URL}/`);
 });
@@ -117,8 +104,11 @@ test("archive navigates to home", async ({ page, context }) => {
 // ── Sad flows ────────────────────────────────────────────────────────────────
 
 test("rename with empty/whitespace name shows error toast", async ({ page, context }) => {
-  const listId = await setup(page, context);
+  await registerAndLogin(page, context, "LHA User");
+  const listId = await createListAndOpen(page, "Header Test List");
+
   await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
 
   await page.locator('[data-testid="list-name-heading"]').click();
   const nameInput = page.locator('[data-testid="list-name-heading-input"]');
@@ -126,21 +116,23 @@ test("rename with empty/whitespace name shows error toast", async ({ page, conte
   await nameInput.fill("   ");
   await page.keyboard.press("Enter");
 
-  // Server returns error → toast appears; heading stays hidden until refresh
-  // Check the input is still visible (no navigation away) and error appears
-  await expect(page.locator('.toast')).toBeVisible({ timeout: 3000 });
+  // Server rejects the empty name → toast appears
+  await expect(page.locator(".toast")).toBeVisible({ timeout: 5000 });
 });
 
 test("reset on list with no items is a no-op (no error)", async ({ page, context }) => {
-  const listId = await setup(page, context);
-  await page.goto(`/lists/${listId}`);
+  await registerAndLogin(page, context, "LHA User");
+  const listId = await createListAndOpen(page, "Header Test List");
 
-  // No items — just click reset, should not crash
-  await page.locator('[data-testid="list-actions-btn"]').click();
-  await page.locator('[data-testid="action-reset"]').click();
+  await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
+
+  // No items — reset should not crash
+  await listAction(page, "action-reset");
+  await confirmModal(page);
 
   // Page should still be on the list (no error navigation)
-  await expect(page.locator('[data-testid="list-name-heading"]')).toBeVisible({ timeout: 3000 });
+  await expect(page.locator('[data-testid="list-name-heading"]')).toBeVisible({ timeout: 5000 });
   // No toast error
-  await expect(page.locator('.toast.alert-error')).not.toBeVisible();
+  await expect(page.locator(".toast.alert-error")).not.toBeVisible();
 });

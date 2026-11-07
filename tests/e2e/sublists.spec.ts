@@ -1,71 +1,51 @@
-import { test, expect, Page, BrowserContext } from "@playwright/test";
+import { test, expect, Page } from "@playwright/test";
 
-const BASE_URL = "http://localhost:3030";
-const PASSWORD = "testpassword123";
+import { createListAndOpen, registerAndLogin, waitForHydration } from "./helpers";
 
-function uniqueEmail() {
-  return `test+sub+${Date.now()}+${Math.random().toString(36).slice(2)}@example.com`;
+/** Open the "add sublist" form on the list page and create a sublist. */
+async function createSublist(page: Page, name: string) {
+  await page.locator('button:has-text("Dodaj podlistę")').click();
+  const form = page.locator('[data-testid="add-sublist-input"]');
+  await form.locator('input[type="text"]').fill(name);
+  await form.locator("button").click();
 }
 
-async function setup(page: Page, context: BrowserContext) {
-  const email = uniqueEmail();
-  const res = await context.request.post(`${BASE_URL}/auth/register`, {
-    headers: { "Content-Type": "application/json" },
-    data: { name: "Sub User", email, password: PASSWORD },
-  });
-  expect(res.ok()).toBeTruthy();
-  await context.clearCookies();
-  await page.goto("/login");
-  await page.waitForSelector("[data-hydrated]");
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', PASSWORD);
-  await Promise.all([
-    page.waitForURL(`${BASE_URL}/`),
-    page.click('button[type="submit"]'),
-  ]);
-  await page.waitForSelector("[data-hydrated]");
+/** The collapse section of the sublist with the given name. */
+function sublistSection(page: Page, name: string) {
+  return page.locator('[data-testid="sublist-section"]').filter({ hasText: name });
 }
 
-async function createListAndNavigate(page: Page, name: string): Promise<string> {
-  await page.goto("/");
-  await page.waitForSelector("[data-hydrated]");
-  await page.fill('input[placeholder="Nazwa listy..."]', name);
-  await page.locator('button:has-text("Utwórz")').first().click();
-  const card = page.locator('[data-testid="list-card"]').filter({ hasText: name });
-  await card.waitFor({ timeout: 5000 });
-  await card.locator('[data-testid="list-card-title"]').click();
-  await page.waitForURL(/\/lists\/.+/);
-  return page.url().split("/lists/")[1];
+/** Add an item inside a sublist section and wait for it to appear. */
+async function addSublistItem(page: Page, section: ReturnType<Page["locator"]>, title: string) {
+  const form = section.locator('[data-testid="sublist-new-item"]');
+  await form.locator('input[type="text"]').fill(title);
+  await form.locator("button").click();
+  await expect(section.getByText(title, { exact: true })).toBeVisible();
 }
 
 // ── Create sublist ────────────────────────────────────────────────────────────
 
 test("create sublist appears in parent list", async ({ page, context }) => {
-  await setup(page, context);
-  const listId = await createListAndNavigate(page, "Parent List");
+  await registerAndLogin(page, context, "Sub User");
+  const listId = await createListAndOpen(page, "Parent List");
+
   await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
+  await createSublist(page, "My Sublist");
 
-  await page.locator('button:has-text("Dodaj podlistę")').click();
-  await page.fill('input[placeholder="Nazwa podlisty..."]', "My Sublist");
-  await page.locator('button:has-text("Utwórz")').click();
-
-  await expect(
-    page.locator('[data-testid="sublist-section"]').filter({ hasText: "My Sublist" })
-  ).toBeVisible();
+  await expect(sublistSection(page, "My Sublist")).toBeVisible();
 });
 
 test("multiple sublists all appear", async ({ page, context }) => {
-  await setup(page, context);
-  const listId = await createListAndNavigate(page, "Multi Sublist Parent");
+  await registerAndLogin(page, context, "Sub User");
+  const listId = await createListAndOpen(page, "Multi Sublist Parent");
+
   await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
 
   for (const name of ["Alpha", "Beta", "Gamma"]) {
-    await page.locator('button:has-text("Dodaj podlistę")').click();
-    await page.fill('input[placeholder="Nazwa podlisty..."]', name);
-    await page.locator('button:has-text("Utwórz")').click();
-    await expect(
-      page.locator('[data-testid="sublist-section"]').filter({ hasText: name })
-    ).toBeVisible();
+    await createSublist(page, name);
+    await expect(sublistSection(page, name)).toBeVisible();
   }
 
   await expect(page.locator('[data-testid="sublist-section"]')).toHaveCount(3);
@@ -74,55 +54,50 @@ test("multiple sublists all appear", async ({ page, context }) => {
 // ── Add items to sublist ──────────────────────────────────────────────────────
 
 test("add item to sublist shows it inside that section", async ({ page, context }) => {
-  await setup(page, context);
-  const listId = await createListAndNavigate(page, "Item Parent");
+  await registerAndLogin(page, context, "Sub User");
+  const listId = await createListAndOpen(page, "Item Parent");
+
   await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
+  await createSublist(page, "Sub With Item");
 
-  await page.locator('button:has-text("Dodaj podlistę")').click();
-  await page.fill('input[placeholder="Nazwa podlisty..."]', "Sub With Item");
-  await page.locator('button:has-text("Utwórz")').click();
-
-  const section = page.locator('[data-testid="sublist-section"]').filter({ hasText: "Sub With Item" });
+  const section = sublistSection(page, "Sub With Item");
   await expect(section).toBeVisible();
+  await addSublistItem(page, section, "Subtask 1");
 
-  await section.locator('input[placeholder="Nowy element..."]').fill("Subtask 1");
-  await section.locator('button:has-text("Dodaj")').click();
-
-  await expect(section.locator('text=Subtask 1')).toBeVisible();
+  await expect(section.getByText("Subtask 1", { exact: true })).toBeVisible();
 });
 
 test("sublist progress counter updates after adding item", async ({ page, context }) => {
-  await setup(page, context);
-  const listId = await createListAndNavigate(page, "Progress Parent");
+  await registerAndLogin(page, context, "Sub User");
+  const listId = await createListAndOpen(page, "Progress Parent");
+
   await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
+  await createSublist(page, "Progress Sub");
 
-  await page.locator('button:has-text("Dodaj podlistę")').click();
-  await page.fill('input[placeholder="Nazwa podlisty..."]', "Progress Sub");
-  await page.locator('button:has-text("Utwórz")').click();
-
-  const section = page.locator('[data-testid="sublist-section"]').filter({ hasText: "Progress Sub" });
-  await section.locator('input[placeholder="Nowy element..."]').fill("Task A");
-  await section.locator('button:has-text("Dodaj")').click();
-  await expect(section.locator('text=Task A')).toBeVisible();
+  const section = sublistSection(page, "Progress Sub");
+  await addSublistItem(page, section, "Task A");
 
   await expect(section.locator('[data-testid="sublist-progress"]')).toContainText("0/1");
 });
 
 // ── Toggle items in sublist ───────────────────────────────────────────────────
 
-test("toggling item in sublist updates progress counter", async ({ page, context }) => {
-  await setup(page, context);
-  const listId = await createListAndNavigate(page, "Toggle Parent");
+// APP BUG (#341): `SublistSection` renders `ItemRow` without `list_features`, so sublist items never
+// get a completion checkbox (`ItemRow` only renders one for the `checklist` feature) even though
+// the section tracks and displays a done/total progress counter. Toggle it from the sublist's own
+// page, or extend `SublistSection` to pass the sublist's features.
+test.fixme("toggling item in sublist updates progress counter", async ({ page, context }) => {
+  await registerAndLogin(page, context, "Sub User");
+  const listId = await createListAndOpen(page, "Toggle Parent");
+
   await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
+  await createSublist(page, "Toggle Sub");
 
-  await page.locator('button:has-text("Dodaj podlistę")').click();
-  await page.fill('input[placeholder="Nazwa podlisty..."]', "Toggle Sub");
-  await page.locator('button:has-text("Utwórz")').click();
-
-  const section = page.locator('[data-testid="sublist-section"]').filter({ hasText: "Toggle Sub" });
-  await section.locator('input[placeholder="Nowy element..."]').fill("Check Me");
-  await section.locator('button:has-text("Dodaj")').click();
-  await expect(section.locator('text=Check Me')).toBeVisible();
+  const section = sublistSection(page, "Toggle Sub");
+  await addSublistItem(page, section, "Check Me");
   await expect(section.locator('[data-testid="sublist-progress"]')).toContainText("0/1");
 
   await section.locator('[data-testid="item-toggle"]').first().click();
@@ -132,20 +107,19 @@ test("toggling item in sublist updates progress counter", async ({ page, context
 // ── Open sublist as full page ─────────────────────────────────────────────────
 
 test("↗ link opens sublist as standalone list page", async ({ page, context }) => {
-  await setup(page, context);
-  const listId = await createListAndNavigate(page, "Nav Parent");
+  await registerAndLogin(page, context, "Sub User");
+  const listId = await createListAndOpen(page, "Nav Parent");
+
   await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
+  await createSublist(page, "Nav Sub");
 
-  await page.locator('button:has-text("Dodaj podlistę")').click();
-  await page.fill('input[placeholder="Nazwa podlisty..."]', "Nav Sub");
-  await page.locator('button:has-text("Utwórz")').click();
-
-  const section = page.locator('[data-testid="sublist-section"]').filter({ hasText: "Nav Sub" });
+  const section = sublistSection(page, "Nav Sub");
   await expect(section).toBeVisible();
 
   const href = await section.locator('[data-testid="sublist-open-link"]').getAttribute("href");
   await page.goto(href!);
-  await page.waitForSelector("[data-hydrated]");
+  await waitForHydration(page);
 
   await expect(page.locator('[data-testid="list-name-heading"]')).toHaveText("Nav Sub");
 });

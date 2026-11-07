@@ -77,6 +77,7 @@ pub fn TagList(
                             {badge}
                             <button
                                 type="button"
+                                data-testid="tag-remove-btn"
                                 class=move || format!(
                                     "absolute -top-1 -right-1 w-4 h-4 rounded-full bg-base-300 hover:bg-error hover:text-error-content text-xs flex items-center justify-center z-10 leading-none transition-opacity {}",
                                     if hovered.get() { "opacity-100" } else { "opacity-0 pointer-events-none" }

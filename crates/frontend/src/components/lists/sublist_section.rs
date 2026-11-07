@@ -189,6 +189,7 @@ pub fn SublistSection(
                                 <AddInput
                                     placeholder=Signal::derive(|| "Nowy element...".to_string())
                                     button_label=Signal::derive(|| "Dodaj".to_string())
+                                    testid="sublist-new-item"
                                     on_submit=on_add
                                 />
                             </div>

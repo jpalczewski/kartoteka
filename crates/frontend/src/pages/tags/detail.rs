@@ -122,7 +122,10 @@ pub fn TagDetailPage() -> impl IntoView {
                     };
                     let tid = tag_id_fn.get();
                     let Some(current) = all_tags.iter().find(|t| t.id == tid).cloned() else {
-                        return view! { <p>"Nie znaleziono tagu."</p> }.into_any();
+                        return view! {
+                            <p data-testid="tag-error">"Nie znaleziono tagu."</p>
+                        }
+                        .into_any();
                     };
 
                     let color = current.color.clone().unwrap_or_else(|| "#6366f1".to_string());
