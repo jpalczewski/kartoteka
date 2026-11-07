@@ -127,13 +127,19 @@ pub async fn recent(pool: &SqlitePool, user_id: &str, limit: i64) -> Result<Vec<
 
 /// Record that the user opened a list. Only `last_opened_at` is written —
 /// opening a list is a read and must not bump `updated_at`.
+///
+/// A second call within the same second writes nothing: the change_log trigger
+/// (migration 019) logs every UPDATE that leaves `last_opened_at` unchanged.
 #[tracing::instrument(skip(pool))]
 pub async fn touch_last_opened(pool: &SqlitePool, id: &str, user_id: &str) -> Result<(), DbError> {
-    sqlx::query("UPDATE lists SET last_opened_at=datetime('now') WHERE id=? AND user_id=?")
-        .bind(id)
-        .bind(user_id)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "UPDATE lists SET last_opened_at=datetime('now') \
+         WHERE id=? AND user_id=? AND last_opened_at IS NOT datetime('now')",
+    )
+    .bind(id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

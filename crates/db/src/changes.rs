@@ -420,45 +420,33 @@ mod tests {
     }
 
     /// Opening a list or container writes last_opened_at only: that is a read of
-    /// the user's data and must not wake the live-update pump.
+    /// the user's data and must not wake the live-update pump. Any other UPDATE
+    /// (last_opened_at untouched) fires, including columns added later.
     #[tokio::test]
-    async fn last_opened_at_only_updates_are_not_logged() {
+    async fn last_opened_at_touches_are_not_logged() {
         let pool = test_pool().await;
         let user = create_test_user(&pool).await;
         let list = create_test_list(&pool, &user).await;
         let container = insert_container(&pool, &user).await;
         clear_log(&pool).await;
 
-        exec(
-            &pool,
-            "UPDATE lists SET last_opened_at = datetime('now') WHERE id = ?",
-            &list,
-        )
-        .await;
-        exec(
-            &pool,
-            "UPDATE lists SET last_opened_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
-            &list,
-        )
-        .await;
-        exec(
-            &pool,
-            "UPDATE containers SET last_opened_at = datetime('now') WHERE id = ?",
-            &container,
-        )
-        .await;
+        // The real touch functions, twice each: the second call in the same
+        // second must write nothing (it would otherwise look like a real change).
+        for _ in 0..2 {
+            crate::lists::touch_last_opened(&pool, &list, &user)
+                .await
+                .unwrap();
+            crate::containers::touch_last_opened(&pool, &container, &user)
+                .await
+                .unwrap();
+        }
         assert!(log(&pool).await.is_empty(), "touch writes must stay silent");
 
-        // A real change next to last_opened_at still fires.
+        // Updates that leave last_opened_at alone fire.
+        exec(&pool, "UPDATE lists SET pinned = 1 WHERE id = ?", &list).await;
         exec(
             &pool,
-            "UPDATE lists SET pinned = 1, last_opened_at = datetime('now') WHERE id = ?",
-            &list,
-        )
-        .await;
-        exec(
-            &pool,
-            "UPDATE containers SET name = 'Renamed', last_opened_at = datetime('now') WHERE id = ?",
+            "UPDATE containers SET name = 'Renamed' WHERE id = ?",
             &container,
         )
         .await;
