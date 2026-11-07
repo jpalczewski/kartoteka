@@ -192,6 +192,10 @@ pub fn DeleteEntityModal(
                 DeleteEntityKind::List => delete_list_preview(requested.id.clone()).await,
                 DeleteEntityKind::Container => delete_container_preview(requested.id.clone()).await,
             };
+            // The dialog may have been closed or reopened for another entity meanwhile.
+            if target.try_get_untracked().flatten().as_ref() != Some(&requested) {
+                return;
+            }
             match result {
                 Ok(summary) => preview.set(PreviewState::Ready(summary)),
                 Err(e) => {

@@ -742,6 +742,7 @@ pub fn ListPage() -> impl IntoView {
                                                             set_adding_sublist.set(false);
                                                             on_create_sublist.run(name);
                                                         })
+                                                        testid="add-sublist-input"
                                                     />
                                                 }.into_any()
                                             } else {
@@ -749,6 +750,7 @@ pub fn ListPage() -> impl IntoView {
                                                     <button
                                                         type="button"
                                                         class="btn btn-ghost btn-sm"
+                                                        data-testid="add-sublist-button"
                                                         on:click=move |_| set_adding_sublist.set(true)
                                                     >
                                                         "+ Dodaj podlistę"

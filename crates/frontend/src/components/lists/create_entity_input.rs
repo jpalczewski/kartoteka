@@ -74,6 +74,7 @@ pub fn CreateEntityInput(
                     <div class="contents">
                         <a
                             class=move || if mode.get() == EntityMode::Folder { "tab tab-active" } else { "tab" }
+                            data-testid="create-entity-tab-folder"
                             on:click=move |_| set_mode.set(EntityMode::Folder)
                         >
                             {move_tr!("lists-mode-folder")}

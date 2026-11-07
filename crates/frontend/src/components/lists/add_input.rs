@@ -25,7 +25,7 @@ pub fn AddInput(
     let submit_click = submit.clone();
 
     view! {
-        <div class="flex gap-2" attr:data-testid=testid>
+        <div class="flex gap-2" data-testid=testid>
             <input
                 type="text"
                 class="input input-bordered flex-1"
