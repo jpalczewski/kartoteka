@@ -1,4 +1,4 @@
-#![allow(clippy::too_many_arguments)]
+use kartoteka_shared::CreateItemRequest;
 use kartoteka_shared::types::{
     CalendarMonthData, CalendarWeekDay, DateItem, Item, ItemChange, ItemDetailData, ListData,
     TodayData,
@@ -150,43 +150,35 @@ pub async fn get_list_data(list_id: String) -> Result<ListData, ServerFnError> {
     })
 }
 
-/// Add a new item to a list. Optionally include quantity, unit, and date fields.
-#[server(prefix = "/leptos")]
-pub async fn create_item(
-    list_id: String,
-    title: String,
-    description: Option<String>,
-    quantity: Option<i32>,
-    unit: Option<String>,
-    start_date: Option<String>,
-    deadline: Option<String>,
-    hard_deadline: Option<String>,
-) -> Result<Item, ServerFnError> {
-    if title.trim().is_empty() {
+/// Add a new item to a list. The request carries the title and every optional field
+/// (description, icon, quantity, dates, estimate, recurrence); blank strings count as unset.
+///
+/// JSON input, so the request keeps its shape instead of going through the URL encoding.
+#[server(prefix = "/leptos", input = ::leptos::server_fn::codec::Json)]
+pub async fn create_item(list_id: String, req: CreateItemRequest) -> Result<Item, ServerFnError> {
+    if req.title.trim().is_empty() {
         return Err(ServerFnError::new("title cannot be empty".to_string()));
     }
     let (pool, user) = require_user().await?;
-    let desc = description.filter(|d| !d.trim().is_empty());
-    let opt_date = |s: Option<String>| s.and_then(empty_as_none);
     let item = domain::items::create(
         &pool,
         &user.id,
         &list_id,
         &domain::items::CreateItemRequest {
-            title,
-            description: desc,
-            icon: None,
-            quantity,
+            title: req.title,
+            description: req.description.and_then(blank_as_none),
+            icon: req.icon.and_then(blank_as_none),
+            quantity: req.quantity,
             actual_quantity: None,
-            unit,
-            start_date: opt_date(start_date),
-            start_time: None,
-            deadline: opt_date(deadline),
-            deadline_time: None,
-            hard_deadline: opt_date(hard_deadline),
-            estimated_duration: None,
-            recurrence_rule: None,
-            recurrence_mode: None,
+            unit: req.unit.and_then(blank_as_none),
+            start_date: req.start_date.and_then(blank_as_none),
+            start_time: req.start_time.and_then(blank_as_none),
+            deadline: req.deadline.and_then(blank_as_none),
+            deadline_time: req.deadline_time.and_then(blank_as_none),
+            hard_deadline: req.hard_deadline.and_then(blank_as_none),
+            estimated_duration: req.estimated_duration,
+            recurrence_rule: req.recurrence_rule.and_then(blank_as_none),
+            recurrence_mode: req.recurrence_mode.and_then(blank_as_none),
         },
     )
     .await
@@ -473,6 +465,12 @@ pub async fn update_item(
 #[cfg(feature = "ssr")]
 fn empty_as_none(s: String) -> Option<String> {
     if s.is_empty() { None } else { Some(s) }
+}
+
+/// Like [`empty_as_none`], also for whitespace-only input.
+#[cfg(feature = "ssr")]
+fn blank_as_none(s: String) -> Option<String> {
+    if s.trim().is_empty() { None } else { Some(s) }
 }
 
 #[cfg(feature = "ssr")]

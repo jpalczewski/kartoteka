@@ -1,3 +1,4 @@
+use kartoteka_shared::CreateItemRequest;
 use kartoteka_shared::types::Item;
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
@@ -118,7 +119,17 @@ pub fn AddItemInput(
         };
         set_pending.set(true);
         leptos::task::spawn_local(async move {
-            match create_item(lid, t, desc, qty, u, sd, dl, hd).await {
+            let req = CreateItemRequest {
+                title: t,
+                description: desc,
+                quantity: qty,
+                unit: u,
+                start_date: sd,
+                deadline: dl,
+                hard_deadline: hd,
+                ..Default::default()
+            };
+            match create_item(lid, req).await {
                 Ok(item) => {
                     draft.clear();
                     on_created.run(item);
