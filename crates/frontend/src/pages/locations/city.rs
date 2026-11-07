@@ -3,32 +3,30 @@ use leptos_fluent::{I18n, move_tr};
 use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 
-use crate::app::ToastContext;
 use crate::components::common::inline_edit::{InlineEdit, InlineEditSize};
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::locations::{
     get_city_addresses_sf, get_countries, get_country_regions_sf, get_location_detail_sf,
     update_location_sf,
 };
-use kartoteka_shared::UpdateLocationRequest;
+use crate::state::invalidation::{mutate, use_invalidation};
+use kartoteka_shared::{ChangeTopic, UpdateLocationRequest};
 
 use super::detail_header::LocationDetailHeader;
-use super::refresh_or_toast;
 
 #[component]
 pub fn CityDetailPage() -> impl IntoView {
     let params = use_params_map();
     let city_id = Memo::new(move |_| params.read().get("id").unwrap_or_default());
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let i18n = expect_context::<I18n>();
-    let (refresh, set_refresh) = signal(0u32);
+    let invalidation = use_invalidation();
 
     let city_res = Resource::new(
-        move || (city_id.get(), refresh.get()),
+        move || (city_id.get(), invalidation.track(&[ChangeTopic::Locations])),
         |(id, _)| get_location_detail_sf(id),
     );
     let addresses_res = Resource::new(
-        move || (city_id.get(), refresh.get()),
+        move || (city_id.get(), invalidation.track(&[ChangeTopic::Locations])),
         |(id, _)| get_city_addresses_sf(id),
     );
     let countries_res = Resource::new(|| (), |_| get_countries());
@@ -61,13 +59,12 @@ pub fn CityDetailPage() -> impl IntoView {
             // empty save is a no-op rather than storing an empty-string region.
             return;
         }
-        refresh_or_toast(
+        mutate(
             update_location_sf(
                 city_id.get_untracked(),
                 UpdateLocationRequest::set_region(region),
             ),
-            set_refresh,
-            toast.clone(),
+            &[ChangeTopic::Locations],
         );
     });
 
@@ -102,7 +99,6 @@ pub fn CityDetailPage() -> impl IntoView {
                                         name=city.name
                                         alias=city.alias
                                         after_delete_href="/locations".to_string()
-                                        set_refresh=set_refresh
                                     >
                                         // Region / country line
                                         <div class="flex items-center gap-2 mt-1 text-sm text-base-content/60">

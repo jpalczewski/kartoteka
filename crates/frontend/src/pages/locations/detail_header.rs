@@ -2,13 +2,13 @@ use leptos::prelude::*;
 use leptos_fluent::I18n;
 use leptos_router::hooks::use_navigate;
 
-use crate::app::{ToastContext, ToastKind};
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::inline_edit::InlineEdit;
 use crate::server_fns::locations::{delete_location_sf, update_location_sf};
-use kartoteka_shared::UpdateLocationRequest;
+use crate::state::invalidation::{mutate, mutate_with};
+use kartoteka_shared::{ChangeTopic, UpdateLocationRequest};
 
-use super::{InlineAlias, refresh_or_toast};
+use super::InlineAlias;
 
 /// Header shared by the city and address detail pages.
 ///
@@ -20,7 +20,6 @@ use super::{InlineAlias, refresh_or_toast};
 /// - `name`: current name, shown as the title and used as the rename draft.
 /// - `alias`: current alias, rendered by [`InlineAlias`].
 /// - `after_delete_href`: where to navigate once the delete succeeds.
-/// - `set_refresh`: bumped after a rename so the page refetches.
 /// - `children`: extra content between the title and the alias.
 #[component]
 pub(super) fn LocationDetailHeader(
@@ -28,11 +27,9 @@ pub(super) fn LocationDetailHeader(
     name: String,
     alias: Option<String>,
     after_delete_href: String,
-    set_refresh: WriteSignal<u32>,
     #[prop(optional)] children: Option<Children>,
 ) -> impl IntoView {
     let i18n = expect_context::<I18n>();
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let navigate = use_navigate();
     let id = StoredValue::new(id);
     let name = StoredValue::new(name);
@@ -43,10 +40,9 @@ pub(super) fn LocationDetailHeader(
 
     let on_save = Callback::new(move |new_name: String| {
         set_editing.set(false);
-        refresh_or_toast(
+        mutate(
             update_location_sf(id.get_value(), UpdateLocationRequest::rename(new_name)),
-            set_refresh,
-            toast.clone(),
+            &[ChangeTopic::Locations],
         );
     });
 
@@ -55,14 +51,12 @@ pub(super) fn LocationDetailHeader(
         show_delete.set(false);
         let id = id.get_value();
         let href = after_delete_href.get_value();
-        let toast = toast.clone();
         let navigate = navigate.clone();
-        leptos::task::spawn_local(async move {
-            match delete_location_sf(id).await {
-                Ok(_) => navigate(&href, Default::default()),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate_with(
+            delete_location_sf(id),
+            &[ChangeTopic::Locations],
+            move |_| navigate(&href, Default::default()),
+        );
     });
 
     view! {
@@ -97,7 +91,7 @@ pub(super) fn LocationDetailHeader(
                 {children.map(|children| children())}
 
                 <div class="mt-2">
-                    <InlineAlias id=id.get_value() initial=alias set_refresh />
+                    <InlineAlias id=id.get_value() initial=alias />
                 </div>
             </div>
             <button
