@@ -91,3 +91,10 @@ pub fn tracked_items<T: ItemEntry>(store: Store<ItemRows<T>>) -> Vec<T> {
 pub fn row_item<T: ItemEntry>(store: Store<ItemRows<T>>, id: String) -> Memo<Option<T>> {
     Memo::new(move |_| store.rows().at_key(id.clone()).try_get().map(|row| row.0))
 }
+
+/// The row's item as a plain `Signal<Option<Item>>`, which is what the item parts in
+/// `components/items/parts/` take. `None` once the row is gone. Use it with a [`row_item`]
+/// memo, not a whole-store read, so only that row's updates reach the part.
+pub fn item_signal<T: ItemEntry>(row: Memo<Option<T>>) -> Signal<Option<Item>> {
+    Signal::derive(move || row.get().map(|entry| entry.item().clone()))
+}
