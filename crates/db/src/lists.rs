@@ -491,13 +491,42 @@ pub async fn delete_tree(
     Ok(DeleteTreeOutcome::Deleted)
 }
 
+/// Set the archived flag to an explicit value. Returns false if the list does
+/// not belong to `user_id`.
 #[tracing::instrument(skip(pool))]
-pub async fn toggle_archived(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, DbError> {
+pub async fn set_archived(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    archived: bool,
+) -> Result<bool, DbError> {
     let rows = sqlx::query(
-        "UPDATE lists SET archived = CASE WHEN archived = 0 THEN 1 ELSE 0 END, \
-                          updated_at = datetime('now') \
+        "UPDATE lists SET archived = ?, updated_at = datetime('now') \
          WHERE id = ? AND user_id = ?",
     )
+    .bind(i64::from(archived))
+    .bind(id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(rows.rows_affected() > 0)
+}
+
+/// Set the pinned flag to an explicit value. Returns false if the list does not
+/// belong to `user_id`.
+#[tracing::instrument(skip(pool))]
+pub async fn set_pinned(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    pinned: bool,
+) -> Result<bool, DbError> {
+    let rows = sqlx::query(
+        "UPDATE lists SET pinned = ?, updated_at = datetime('now') \
+         WHERE id = ? AND user_id = ?",
+    )
+    .bind(i64::from(pinned))
     .bind(id)
     .bind(user_id)
     .execute(pool)
@@ -507,18 +536,19 @@ pub async fn toggle_archived(pool: &SqlitePool, id: &str, user_id: &str) -> Resu
 }
 
 #[tracing::instrument(skip(pool))]
+pub async fn toggle_archived(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, DbError> {
+    let Some(row) = get_one(pool, id, user_id).await? else {
+        return Ok(false);
+    };
+    set_archived(pool, id, user_id, row.archived == 0).await
+}
+
+#[tracing::instrument(skip(pool))]
 pub async fn toggle_pinned(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, DbError> {
-    let rows = sqlx::query(
-        "UPDATE lists SET pinned = CASE WHEN pinned = 0 THEN 1 ELSE 0 END, \
-                          updated_at = datetime('now') \
-         WHERE id = ? AND user_id = ?",
-    )
-    .bind(id)
-    .bind(user_id)
-    .execute(pool)
-    .await
-    .map_err(DbError::Sqlx)?;
-    Ok(rows.rows_affected() > 0)
+    let Some(row) = get_one(pool, id, user_id).await? else {
+        return Ok(false);
+    };
+    set_pinned(pool, id, user_id, row.pinned == 0).await
 }
 
 /// Mark all items in a list as not completed.

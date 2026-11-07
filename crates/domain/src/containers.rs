@@ -278,6 +278,26 @@ pub async fn delete(
     }
 }
 
+/// Archive or unarchive a container and all its descendants + their lists.
+///
+/// Idempotent: the whole subtree is set to the given state, so calling it twice
+/// with the same `archived` leaves one state. `None` means the container does
+/// not belong to `user_id`.
+#[tracing::instrument(skip(pool), fields(container_id = %id, archived))]
+pub async fn set_archived(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    archived: bool,
+) -> Result<Option<Container>, DomainError> {
+    if !db_containers::set_archived(pool, id, user_id, archived).await? {
+        return Ok(None);
+    }
+    Ok(db_containers::get_one(pool, id, user_id)
+        .await?
+        .map(row_to_container))
+}
+
 /// Toggle archived state for a container and all its descendants + their lists.
 #[tracing::instrument(skip(pool))]
 pub async fn toggle_archive(
@@ -285,15 +305,10 @@ pub async fn toggle_archive(
     id: &str,
     user_id: &str,
 ) -> Result<Option<Container>, DomainError> {
-    let toggled = db_containers::toggle_archived(pool, id, user_id).await?;
-    if !toggled {
+    let Some(current) = db_containers::get_one(pool, id, user_id).await? else {
         return Ok(None);
-    }
-    db_containers::get_one(pool, id, user_id)
-        .await?
-        .map(row_to_container)
-        .ok_or(DomainError::NotFound("container"))
-        .map(Some)
+    };
+    set_archived(pool, id, user_id, !current.archived).await
 }
 
 /// List archived containers (root entries only).
@@ -402,6 +417,21 @@ pub async fn reorder(
     Ok(())
 }
 
+/// Pin or unpin a container to an explicit state.
+///
+/// Idempotent. `None` means the container does not belong to `user_id`.
+#[tracing::instrument(skip(pool), fields(container_id = %id, pinned))]
+pub async fn set_pinned(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    pinned: bool,
+) -> Result<Option<Container>, DomainError> {
+    Ok(db_containers::set_pinned(pool, id, user_id, pinned)
+        .await?
+        .map(row_to_container))
+}
+
 /// Toggle the pinned state of a container.
 #[tracing::instrument(skip(pool))]
 pub async fn toggle_pin(
@@ -409,9 +439,9 @@ pub async fn toggle_pin(
     id: &str,
     user_id: &str,
 ) -> Result<Container, DomainError> {
-    db_containers::toggle_pin(pool, id, user_id)
+    let current = get_one(pool, id, user_id).await?;
+    set_pinned(pool, id, user_id, !current.pinned)
         .await?
-        .map(row_to_container)
         .ok_or(DomainError::NotFound("container"))
 }
 
@@ -1301,5 +1331,89 @@ mod tests {
                 .unwrap_err(),
             DomainError::NotFound("container")
         ));
+    }
+
+    #[tokio::test]
+    async fn set_archived_is_idempotent_and_cascades() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let parent = make_container(&pool, &uid, "Parent").await;
+        let child = make_child_container(&pool, &uid, "Child", &parent.id).await;
+        let list = make_list(&pool, &uid, "List", &child.id, None).await;
+
+        for _ in 0..2 {
+            let archived = set_archived(&pool, &parent.id, &uid, true)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(archived.archived);
+        }
+
+        let child_after = get_one(&pool, &child.id, &uid).await.unwrap();
+        assert!(child_after.archived, "the sub-container is archived");
+        let list_row: (i64,) = sqlx::query_as("SELECT archived FROM lists WHERE id = ?")
+            .bind(&list)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(list_row.0, 1, "the list of the sub-container is archived");
+
+        // unarchiving twice restores the whole subtree
+        for _ in 0..2 {
+            let restored = set_archived(&pool, &parent.id, &uid, false)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(!restored.archived);
+        }
+        let child_after = get_one(&pool, &child.id, &uid).await.unwrap();
+        assert!(!child_after.archived);
+        let list_row: (i64,) = sqlx::query_as("SELECT archived FROM lists WHERE id = ?")
+            .bind(&list)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(list_row.0, 0);
+    }
+
+    #[tokio::test]
+    async fn set_pinned_is_idempotent() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let c = make_container(&pool, &uid, "Pinnable").await;
+
+        for _ in 0..2 {
+            let pinned = set_pinned(&pool, &c.id, &uid, true).await.unwrap().unwrap();
+            assert!(pinned.pinned);
+        }
+        let unpinned = set_pinned(&pool, &c.id, &uid, false)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!unpinned.pinned);
+    }
+
+    #[tokio::test]
+    async fn set_archived_and_set_pinned_of_other_user_are_none() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let intruder = create_test_user(&pool).await;
+        let c = make_container(&pool, &uid, "Mine").await;
+
+        assert!(
+            set_archived(&pool, &c.id, &intruder, true)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            set_pinned(&pool, &c.id, &intruder, true)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let row = get_one(&pool, &c.id, &uid).await.unwrap();
+        assert!(!row.archived);
+        assert!(!row.pinned);
     }
 }

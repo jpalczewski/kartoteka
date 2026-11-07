@@ -306,15 +306,19 @@ pub async fn delete_tree(
     Ok(DeleteTreeOutcome::Deleted)
 }
 
-/// Toggle archived state for a container and all its descendants + their lists.
-/// Returns true if the root container was found and updated.
+/// Set the archived state for a container and all its descendants + their
+/// lists. Returns true if the root container was found and updated.
 #[tracing::instrument(skip(pool))]
-pub async fn toggle_archived(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, DbError> {
-    let current = get_one(pool, id, user_id).await?;
-    let Some(row) = current else {
+pub async fn set_archived(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    archived: bool,
+) -> Result<bool, DbError> {
+    if get_one(pool, id, user_id).await?.is_none() {
         return Ok(false);
-    };
-    let new_val: i32 = if row.archived { 0 } else { 1 };
+    }
+    let new_val: i32 = i32::from(archived);
 
     let mut tx = pool.begin().await.map_err(DbError::Sqlx)?;
 
@@ -354,6 +358,16 @@ pub async fn toggle_archived(pool: &SqlitePool, id: &str, user_id: &str) -> Resu
 
     tx.commit().await.map_err(DbError::Sqlx)?;
     Ok(true)
+}
+
+/// Toggle archived state for a container and all its descendants + their lists.
+/// Returns true if the root container was found and updated.
+#[tracing::instrument(skip(pool))]
+pub async fn toggle_archived(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, DbError> {
+    let Some(row) = get_one(pool, id, user_id).await? else {
+        return Ok(false);
+    };
+    set_archived(pool, id, user_id, !row.archived).await
 }
 
 /// List archived containers for a user — root entries only
@@ -429,6 +443,28 @@ pub async fn recent(pool: &SqlitePool, user_id: &str) -> Result<Vec<ContainerRow
     Ok(rows)
 }
 
+/// Set the pinned state of a container. Returns None if not found.
+#[tracing::instrument(skip(pool))]
+pub async fn set_pinned(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    pinned: bool,
+) -> Result<Option<ContainerRow>, DbError> {
+    let row = sqlx::query_as(
+        r#"UPDATE containers
+           SET pinned=?, updated_at=datetime('now')
+           WHERE id=? AND user_id=?
+           RETURNING *"#,
+    )
+    .bind(i32::from(pinned))
+    .bind(id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
 /// Toggle the pinned state of a container. Returns None if not found.
 #[tracing::instrument(skip(pool))]
 pub async fn toggle_pin(
@@ -436,17 +472,10 @@ pub async fn toggle_pin(
     id: &str,
     user_id: &str,
 ) -> Result<Option<ContainerRow>, DbError> {
-    let row = sqlx::query_as(
-        r#"UPDATE containers
-           SET pinned=CASE WHEN pinned=1 THEN 0 ELSE 1 END, updated_at=datetime('now')
-           WHERE id=? AND user_id=?
-           RETURNING *"#,
-    )
-    .bind(id)
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await?;
-    Ok(row)
+    let Some(row) = get_one(pool, id, user_id).await? else {
+        return Ok(None);
+    };
+    set_pinned(pool, id, user_id, !row.pinned).await
 }
 
 /// Move a container to a new parent and position.
