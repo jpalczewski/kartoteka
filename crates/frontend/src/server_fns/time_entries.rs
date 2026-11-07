@@ -70,9 +70,17 @@ pub async fn get_running_timer() -> Result<Option<TimeEntry>, ServerFnError> {
 }
 
 #[server(prefix = "/leptos")]
-pub async fn start_timer(item_id: String) -> Result<TimeEntry, ServerFnError> {
+pub async fn start_timer(
+    item_id: String,
+    mode: Option<String>,
+) -> Result<TimeEntry, ServerFnError> {
     let (pool, user) = require_user().await?;
-    let entry = domain::time_entries::start(&pool, &user.id, Some(&item_id))
+    // Omitted mode = stopwatch; an unknown mode is a validation error.
+    let timer_mode = match mode.as_deref() {
+        Some(m) => domain::time_entries::TimerMode::parse(m).sfn()?,
+        None => domain::time_entries::TimerMode::default(),
+    };
+    let entry = domain::time_entries::start_with_mode(&pool, &user.id, Some(&item_id), timer_mode)
         .await
         .sfn()?;
     Ok(domain_entry_to_shared(entry))

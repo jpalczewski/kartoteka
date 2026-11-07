@@ -2,7 +2,7 @@ use kartoteka_shared::DeletePreview;
 #[cfg(feature = "ssr")]
 use kartoteka_shared::types::{
     CommentsPayload, Container, ContainerData, ContainerOption, CreateContainerRequest, List,
-    UpdateContainerRequest,
+    TimeTotal, UpdateContainerRequest,
 };
 #[cfg(not(feature = "ssr"))]
 use kartoteka_shared::types::{Container, ContainerData, ContainerOption, CreateContainerRequest};
@@ -192,16 +192,21 @@ pub async fn get_container_data(container_id: String) -> Result<ContainerData, S
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
 
-    let (all_lists_res, all_containers_res, comments_res, prefs_res) = tokio::join!(
+    let (all_lists_res, all_containers_res, comments_res, prefs_res, progress, time_total) = tokio::join!(
         domain::lists::list_all(&pool, &user.id),
         domain::containers::list_all(&pool, &user.id),
         domain::comments::list_for_entity(&pool, &user.id, "container", &container_id),
         domain::preferences::get(&pool, &user.id),
+        // Recursive over sub-containers, their lists and those lists' sublists.
+        domain::containers::get_progress(&pool, &container_id, &user.id),
+        domain::time_entries::total_for_container(&pool, &container_id, &user.id),
     );
     let all_lists = all_lists_res.map_err(|e| ServerFnError::new(e.to_string()))?;
     let all_containers = all_containers_res.map_err(|e| ServerFnError::new(e.to_string()))?;
     let raw_comments = comments_res.map_err(|e| ServerFnError::new(e.to_string()))?;
     let prefs = prefs_res.map_err(|e| ServerFnError::new(e.to_string()))?;
+    let progress = progress.map_err(|e| ServerFnError::new(e.to_string()))?;
+    let time_total = time_total.map_err(|e| ServerFnError::new(e.to_string()))?;
 
     let lists: Vec<List> = all_lists
         .into_iter()
@@ -222,6 +227,11 @@ pub async fn get_container_data(container_id: String) -> Result<ContainerData, S
                 .map(|c| domain_comment_to_shared(c, &prefs.timezone))
                 .collect(),
             current_user_id: user.id,
+        },
+        progress,
+        time_total: TimeTotal {
+            seconds: time_total.seconds,
+            running_since: time_total.running_since,
         },
     })
 }

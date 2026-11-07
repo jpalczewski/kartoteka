@@ -64,7 +64,8 @@ pub fn ItemTimerWidget(item_id: Signal<String>) -> impl IntoView {
 
     let on_start = move |_: leptos::ev::MouseEvent| {
         let eid = item_id.get();
-        mutate(start_timer(eid), &[ChangeTopic::TimeEntries]);
+        // Default stopwatch; pomodoro callers pass `Some(TimerMode::Pomodoro.as_str())`.
+        mutate(start_timer(eid, None), &[ChangeTopic::TimeEntries]);
     };
 
     let on_stop = move |_: leptos::ev::MouseEvent| {
