@@ -11,7 +11,10 @@ use crate::components::common::dnd::{DetachDropZone, ReorderDropTarget};
 use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::lists::{
-    container_card::ContainerCard, create_entity_input::CreateEntityInput,
+    appearance::{AppearanceModal, provide_appearance_host},
+    container_card::ContainerCard,
+    container_status_chip::ContainerStatusChip,
+    create_entity_input::CreateEntityInput,
     list_preview::ListPreview,
 };
 use crate::components::ui::{EntityIcon, Icon, IconButton, IconButtonSize, IconButtonVariant};
@@ -33,6 +36,7 @@ pub fn ContainerPage() -> impl IntoView {
     let delete_target: RwSignal<Option<DeleteTarget>> = RwSignal::new(None);
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let invalidation = use_invalidation();
+    provide_appearance_host();
     let navigate = StoredValue::new(use_navigate());
     let expand_all_label = StoredValue::new(i18n.tr("lists-expand-all"));
     let collapse_all_label = StoredValue::new(i18n.tr("lists-collapse-all"));
@@ -75,6 +79,7 @@ pub fn ContainerPage() -> impl IntoView {
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
+            <AppearanceModal />
             <DeleteEntityModal
                 target=delete_target
                 on_deleted=Callback::new(move |target: DeleteTarget| {
@@ -93,6 +98,8 @@ pub fn ContainerPage() -> impl IntoView {
                     }.into_any(),
                     Ok(data) => {
                         let container_icon_raw = data.container.icon.clone();
+                        let container_color = data.container.color.clone();
+                        let container_status = data.container.status.clone();
                         let container_icon_fallback = default_container_icon(data.container.status.is_some());
                         let name = data.container.name.clone();
                         let desc = data.container.description.clone();
@@ -300,8 +307,13 @@ pub fn ContainerPage() -> impl IntoView {
 
                                 // Header
                                 <div class="flex items-center gap-3">
-                                    <EntityIcon raw=container_icon_raw fallback=container_icon_fallback size=30 />
+                                    <EntityIcon raw=container_icon_raw fallback=container_icon_fallback color=container_color size=30 />
                                     <div class="flex-1 flex flex-col gap-1">
+                                        {container_status.map(|status| view! {
+                                            <div>
+                                                <ContainerStatusChip status=status testid=Some("container-status-chip") />
+                                            </div>
+                                        })}
                                         <EditableText
                                             value=name.clone()
                                             on_save=Callback::new(move |new_name: String| {

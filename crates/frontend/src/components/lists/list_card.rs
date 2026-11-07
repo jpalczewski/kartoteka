@@ -5,6 +5,7 @@ use leptos_fluent::move_tr;
 use leptos_router::hooks::use_navigate;
 
 use crate::components::common::dnd::{DragHandleButton, DragShell, DragSurface};
+use crate::components::lists::appearance::{AppearanceTarget, appearance_menu_item};
 use crate::components::tags::tag_list::TagList;
 use crate::components::ui::{ActionMenu, ActionMenuItem, EntityIcon};
 use crate::state::dnd::{DndState, DropTarget, EntityKind};
@@ -22,6 +23,7 @@ pub fn ListCard(
 ) -> impl IntoView {
     let href = format!("/lists/{}", list.id);
     let icon = list.icon.clone();
+    let color = list.color.clone();
     let icon_fallback = default_list_icon(&list.list_type);
     let navigate = use_navigate();
     let href_nav = href.clone();
@@ -34,6 +36,10 @@ pub fn ListCard(
     let list_archived = list.archived;
     let menu_open = RwSignal::new(false);
     let mut menu_items = Vec::new();
+    menu_items.extend(appearance_menu_item(
+        AppearanceTarget::list(&list),
+        "list-action-appearance",
+    ));
     if let Some(cb) = on_archive {
         let lid = list_id_archive.clone();
         menu_items.push(
@@ -71,7 +77,7 @@ pub fn ListCard(
 
             <div class="card-body p-4">
                 <div class="flex items-center gap-2">
-                    <EntityIcon raw=icon fallback=icon_fallback />
+                    <EntityIcon raw=icon fallback=icon_fallback color=color />
                     <span class="card-title text-base" data-testid="list-card-title">{list_name}</span>
                     {(!menu_items.is_empty()).then(move || view! {
                         <div class="ml-auto">

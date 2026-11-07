@@ -77,15 +77,13 @@ async function addItem(page: Page, title: string) {
 
 // Ask for a delete from the home card and return the modal message element.
 // The delete action lives in the card's action menu, so open it first.
+// A fresh container is shown twice (the "recently opened" copy only offers "Appearance…"), so
+// pick the last card, which is the one in the root section with the full menu.
 async function openDeleteDialog(page: Page, card: Locator, kind: "list" | "container") {
-  await card
-    .locator(kind === "list" ? '[data-testid="list-card-menu"]' : '[data-testid="container-card-menu"]')
-    .first()
-    .click();
-  await card
-    .locator(kind === "list" ? '[data-testid="list-card-delete"]' : '[data-testid="container-card-delete"]')
-    .first()
-    .click();
+  const pick = (testid: string) =>
+    kind === "list" ? card.locator(testid).first() : card.last().locator(testid);
+  await pick(kind === "list" ? '[data-testid="list-card-menu"]' : '[data-testid="container-card-menu"]').click();
+  await pick(kind === "list" ? '[data-testid="list-card-delete"]' : '[data-testid="container-card-delete"]').click();
   const dialog = page.locator('[data-testid="confirm-modal"]');
   await expect(dialog).toBeVisible({ timeout: 5000 });
   return { dialog, message: dialog.locator('[data-testid="confirm-modal-message"]') };

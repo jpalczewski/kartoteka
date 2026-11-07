@@ -16,6 +16,7 @@ use crate::components::home::{
     pinned_section::PinnedSection, recent_section::RecentSection, root_section::RootSection,
     tag_filter_bar::HomeTagFilterBar,
 };
+use crate::components::lists::appearance::{AppearanceModal, provide_appearance_host};
 use crate::components::lists::create_entity_input::CreateEntityInput;
 use crate::components::ui::Icon;
 use crate::pages::landing::LandingPage;
@@ -54,6 +55,7 @@ fn HomeContent() -> impl IntoView {
     let i18n = expect_context::<I18n>();
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let invalidation = use_invalidation();
+    provide_appearance_host();
 
     // Multi-tag AND filter
     let active_tags: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
@@ -222,6 +224,7 @@ fn HomeContent() -> impl IntoView {
             <h2 class="text-2xl font-bold mb-4">{move_tr!("home-heading")}</h2>
 
             <DeleteEntityModal target=delete_target on_deleted=on_deleted />
+            <AppearanceModal />
 
             // Tag filter bar — inside Transition so tags_res is serialized for hydration
             <Transition fallback=|| view! {}>
