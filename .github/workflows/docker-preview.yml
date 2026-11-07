@@ -1,8 +1,12 @@
 name: Docker Preview
 
+# Nobody consumes the `:preview` image; it only acts as a "release still compiles" check.
+# Build it on demand: add the `preview` label to a PR, or trigger manually.
 on:
+  workflow_dispatch:
   pull_request:
     branches: [develop, main]
+    types: [labeled, synchronize, opened, reopened]
 
 # One group per PR: a push only cancels that PR's own stale build, never another PR's.
 # The shared :preview tag is last-writer-wins: it points at the most recently finished PR build.
@@ -16,7 +20,10 @@ permissions:
 
 jobs:
   build:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'preview'))
     uses: ./.github/workflows/docker-build.yml
     with:
       image_tag: preview
