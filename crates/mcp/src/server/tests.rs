@@ -2,7 +2,7 @@
 //! `map_err` table, and end-to-end behaviour of individual tools.
 
 use super::test_support::*;
-use super::{KartotekaServer, decode_cursor, encode_cursor};
+use super::{KartotekaServer, annotations, decode_cursor, encode_cursor};
 use crate::McpError;
 use crate::tools::comments::AddCommentParams;
 use crate::tools::containers::{
@@ -30,7 +30,7 @@ async fn tool_router_matches_the_published_snapshot() {
     const EXPECTED: &[&str] = &[
         "add_comment | desc=mcp-tool-add_comment-desc | ro=Some(false) destructive=Some(false) idempotent=Some(false) open_world=Some(false)",
         "add_relation | desc=mcp-tool-add_relation-desc | ro=Some(false) destructive=Some(false) idempotent=Some(false) open_world=Some(false)",
-        "assign_tag | desc=mcp-tool-assign_tag-desc | ro=None destructive=None idempotent=None open_world=None",
+        "assign_tag | desc=mcp-tool-assign_tag-desc | ro=Some(false) destructive=Some(false) idempotent=Some(false) open_world=Some(false)",
         "create_container | desc=mcp-tool-create_container-desc | ro=Some(false) destructive=Some(false) idempotent=Some(false) open_world=Some(false)",
         "create_containers | desc=mcp-tool-create_containers-desc | ro=Some(false) destructive=Some(false) idempotent=Some(false) open_world=Some(false)",
         "create_item | desc=mcp-tool-create_item-desc | ro=Some(false) destructive=Some(false) idempotent=Some(false) open_world=Some(false)",
@@ -38,14 +38,14 @@ async fn tool_router_matches_the_published_snapshot() {
         "create_list | desc=mcp-tool-create_list-desc | ro=Some(false) destructive=Some(false) idempotent=Some(false) open_world=Some(false)",
         "create_list_from_template | desc=mcp-tool-create_list_from_template-desc | ro=Some(false) destructive=Some(false) idempotent=Some(false) open_world=Some(false)",
         "create_lists | desc=mcp-tool-create_lists-desc | ro=Some(false) destructive=Some(false) idempotent=Some(false) open_world=Some(false)",
-        "create_tag | desc=mcp-tool-create_tag-desc | ro=None destructive=None idempotent=None open_world=None",
-        "create_tags | desc=mcp-tool-create_tags-desc | ro=None destructive=None idempotent=None open_world=None",
+        "create_tag | desc=mcp-tool-create_tag-desc | ro=Some(false) destructive=Some(false) idempotent=Some(false) open_world=Some(false)",
+        "create_tags | desc=mcp-tool-create_tags-desc | ro=Some(false) destructive=Some(false) idempotent=Some(false) open_world=Some(false)",
         "get_active_timer | desc=mcp-tool-get_active_timer-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
         "get_container | desc=mcp-tool-get_container-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
         "get_item | desc=mcp-tool-get_item-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
         "get_list | desc=mcp-tool-get_list-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
         "get_relations | desc=mcp-tool-get_relations-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
-        "get_tag_entities | desc=mcp-tool-get_tag_entities-desc | ro=None destructive=None idempotent=None open_world=None",
+        "get_tag_entities | desc=mcp-tool-get_tag_entities-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
         "get_time_summary | desc=mcp-tool-get_time_summary-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
         "get_today | desc=mcp-tool-get_today-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
         "list_container_items | desc=mcp-tool-list_container_items-desc | ro=Some(true) destructive=Some(false) idempotent=Some(true) open_world=Some(false)",
@@ -66,7 +66,7 @@ async fn tool_router_matches_the_published_snapshot() {
         "start_timer | desc=mcp-tool-start_timer-desc | ro=Some(false) destructive=Some(false) idempotent=Some(false) open_world=Some(false)",
         "stop_timer | desc=mcp-tool-stop_timer-desc | ro=Some(false) destructive=Some(true) idempotent=Some(false) open_world=Some(false)",
         "toggle_item | desc=mcp-tool-toggle_item-desc | ro=Some(false) destructive=Some(true) idempotent=Some(false) open_world=Some(false)",
-        "unassign_tag | desc=mcp-tool-unassign_tag-desc | ro=None destructive=None idempotent=None open_world=None",
+        "unassign_tag | desc=mcp-tool-unassign_tag-desc | ro=Some(false) destructive=Some(true) idempotent=Some(false) open_world=Some(false)",
         "update_item | desc=mcp-tool-update_item-desc | ro=Some(false) destructive=Some(true) idempotent=Some(false) open_world=Some(false)",
     ];
     let server = test_server(multi_conn_pool().await);
@@ -1126,4 +1126,52 @@ async fn add_comment_records_assistant_author() {
             .unwrap();
     assert_eq!(row.0, "assistant");
     assert_eq!(row.1.as_deref(), Some("Claude"));
+}
+
+// ── tool key + annotation coverage (#383) ────────────────────────────────────
+
+/// Every published tool needs `mcp-tool-<name>-desc` in *every* locale, not just
+/// the `en` fallback `McpI18n::translate` would silently use.
+#[tokio::test]
+async fn every_tool_has_a_description_in_every_locale() {
+    let server = test_server(multi_conn_pool().await);
+    let names = tool_names(&server);
+    assert!(!names.is_empty(), "the router publishes no tools");
+
+    for name in &names {
+        let key = format!("mcp-tool-{name}-desc");
+        let declared = server
+            .tool_router
+            .get(name)
+            .and_then(|t| t.description.as_deref().map(str::to_owned));
+        assert_eq!(
+            declared.as_deref(),
+            Some(key.as_str()),
+            "{name} must declare its description as {key}"
+        );
+        for locale in ["en", "pl"] {
+            assert!(
+                server.i18n.has_key(locale, &key),
+                "locales/{locale}/mcp.ftl is missing {key}"
+            );
+        }
+    }
+}
+
+/// Every published tool must sit in one of the annotation buckets, so clients
+/// can tell read-only from additive and destructive tools (#342).
+#[tokio::test]
+async fn every_tool_is_annotated() {
+    let server = test_server(multi_conn_pool().await);
+
+    for name in tool_names(&server) {
+        let ann = annotations::for_tool(&name);
+        assert!(
+            ann.read_only_hint.is_some()
+                && ann.destructive_hint.is_some()
+                && ann.idempotent_hint.is_some()
+                && ann.open_world_hint.is_some(),
+            "{name} is in none of READ_ONLY / ADDITIVE_WRITE / DESTRUCTIVE in server/annotations.rs"
+        );
+    }
 }

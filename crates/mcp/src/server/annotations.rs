@@ -17,6 +17,7 @@ const READ_ONLY: &[&str] = &[
     "get_today",
     "get_time_summary",
     "get_relations",
+    "get_tag_entities",
     "search_items",
     "get_item",
     "list_templates",
@@ -37,6 +38,9 @@ const ADDITIVE_WRITE: &[&str] = &[
     "start_timer",
     "create_list_from_template",
     "save_as_template",
+    "create_tag",
+    "create_tags",
+    "assign_tag",
 ];
 
 const DESTRUCTIVE: &[&str] = &[
@@ -48,6 +52,7 @@ const DESTRUCTIVE: &[&str] = &[
     "stop_timer",
     "move_list_to_container",
     "move_container_to_parent",
+    "unassign_tag",
 ];
 
 pub fn for_tool(name: &str) -> ToolAnnotations {

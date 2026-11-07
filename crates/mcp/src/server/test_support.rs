@@ -130,6 +130,18 @@ pub(crate) fn tool_row(tool: &rmcp::model::Tool) -> String {
     )
 }
 
+/// Sorted names of every tool the router publishes.
+pub(crate) fn tool_names(server: &KartotekaServer) -> Vec<String> {
+    let mut names: Vec<String> = server
+        .tool_router
+        .list_all()
+        .iter()
+        .map(|t| t.name.to_string())
+        .collect();
+    names.sort();
+    names
+}
+
 pub(crate) fn tool_rows(server: &KartotekaServer) -> Vec<String> {
     let mut rows: Vec<String> = server.tool_router.list_all().iter().map(tool_row).collect();
     rows.sort();
@@ -251,7 +263,7 @@ pub(crate) fn single_list_params(name: &str, parent_list_id: Option<String>) -> 
     }
 }
 
-// ── status / icons / colours ──────────────────────────────────────────────
+/// The single JSON block of a tool result, parsed (tools return one).
 pub(crate) async fn item_json(result: &CallToolResult) -> serde_json::Value {
     serde_json::from_str(&result_text(result)).unwrap()
 }
