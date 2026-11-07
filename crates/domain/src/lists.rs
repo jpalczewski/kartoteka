@@ -1,6 +1,9 @@
 use crate::{DomainError, rules};
 use kartoteka_db as db;
 use kartoteka_db::types::DeleteTreeOutcome;
+use kartoteka_shared::constants::{
+    FEATURE_CHECKLIST, FEATURE_DEADLINES, FEATURE_LOCATION, FEATURE_QUANTITY, FEATURE_TIME_TRACKING,
+};
 use kartoteka_shared::types::ListFeature;
 use serde::{Deserialize, Serialize};
 use sqlx::{SqliteConnection, SqlitePool};
@@ -136,6 +139,42 @@ pub fn features_from_names(names: &[String]) -> serde_json::Value {
     let obj: serde_json::Map<String, serde_json::Value> = names
         .iter()
         .map(|n| (n.clone(), serde_json::json!({})))
+        .collect();
+    serde_json::Value::Object(obj)
+}
+
+/// Every feature name a list may enable.
+pub const KNOWN_FEATURES: [&str; 5] = [
+    FEATURE_CHECKLIST,
+    FEATURE_DEADLINES,
+    FEATURE_LOCATION,
+    FEATURE_QUANTITY,
+    FEATURE_TIME_TRACKING,
+];
+
+/// Reject feature names outside [`KNOWN_FEATURES`].
+pub fn validate_feature_names(names: &[String]) -> Result<(), DomainError> {
+    if names.iter().any(|n| !KNOWN_FEATURES.contains(&n.as_str())) {
+        return Err(DomainError::Validation("unknown_feature"));
+    }
+    Ok(())
+}
+
+/// Build the feature map for a whole-set replacement, keeping the stored config
+/// of every feature that stays enabled. A newly enabled feature gets `{}`.
+pub fn features_preserving_configs(
+    existing: &serde_json::Map<String, serde_json::Value>,
+    names: &[String],
+) -> serde_json::Value {
+    let obj: serde_json::Map<String, serde_json::Value> = names
+        .iter()
+        .map(|n| {
+            let config = existing
+                .get(n)
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+            (n.clone(), config)
+        })
         .collect();
     serde_json::Value::Object(obj)
 }
@@ -495,14 +534,35 @@ pub async fn delete(
     }
 }
 
-#[tracing::instrument(skip(pool))]
-pub async fn toggle_archive(
+/// Archive or unarchive a list to an explicit state.
+///
+/// Idempotent: calling it twice with the same `archived` leaves one state. The
+/// `Option` is `None` when the list does not belong to `user_id`.
+#[tracing::instrument(skip(pool), fields(list_id = %id, archived))]
+pub async fn set_archived(
     pool: &SqlitePool,
     id: &str,
     user_id: &str,
+    archived: bool,
 ) -> Result<Option<List>, DomainError> {
-    let toggled = db::lists::toggle_archived(pool, id, user_id).await?;
-    if !toggled {
+    if !db::lists::set_archived(pool, id, user_id, archived).await? {
+        return Ok(None);
+    }
+    db::lists::get_one(pool, id, user_id)
+        .await?
+        .map(row_to_list)
+        .transpose()
+}
+
+/// Pin or unpin a list to an explicit state (idempotent, see [`set_archived`]).
+#[tracing::instrument(skip(pool), fields(list_id = %id, pinned))]
+pub async fn set_pinned(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    pinned: bool,
+) -> Result<Option<List>, DomainError> {
+    if !db::lists::set_pinned(pool, id, user_id, pinned).await? {
         return Ok(None);
     }
     db::lists::get_one(pool, id, user_id)
@@ -512,19 +572,27 @@ pub async fn toggle_archive(
 }
 
 #[tracing::instrument(skip(pool))]
+pub async fn toggle_archive(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+) -> Result<Option<List>, DomainError> {
+    let Some(current) = db::lists::get_one(pool, id, user_id).await? else {
+        return Ok(None);
+    };
+    set_archived(pool, id, user_id, current.archived == 0).await
+}
+
+#[tracing::instrument(skip(pool))]
 pub async fn toggle_pin(
     pool: &SqlitePool,
     id: &str,
     user_id: &str,
 ) -> Result<Option<List>, DomainError> {
-    let toggled = db::lists::toggle_pinned(pool, id, user_id).await?;
-    if !toggled {
+    let Some(current) = db::lists::get_one(pool, id, user_id).await? else {
         return Ok(None);
-    }
-    db::lists::get_one(pool, id, user_id)
-        .await?
-        .map(row_to_list)
-        .transpose()
+    };
+    set_pinned(pool, id, user_id, current.pinned == 0).await
 }
 
 /// Mark all items in the list as not completed (keep items and list intact).
@@ -633,6 +701,10 @@ pub async fn reorder(
 }
 
 /// Replace all features for a list.
+///
+/// The config of a feature that stays enabled is kept, so enabling `location`
+/// does not wipe the `deadlines` config; a newly enabled feature starts with
+/// `{}`. Names outside [`KNOWN_FEATURES`] are rejected.
 #[tracing::instrument(skip(pool))]
 pub async fn set_features(
     pool: &SqlitePool,
@@ -640,14 +712,19 @@ pub async fn set_features(
     user_id: &str,
     req: &SetFeaturesRequest,
 ) -> Result<Option<List>, DomainError> {
-    // Phase 1: READ
-    if db::lists::get_one(pool, id, user_id).await?.is_none() {
+    // Phase 2: THINK — unknown names are rejected before anything is written
+    validate_feature_names(&req.features)?;
+
+    // Phase 1: READ — need the current features to keep their configs
+    let Some(current) = db::lists::get_one(pool, id, user_id).await? else {
         return Ok(None);
-    }
+    };
+    let features =
+        features_preserving_configs(&parse_features_map(&current.features)?, &req.features);
 
     // Phase 3: WRITE
     let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
-    db::lists::set_features(&mut tx, id, &features_from_names(&req.features)).await?;
+    db::lists::set_features(&mut tx, id, &features).await?;
     tx.commit().await.map_err(db::DbError::Sqlx)?;
 
     db::lists::get_one(pool, id, user_id)
@@ -657,8 +734,11 @@ pub async fn set_features(
 }
 
 /// Update the config of a single feature without affecting other features.
-/// Returns `DomainError::NotFound("feature")` if the feature is not enabled on the list.
-#[tracing::instrument(skip(pool))]
+///
+/// The config must be a JSON object; anything else is
+/// `DomainError::Validation("invalid_feature_config")`. Returns
+/// `DomainError::NotFound("feature")` if the feature is not enabled on the list.
+#[tracing::instrument(skip(pool, config))]
 pub async fn update_feature_config(
     pool: &SqlitePool,
     id: &str,
@@ -666,6 +746,11 @@ pub async fn update_feature_config(
     feature_name: &str,
     config: serde_json::Value,
 ) -> Result<(), DomainError> {
+    // Phase 2: THINK — the config is an object keyed by feature options
+    if !config.is_object() {
+        return Err(DomainError::Validation("invalid_feature_config"));
+    }
+
     // Phase 1: READ
     let current = db::lists::get_one(pool, id, user_id)
         .await?
@@ -1647,5 +1732,282 @@ mod tests {
             err,
             DomainError::Validation("color_invalid_format")
         ));
+    }
+
+    #[tokio::test]
+    async fn set_archived_is_idempotent() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list = create(&pool, &uid, &checklist_req("Archivable"))
+            .await
+            .unwrap();
+
+        for _ in 0..2 {
+            let archived = set_archived(&pool, &list.id, &uid, true)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(archived.archived);
+        }
+        for _ in 0..2 {
+            let restored = set_archived(&pool, &list.id, &uid, false)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(!restored.archived);
+        }
+
+        // the row really holds one state, not a toggled one
+        assert!(
+            !get_one(&pool, &list.id, &uid)
+                .await
+                .unwrap()
+                .unwrap()
+                .archived
+        );
+    }
+
+    #[tokio::test]
+    async fn set_pinned_is_idempotent() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list = create(&pool, &uid, &checklist_req("Pinnable"))
+            .await
+            .unwrap();
+
+        for _ in 0..2 {
+            let pinned = set_pinned(&pool, &list.id, &uid, true)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(pinned.pinned);
+        }
+        let unpinned = set_pinned(&pool, &list.id, &uid, false)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!unpinned.pinned);
+    }
+
+    #[tokio::test]
+    async fn set_archived_and_set_pinned_of_other_user_are_none() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let intruder = create_test_user(&pool).await;
+        let list = create(&pool, &uid, &checklist_req("Mine")).await.unwrap();
+
+        assert!(
+            set_archived(&pool, &list.id, &intruder, true)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            set_pinned(&pool, &list.id, &intruder, true)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let row = get_one(&pool, &list.id, &uid).await.unwrap().unwrap();
+        assert!(!row.archived);
+        assert!(!row.pinned);
+    }
+
+    #[tokio::test]
+    async fn set_features_keeps_the_config_of_a_feature_that_stays_enabled() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list = create(
+            &pool,
+            &uid,
+            &CreateListRequest {
+                features: vec!["deadlines".into()],
+                ..checklist_req("Configured")
+            },
+        )
+        .await
+        .unwrap();
+        update_feature_config(
+            &pool,
+            &list.id,
+            &uid,
+            "deadlines",
+            serde_json::json!({ "warn_days": 3, "show_time": true }),
+        )
+        .await
+        .unwrap();
+
+        let updated = set_features(
+            &pool,
+            &list.id,
+            &uid,
+            &SetFeaturesRequest {
+                features: vec!["deadlines".into(), "location".into()],
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        let deadlines = updated
+            .features
+            .iter()
+            .find(|f| f.feature_name == "deadlines")
+            .expect("deadlines stays enabled");
+        assert_eq!(
+            deadlines.config,
+            serde_json::json!({ "warn_days": 3, "show_time": true })
+        );
+        let location = updated
+            .features
+            .iter()
+            .find(|f| f.feature_name == "location")
+            .expect("location is enabled");
+        assert_eq!(location.config, serde_json::json!({}));
+    }
+
+    #[tokio::test]
+    async fn set_features_drops_the_config_of_a_disabled_feature() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list = create(
+            &pool,
+            &uid,
+            &CreateListRequest {
+                features: vec!["deadlines".into()],
+                ..checklist_req("Configured")
+            },
+        )
+        .await
+        .unwrap();
+        update_feature_config(
+            &pool,
+            &list.id,
+            &uid,
+            "deadlines",
+            serde_json::json!({ "warn_days": 3 }),
+        )
+        .await
+        .unwrap();
+
+        let updated = set_features(
+            &pool,
+            &list.id,
+            &uid,
+            &SetFeaturesRequest {
+                features: vec!["checklist".into()],
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(updated.features.len(), 1);
+        assert_eq!(updated.features[0].feature_name, "checklist");
+
+        // enabling it again starts from an empty config
+        let reenabled = set_features(
+            &pool,
+            &list.id,
+            &uid,
+            &SetFeaturesRequest {
+                features: vec!["checklist".into(), "deadlines".into()],
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let deadlines = reenabled
+            .features
+            .iter()
+            .find(|f| f.feature_name == "deadlines")
+            .unwrap();
+        assert_eq!(deadlines.config, serde_json::json!({}));
+    }
+
+    #[tokio::test]
+    async fn set_features_rejects_unknown_name() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list = create(&pool, &uid, &checklist_req("Plain")).await.unwrap();
+
+        let err = set_features(
+            &pool,
+            &list.id,
+            &uid,
+            &SetFeaturesRequest {
+                features: vec!["checklist".into(), "teleport".into()],
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, DomainError::Validation("unknown_feature")));
+
+        // nothing was written
+        let row = get_one(&pool, &list.id, &uid).await.unwrap().unwrap();
+        assert_eq!(row.features.len(), 1);
+        assert_eq!(row.features[0].feature_name, "checklist");
+    }
+
+    #[test]
+    fn features_preserving_configs_keeps_stored_config_and_defaults_new_ones() {
+        let existing = serde_json::json!({
+            "deadlines": { "warn_days": 5 },
+            "quantity": {},
+            "time_tracking": { "pomodoro": 25 },
+        });
+        let existing = existing.as_object().unwrap().clone();
+
+        let features =
+            features_preserving_configs(&existing, &["deadlines".into(), "location".into()]);
+        let obj = features.as_object().unwrap();
+        assert_eq!(obj.len(), 2);
+        assert_eq!(obj["deadlines"], serde_json::json!({ "warn_days": 5 }));
+        assert_eq!(obj["location"], serde_json::json!({}));
+    }
+
+    #[test]
+    fn validate_feature_names_accepts_every_known_feature() {
+        let names: Vec<String> = KNOWN_FEATURES.iter().map(|n| (*n).to_string()).collect();
+        assert!(validate_feature_names(&names).is_ok());
+        assert!(validate_feature_names(&[]).is_ok());
+        assert!(matches!(
+            validate_feature_names(&["nope".to_string()]),
+            Err(DomainError::Validation("unknown_feature"))
+        ));
+    }
+
+    #[tokio::test]
+    async fn update_feature_config_rejects_a_non_object_config() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list = create(&pool, &uid, &checklist_req("Configured"))
+            .await
+            .unwrap();
+
+        let err = update_feature_config(
+            &pool,
+            &list.id,
+            &uid,
+            "checklist",
+            serde_json::json!("nope"),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            DomainError::Validation("invalid_feature_config")
+        ));
+    }
+
+    #[tokio::test]
+    async fn update_feature_config_for_a_disabled_feature_is_not_found() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list = create(&pool, &uid, &checklist_req("Plain")).await.unwrap();
+
+        let err = update_feature_config(&pool, &list.id, &uid, "deadlines", serde_json::json!({}))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::NotFound("feature")));
     }
 }
