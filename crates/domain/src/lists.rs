@@ -437,7 +437,7 @@ pub async fn delete(
         });
     }
 
-    match db::lists::delete_tree(pool, id, user_id).await? {
+    match db::lists::delete_tree(pool, id, user_id, false).await? {
         DeleteTreeOutcome::Deleted => Ok(()),
         DeleteTreeOutcome::NotFound => Err(DomainError::NotFound("list")),
         DeleteTreeOutcome::NotEmpty { items } => Err(DomainError::NotEmpty {

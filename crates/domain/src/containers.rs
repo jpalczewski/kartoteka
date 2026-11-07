@@ -167,7 +167,7 @@ pub async fn delete(
         });
     }
 
-    match db_containers::delete_tree(pool, id, user_id).await? {
+    match db_containers::delete_tree(pool, id, user_id, false).await? {
         DeleteTreeOutcome::Deleted => Ok(()),
         DeleteTreeOutcome::NotFound => Err(DomainError::NotFound("container")),
         DeleteTreeOutcome::NotEmpty { items } => Err(DomainError::NotEmpty {
