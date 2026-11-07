@@ -18,11 +18,16 @@ fn domain_rel_to_shared(r: domain::relations::Relation) -> Relation {
         relation_type: r.relation_type,
         user_id: r.user_id,
         created_at: r.created_at,
+        other_type: r.other_type,
+        other_title: r.other_title,
+        other_completed: r.other_completed,
     }
 }
 
 /// Fetch all relations for an entity (bidirectional).
 /// entity_type: "item" | "list" | "container"
+/// Each relation carries `other_title` (and `other_completed` for items) so the
+/// UI can render names instead of ids.
 #[server(prefix = "/leptos")]
 pub async fn get_relations(
     entity_type: String,

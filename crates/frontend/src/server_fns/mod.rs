@@ -12,4 +12,5 @@ pub mod settings;
 pub mod tags;
 pub mod templates;
 pub mod time_entries;
+pub mod time_totals;
 pub(crate) mod utils;
