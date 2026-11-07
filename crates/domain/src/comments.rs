@@ -112,7 +112,10 @@ pub async fn create(
 
 #[tracing::instrument(skip(pool))]
 pub async fn delete(pool: &SqlitePool, user_id: &str, comment_id: &str) -> Result<(), DomainError> {
-    db::comments::delete(pool, comment_id, user_id).await?;
+    if !db::comments::delete(pool, comment_id, user_id).await? {
+        // Nothing matched: the comment does not exist or belongs to another user.
+        return Err(DomainError::NotFound("comment"));
+    }
     Ok(())
 }
 
@@ -214,6 +217,46 @@ mod tests {
             .await
             .unwrap();
         assert!(comments.is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_missing_comment_is_not_found() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &user_id).await;
+
+        let comment = create(&pool, &user_id, "list", &list_id, "once", "user", None)
+            .await
+            .unwrap();
+        delete(&pool, &user_id, &comment.id).await.unwrap();
+
+        let err = delete(&pool, &user_id, &comment.id).await.unwrap_err();
+        assert!(
+            matches!(err, DomainError::NotFound(kind) if kind == "comment"),
+            "got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_other_users_comment_is_not_found() {
+        let pool = test_pool().await;
+        let owner_id = create_test_user(&pool).await;
+        let attacker_id = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &owner_id).await;
+
+        let comment = create(&pool, &owner_id, "list", &list_id, "mine", "user", None)
+            .await
+            .unwrap();
+        let err = delete(&pool, &attacker_id, &comment.id).await.unwrap_err();
+        assert!(
+            matches!(err, DomainError::NotFound(kind) if kind == "comment"),
+            "got {err:?}"
+        );
+
+        let comments = list_for_entity(&pool, &owner_id, "list", &list_id)
+            .await
+            .unwrap();
+        assert_eq!(comments.len(), 1, "the comment must survive");
     }
 
     #[tokio::test]
