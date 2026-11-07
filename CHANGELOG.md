@@ -5,6 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0](https://github.com/jpalczewski/kartoteka/compare/v1.9.0...v1.10.0) (2026-11-07)
+
+
+### Features
+
+* allow deleting lists/containers with an empty subtree ([#223](https://github.com/jpalczewski/kartoteka/issues/223)) ([e0f7d46](https://github.com/jpalczewski/kartoteka/commit/e0f7d4621cef43898aee82d9fc4f0a8a3759654c))
+* **db,shared:** pending_deletions queue with cleanup triggers ([dda708c](https://github.com/jpalczewski/kartoteka/commit/dda708c3b163d9c2ae98677af091379038c70fbe))
+* **db:** add change_log, triggers and commit wake-up signal ([5800fbc](https://github.com/jpalczewski/kartoteka/commit/5800fbcedf45a81546976268ad74e27fcc15266e)), closes [#356](https://github.com/jpalczewski/kartoteka/issues/356)
+* **db:** add items recurrence columns and tx helpers ([#390](https://github.com/jpalczewski/kartoteka/issues/390)) ([51b8d3c](https://github.com/jpalczewski/kartoteka/commit/51b8d3c8f34c2a173b8d49e6841d8e53dfcc03c6)), closes [#368](https://github.com/jpalczewski/kartoteka/issues/368)
+* **db:** migration 020 item status, item icon, list/container colour ([702ed54](https://github.com/jpalczewski/kartoteka/commit/702ed5453d4722786cc2b0dbd4f56c95cd4a3b55))
+* **db:** recursive container progress and relation titles ([c99bcf3](https://github.com/jpalczewski/kartoteka/commit/c99bcf3b06b0036afda67e5411fc3f71b868d7ea))
+* **db:** recursive time totals for items, lists and containers ([f839f7c](https://github.com/jpalczewski/kartoteka/commit/f839f7ceb72aee7665041b9acc97da17208b7b26))
+* **domain:** allow deleting lists/containers with an empty subtree ([#223](https://github.com/jpalczewski/kartoteka/issues/223)) ([a4b4c5d](https://github.com/jpalczewski/kartoteka/commit/a4b4c5d9f15f1911562420c851754c7099164f50))
+* **domain:** item status kept in sync with completion ([5f6a059](https://github.com/jpalczewski/kartoteka/commit/5f6a0594cf1f5ede76ed438919ff9680c39928a0))
+* **domain:** localize the list label in iCal event descriptions ([7719c21](https://github.com/jpalczewski/kartoteka/commit/7719c2110c724ac729a5602a934fe7020e5aee1a)), closes [#333](https://github.com/jpalczewski/kartoteka/issues/333)
+* **domain:** mark, list and cascade-delete from the trash queue ([e6c8534](https://github.com/jpalczewski/kartoteka/commit/e6c853465c8d4b5baee50e4843c795dd60f1b4a7))
+* **domain:** recurrence rules: date stepping and validation ([#382](https://github.com/jpalczewski/kartoteka/issues/382)) ([c6a3490](https://github.com/jpalczewski/kartoteka/commit/c6a34907b84ff8c00da14a80dda29e4e30cab080)), closes [#367](https://github.com/jpalczewski/kartoteka/issues/367)
+* **domain:** recursive project progress and relation titles ([aef7f4a](https://github.com/jpalczewski/kartoteka/commit/aef7f4ac7a7962c2c737d96921543869027f9066))
+* **domain:** spawn the next occurrence when a recurring item completes ([#393](https://github.com/jpalczewski/kartoteka/issues/393)) ([bcea6d6](https://github.com/jpalczewski/kartoteka/commit/bcea6d69d7e9e26a68ec29f2c1510c9a28f8bc28)), closes [#369](https://github.com/jpalczewski/kartoteka/issues/369)
+* **domain:** timer modes and recursive time totals ([2843af6](https://github.com/jpalczewski/kartoteka/commit/2843af6a4f1959d8421c9a6dc1d57f40d6220edf))
+* **frontend:** confirm deleting lists/containers with empty subtrees ([#223](https://github.com/jpalczewski/kartoteka/issues/223)) ([052ef64](https://github.com/jpalczewski/kartoteka/commit/052ef64f9ed29ffe4d00d26f26bb9a353c75a813))
+* **frontend:** server fns for item status, appearance and container status ([76d8076](https://github.com/jpalczewski/kartoteka/commit/76d80768b8c3a21eba0aa565517c436fbc200140))
+* **frontend:** server fns for time totals and timer mode ([c8096ee](https://github.com/jpalczewski/kartoteka/commit/c8096ee9eb0bc2293e56a66de7955dc6a1317e18))
+* **frontend:** ui primitives and Lucide icons, unified action menus ([#355](https://github.com/jpalczewski/kartoteka/issues/355)) ([8c2c618](https://github.com/jpalczewski/kartoteka/commit/8c2c6184a25564caff201f50689043a0b3fa480b))
+* **mcp:** item status, icons and colours, assistant comment author ([5a459e9](https://github.com/jpalczewski/kartoteka/commit/5a459e9d8503a51e0424cddc20cc2706afc786f4))
+* **mcp:** recurrence params and toggle_item tool ([d135415](https://github.com/jpalczewski/kartoteka/commit/d135415484c5ed0bb9781d4867730a661003b0ed)), closes [#370](https://github.com/jpalczewski/kartoteka/issues/370)
+* **mcp:** time summary roll-up, timer mode and get_relations ([4fdb664](https://github.com/jpalczewski/kartoteka/commit/4fdb664200ed3240e94bdc428c198e9c1bc377c6))
+* **server,frontend:** ItemChange responses and recurrence badge ([#372](https://github.com/jpalczewski/kartoteka/issues/372)) ([0996978](https://github.com/jpalczewski/kartoteka/commit/09969788b2c1dcc0b904eb8b89fcc8e0122ea452))
+* **shared:** add ChangeTopic enum for cache invalidation ([127fc54](https://github.com/jpalczewski/kartoteka/commit/127fc54c13e5494854297a604c5779f8290fabd1))
+* **shared:** human-readable relative dates and FlexDate range validation ([399cc26](https://github.com/jpalczewski/kartoteka/commit/399cc2675336d700ea3ffed54912d6b21f819909))
+* **shared:** human-readable relative dates for item chips ([10e3bf7](https://github.com/jpalczewski/kartoteka/commit/10e3bf7cde85f264f0064034af1855af277eec1e))
+* **shared:** model partial location updates with double options ([a0a9763](https://github.com/jpalczewski/kartoteka/commit/a0a9763b855ba8c38b55dc29f4bab49e24676235))
+* **shared:** recurrence contract types and ItemChange ([#373](https://github.com/jpalczewski/kartoteka/issues/373)) ([9630238](https://github.com/jpalczewski/kartoteka/commit/9630238602f9ab9d17f0eaf669da43b56b1926bb)), closes [#34](https://github.com/jpalczewski/kartoteka/issues/34)
+* **shared:** time total and relation title DTOs ([c233b94](https://github.com/jpalczewski/kartoteka/commit/c233b94a2dda78706ce5e6f2800009b344d41860))
+
+
+### Bug Fixes
+
+* calendar card UI, local timezones for timestamps, localized feed label ([292c1c7](https://github.com/jpalczewski/kartoteka/commit/292c1c7b6b2a5e678775e927b9ee2a6469863b87))
+* **ci:** key docker-preview concurrency per PR ([2c49b38](https://github.com/jpalczewski/kartoteka/commit/2c49b382954d78df2077190384de0c76e6e98a2c))
+* **ci:** key docker-preview concurrency per PR ([bbc367a](https://github.com/jpalczewski/kartoteka/commit/bbc367ada455fae169fa187051dc57e9797bfebd)), closes [#321](https://github.com/jpalczewski/kartoteka/issues/321)
+* **db:** delete comments and relations of deleted items, lists and containers ([1473168](https://github.com/jpalczewski/kartoteka/commit/147316872b09288d3df4c78e765be51f3a07d2c6))
+* **db:** key the lists/containers change trigger on last_opened_at only ([7f9438c](https://github.com/jpalczewski/kartoteka/commit/7f9438c61b721e56498fe51d3b49b61cdd9c58b6))
+* **db:** match relation title joins on the other side's entity type ([aaed41a](https://github.com/jpalczewski/kartoteka/commit/aaed41a91ca69de98d6aef4f1448d5729acf67a9))
+* **db:** reconcile item status and icon with the recurrence columns ([fb46d0a](https://github.com/jpalczewski/kartoteka/commit/fb46d0a431ce9d4899dbf0631b74f8c87fb04b8d))
+* enforce domain validation on reorder, placement, MCP batch creates and tokens ([41d31b8](https://github.com/jpalczewski/kartoteka/commit/41d31b80037cf115adfb211223f1895c3d0ba6f3))
+* **frontend:** calendar feed card layout, contrast and all-day reminder hint ([c9d56ab](https://github.com/jpalczewski/kartoteka/commit/c9d56ab519f3830573f77ab89aa9e7717d69932b)), closes [#331](https://github.com/jpalczewski/kartoteka/issues/331)
+* **frontend:** don't panic in require_user without a DB pool in context ([77dff27](https://github.com/jpalczewski/kartoteka/commit/77dff275f602a568b1bdd8510272de7a175380b7))
+* **frontend:** ignore stale delete previews and render e2e testids ([#223](https://github.com/jpalczewski/kartoteka/issues/223)) ([e8614f1](https://github.com/jpalczewski/kartoteka/commit/e8614f1b3426fe10bc70641d07625716dfb970c7))
+* **frontend:** render data-testid on native elements in EditableText/InlineEdit ([f111ef2](https://github.com/jpalczewski/kartoteka/commit/f111ef2109e6a3af6ef8b48f00fbcb777f4e55d1))
+* **frontend:** set_item_icon against the recurrence-aware item update ([da651bd](https://github.com/jpalczewski/kartoteka/commit/da651bd1e76c6845ce0c5324906a7e89369761ab))
+* **frontend:** show the random-colour button icon in the tag colour picker ([83c0372](https://github.com/jpalczewski/kartoteka/commit/83c0372323dc0023e3c4e73d18976a12d2c0edeb))
+* **frontend:** show timestamps in the user's timezone ([21666ff](https://github.com/jpalczewski/kartoteka/commit/21666ff87f30be6eb8ab6715a56813f8960702ca))
+* **i18n:** translate the breadcrumbs home link ([cf55a83](https://github.com/jpalczewski/kartoteka/commit/cf55a83eaa9c6e06318fda583e20c42a5e56d3dd))
+* **mcp:** drop force hint from has-children error text ([5a19f7a](https://github.com/jpalczewski/kartoteka/commit/5a19f7a56816565d76ad2115abf617e03a379a1c))
+* **mcp:** map domain errors to proper JSON-RPC codes and structured data ([2c229c3](https://github.com/jpalczewski/kartoteka/commit/2c229c3a004710279af1490f78f5d733575775ff))
+* **reorder:** validate and atomize reorder/placement in domain ([34ff488](https://github.com/jpalczewski/kartoteka/commit/34ff4880fff8eb839acfd82c6d6e907a6f08bc39))
+* **security:** key /cal rate limiting on trusted proxy peers ([7d5c435](https://github.com/jpalczewski/kartoteka/commit/7d5c43529a8cf7093b6e839100ec13cdb9ae628f))
+* **security:** key /cal rate limiting on trusted proxy peers ([a1a35df](https://github.com/jpalczewski/kartoteka/commit/a1a35df1eb25e3a77b0c0e25b9bd6fb6d4214321))
+* **shared:** fall back to raw value for out-of-range fuzzy dates ([e1b2431](https://github.com/jpalczewski/kartoteka/commit/e1b24310b85cfeb8ceb25f4187b23153241bd390))
+* **shared:** reject out-of-range month and ISO week in FlexDate parsing ([ec8a358](https://github.com/jpalczewski/kartoteka/commit/ec8a3582e8177b4c3d508b3e068ce6608e0a93f8))
+* **tests:** repair the Playwright e2e suite and make it runnable locally ([#354](https://github.com/jpalczewski/kartoteka/issues/354)) ([1ab423d](https://github.com/jpalczewski/kartoteka/commit/1ab423d23e851338e1c0cd8758e7fe2e8eb75eb1))
+
+
+### Performance Improvements
+
+* **server:** immutable Cache-Control for hashed /pkg assets ([#337](https://github.com/jpalczewski/kartoteka/issues/337)) ([ee8a46f](https://github.com/jpalczewski/kartoteka/commit/ee8a46f1639675a9718b981add6aba03a1082ddf))
+
 ## [1.9.0](https://github.com/jpalczewski/kartoteka/compare/v1.8.0...v1.9.0) (2026-11-06)
 
 
