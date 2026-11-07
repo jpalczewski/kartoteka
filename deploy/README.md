@@ -201,7 +201,7 @@ Once the `prod` service is running, you'll get 200 OK from the health endpoint.
 Deployment is handled by GitHub Actions workflows:
 - **Production**: `docker-prod.yml` (triggered by tag push, e.g., `git tag v0.4.1 && git push --tags`)
 - **Development**: `docker-dev.yml` (triggered by pushes to `develop` branch)
-- **Preview**: `docker-preview.yml` (triggered by pushes to specific PR branches)
+- **Preview**: `docker-preview.yml` (triggered by pull requests to `develop`/`main`; builds are cancelled per PR only, and `:preview` points at the most recently finished PR build)
 
 Each workflow:
 1. Builds the Docker image
