@@ -1,72 +1,66 @@
+//! The list page.
+//!
+//! One resource feeds the page and refetches on every change of the list, its items, tags or
+//! comments (including live updates from other tabs). The page never rebuilds itself from it:
+//! the first child of the `<Transition>` patches the data into [`ListPageState`], and
+//! everything below is created once and reads small memos, stores and signals of that state
+//! (see `state.rs`). Open editors, focus and typed text therefore survive a refetch.
+//! Keep reads of the resource out of the closures that wrap the rest of the page.
+
+mod header;
+mod items;
+mod state;
+
+use std::collections::HashMap;
+
 use leptos::prelude::*;
-use leptos_fluent::move_tr;
 use leptos_router::hooks::use_params_map;
 
-use kartoteka_shared::{
-    FEATURE_CHECKLIST, FEATURE_DEADLINES, FEATURE_LOCATION, FEATURE_QUANTITY,
-    FEATURE_TIME_TRACKING, default_list_icon,
-};
+use kartoteka_shared::{ChangeTopic, FEATURE_QUANTITY};
 
+use self::header::{ConfirmAction, ConfirmRequest, ListHeader};
+use self::items::ListItems;
+use self::state::ListPageState;
 use crate::components::comments::CommentSection;
-use crate::components::common::breadcrumbs::Breadcrumbs;
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
-use crate::components::common::container_selector_dropdown::ContainerSelectorDropdown;
 use crate::components::common::delete_entity_modal::{DeleteEntityModal, DeleteTarget};
-use crate::components::common::dnd::{DetachDropZone, ItemDropTargetMarker};
-use crate::components::common::editable_text::EditableText;
+use crate::components::common::dnd::DetachDropZone;
 use crate::components::common::loading::LoadingSpinner;
-use crate::components::items::item_row::{ItemRow, RowTags};
-use crate::components::items::item_view::ItemCaps;
+use crate::components::items::item_list::ItemDnd;
 use crate::components::lists::{
     add_input::AddInput,
     add_item_input::{AddItemDraft, AddItemInput},
-    deadlines_config::DeadlinesConfig,
     sublist_section::SublistSection,
 };
 use crate::components::tags::tag_filter_bar::TagFilterBar;
 use crate::components::tags::tag_list::TagList;
-use crate::components::ui::{
-    EntityIcon, Icon, IconButton, IconButtonSize, IconButtonVariant, SectionHeader,
-};
-use crate::server_fns::containers::get_containers_for_move;
+use crate::components::ui::SectionHeader;
 use crate::server_fns::items::{get_list_data, reorder_items, set_item_placement};
-use crate::server_fns::lists::{
-    archive_list, create_list, get_all_lists, move_list, pin_list, rename_list, reset_list,
-    update_list_features,
-};
+use crate::server_fns::lists::{archive_list, create_list, get_all_lists, move_list, reset_list};
 use crate::server_fns::tags::{assign_tag_to_list, remove_tag_from_list};
 use crate::state::dnd::{
     DndState, EntityKind, ItemDndState, ItemDropPlan, ItemDropTarget, build_item_drop_plan,
 };
 use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
-use crate::state::item_store::{ItemRows, patch_rows};
-use kartoteka_shared::ChangeTopic;
-use reactive_stores::Store;
-use std::collections::HashMap;
-
-#[derive(Clone, Copy, PartialEq)]
-enum ConfirmAction {
-    Archive,
-    Reset,
-}
+use crate::state::item_store::tracked_items;
 
 #[component]
 pub fn ListPage() -> impl IntoView {
     let params = use_params_map();
-    let list_id = move || params.read().get("id").unwrap_or_default();
+    let list_id = Signal::derive(move || params.read().get("id").unwrap_or_default());
 
     let navigate = leptos_router::hooks::use_navigate();
     // Separate handle for the shared delete flow, so the archive/reset modal keeps `navigate`.
     let nav_delete = navigate.clone();
     let invalidation = use_invalidation();
 
-    let (show_completed, set_show_completed) = signal(true);
+    let show_completed = RwSignal::new(true);
     let active_tag: RwSignal<Option<String>> = RwSignal::new(None);
 
     let data_res = Resource::new(
         move || {
             (
-                list_id(),
+                list_id.get(),
                 invalidation.track(&[
                     ChangeTopic::Lists,
                     ChangeTopic::Items,
@@ -77,57 +71,18 @@ pub fn ListPage() -> impl IntoView {
         },
         |(id, _)| get_list_data(id),
     );
-
-    // Derived reactive counts — read from data_res each render so they update
-    // every time the resource refetches (e.g. after toggle/reset).
-    let completed_count = Signal::derive(move || {
-        data_res
-            .get()
-            .and_then(|r| r.ok())
-            .map(|d| d.items.iter().filter(|i| i.completed).count())
-            .unwrap_or(0)
-    });
-    let total = Signal::derive(move || {
-        data_res
-            .get()
-            .and_then(|r| r.ok())
-            .map(|d| d.items.len())
-            .unwrap_or(0)
-    });
-
     let all_lists_res = Resource::new(
         move || invalidation.track(&[ChangeTopic::Lists]),
         |_| get_all_lists(),
     );
 
-    let container_dropdown_open = RwSignal::new(false);
-    let containers_res = Resource::new(
-        move || container_dropdown_open.get(),
-        |open| async move {
-            if open {
-                get_containers_for_move(None, false).await
-            } else {
-                Ok(vec![])
-            }
-        },
-    );
-    let on_move_to_container = Callback::new(move |cid: String| {
-        let lid = list_id();
-        container_dropdown_open.set(false);
-        mutate(
-            move_list(lid, Some(cid), None),
-            &[ChangeTopic::Lists, ChangeTopic::Containers],
-        );
-    });
+    let state = ListPageState::new();
 
     let on_tag_toggle = Callback::new(move |tag_id: String| {
-        let lid = list_id();
-        let current_tag_ids = data_res
-            .get()
-            .and_then(|r| r.ok())
-            .map(|data| data.list_tag_ids)
-            .unwrap_or_default();
-        let has_tag = current_tag_ids.contains(&tag_id);
+        let has_tag = state
+            .list_tag_ids
+            .with_untracked(|ids| ids.contains(&tag_id));
+        let lid = list_id.get_untracked();
         let result = async move {
             if has_tag {
                 remove_tag_from_list(lid, tag_id).await
@@ -138,18 +93,15 @@ pub fn ListPage() -> impl IntoView {
         mutate(result, &[ChangeTopic::Lists, ChangeTopic::Tags]);
     });
 
-    // ── Mutation callbacks ─────────────────────────────────────────
-
     let on_create_sublist = Callback::new(move |name: String| {
         use kartoteka_shared::types::CreateListRequest;
-        let parent_id = list_id();
         let req = CreateListRequest {
             name,
             list_type: None,
             icon: None,
             description: None,
             container_id: None,
-            parent_list_id: Some(parent_id),
+            parent_list_id: Some(list_id.get_untracked()),
             features: vec![],
             color: None,
             inherit_from_parent: true,
@@ -162,46 +114,58 @@ pub fn ListPage() -> impl IntoView {
 
     let (adding_sublist, set_adding_sublist) = signal(false);
 
-    // The page body below is rebuilt from `data_res` on every refetch, including live
-    // updates, so the add-item draft lives here instead of in the form (#426). A different
-    // list starts with an empty draft.
+    // The add-item form lives as long as the page, but a different list starts with an
+    // empty draft.
     let add_item_draft = AddItemDraft::new();
     Effect::new(move |previous: Option<String>| {
-        let current = list_id();
+        let current = list_id.get();
         if previous.is_some_and(|previous| previous != current) {
             add_item_draft.clear();
         }
         current
     });
 
-    let confirm_action: RwSignal<Option<ConfirmAction>> = RwSignal::new(None);
-    let confirm_list_name: RwSignal<String> = RwSignal::new(String::new());
+    let confirm = ConfirmRequest {
+        action: RwSignal::new(None),
+        list_name: RwSignal::new(String::new()),
+    };
     // Delete goes through the shared preview + confirmation flow.
     let delete_target: RwSignal<Option<DeleteTarget>> = RwSignal::new(None);
-    let redirect_after_delete = StoredValue::new(String::from("/"));
+    let redirect_after_delete = move || {
+        state
+            .meta
+            .with_untracked(|m| {
+                m.as_ref().map(
+                    |m| match (m.parent_list_id.as_deref(), m.container_id.as_deref()) {
+                        (Some(pid), _) => format!("/lists/{pid}"),
+                        (_, Some(cid)) => format!("/containers/{cid}"),
+                        _ => "/".to_string(),
+                    },
+                )
+            })
+            .unwrap_or_else(|| "/".to_string())
+    };
 
     // ── DnD state + callbacks ─────────────────────────────────────
     let dnd_state: RwSignal<DndState> = RwSignal::new(DndState::default());
     let item_dnd_state: RwSignal<ItemDndState> = RwSignal::new(ItemDndState::default());
 
-    // Used by reorder + cross-list move plan builder; rebuilt each call so it
-    // reflects current data_res snapshot.
+    // Used by reorder + cross-list move plan builder; rebuilt each call so it reflects the
+    // current rows. Sublists' rows are not included: for a cross-list drop the plan's Move
+    // branch is fine without full maps for the target list (server resolves).
     let build_ids_map = move || -> HashMap<String, Vec<String>> {
         let mut map: HashMap<String, Vec<String>> = HashMap::new();
-        if let Some(Ok(data)) = data_res.get() {
-            let mut main: Vec<kartoteka_shared::types::Item> = data.items.clone();
+        if let Some(id) = state
+            .meta
+            .with_untracked(|m| m.as_ref().map(|m| m.id.clone()))
+        {
+            let mut main = tracked_items(state.items);
             main.sort_by(|a, b| {
                 a.completed
                     .cmp(&b.completed)
                     .then(a.position.cmp(&b.position))
             });
-            map.insert(
-                data.list.id.clone(),
-                main.into_iter().map(|i| i.id).collect(),
-            );
-            // Sublists' items aren't in data.items — SublistSection fetches its own.
-            // For cross-list reorder, pages only know main list ids; plan's Move
-            // branch is fine without full maps for the target list (server resolves).
+            map.insert(id, main.into_iter().map(|i| i.id).collect());
         }
         map
     };
@@ -232,612 +196,195 @@ pub fn ListPage() -> impl IntoView {
             &[ChangeTopic::Items, ChangeTopic::Lists],
         );
     });
+    let item_dnd = ItemDnd {
+        state: item_dnd_state,
+        on_drop: on_item_drop,
+    };
+
+    let has_quantity = state.field(|m| m.features.iter().any(|f| f == FEATURE_QUANTITY));
+    let sublist_ids = Memo::new(move |_| {
+        state
+            .sublists
+            .with(|subs| subs.iter().map(|s| s.id.clone()).collect::<Vec<_>>())
+    });
+    let sublist_count = Memo::new(move |_| sublist_ids.with(Vec::len));
+    let has_sublists = Memo::new(move |_| sublist_count.get() > 0);
+
+    let detach_visible = Signal::derive(move || {
+        dnd_state.with(|s| {
+            s.dragged.as_ref().is_some_and(|d| {
+                d.kind == EntityKind::List && sublist_ids.with(|ids| ids.iter().any(|x| x == &d.id))
+            })
+        })
+    });
+    let on_sublist_detach = Callback::new(move |_| {
+        let Some(id) = dnd_state.with_untracked(|s| s.dragged.as_ref().map(|d| d.id.clone()))
+        else {
+            return;
+        };
+        let container = state
+            .meta
+            .with_untracked(|m| m.as_ref().and_then(|m| m.container_id.clone()));
+        mutate(
+            move_list(id, container, None),
+            &[ChangeTopic::Lists, ChangeTopic::Containers],
+        );
+    });
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">
             // Transition: a refetch keeps the current page on screen instead of the spinner.
             <Transition fallback=|| view! { <LoadingSpinner/> }>
-                {move || data_res.get().map(|result| match result {
-                    Err(e) => view! {
-                        <p class="text-error">"Błąd: " {e.to_string()}</p>
-                    }.into_any(),
-                    Ok(data) => {
-                        let icon_fallback = default_list_icon(&data.list.list_type);
-                        let list_icon = data.list.icon.clone();
-                        let list_name = data.list.name.clone();
-                        let list_name_for_desc = list_name.clone();
-                        let list_name_for_reset = list_name.clone();
-                        let list_name_for_archive = list_name.clone();
-                        let list_name_for_delete = list_name.clone();
-                        let list_id_for_delete = data.list.id.clone();
-                        let list_description = data.list.description.clone();
-                        let list_pinned = data.list.pinned;
-                        let list_archived = data.list.archived;
-                        let created_at_local = data.created_at_local.clone();
-                        let all_items = data.items.clone();
-                        let sublists = data.sublists.clone();
-                        let sublist_items_map = data.sublist_items.clone();
-                        let comments_payload = data.comments.clone();
-                        let parent_container_id = data.list.container_id.clone();
-                        let current_list_id = data.list.id.clone();
-                        let sublist_ids: Vec<String> = sublists.iter().map(|s| s.id.clone()).collect();
-                        let all_lists_vec = all_lists_res.get().and_then(|r| r.ok()).unwrap_or_default();
-                        let move_targets_all: Vec<(String, String)> = all_lists_vec
-                            .iter()
-                            .filter(|l| l.id != current_list_id)
-                            .map(|l| (l.id.clone(), l.name.clone()))
-                            .collect();
-                        let targets_for_items = move_targets_all.clone();
-                        let item_tag_links = data.item_tag_links.clone();
-                        let item_tag_links_filter = data.item_tag_links.clone();
-                        let all_tags_for_filter = data.all_tags.clone();
-                        let all_tags_for_list_tags = data.all_tags.clone();
-                        let all_tags_for_selector = data.all_tags.clone();
-                        let list_tag_ids = data.list_tag_ids.clone();
-                        let today_date = data.today_date.clone();
-                        let container_name_sv = StoredValue::new(data.container_name.clone());
-                        let mut breadcrumb_crumbs = vec![];
-                        if let (Some(cname), Some(cid)) = (&data.container_name, &data.list.container_id) {
-                            breadcrumb_crumbs.push((format!("/containers/{cid}"), cname.clone()));
+                // Patch the page state first: this closure runs before the page below in the
+                // same render pass, on the server and in the browser.
+                {move || {
+                    let all_lists = all_lists_res.get();
+                    match data_res.get() {
+                        Some(Ok(data)) => {
+                            state.patch(data);
+                            if let Some(Ok(lists)) = all_lists {
+                                state.patch_all_lists(lists);
+                            }
+                            ().into_any()
                         }
-                        if let Some(ref plid) = data.list.parent_list_id {
-                            breadcrumb_crumbs.push((
-                                format!("/lists/{plid}"),
-                                data.parent_list_name.clone().unwrap_or_default(),
-                            ));
+                        Some(Err(e)) => {
+                            state.set_failed();
+                            view! { <p class="text-error">"Błąd: " {e.to_string()}</p> }.into_any()
                         }
-                        let redirect_target = match (
-                            data.list.parent_list_id.as_deref(),
-                            data.list.container_id.as_deref(),
-                        ) {
-                            (Some(pid), _) => format!("/lists/{pid}"),
-                            (_, Some(cid)) => format!("/containers/{cid}"),
-                            _ => "/".to_string(),
-                        };
-                        redirect_after_delete.set_value(redirect_target);
-                        let breadcrumb_current = list_name.clone();
-                        let current_features: Vec<String> = data
-                            .list
-                            .features
-                            .iter()
-                            .map(|f| f.feature_name.clone())
-                            .collect();
-                        let has_quantity = current_features.iter().any(|f| f == FEATURE_QUANTITY);
-                        let has_deadlines = current_features.iter().any(|f| f == FEATURE_DEADLINES);
-                        let has_location = current_features.iter().any(|f| f == FEATURE_LOCATION);
-                        let has_checklist = current_features.iter().any(|f| f == FEATURE_CHECKLIST);
-                        let has_time_tracking =
-                            current_features.iter().any(|f| f == FEATURE_TIME_TRACKING);
-                        let deadlines_config = data
-                            .list
-                            .features
-                            .iter()
-                            .find(|f| f.feature_name == FEATURE_DEADLINES)
-                            .map(|f| f.config.clone())
-                            .unwrap_or_else(|| serde_json::json!({}));
-
-                        // Rows read their item from a store; this page still rebuilds it per refetch.
-                        let row_store = Store::new(ItemRows::<kartoteka_shared::types::Item>::default());
-                        patch_rows(row_store, data.items.clone());
-                        let plain_caps = Signal::stored(ItemCaps {
-                            tags: true,
-                            delete: true,
-                            move_to: true,
-                            ..ItemCaps::from_features(&current_features)
-                        });
-                        let drag_caps = Signal::stored(ItemCaps {
-                            drag: true,
-                            tags: true,
-                            delete: true,
-                            move_to: true,
-                            ..ItemCaps::from_features(&current_features)
-                        });
-                        let row_tags = RowTags {
-                            all_tags: Signal::stored(all_tags_for_selector.clone()),
-                            links: Signal::stored(item_tag_links_filter.clone()),
-                        };
-                        let row_targets = Signal::stored(targets_for_items.clone());
-
-                        view! {
-                            <div>
-                                <Breadcrumbs crumbs=breadcrumb_crumbs current=breadcrumb_current />
-
-                                // Header
-                                <div class="mb-1 flex items-center gap-2">
-                                    <EntityIcon raw=list_icon fallback=icon_fallback size=24 />
-                                    <EditableText
-                                        value=list_name.clone()
-                                        on_save=Callback::new(move |new_name: String| {
-                                            let lid = list_id();
-                                            mutate(rename_list(lid, new_name, None), &[ChangeTopic::Lists]);
-                                        })
-                                        class="text-2xl font-bold cursor-pointer hover:underline decoration-dotted"
-                                        testid="list-name-heading"
-                                    />
-                                    // Container move/detach
-                                    {move || {
-                                        let opts = containers_res.get().and_then(|r| r.ok()).unwrap_or_default();
-                                        if let Some(cname) = container_name_sv.get_value() {
-                                            view! {
-                                                <div class="flex items-center gap-1 shrink-0">
-                                                    <span class="text-xs text-base-content/60 flex items-center gap-1">
-                                                        <Icon name="folder" size=12 />
-                                                        <span class="max-w-28 truncate">{cname}</span>
-                                                    </span>
-                                                    <IconButton
-                                                        icon="x"
-                                                        label=move_tr!("lists-detach-from-container")
-                                                        variant=IconButtonVariant::Danger
-                                                        on_click=Callback::new(move |_| {
-                                                            let lid = list_id();
-                                                            mutate(
-                                                                move_list(lid, None, None),
-                                                                &[ChangeTopic::Lists, ChangeTopic::Containers],
-                                                            );
-                                                        })
-                                                    />
-                                                </div>
-                                            }.into_any()
-                                        } else {
-                                            view! {
-                                                <div class="relative shrink-0">
-                                                    <IconButton
-                                                        icon="folder"
-                                                        label=move_tr!("lists-move-to-container")
-                                                        on_click=Callback::new(move |_| container_dropdown_open.update(|v| *v = !*v))
-                                                    />
-                                                    <ContainerSelectorDropdown
-                                                        open=container_dropdown_open
-                                                        options=opts
-                                                        on_select=on_move_to_container
-                                                    />
-                                                </div>
-                                            }.into_any()
-                                        }
-                                    }}
-                                    // Dropdown at the end, pushed right via ml-auto
-                                    <div class="dropdown dropdown-end ml-auto">
-                                        <IconButton
-                                            icon="more-vertical"
-                                            label=move_tr!("common-actions")
-                                            size=IconButtonSize::Sm
-                                            testid=Some("list-actions-btn")
-                                        />
-                                        <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-50 w-52 p-2 shadow-lg border border-base-300">
-                                            <li>
-                                                <button
-                                                    type="button"
-                                                    data-testid="action-pin"
-                                                    on:click=move |_| {
-                                                        let lid = list_id();
-                                                        mutate(pin_list(lid), &[ChangeTopic::Lists]);
-                                                    }
-                                                >
-                                                    <Icon name=if list_pinned { "pin-off" } else { "pin" } size=16 />
-                                                    {if list_pinned { move_tr!("lists-unpin") } else { move_tr!("lists-pin") }}
-                                                </button>
-                                            </li>
-                                            <li>
-                                                <button
-                                                    type="button"
-                                                    data-testid="action-reset"
-                                                    on:click=move |_| {
-                                                        confirm_list_name.set(list_name_for_reset.clone());
-                                                        confirm_action.set(Some(ConfirmAction::Reset));
-                                                    }
-                                                >
-                                                    <Icon name="timer" size=16 />
-                                                    {move_tr!("lists-reset-completed")}
-                                                </button>
-                                            </li>
-                                            <li class="menu-title">
-                                                <span class="text-xs uppercase tracking-wide opacity-60">"Funkcje"</span>
-                                            </li>
-                                            {
-                                                let make_toggle = {
-                                                    let feats = current_features.clone();
-                                                    move |feature: &'static str| {
-                                                        let f0 = feats.clone();
-                                                        move |ev: leptos::ev::Event| {
-                                                            let checked = event_target_checked(&ev);
-                                                            let mut f = f0.clone();
-                                                            if checked { f.push(feature.to_string()); }
-                                                            else { f.retain(|x| x != feature); }
-                                                            let lid = list_id();
-                                                            mutate(
-                                                                update_list_features(lid, f),
-                                                                &[ChangeTopic::Lists],
-                                                            );
-                                                        }
-                                                    }
-                                                };
-                                                view! {
-                                                    <li>
-                                                        <label class="flex items-center gap-2 cursor-pointer">
-                                                            <input
-                                                                type="checkbox"
-                                                                class="checkbox checkbox-xs"
-                                                                prop:checked=has_quantity
-                                                                on:change=make_toggle(FEATURE_QUANTITY)
-                                                            />
-                                                            "Ilości"
-                                                        </label>
-                                                    </li>
-                                                    <li>
-                                                        <label class="flex items-center gap-2 cursor-pointer">
-                                                            <input
-                                                                type="checkbox"
-                                                                class="checkbox checkbox-xs"
-                                                                prop:checked=has_deadlines
-                                                                on:change=make_toggle(FEATURE_DEADLINES)
-                                                            />
-                                                            "Terminy"
-                                                        </label>
-                                                    </li>
-                                                    {if has_deadlines {
-                                                        let cfg = deadlines_config.clone();
-                                                        let lid = current_list_id.clone();
-                                                        view! {
-                                                            <DeadlinesConfig
-                                                                list_id=lid
-                                                                config=cfg
-                                                                on_changed=Callback::new(move |_| invalidation.invalidate(ChangeTopic::Lists))
-                                                            />
-                                                        }.into_any()
-                                                    } else {
-                                                        view! {}.into_any()
-                                                    }}
-                                                    <li>
-                                                        <label class="flex items-center gap-2 cursor-pointer">
-                                                            <input
-                                                                type="checkbox"
-                                                                class="checkbox checkbox-xs"
-                                                                prop:checked=has_location
-                                                                on:change=make_toggle(FEATURE_LOCATION)
-                                                            />
-                                                            <Icon name="pin" size=14 />
-                                                            {move_tr!("lists-feature-location")}
-                                                        </label>
-                                                    </li>
-                                                    <li>
-                                                        <label class="flex items-center gap-2 cursor-pointer">
-                                                            <input
-                                                                type="checkbox"
-                                                                class="checkbox checkbox-xs"
-                                                                prop:checked=has_checklist
-                                                                on:change=make_toggle(FEATURE_CHECKLIST)
-                                                            />
-                                                            {move_tr!("lists-feature-checklist")}
-                                                        </label>
-                                                    </li>
-                                                    <li>
-                                                        <label class="flex items-center gap-2 cursor-pointer">
-                                                            <input
-                                                                type="checkbox"
-                                                                class="checkbox checkbox-xs"
-                                                                prop:checked=has_time_tracking
-                                                                on:change=make_toggle(FEATURE_TIME_TRACKING)
-                                                            />
-                                                            {move_tr!("lists-feature-time-tracking")}
-                                                        </label>
-                                                    </li>
-                                                }
-                                            }
-                                            <li>
-                                                <button
-                                                    type="button"
-                                                    class="text-warning"
-                                                    data-testid="action-archive"
-                                                    on:click=move |_| {
-                                                        confirm_list_name.set(list_name_for_archive.clone());
-                                                        confirm_action.set(Some(ConfirmAction::Archive));
-                                                    }
-                                                >
-                                                    <Icon name="archive" size=16 />
-                                                    {if list_archived { move_tr!("lists-restore-aria") } else { move_tr!("lists-header-archive-button") }}
-                                                </button>
-                                            </li>
-                                            <li>
-                                                <button
-                                                    type="button"
-                                                    class="text-error"
-                                                    data-testid="action-delete"
-                                                    on:click=move |_| {
-                                                        delete_target.set(Some(DeleteTarget::list(
-                                                            list_id_for_delete.clone(),
-                                                            list_name_for_delete.clone(),
-                                                        )));
-                                                    }
-                                                >
-                                                    <Icon name="trash" size=16 />
-                                                    {move_tr!("lists-header-delete-button")}
-                                                </button>
-                                            </li>
-                                        </ul>
-                                    </div>
-                                </div>
-                                <p class="text-xs text-base-content/40 mb-4" data-testid="list-created-at">
-                                    "Utworzono: " {created_at_local}
-                                </p>
-
-                                <div class="mb-4">
-                                    <EditableText
-                                        value=list_description.clone().unwrap_or_default()
-                                        on_save=Callback::new(move |new_desc: String| {
-                                            let lid = list_id();
-                                            let current_name = list_name_for_desc.clone();
-                                            let val = if new_desc.trim().is_empty() { None } else { Some(new_desc) };
-                                            mutate(
-                                                rename_list(lid, current_name, val),
-                                                &[ChangeTopic::Lists],
-                                            );
-                                        })
-                                        multiline=true
-                                        placeholder="Dodaj opis..."
-                                        class="text-base-content/60 cursor-pointer hover:underline decoration-dotted"
-                                    />
-                                </div>
-
-                                // Tags
-                                <div class="mb-4" data-testid="list-tags-section">
-                                    <TagList
-                                        all_tags=all_tags_for_list_tags
-                                        selected_tag_ids=list_tag_ids
-                                        on_toggle=on_tag_toggle
-                                    />
-                                </div>
-
-                                // Tag filter bar (shown only when items have tags)
-                                <TagFilterBar
-                                    all_tags=all_tags_for_filter
-                                    item_tag_links=item_tag_links
-                                    active_tag=active_tag
-                                />
-
-                                // Add item input
-                                <div class="mb-4">
-                                    <AddItemInput
-                                        list_id=Signal::derive(list_id)
-                                        has_quantity=has_quantity
-                                        on_created=Callback::new(move |_| invalidation.invalidate(ChangeTopic::Items))
-                                        draft=add_item_draft
-                                    />
-                                </div>
-
-                                // Sublist detach zone — visible when dragging a sublist of this list.
-                                {
-                                    let sublist_ids_for_detach = sublist_ids.clone();
-                                    let detach_visible = Signal::derive(move || dnd_state.with(|s| {
-                                        s.dragged
-                                            .as_ref()
-                                            .map(|d| d.kind == EntityKind::List && sublist_ids_for_detach.iter().any(|x| x == &d.id))
-                                            .unwrap_or(false)
-                                    }));
-                                    let parent_container_for_detach = parent_container_id.clone();
-                                    let on_sublist_detach = Callback::new(move |_| {
-                                        let Some(id) = dnd_state.with_untracked(|s| s.dragged.as_ref().map(|d| d.id.clone())) else { return };
-                                        let ctr = parent_container_for_detach.clone();
-                                        mutate(
-                                            move_list(id, ctr, None),
-                                            &[ChangeTopic::Lists, ChangeTopic::Containers],
-                                        );
-                                    });
-                                    view! {
-                                        <DetachDropZone
-                                            dnd_state=dnd_state
-                                            visible=detach_visible
-                                            on_drop=on_sublist_detach
-                                            label="Upuść tutaj, aby odpiąć podlistę"
-                                        />
-                                    }
-                                }
-
-                                // Sublists section
-                                {
-                                    let notify = Callback::new(move |_| {
-                                        invalidation
-                                            .invalidate_many(&[ChangeTopic::Items, ChangeTopic::Lists]);
-                                    });
-                                    let targets_for_subs = move_targets_all.clone();
-                                    let sub_ids_for_subs = sublist_ids.clone();
-                                    view! {
-                                        <div class="mb-4">
-                                            {if !sublists.is_empty() {
-                                                let targets = targets_for_subs.clone();
-                                                let sub_ids = sub_ids_for_subs.clone();
-                                                view! {
-                                                    <SectionHeader
-                                                        title="Podlisty"
-                                                        count=sublists.len()
-                                                        icon="list"
-                                                        class="mb-2"
-                                                    />
-                                                    <div class="flex flex-col gap-2 mb-2">
-                                                        {sublists.into_iter().map(|sublist| {
-                                                            let sid = sublist.id.clone();
-                                                            let sl_items = sublist_items_map.get(&sid).cloned().unwrap_or_default();
-                                                            let mt: Vec<(String, String)> = targets
-                                                                .iter()
-                                                                .filter(|(tid, _)| tid != &sid && !sub_ids.iter().any(|s| s == tid && s == &sid))
-                                                                .cloned()
-                                                                .collect();
-                                                            view! {
-                                                                <SublistSection
-                                                                    sublist=sublist
-                                                                    initial_items=sl_items
-                                                                    on_any_change=notify
-                                                                    move_targets=mt
-                                                                    dnd_state=dnd_state
-                                                                    item_dnd_state=item_dnd_state
-                                                                    on_item_drop=on_item_drop
-                                                                />
-                                                            }
-                                                        }).collect::<Vec<_>>()}
-                                                    </div>
-                                                }.into_any()
-                                            } else {
-                                                view! {}.into_any()
-                                            }}
-                                            // Add sublist button
-                                            {move || if adding_sublist.get() {
-                                                view! {
-                                                    <AddInput
-                                                        placeholder=Signal::derive(|| "Nazwa podlisty...".to_string())
-                                                        button_label=Signal::derive(|| "Utwórz".to_string())
-                                                        on_submit=Callback::new(move |name: String| {
-                                                            set_adding_sublist.set(false);
-                                                            on_create_sublist.run(name);
-                                                        })
-                                                        testid="add-sublist-input"
-                                                    />
-                                                }.into_any()
-                                            } else {
-                                                view! {
-                                                    <button
-                                                        type="button"
-                                                        class="btn btn-ghost btn-sm"
-                                                        data-testid="add-sublist-button"
-                                                        on:click=move |_| set_adding_sublist.set(true)
-                                                    >
-                                                        "+ Dodaj podlistę"
-                                                    </button>
-                                                }.into_any()
-                                            }}
-                                        </div>
-                                    }.into_any()
-                                }
-
-                                // Items list
-                                {move || {
-                                    let tag_filter = active_tag.get();
-                                    let visible: Vec<_> = all_items
-                                        .iter()
-                                        .filter(|i| show_completed.get() || !i.completed)
-                                        .filter(|i| {
-                                            tag_filter.as_ref().map(|tid| {
-                                                item_tag_links_filter
-                                                    .iter()
-                                                    .any(|l| l.item_id == i.id && l.tag_id.as_str() == tid.as_str())
-                                            }).unwrap_or(true)
-                                        })
-                                        .cloned()
-                                        .collect();
-                                    if visible.is_empty() {
-                                        view! {
-                                            <div class="text-center text-base-content/50 py-8">
-                                                {if tag_filter.is_some() {
-                                                    "Brak elementów z tym tagiem."
-                                                } else if !show_completed.get() && completed_count.get() > 0 {
-                                                    "Wszystkie elementy ukończone — odznacz filtr aby je zobaczyć."
-                                                } else {
-                                                    "Brak elementów. Dodaj pierwszy powyżej."
-                                                }}
-                                            </div>
-                                        }.into_any()
-                                    } else {
-                                        view! {
-                                            <div>
-                                                <div class="flex items-center justify-between mb-2">
-                                                    <span class="text-sm text-base-content/60" data-testid="completion-count">
-                                                        {move || completed_count.get()} "/" {move || total.get()} " ukończone"
-                                                    </span>
-                                                    <label class="flex items-center gap-2 cursor-pointer select-none">
-                                                        <span class="text-xs text-base-content/50">"Ukryj ukończone"</span>
-                                                        <input
-                                                            type="checkbox"
-                                                            class="toggle toggle-xs"
-                                                            data-testid="hide-completed-toggle"
-                                                            prop:checked=move || !show_completed.get()
-                                                            on:change=move |ev| set_show_completed.set(!event_target_checked(&ev))
-                                                        />
-                                                    </label>
-                                                </div>
-                                                {if has_deadlines {
-                                                    let (overdue, upcoming, done) = partition_by_deadline(&visible, &today_date);
-                                                    let render_section = |items: Vec<kartoteka_shared::types::Item>, label: &'static str, label_class: &'static str| {
-                                                        if items.is_empty() { return view! {}.into_any(); }
-                                                        let rows = items.into_iter().map(|item| {
-                                                            view! {
-                                                                <ItemRow
-                                                                    store=row_store
-                                                                    id=item.id
-                                                                    caps=plain_caps
-                                                                    move_targets=row_targets
-                                                                    tags=Some(row_tags)
-                                                                />
-                                                            }
-                                                        }).collect::<Vec<_>>();
-                                                        view! {
-                                                            <div class="mb-4">
-                                                                <p class=format!("text-xs font-semibold uppercase tracking-wide mb-2 {label_class}")>{label}</p>
-                                                                <div class="flex flex-col gap-2">{rows}</div>
-                                                            </div>
-                                                        }.into_any()
-                                                    };
-                                                    view! {
-                                                        <div class="flex flex-col">
-                                                            {render_section(overdue, "Zaległe", "text-error")}
-                                                            {render_section(upcoming, "Nadchodzące", "text-base-content/60")}
-                                                            {render_section(done, "Ukończone", "text-base-content/40")}
-                                                        </div>
-                                                    }.into_any()
-                                                } else {
-                                                    view! {
-                                                        <div class="flex flex-col">
-                                                            {visible.into_iter().map(|item| {
-                                                                let before_tgt = ItemDropTarget::before(current_list_id.clone(), item.id.clone());
-                                                                view! {
-                                                                    <ItemDropTargetMarker
-                                                                        dnd_state=item_dnd_state
-                                                                        target=before_tgt
-                                                                        on_drop=on_item_drop
-                                                                    />
-                                                                    <ItemRow
-                                                                        store=row_store
-                                                                        id=item.id
-                                                                        caps=drag_caps
-                                                                        move_targets=row_targets
-                                                                        tags=Some(row_tags)
-                                                                        dnd_state=Some(item_dnd_state)
-                                                                    />
-                                                                }
-                                                            }).collect::<Vec<_>>()}
-                                                            <ItemDropTargetMarker
-                                                                dnd_state=item_dnd_state
-                                                                target=ItemDropTarget::end(current_list_id.clone())
-                                                                on_drop=on_item_drop
-                                                                label="Upuść na koniec"
-                                                            />
-                                                        </div>
-                                                    }.into_any()
-                                                }}
-                                            </div>
-                                        }.into_any()
-                                    }
-                                }}
-
-                                // Comments
-                                <CommentSection
-                                    entity_type="list"
-                                    entity_id=Signal::derive(list_id)
-                                    initial_payload=comments_payload
-                                />
-                            </div>
-                        }.into_any()
+                        None => ().into_any(),
                     }
-                })}
+                }}
+
+                <Show when=move || state.loaded.get()>
+                    <div>
+                        <ListHeader
+                            state=state
+                            list_id=list_id
+                            confirm=confirm
+                            delete_target=delete_target
+                        />
+
+                        // Tags
+                        <div class="mb-4" data-testid="list-tags-section">
+                            {move || view! {
+                                <TagList
+                                    all_tags=state.all_tags.get()
+                                    selected_tag_ids=state.list_tag_ids.get()
+                                    on_toggle=on_tag_toggle
+                                />
+                            }}
+                        </div>
+
+                        // Tag filter bar (shown only when items have tags)
+                        {move || view! {
+                            <TagFilterBar
+                                all_tags=state.all_tags.get()
+                                item_tag_links=state.item_tag_links.get()
+                                active_tag=active_tag
+                            />
+                        }}
+
+                        // Add item input. The draft is owned by the page, so it also survives
+                        // the form being re-created when the quantity feature is switched.
+                        <div class="mb-4">
+                            {move || view! {
+                                <AddItemInput
+                                    list_id=list_id
+                                    has_quantity=has_quantity.get()
+                                    on_created=Callback::new(move |_| invalidation.invalidate(ChangeTopic::Items))
+                                    draft=add_item_draft
+                                />
+                            }}
+                        </div>
+
+                        // Sublist detach zone — visible when dragging a sublist of this list.
+                        <DetachDropZone
+                            dnd_state=dnd_state
+                            visible=detach_visible
+                            on_drop=on_sublist_detach
+                            label="Upuść tutaj, aby odpiąć podlistę"
+                        />
+
+                        // Sublists section
+                        <div class="mb-4">
+                            <Show when=move || has_sublists.get()>
+                                {move || view! {
+                                    <SectionHeader
+                                        title="Podlisty"
+                                        count=sublist_count.get()
+                                        icon="list"
+                                        class="mb-2"
+                                    />
+                                }}
+                                <div class="flex flex-col gap-2 mb-2">
+                                    <For each=move || sublist_ids.get() key=|id| id.clone() let:sid>
+                                        <SublistSection
+                                            store=state.sublist_store(&sid)
+                                            id=sid
+                                            sublists=Signal::from(state.sublists)
+                                            all_lists=Signal::from(state.all_lists)
+                                            dnd_state=dnd_state
+                                            item_dnd=item_dnd
+                                        />
+                                    </For>
+                                </div>
+                            </Show>
+                            // Add sublist button
+                            {move || if adding_sublist.get() {
+                                view! {
+                                    <AddInput
+                                        placeholder=Signal::derive(|| "Nazwa podlisty...".to_string())
+                                        button_label=Signal::derive(|| "Utwórz".to_string())
+                                        on_submit=Callback::new(move |name: String| {
+                                            set_adding_sublist.set(false);
+                                            on_create_sublist.run(name);
+                                        })
+                                        testid="add-sublist-input"
+                                    />
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <button
+                                        type="button"
+                                        class="btn btn-ghost btn-sm"
+                                        data-testid="add-sublist-button"
+                                        on:click=move |_| set_adding_sublist.set(true)
+                                    >
+                                        "+ Dodaj podlistę"
+                                    </button>
+                                }.into_any()
+                            }}
+                        </div>
+
+                        // Items list
+                        <ListItems
+                            state=state
+                            show_completed=show_completed
+                            active_tag=active_tag
+                            item_dnd=item_dnd
+                        />
+
+                        // Comments
+                        <CommentSection
+                            entity_type="list"
+                            entity_id=list_id
+                            initial_payload=state.comments.get_untracked()
+                            live_payload=state.comments
+                        />
+                    </div>
+                </Show>
             </Transition>
 
             <DeleteEntityModal
                 target=delete_target
                 on_deleted=Callback::new(move |_| {
-                    nav_delete(&redirect_after_delete.get_value(), Default::default());
+                    nav_delete(&redirect_after_delete(), Default::default());
                 })
             />
 
             {move || {
-                let action = confirm_action.get()?;
-                let name = confirm_list_name.get();
+                let action = confirm.action.get()?;
+                let name = confirm.list_name.get();
                 let (title, message, label, variant) = match action {
                     ConfirmAction::Archive => (
                         "Archiwizuj listę",
@@ -853,24 +400,24 @@ pub fn ListPage() -> impl IntoView {
                     ),
                 };
                 let nav = navigate.clone();
-                let close = Callback::new(move |_| confirm_action.set(None));
+                let close = Callback::new(move |_| confirm.action.set(None));
                 Some(view! {
                     <ConfirmModal
-                        open=Signal::derive(move || confirm_action.get().is_some())
+                        open=Signal::derive(move || confirm.action.get().is_some())
                         title=title.to_string()
                         message=message
                         confirm_label=label.to_string()
                         variant=variant
                         on_close=close
                         on_confirm=Callback::new(move |_| {
-                            confirm_action.set(None);
-                            let lid = list_id();
+                            confirm.action.set(None);
+                            let lid = list_id.get_untracked();
                             let nav2 = nav.clone();
                             match action {
                                 ConfirmAction::Archive => mutate_with(
                                     archive_list(lid),
                                     &[ChangeTopic::Lists, ChangeTopic::Items],
-                                    move |_| nav2(&redirect_after_delete.get_value(), Default::default()),
+                                    move |_| nav2(&redirect_after_delete(), Default::default()),
                                 ),
                                 ConfirmAction::Reset => {
                                     mutate(reset_list(lid), &[ChangeTopic::Items])
@@ -882,38 +429,4 @@ pub fn ListPage() -> impl IntoView {
             }}
         </div>
     }
-}
-
-/// Split items into (overdue, upcoming, done) buckets for the deadline date-view.
-/// - done: `item.completed`
-/// - overdue: not completed and deadline < today
-/// - upcoming: everything else (no deadline, deadline >= today)
-fn partition_by_deadline(
-    items: &[kartoteka_shared::types::Item],
-    today: &str,
-) -> (
-    Vec<kartoteka_shared::types::Item>,
-    Vec<kartoteka_shared::types::Item>,
-    Vec<kartoteka_shared::types::Item>,
-) {
-    let mut overdue = Vec::new();
-    let mut upcoming = Vec::new();
-    let mut done = Vec::new();
-
-    for item in items {
-        if item.completed {
-            done.push(item.clone());
-        } else if item
-            .deadline
-            .as_ref()
-            .map(|d| d.start().format("%Y-%m-%d").to_string().as_str() < today)
-            .unwrap_or(false)
-        {
-            overdue.push(item.clone());
-        } else {
-            upcoming.push(item.clone());
-        }
-    }
-
-    (overdue, upcoming, done)
 }

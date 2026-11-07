@@ -177,3 +177,107 @@ test("List page: a live update keeps the add-item draft (#426)", async ({ page, 
   await expect(page.locator('[data-testid="add-item-title"]')).toHaveValue("Half typed");
   await expect(page.locator('[data-testid="add-item-deadline"]')).toHaveValue(todayIso());
 });
+
+/** Create a sublist on the open list page and add one item to it. */
+async function addSublistWithItem(page: Page, name: string, itemTitle: string) {
+  await page.locator('[data-testid="add-sublist-button"]').click();
+  const form = page.locator('[data-testid="add-sublist-input"]');
+  await form.locator('input[type="text"]').fill(name);
+  await form.locator("button").click();
+  const section = page.locator('[data-testid="sublist-section"]').filter({ hasText: name });
+  await expect(section).toBeVisible();
+  const newItem = section.locator('[data-testid="sublist-new-item"]');
+  await newItem.locator('input[type="text"]').fill(itemTitle);
+  await newItem.locator("button").click();
+  await expect(section.getByText(itemTitle, { exact: true })).toBeVisible();
+}
+
+test("List page: a live update keeps rows, sublists, editors and inputs", async ({
+  page,
+  context,
+}) => {
+  await registerAndLogin(page, context, "Live List");
+  const listId = await scheduleListWithItems(page, "Live List Page");
+
+  await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
+  await addSublistWithItem(page, "Live Sub", "Sub Item");
+
+  // A fresh load, so the marks below sit on elements of the final page.
+  await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
+  const row = (title: string) =>
+    page.locator('[data-testid="item-row"]').filter({ hasText: title });
+  const section = page.locator('[data-testid="sublist-section"]').filter({ hasText: "Live Sub" });
+  await expect(row("Live B")).toBeVisible();
+  await expect(section.locator('[data-testid="item-row"]')).toHaveCount(1);
+
+  // Row B with its description editor open and a draft typed into it.
+  await row("Live B").locator('[data-testid="item-expand-btn"]').click();
+  const editor = row("Live B").locator("textarea");
+  await editor.fill("typing in row B");
+  // The name editor, open with half a name.
+  await page.locator('[data-testid="list-name-heading"]').click();
+  const nameInput = page.locator('[data-testid="list-name-heading-input"]');
+  await nameInput.fill("Half a name");
+  // The sublist name input and the sublist's own add-item input, with text typed in.
+  await page.locator('[data-testid="add-sublist-button"]').click();
+  const sublistNameInput = page.locator('[data-testid="add-sublist-input"] input[type="text"]');
+  await sublistNameInput.fill("Half a sublist");
+  const sublistItemInput = section.locator('[data-testid="sublist-new-item"] input[type="text"]');
+  await sublistItemInput.fill("Half a sub item");
+  // The comment box.
+  const comment = page.locator('textarea[placeholder="Dodaj komentarz..."]');
+  await comment.fill("Half a comment");
+
+  const marked: Record<string, Locator> = {
+    "row B": row("Live B"),
+    "row editor": editor,
+    "sublist row": section.locator('[data-testid="item-row"]'),
+    "sublist section": section,
+    "name input": nameInput,
+    "sublist name input": sublistNameInput,
+    "sublist item input": sublistItemInput,
+    "comment box": comment,
+  };
+  for (const locator of Object.values(marked)) await markRow(locator);
+
+  // A change in the list and one in the sublist, from another tab.
+  await completeFromOtherTab(context, listId, "Live A");
+  await expect(row("Live A").locator('[data-testid="item-title-link"]')).toHaveClass(
+    /line-through/,
+  );
+  await completeFromOtherTab(context, listId, "Sub Item");
+  await expect(section.locator('[data-testid="sublist-progress"]')).toContainText("1/1");
+
+  for (const [what, locator] of Object.entries(marked)) {
+    expect(await isMarked(locator), `${what} is still the same element`).toBe(true);
+  }
+  await expect(editor).toHaveValue("typing in row B");
+  await expect(nameInput).toHaveValue("Half a name");
+  await expect(sublistNameInput).toHaveValue("Half a sublist");
+  await expect(sublistItemInput).toHaveValue("Half a sub item");
+  await expect(comment).toHaveValue("Half a comment");
+});
+
+test("List page: a live update keeps rows of a plain list", async ({ page, context }) => {
+  await registerAndLogin(page, context, "Live Plain");
+  await page.goto("/");
+  await waitForHydration(page);
+  await createListOnCurrentPage(page, "Live Plain List");
+  const listId = await openList(page, "Live Plain List");
+  for (const title of ["Live A", "Live B"]) {
+    await submitAddItem(page, title);
+    await expect(page.getByText(title, { exact: true })).toBeVisible();
+  }
+
+  const row = (title: string) =>
+    page.locator('[data-testid="item-row"]').filter({ hasText: title });
+  await markRow(row("Live B"));
+  await completeFromOtherTab(context, listId, "Live A");
+
+  await expect(row("Live A").locator('[data-testid="item-title-link"]')).toHaveClass(
+    /line-through/,
+  );
+  expect(await isMarked(row("Live B"))).toBe(true);
+});

@@ -17,11 +17,23 @@ pub fn CommentSection(
     entity_type: &'static str,
     entity_id: Signal<String>,
     #[prop(optional)] initial_payload: Option<CommentsPayload>,
+    /// The page's own copy of the comments: when given, the section follows it, so a page
+    /// that keeps the section alive across refetches still shows other people's comments.
+    #[prop(optional, into)]
+    live_payload: Option<Signal<CommentsPayload>>,
 ) -> impl IntoView {
     let toast = use_toast();
 
     // Initialized from pre-fetched data — avoids a nested Resource that breaks hydration.
     let payload = RwSignal::new(initial_payload);
+    if let Some(live) = live_payload {
+        Effect::new(move |_| {
+            let latest = live.get();
+            if payload.with_untracked(|p| p.as_ref() != Some(&latest)) {
+                payload.set(Some(latest));
+            }
+        });
+    }
 
     // `AddComment` invalidates `ChangeTopic::Comments` itself; this only refetches the
     // payload this section renders from it.
