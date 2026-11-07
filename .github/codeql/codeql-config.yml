@@ -1,0 +1,9 @@
+name: "Kartoteka CodeQL config"
+
+# rust/hard-coded-cryptographic-value (security-extended) fires on test-only
+# fixture passwords/keys and re-appears as a new alert whenever a line moves.
+# Inline `// codeql[...]` suppression does not exist for Rust yet
+# (github/codeql#21637, PR github/codeql#21638 open), so exclude test code by path.
+paths-ignore:
+  - "**/tests.rs"
+  - "**/tests/**"
