@@ -1,7 +1,8 @@
 use leptos::prelude::*;
 
-use crate::app::{ToastContext, ToastKind};
 use crate::server_fns::comments::add_comment;
+use crate::state::invalidation::mutate_with;
+use kartoteka_shared::ChangeTopic;
 
 #[component]
 pub fn AddComment(
@@ -9,7 +10,6 @@ pub fn AddComment(
     entity_id: Signal<String>,
     on_added: Callback<()>,
 ) -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let content = RwSignal::new(String::new());
 
     let on_submit = move |ev: leptos::ev::MouseEvent| {
@@ -20,15 +20,14 @@ pub fn AddComment(
         }
         let et = entity_type.get();
         let eid = entity_id.get();
-        leptos::task::spawn_local(async move {
-            match add_comment(et, eid, text).await {
-                Ok(_) => {
-                    content.set(String::new());
-                    on_added.run(());
-                }
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate_with(
+            add_comment(et, eid, text),
+            &[ChangeTopic::Comments],
+            move |_| {
+                content.set(String::new());
+                on_added.run(());
+            },
+        );
     };
 
     view! {
