@@ -1,10 +1,10 @@
 import { test, expect, Page, Locator, BrowserContext } from "@playwright/test";
 
 import {
-  addItem,
   createListOnCurrentPage,
   openList,
   registerAndLogin,
+  submitAddItem,
   waitForHydration,
 } from "./helpers";
 
@@ -31,9 +31,14 @@ async function scheduleListWithItems(page: Page, name: string): Promise<string> 
   await createListOnCurrentPage(page, name);
   const listId = await openList(page, name);
   for (const title of ["Live A", "Live B", "Live C"]) {
-    await page.locator('[data-testid="add-item-dates-toggle"]').click();
-    await page.locator('[data-testid="add-item-deadline"]').fill(todayIso());
-    await addItem(page, title);
+    await submitAddItem(page, title, async () => {
+      const deadline = page.locator('[data-testid="add-item-deadline"]');
+      if (!(await deadline.isVisible())) {
+        await page.locator('[data-testid="add-item-dates-toggle"]').click();
+      }
+      await deadline.fill(todayIso());
+    });
+    await expect(page.getByText(title, { exact: true })).toBeVisible();
   }
   return listId;
 }

@@ -88,6 +88,9 @@ export async function openList(page: Page, name: string): Promise<string> {
   await card.waitFor({ timeout: 10_000 });
   await card.locator('[data-testid="list-card-title"]').click();
   await page.waitForURL(/\/lists\/.+/);
+  // Wait for the list page to hydrate: a form submitted before that is a native submit
+  // that reloads the page and silently drops the new item (#422).
+  await waitForHydration(page);
   return page.url().split("/lists/")[1];
 }
 
@@ -99,9 +102,35 @@ export async function createListAndOpen(page: Page, name: string): Promise<strin
 
 /** Add an item to the list page that is currently open and wait for it to render. */
 export async function addItem(page: Page, title: string): Promise<void> {
-  await page.locator('[data-testid="add-item-title"]').fill(title);
-  await page.locator('[data-testid="add-item-form"] button[type="submit"]').click();
+  await submitAddItem(page, title);
   await expect(page.getByText(title, { exact: true })).toBeVisible();
+}
+
+/**
+ * Fill and submit the add-item form, retrying when the submit never reached the server.
+ *
+ * The list page renders under `<Suspense>`: a live update for the list (e.g. the echo of the
+ * list we just created) refetches it and re-creates the whole page, including this form, so
+ * text typed just before is lost and nothing is submitted (#426). Until the list page moves
+ * to keyed rows and `<Transition>`, wait for the `create_item` request and retry if it
+ * didn't happen. Optional `before` re-applies extra form input (e.g. dates) on each try.
+ */
+export async function submitAddItem(
+  page: Page,
+  title: string,
+  before?: () => Promise<void>,
+): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (before) await before();
+    await page.locator('[data-testid="add-item-title"]').fill(title);
+    const created = page
+      .waitForRequest((r) => r.url().includes("/leptos/create_item"), { timeout: 3_000 })
+      .then(() => true)
+      .catch(() => false);
+    await page.locator('[data-testid="add-item-form"] button[type="submit"]').click();
+    if (await created) return;
+  }
+  throw new Error(`add-item form never submitted "${title}"`);
 }
 
 /** Open the actions dropdown of the list page and pick one of its entries. */
