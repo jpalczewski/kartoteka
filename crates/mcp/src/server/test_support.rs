@@ -242,6 +242,7 @@ pub(crate) fn domain_list_req(
         container_id,
         parent_list_id: None,
         features: Vec::new(),
+        inherit_from_parent: true,
     }
 }
 

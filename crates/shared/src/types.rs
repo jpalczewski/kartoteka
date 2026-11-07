@@ -388,6 +388,15 @@ pub struct CreateListRequest {
     /// Feature name strings, e.g. "deadlines", "quantity".
     #[serde(default)]
     pub features: Vec<String>,
+    /// Sublists only: take over the parent list's type and feature set. Defaults to `true`
+    /// so callers that predate the field keep the inheriting behaviour.
+    #[serde(default = "default_inherit_from_parent")]
+    pub inherit_from_parent: bool,
+}
+
+/// `inherit_from_parent` is opt-out: JSON that omits it means "inherit".
+fn default_inherit_from_parent() -> bool {
+    true
 }
 
 impl CreateListRequest {

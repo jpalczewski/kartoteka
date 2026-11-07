@@ -84,7 +84,7 @@ pub struct List {
 #[derive(Debug, Deserialize)]
 pub struct CreateListRequest {
     pub name: String,
-    pub list_type: Option<String>, // defaults to "checklist"
+    pub list_type: Option<String>, // defaults to the parent's, or "checklist"
     pub icon: Option<String>,
     /// Accent colour as `#rrggbb`; None = neutral.
     pub color: Option<String>,
@@ -92,6 +92,15 @@ pub struct CreateListRequest {
     pub container_id: Option<String>,
     pub parent_list_id: Option<String>,
     pub features: Vec<String>, // feature_name strings
+    /// Sublists only: take over the parent list's type and feature set (merged with
+    /// `features`). Defaults to `true` so callers that omit the field inherit.
+    #[serde(default = "default_inherit_from_parent")]
+    pub inherit_from_parent: bool,
+}
+
+/// `inherit_from_parent` is opt-out: a request that omits it means "inherit".
+fn default_inherit_from_parent() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize)]
@@ -179,6 +188,23 @@ pub fn features_preserving_configs(
     serde_json::Value::Object(obj)
 }
 
+/// Union of the parent's stored features (name → config) and the explicitly requested names.
+///
+/// Explicit names only add: a feature the parent already enables keeps its config, because a
+/// request carries names without configs.
+pub fn merge_inherited_features(
+    parent: &serde_json::Map<String, serde_json::Value>,
+    explicit_names: &[String],
+) -> serde_json::Value {
+    let mut merged = parent.clone();
+    for name in explicit_names {
+        merged
+            .entry(name.clone())
+            .or_insert_with(|| serde_json::json!({}));
+    }
+    serde_json::Value::Object(merged)
+}
+
 /// Parse a caller-supplied list type and resolve the feature names to persist.
 ///
 /// `list_type` defaults to `checklist`; the type's default features apply only
@@ -206,9 +232,25 @@ pub async fn insert_list_in(
     input: &db::lists::InsertListInput,
     feature_names: &[String],
 ) -> Result<(), DomainError> {
+    insert_list_with_features_in(conn, input, &features_from_names(feature_names)).await
+}
+
+/// Insert a list row plus its features JSON inside a caller-owned transaction.
+///
+/// `features` is the stored representation — a JSON object keyed by feature name, each value
+/// that feature's config — so a caller can copy another list's features verbatim.
+pub async fn insert_list_with_features_in(
+    conn: &mut SqliteConnection,
+    input: &db::lists::InsertListInput,
+    features: &serde_json::Value,
+) -> Result<(), DomainError> {
     db::lists::insert(conn, input).await?;
-    if !feature_names.is_empty() {
-        db::lists::set_features(conn, &input.id, &features_from_names(feature_names)).await?;
+    let has_features = features
+        .as_object()
+        .map(|map| !map.is_empty())
+        .unwrap_or(false);
+    if has_features {
+        db::lists::set_features(conn, &input.id, features).await?;
     }
     Ok(())
 }
@@ -337,15 +379,52 @@ pub async fn create(
         "list",
     )?;
 
-    let list_type_str = req.list_type.as_deref().unwrap_or("checklist");
-    let (list_type, feature_names) = resolve_list_type(
-        Some(list_type_str),
-        if req.features.is_empty() {
-            None
-        } else {
-            Some(req.features.as_slice())
-        },
-    )?;
+    // A sublist inherits the parent's configuration by default: a quantity/deadlines list
+    // must not spawn bare checklist sublists. `inherit_from_parent: false` is the opt-out, and
+    // top-level lists are unaffected.
+    let parent = match req.parent_list_id.as_deref() {
+        Some(parent_id) if req.inherit_from_parent => Some(
+            db::lists::get_one(pool, parent_id, user_id)
+                .await?
+                .ok_or(DomainError::NotFound("list"))?,
+        ),
+        _ => None,
+    };
+    let (list_type, features_json) = match parent.as_ref() {
+        Some(parent) => {
+            let list_type = match req.list_type.as_deref() {
+                Some(requested) => requested.parse::<ListType>()?,
+                // A stored type this version no longer knows falls back to the checklist default.
+                None => parent
+                    .list_type
+                    .parse::<ListType>()
+                    .unwrap_or(ListType::Checklist),
+            };
+            // Same rule as `set_features`: the parent's stored names (legacy ones too) are
+            // carried over as-is, only names this request adds must be known.
+            let parent_features = parse_features_map(&parent.features)?;
+            let added: Vec<String> = req
+                .features
+                .iter()
+                .filter(|name| !parent_features.contains_key(name.as_str()))
+                .cloned()
+                .collect();
+            validate_feature_names(&added)?;
+            let features = merge_inherited_features(&parent_features, &req.features);
+            (list_type, features)
+        }
+        None => {
+            let (list_type, feature_names) = resolve_list_type(
+                req.list_type.as_deref(),
+                if req.features.is_empty() {
+                    None
+                } else {
+                    Some(req.features.as_slice())
+                },
+            )?;
+            (list_type, features_from_names(&feature_names))
+        }
+    };
 
     let icon = rules::appearance::normalize_icon(req.icon.as_deref())?;
     let color = rules::appearance::normalize_color(req.color.as_deref())?;
@@ -360,7 +439,7 @@ pub async fn create(
 
     let list_id = Uuid::new_v4().to_string();
     let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
-    insert_list_in(
+    insert_list_with_features_in(
         &mut tx,
         &db::lists::InsertListInput {
             id: list_id.clone(),
@@ -374,7 +453,7 @@ pub async fn create(
             container_id: req.container_id.clone(),
             parent_list_id: req.parent_list_id.clone(),
         },
-        &feature_names,
+        &features_json,
     )
     .await?;
     tx.commit().await.map_err(db::DbError::Sqlx)?;
@@ -807,6 +886,7 @@ mod tests {
             parent_list_id: None,
             features: vec![],
             color: None,
+            inherit_from_parent: true,
         }
     }
 
@@ -841,6 +921,7 @@ mod tests {
             parent_list_id: None,
             features: vec!["deadlines".into(), "quantity".into()],
             color: None,
+            inherit_from_parent: true,
         };
         let list = create(&pool, &uid, &req).await.unwrap();
         assert_eq!(list.features.len(), 2);
@@ -866,6 +947,7 @@ mod tests {
             container_id: None,
             parent_list_id: None,
             color: None,
+            inherit_from_parent: true,
         };
         let list = create(&pool, &uid, &req).await.unwrap();
         let names: Vec<&str> = list
@@ -890,6 +972,7 @@ mod tests {
             parent_list_id: None,
             features: vec![],
             color: None,
+            inherit_from_parent: true,
         };
         let list = create(&pool, &uid, &req).await.unwrap();
         assert_eq!(list.list_type, "notes");
@@ -909,6 +992,7 @@ mod tests {
             parent_list_id: None,
             features: vec![],
             color: None,
+            inherit_from_parent: true,
         };
         let list = create(&pool, &uid, &req).await.unwrap();
         assert_eq!(list.list_type, "schedule");
@@ -934,6 +1018,7 @@ mod tests {
             parent_list_id: None,
             features: vec![],
             color: None,
+            inherit_from_parent: true,
         };
         let list = create(&pool, &uid, &req).await.unwrap();
         assert_eq!(list.list_type, "schedule");
@@ -1136,6 +1221,7 @@ mod tests {
         .id
     }
 
+    /// An explicitly typed sublist: the opt-out shape, kept for placement tests.
     fn sublist_req(name: &str, parent_list_id: &str) -> CreateListRequest {
         CreateListRequest {
             name: name.to_string(),
@@ -1146,6 +1232,7 @@ mod tests {
             container_id: None,
             parent_list_id: Some(parent_list_id.to_string()),
             features: vec![],
+            inherit_from_parent: false,
         }
     }
 
@@ -1159,6 +1246,22 @@ mod tests {
             .unwrap();
     }
 
+    /// A sublist request with no explicit type or features — the shape the UI and MCP send by
+    /// default, i.e. the one that inherits the parent's setup.
+    fn inheriting_sublist_req(name: &str, parent_list_id: &str) -> CreateListRequest {
+        CreateListRequest {
+            name: name.to_string(),
+            list_type: None,
+            icon: None,
+            color: None,
+            description: None,
+            container_id: None,
+            parent_list_id: Some(parent_list_id.to_string()),
+            features: vec![],
+            inherit_from_parent: true,
+        }
+    }
+
     #[tokio::test]
     async fn create_sublist_under_own_list_ok() {
         let pool = test_pool().await;
@@ -1169,6 +1272,161 @@ mod tests {
         req.parent_list_id = Some(parent.id.clone());
         let child = create(&pool, &uid, &req).await.unwrap();
         assert_eq!(child.parent_list_id.as_deref(), Some(parent.id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn sublist_inherits_parent_type_features_and_config() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let parent_req = CreateListRequest {
+            name: "Groceries".into(),
+            list_type: Some("shopping".into()),
+            icon: None,
+            color: None,
+            description: None,
+            container_id: None,
+            parent_list_id: None,
+            features: vec![],
+            inherit_from_parent: true,
+        };
+        let parent = create(&pool, &uid, &parent_req).await.unwrap();
+        // A feature config set on the parent must travel to the sublist too.
+        update_feature_config(
+            &pool,
+            &parent.id,
+            &uid,
+            "quantity",
+            serde_json::json!({ "unit": "kg" }),
+        )
+        .await
+        .unwrap();
+
+        let child = create(&pool, &uid, &inheriting_sublist_req("Child", &parent.id))
+            .await
+            .unwrap();
+
+        assert_eq!(child.list_type, parent.list_type);
+        assert_eq!(child.list_type, "shopping");
+        let mut inherited: Vec<&str> = child
+            .features
+            .iter()
+            .map(|f| f.feature_name.as_str())
+            .collect();
+        inherited.sort_unstable();
+        assert_eq!(inherited, vec!["checklist", "quantity"]);
+        let quantity = child
+            .features
+            .iter()
+            .find(|f| f.feature_name == "quantity")
+            .expect("quantity inherited");
+        assert_eq!(quantity.config, serde_json::json!({ "unit": "kg" }));
+    }
+
+    #[tokio::test]
+    async fn sublist_explicit_features_are_merged_with_parent_features() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let parent_req = CreateListRequest {
+            name: "Groceries".into(),
+            list_type: Some("shopping".into()),
+            icon: None,
+            color: None,
+            description: None,
+            container_id: None,
+            parent_list_id: None,
+            features: vec![],
+            inherit_from_parent: true,
+        };
+        let parent = create(&pool, &uid, &parent_req).await.unwrap();
+
+        let req = CreateListRequest {
+            features: vec!["deadlines".into()],
+            ..inheriting_sublist_req("Child", &parent.id)
+        };
+        let child = create(&pool, &uid, &req).await.unwrap();
+
+        // The parent's features stay and the explicit one is added on top.
+        assert_eq!(child.list_type, "shopping");
+        let mut names: Vec<&str> = child
+            .features
+            .iter()
+            .map(|f| f.feature_name.as_str())
+            .collect();
+        names.sort_unstable();
+        assert_eq!(names, vec!["checklist", "deadlines", "quantity"]);
+    }
+
+    #[tokio::test]
+    async fn sublist_with_inheritance_opted_out_keeps_checklist_defaults() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let parent_req = CreateListRequest {
+            name: "Groceries".into(),
+            list_type: Some("shopping".into()),
+            icon: None,
+            color: None,
+            description: None,
+            container_id: None,
+            parent_list_id: None,
+            features: vec![],
+            inherit_from_parent: true,
+        };
+        let parent = create(&pool, &uid, &parent_req).await.unwrap();
+
+        let req = CreateListRequest {
+            inherit_from_parent: false,
+            ..inheriting_sublist_req("Plain Child", &parent.id)
+        };
+        let child = create(&pool, &uid, &req).await.unwrap();
+
+        assert_eq!(child.list_type, "checklist");
+        let names: Vec<&str> = child
+            .features
+            .iter()
+            .map(|f| f.feature_name.as_str())
+            .collect();
+        assert_eq!(names, vec!["checklist"]);
+    }
+
+    #[tokio::test]
+    async fn inheriting_sublist_rejects_unknown_added_feature() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let parent = create(&pool, &uid, &checklist_req("Parent")).await.unwrap();
+
+        let req = CreateListRequest {
+            features: vec!["teleport".into()],
+            ..inheriting_sublist_req("Child", &parent.id)
+        };
+        let err = create(&pool, &uid, &req).await.unwrap_err();
+        assert!(
+            matches!(err, DomainError::Validation("unknown_feature")),
+            "got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn top_level_list_does_not_inherit_anything() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let parent = create(&pool, &uid, &checklist_req("Parent")).await.unwrap();
+
+        // Same (default) request as a sublist would send, but without a parent.
+        let req = CreateListRequest {
+            list_type: None,
+            ..checklist_req("Sibling")
+        };
+        let sibling = create(&pool, &uid, &req).await.unwrap();
+
+        assert_ne!(sibling.id, parent.id);
+        assert!(sibling.parent_list_id.is_none());
+        assert_eq!(sibling.list_type, "checklist");
+        let names: Vec<&str> = sibling
+            .features
+            .iter()
+            .map(|f| f.feature_name.as_str())
+            .collect();
+        assert_eq!(names, vec!["checklist"]);
     }
 
     #[tokio::test]
