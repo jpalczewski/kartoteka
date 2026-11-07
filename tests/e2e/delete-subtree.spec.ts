@@ -1,5 +1,7 @@
 import { test, expect, Page, BrowserContext, Locator } from "@playwright/test";
 
+import { BASE_URL } from "./helpers";
+
 // Deleting a list/container also deletes its subtree, but only when the whole tree is
 // empty (#223). The UI shows a preview first, blocks when anything holds items and asks
 // for confirmation when only empty descendants go away.
@@ -8,7 +10,6 @@ import { test, expect, Page, BrowserContext, Locator } from "@playwright/test";
 // depend on the browser language; fluent inserts invisible bidi isolation characters,
 // so never match the whole message with an exact string.
 
-const BASE_URL = "http://localhost:3030";
 const PASSWORD = "testpassword123";
 
 function uniqueEmail() {
