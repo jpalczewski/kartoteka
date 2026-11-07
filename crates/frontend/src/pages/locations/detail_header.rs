@@ -1,9 +1,10 @@
 use leptos::prelude::*;
-use leptos_fluent::I18n;
+use leptos_fluent::{I18n, move_tr};
 use leptos_router::hooks::use_navigate;
 
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::inline_edit::InlineEdit;
+use crate::components::ui::IconButton;
 use crate::server_fns::locations::{delete_location_sf, update_location_sf};
 use crate::state::invalidation::{mutate, mutate_with};
 use kartoteka_shared::{ChangeTopic, UpdateLocationRequest};
@@ -76,12 +77,11 @@ pub(super) fn LocationDetailHeader(
                         view! {
                             <div class="flex items-center gap-2">
                                 <h2 class="text-2xl font-bold">{name.get_value()}</h2>
-                                <button
-                                    class="btn btn-xs btn-ghost"
-                                    on:click=move |_| set_editing.set(true)
-                                >
-                                    "✎"
-                                </button>
+                                <IconButton
+                                    icon="pencil"
+                                    label=move_tr!("common-edit")
+                                    on_click=Callback::new(move |_| set_editing.set(true))
+                                />
                             </div>
                         }
                         .into_any()

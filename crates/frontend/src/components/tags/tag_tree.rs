@@ -1,9 +1,11 @@
 use kartoteka_shared::types::Tag;
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::components::A;
 use std::collections::{HashMap, HashSet};
 
 use crate::components::tags::tag_badge::TagBadge;
+use crate::components::ui::{IconButton, IconButtonVariant};
 
 /// A tag plus its children — the unit of recursive tree rendering.
 #[derive(Clone, Debug)]
@@ -158,24 +160,23 @@ pub fn TagTreeRow(
             <div class="flex items-center gap-1 py-1" style=padding.clone()>
                 {badge}
                 {show_add_child.then(|| view! {
-                    <button
-                        type="button"
-                        class="btn btn-ghost btn-xs btn-square"
-                        title="Dodaj podtag"
-                        data-testid="tag-add-child-btn"
-                        on:click=move |_| adding_child.update(|v| *v = !*v)
-                    >"+"</button>
+                    <IconButton
+                        icon="plus"
+                        label=move_tr!("tags-add-subtag")
+                        testid=Some("tag-add-child-btn")
+                        on_click=Callback::new(move |_| adding_child.update(|v| *v = !*v))
+                    />
                 })}
                 {show_delete.then(|| {
                     let tid = tag_id_for_delete.clone();
                     view! {
-                        <button
-                            type="button"
-                            class="btn btn-ghost btn-xs btn-square text-error"
-                            title="Usuń"
-                            data-testid="tag-delete-btn"
-                            on:click=move |_| on_delete.run(tid.clone())
-                        >"✕"</button>
+                        <IconButton
+                            icon="trash"
+                            label=move_tr!("tags-remove-aria")
+                            variant=IconButtonVariant::Danger
+                            testid=Some("tag-delete-btn")
+                            on_click=Callback::new(move |_| on_delete.run(tid.clone()))
+                        />
                     }
                 })}
             </div>
@@ -209,14 +210,14 @@ pub fn TagTreeRow(
                                 class="btn btn-primary btn-xs"
                                 on:click=move |_| on_submit_child.run(())
                             >"Dodaj"</button>
-                            <button
-                                type="button"
-                                class="btn btn-ghost btn-xs"
-                                on:click=move |_| {
+                            <IconButton
+                                icon="x"
+                                label=move_tr!("common-cancel")
+                                on_click=Callback::new(move |_| {
                                     new_child_name.set(String::new());
                                     adding_child.set(false);
-                                }
-                            >"✕"</button>
+                                })
+                            />
                         </div>
                     }.into_any()
                 } else {

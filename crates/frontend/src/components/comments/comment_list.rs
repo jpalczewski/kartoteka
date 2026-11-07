@@ -1,5 +1,8 @@
 use kartoteka_shared::types::Comment;
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
+
+use crate::components::ui::{IconButton, IconButtonVariant};
 
 #[component]
 pub fn CommentList(
@@ -49,13 +52,12 @@ pub fn CommentList(
                                     {if is_mine {
                                         let id = comment_id_del.clone();
                                         view! {
-                                            <button
-                                                type="button"
-                                                class="btn btn-ghost btn-xs btn-circle text-error"
-                                                on:click=move |_| on_delete.run(id.clone())
-                                            >
-                                                {"✕"}
-                                            </button>
+                                            <IconButton
+                                                icon="trash"
+                                                label=move_tr!("common-delete")
+                                                variant=IconButtonVariant::Danger
+                                                on_click=Callback::new(move |_| on_delete.run(id.clone()))
+                                            />
                                         }
                                         .into_any()
                                     } else {
