@@ -8,11 +8,20 @@ use leptos_router::components::A;
 pub fn ItemTitle(
     #[prop(into)] item: Signal<Option<Item>>,
     #[prop(optional)] compact: bool,
+    /// Extra small text for narrow cells (calendar week view). Wins over `compact`.
+    #[prop(optional)]
+    dense: bool,
     #[prop(optional_no_strip)] testid: Option<&'static str>,
     #[prop(optional)] flex: bool,
 ) -> impl IntoView {
     let present = Memo::new(move |_| item.with(Option::is_some));
-    let size_class = if compact { "text-sm" } else { "text-base" };
+    let size_class = if dense {
+        "text-xs leading-tight"
+    } else if compact {
+        "text-sm"
+    } else {
+        "text-base"
+    };
     let flex_class = if flex { " flex-1" } else { "" };
     let href = move || item.with(|i| i.as_ref().map(item_href).unwrap_or_default());
     let title = move || item.with(|i| i.as_ref().map(|i| i.title.clone()).unwrap_or_default());

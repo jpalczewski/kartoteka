@@ -24,7 +24,7 @@ pub fn ItemCheckbox(
                     class=format!("checkbox checkbox-primary {size_class}")
                     prop:checked=move || item.with(|i| i.as_ref().is_some_and(|i| i.completed))
                     aria-label=move || item.with(|i| i.as_ref().map(|i| i.title.clone()))
-                    attr:data-testid=testid
+                    data-testid=testid
                     on:change=move |_| {
                         if let Some(id) = item.with(|i| i.as_ref().map(|i| i.id.clone())) {
                             on_toggle.run(id);

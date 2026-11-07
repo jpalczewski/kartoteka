@@ -7,8 +7,8 @@
 //! 1. pure helpers in `kartoteka_shared` (item link, overdue, date chips, quantity label);
 //! 2. small parts in `components/items/parts/` (checkbox, title, date chips, quantity,
 //!    recurrence/status chips, icon), each reading one keyed store row;
-//! 3. `ItemView` with the `Compact` variant, replacing the per-page rows of Today, All,
-//!    calendar and tag detail;
+//! 3. `Compact` variant ([`super::item_compact::ItemCompact`]), replacing the per-page rows of
+//!    Today, All, calendar and tag detail (done);
 //! 4. the `Row` variant (expandable editor, action menu, drag handle), replacing `ItemRow`;
 //! 5. the list page and sublists on keyed stores with the `Row` variant.
 //!
@@ -57,6 +57,19 @@ pub struct ItemCaps {
 }
 
 impl ItemCaps {
+    /// Everything off; `Default` is not `const`, so pages build their caps from this.
+    pub const NONE: Self = Self {
+        checkbox: false,
+        dates: false,
+        quantity: false,
+        time: false,
+        tags: false,
+        delete: false,
+        move_to: false,
+        drag: false,
+        list_name: false,
+    };
+
     /// Capabilities implied by a list's enabled feature names. Actions (`delete`,
     /// `move_to`, `drag`, `tags`, `list_name`) stay off; pages opt in.
     pub fn from_features<S: AsRef<str>>(features: &[S]) -> Self {
@@ -66,7 +79,7 @@ impl ItemCaps {
             dates: has(FEATURE_DEADLINES),
             quantity: has(FEATURE_QUANTITY),
             time: has(FEATURE_TIME_TRACKING),
-            ..Self::default()
+            ..Self::NONE
         }
     }
 }

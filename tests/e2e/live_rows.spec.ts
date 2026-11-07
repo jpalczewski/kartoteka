@@ -154,7 +154,7 @@ test("Tag detail: a live update keeps untouched rows", async ({ page, context })
 
   await completeFromOtherTab(context, listId, "Live A");
 
-  await expect(row("Live A")).toHaveClass(/text-base-content\/40/);
+  await expect(row("Live A")).toHaveClass(/line-through/);
   expect(await isMarked(row("Live B"))).toBe(true);
 });
 
