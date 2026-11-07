@@ -36,6 +36,16 @@ impl McpI18n {
         self.translate_args(locale, key, &[])
     }
 
+    /// Whether `locale` itself carries a message with a value for `key`.
+    ///
+    /// Unlike [`translate`](Self::translate) this never falls back to `en`, so
+    /// tests can prove every locale has its own translation.
+    pub fn has_key(&self, locale: &str, key: &str) -> bool {
+        self.bundles
+            .get(locale)
+            .is_some_and(|bundle| bundle.get_message(key).is_some_and(|m| m.value().is_some()))
+    }
+
     pub fn translate_args(&self, locale: &str, key: &str, args: &[(&str, &str)]) -> String {
         let bundle = self
             .bundles
@@ -88,6 +98,20 @@ mod tests {
         let i = test_i18n();
         let s = i.translate_args("en", "mcp-err-not-found", &[("entity", "item")]);
         assert!(s.contains("item"), "got: {s}");
+    }
+
+    /// `has_key` must not fall back to `en`: tool-key coverage relies on it
+    /// proving each locale has its own message.
+    #[test]
+    fn has_key_is_locale_specific() {
+        let i = test_i18n();
+        assert!(i.has_key("en", "mcp-tool-create_item-desc"));
+        assert!(i.has_key("pl", "mcp-tool-create_item-desc"));
+        assert!(!i.has_key("en", "nonexistent-key"));
+        assert!(
+            !i.has_key("de", "mcp-tool-create_item-desc"),
+            "a missing locale must not fall back to en"
+        );
     }
 
     #[test]
