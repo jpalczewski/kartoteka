@@ -1465,6 +1465,8 @@ mod tests {
             hard_deadline: None,
             estimated_duration: None,
             location_id: None,
+            recurrence_rule: None,
+            recurrence_mode: None,
         };
         update(&pool, &item.id, &uid, &complete).await.unwrap();
         let done = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
@@ -1503,6 +1505,8 @@ mod tests {
             hard_deadline: None,
             estimated_duration: None,
             location_id: None,
+            recurrence_rule: None,
+            recurrence_mode: None,
         };
         update(&pool, &item.id, &uid, &base).await.unwrap();
         let with_icon = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
@@ -1960,6 +1964,7 @@ mod tests {
                 hard_deadline: None,
                 estimated_duration: None,
                 location_id: None,
+                icon: None,
             },
         )
         .await
@@ -2020,6 +2025,7 @@ mod tests {
                 hard_deadline: None,
                 estimated_duration: None,
                 location_id: None,
+                icon: None,
             },
         )
         .await
@@ -2057,6 +2063,7 @@ mod tests {
                     hard_deadline: None,
                     estimated_duration: None,
                     location_id: None,
+                    icon: None,
                     recurrence_rule: Some(Some("3d".to_string())),
                     recurrence_mode: Some(Some("floating".to_string())),
                 },
@@ -2108,6 +2115,7 @@ mod tests {
                 hard_deadline: None,
                 estimated_duration: None,
                 location_id: None,
+                icon: None,
                 recurrence_rule: None,
                 recurrence_mode: None,
             },
