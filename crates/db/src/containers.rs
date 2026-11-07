@@ -42,16 +42,19 @@ pub async fn list_all(pool: &SqlitePool, user_id: &str) -> Result<Vec<ContainerR
 }
 
 /// Get a single container by id and user_id.
-#[tracing::instrument(skip(pool))]
-pub async fn get_one(
-    pool: &SqlitePool,
+#[tracing::instrument(skip(executor))]
+pub async fn get_one<'e, E>(
+    executor: E,
     id: &str,
     user_id: &str,
-) -> Result<Option<ContainerRow>, DbError> {
+) -> Result<Option<ContainerRow>, DbError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let row = sqlx::query_as("SELECT * FROM containers WHERE id = ? AND user_id = ?")
         .bind(id)
         .bind(user_id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await?;
     Ok(row)
 }
@@ -65,22 +68,8 @@ pub async fn insert(
     position: i32,
 ) -> Result<ContainerRow, DbError> {
     let id = Uuid::new_v4().to_string();
-    let row = sqlx::query_as(
-        r#"INSERT INTO containers (id, user_id, name, icon, description, status, parent_container_id, position)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           RETURNING *"#,
-    )
-    .bind(&id)
-    .bind(user_id)
-    .bind(&req.name)
-    .bind(&req.icon)
-    .bind(&req.description)
-    .bind(&req.status)
-    .bind(&req.parent_container_id)
-    .bind(position)
-    .fetch_one(pool)
-    .await?;
-    Ok(row)
+    let mut conn = pool.acquire().await.map_err(DbError::Sqlx)?;
+    insert_in_tx(&mut conn, &id, user_id, req, position).await
 }
 
 pub async fn find_owned_ids(
@@ -100,10 +89,11 @@ pub async fn insert_in_tx(
     user_id: &str,
     req: &CreateContainerRequest,
     position: i32,
-) -> Result<(), DbError> {
-    sqlx::query(
-        "INSERT INTO containers (id, user_id, name, icon, description, status, parent_container_id, position) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+) -> Result<ContainerRow, DbError> {
+    let row = sqlx::query_as(
+        r#"INSERT INTO containers (id, user_id, name, icon, description, status, parent_container_id, position)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           RETURNING *"#,
     )
     .bind(id)
     .bind(user_id)
@@ -113,9 +103,9 @@ pub async fn insert_in_tx(
     .bind(&req.status)
     .bind(&req.parent_container_id)
     .bind(position)
-    .execute(&mut *conn)
+    .fetch_one(&mut *conn)
     .await?;
-    Ok(())
+    Ok(row)
 }
 
 /// Update a container using read-modify-write. Returns None if not found.

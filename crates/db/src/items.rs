@@ -309,9 +309,8 @@ pub async fn insert_many_in_tx(
 pub async fn insert_in_tx(
     conn: &mut SqliteConnection,
     input: &InsertItemInput,
-) -> Result<(), DbError> {
-    insert_row(&mut *conn, input).await?;
-    Ok(())
+) -> Result<ItemRow, DbError> {
+    insert_row(&mut *conn, input).await
 }
 
 #[tracing::instrument(skip(pool))]

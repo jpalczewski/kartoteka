@@ -5,7 +5,7 @@ use serde::Deserialize;
 pub struct CreateListFromTemplateParams {
     pub template_id: String,
     pub list_name: String,
-    /// e.g. "checklist", "custom"
+    /// "checklist" (default), "shopping", "schedule", "log", "notes"
     pub list_type: Option<String>,
 }
 

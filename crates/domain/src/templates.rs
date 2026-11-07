@@ -162,22 +162,27 @@ pub async fn create_list_from_template(
         .await?
         .ok_or(DomainError::NotFound("template"))?;
 
+    // Templates carry no list type of their own, so the caller's choice (or the
+    // `checklist` default) applies — same parsing/defaults as `lists::create`.
+    let (list_type, feature_names) = crate::lists::resolve_list_type(Some(list_type), None)?;
+
     let position = db::lists::next_position(pool, user_id, None, None).await?;
 
     // Phase 3: WRITE
     let list_id = Uuid::new_v4().to_string();
     let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
 
-    db::lists::insert(
+    crate::lists::insert_list_in(
         &mut tx,
         &db::lists::InsertListInput {
             id: list_id.clone(),
             user_id: user_id.to_owned(),
             position,
             name: list_name.to_owned(),
-            list_type: list_type.to_owned(),
+            list_type: list_type.as_str().to_owned(),
             ..Default::default()
         },
+        &feature_names,
     )
     .await?;
 
