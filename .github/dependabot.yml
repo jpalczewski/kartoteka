@@ -34,7 +34,7 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
-      - "typescript"
+      - "javascript"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -44,4 +44,3 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
-      - "ci"
