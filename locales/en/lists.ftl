@@ -125,3 +125,11 @@ lists-toast-container-deleted = Container deleted
 lists-toast-list-deleted = List deleted
 lists-toast-list-archived = List archived
 lists-toast-list-reset = List reset
+
+# List and container card actions
+lists-pin = Pin
+lists-unpin = Unpin
+lists-archive-aria = Archive
+lists-restore-aria = Restore
+lists-archive-container-aria = Archive container
+lists-reset-completed = Reset completed

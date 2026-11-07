@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
@@ -13,6 +14,7 @@ use crate::components::tags::color_picker::TagColorPicker;
 use crate::components::tags::tag_tree::{
     TagTreeRow, build_breadcrumb, build_subtree, get_descendant_ids,
 };
+use crate::components::ui::{Icon, IconButton};
 use crate::server_fns::tags::{
     delete_tag, get_all_tags, get_tag_items, merge_tags, update_tag, update_tag_color,
 };
@@ -227,11 +229,11 @@ pub fn TagDetailPage() -> impl IntoView {
                                                 view! { <option value=id>{name}</option> }
                                             }).collect::<Vec<_>>()}
                                         </select>
-                                        <button
-                                            type="button"
-                                            class="btn btn-ghost btn-xs"
-                                            on:click=move |_| active_action.set(None)
-                                        >"✕"</button>
+                                        <IconButton
+                                            icon="x"
+                                            label=move_tr!("common-cancel")
+                                            on_click=Callback::new(move |_| active_action.set(None))
+                                        />
                                     </div>
                                 }.into_any(),
                                 Some(DetailAction::Merge) => view! {
@@ -246,11 +248,11 @@ pub fn TagDetailPage() -> impl IntoView {
                                                 view! { <option value=id>{name}</option> }
                                             }).collect::<Vec<_>>()}
                                         </select>
-                                        <button
-                                            type="button"
-                                            class="btn btn-ghost btn-xs"
-                                            on:click=move |_| active_action.set(None)
-                                        >"✕"</button>
+                                        <IconButton
+                                            icon="x"
+                                            label=move_tr!("common-cancel")
+                                            on_click=Callback::new(move |_| active_action.set(None))
+                                        />
                                     </div>
                                 }.into_any(),
                                 None => view! {}.into_any(),
@@ -331,7 +333,7 @@ fn render_items_grouped(items: Vec<DateItem>) -> leptos::prelude::AnyView {
                             let title_class = if completed { "line-through" } else { "" };
                             view! {
                                 <div class=row_class>
-                                    <span>{if completed { "☑" } else { "☐" }}</span>
+                                    <Icon name=if completed { "circle-check" } else { "circle" } size=14 />
                                     <span class=title_class>{di.item.title.clone()}</span>
                                 </div>
                             }

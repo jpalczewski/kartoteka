@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use leptos_fluent::move_tr;
 use leptos_router::hooks::use_location;
 
+use crate::components::ui::Icon;
 use crate::server_fns::auth::{do_logout, get_nav_data};
 
 #[component]
@@ -26,10 +27,16 @@ pub fn Nav() -> impl IntoView {
                             <a href="/all" class="btn btn-ghost btn-sm">{move_tr!("nav-all")}</a>
                             <div class="dropdown dropdown-end">
                                 <div tabindex="0" role="button" class="btn btn-ghost btn-sm">
-                                    {name} " ▾"
+                                    {name}
+                                    <Icon name="chevron-down" size=14 />
                                 </div>
                                 <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-50 w-52 p-2 shadow-lg border border-base-300">
-                                    <li><a href="/settings">"⚙ " {move_tr!("nav-settings")}</a></li>
+                                    <li>
+                                        <a href="/settings">
+                                            <Icon name="settings" size=16 />
+                                            {move_tr!("nav-settings")}
+                                        </a>
+                                    </li>
                                     <li>
                                         <button
                                             type="button"
@@ -39,7 +46,8 @@ pub fn Nav() -> impl IntoView {
                                                 });
                                             }
                                         >
-                                            "⏻ " {move_tr!("nav-logout")}
+                                            <Icon name="log-out" size=16 />
+                                            {move_tr!("nav-logout")}
                                         </button>
                                     </li>
                                 </ul>

@@ -3,6 +3,7 @@ use kartoteka_shared::{
     types::{Item, Tag},
 };
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::components::A;
 use web_sys::DragEvent;
 
@@ -11,6 +12,7 @@ use super::quantity_stepper::QuantityStepper;
 use crate::components::common::dnd::ItemDragHandleButton;
 use crate::components::tags::tag_badge::TagBadge;
 use crate::components::tags::tag_selector_dropdown::TagSelectorDropdown;
+use crate::components::ui::{Chip, ChipTone, IconButton, IconButtonVariant};
 use crate::state::dnd::{DraggedItem, ItemDndState, begin_item_drag, clear_item_dnd_state};
 
 /// `(item_id, start_date, start_time, deadline, deadline_time, hard_deadline)` — times are
@@ -25,16 +27,16 @@ pub type DateSavePayload = (
 );
 
 fn date_chips(item: &Item) -> Vec<(&'static str, String, bool)> {
-    // (icon, date_string, is_danger) — hard_deadline first, then deadline, then start
+    // (lucide icon, date_string, is_danger) — hard_deadline first, then deadline, then start
     let mut chips = Vec::new();
     if let Some(ref d) = item.hard_deadline {
-        chips.push(("🚨", d.to_string(), true));
+        chips.push(("alarm-clock", d.to_string(), true));
     }
     if let Some(ref d) = item.deadline {
-        chips.push(("⏰", d.to_string(), false));
+        chips.push(("clock", d.to_string(), false));
     }
     if let Some(ref d) = item.start_date {
-        chips.push(("📅", d.to_string(), false));
+        chips.push(("calendar", d.to_string(), false));
     }
     chips
 }
@@ -77,6 +79,8 @@ pub fn ItemRow(
     };
 
     let expanded = RwSignal::new(false);
+    let expand_label = move_tr!("common-expand");
+    let collapse_label = move_tr!("common-collapse");
     let desc_text = RwSignal::new(item.description.clone().unwrap_or_default());
 
     let start_input = RwSignal::new(
@@ -158,14 +162,16 @@ pub fn ItemRow(
                         on:change=move |_| on_toggle.run(item_id_toggle.clone())
                     />
                 })}
-                <button
-                    type="button"
-                    class="btn btn-ghost btn-xs btn-square"
-                    title="Rozwiń"
-                    on:click=move |_| expanded.update(|e| *e = !*e)
-                >
-                    {move || if expanded.get() { "▲" } else { "▼" }}
-                </button>
+                <IconButton
+                    icon=Signal::derive(move || {
+                        if expanded.get() { "chevron-up".to_string() } else { "chevron-down".to_string() }
+                    })
+                    label=Signal::derive(move || {
+                        if expanded.get() { collapse_label.get() } else { expand_label.get() }
+                    })
+                    testid=Some("item-expand-btn")
+                    on_click=Callback::new(move |_| expanded.update(|e| *e = !*e))
+                />
                 <A href=item_href attr:class=link_class attr:data-testid="item-title-link">
                     {item.title.clone()}
                 </A>
@@ -183,27 +189,23 @@ pub fn ItemRow(
                 })}
                 {(!chips.is_empty()).then(move || {
                     let views: Vec<_> = chips.into_iter().map(|(icon, date_str, is_danger)| {
-                        let chip_class = if completed {
-                            "badge badge-ghost badge-sm opacity-40 shrink-0"
-                        } else if is_danger {
-                            "badge badge-error badge-sm shrink-0 cursor-pointer"
-                        } else {
-                            "badge badge-ghost badge-sm shrink-0 cursor-pointer hover:badge-primary"
+                        let tone = if is_danger { ChipTone::Error } else { ChipTone::Neutral };
+                        let chip_class = if completed { "opacity-40" } else { "" };
+                        let chip = view! {
+                            <Chip icon=icon tone=tone class=chip_class>{date_str}</Chip>
                         };
                         if has_date_save && !completed {
                             view! {
                                 <button
                                     type="button"
-                                    class=chip_class
+                                    class="cursor-pointer shrink-0"
                                     on:click=move |_| expanded.set(true)
                                 >
-                                    {icon} " " {date_str}
+                                    {chip}
                                 </button>
                             }.into_any()
                         } else {
-                            view! {
-                                <span class=chip_class>{icon} " " {date_str}</span>
-                            }.into_any()
+                            chip.into_any()
                         }
                     }).collect();
                     view! { <div class="flex gap-1 flex-wrap shrink-0">{views}</div> }
@@ -217,13 +219,12 @@ pub fn ItemRow(
                         let iid = item_id_move.clone();
                         view! {
                             <div class="relative">
-                                <button
-                                    type="button"
-                                    class="btn btn-ghost btn-xs btn-square"
-                                    title="Przenieś do…"
-                                    data-testid="item-move-btn"
-                                    on:click=move |_| open.update(|v| *v = !*v)
-                                >{"↗"}</button>
+                                <IconButton
+                                    icon="arrow-up-right"
+                                    label=move_tr!("item-move-to")
+                                    testid=Some("item-move-btn")
+                                    on_click=Callback::new(move |_| open.update(|v| *v = !*v))
+                                />
                                 <div
                                     class="absolute right-0 top-full mt-1 bg-base-200 border border-base-300 rounded-box min-w-44 max-h-60 overflow-y-auto z-50 p-2 shadow-lg"
                                     style:display=move || if open.get() { "block" } else { "none" }
@@ -255,13 +256,13 @@ pub fn ItemRow(
                         />
                     }
                 })}
-                <button
-                    type="button"
-                    class="btn btn-ghost btn-xs btn-circle text-error"
-                    on:click=move |_| on_delete.run(item_id_delete.clone())
-                >
-                    {"✕"}
-                </button>
+                <IconButton
+                    icon="x"
+                    label=move_tr!("common-delete")
+                    variant=IconButtonVariant::Danger
+                    testid=Some("item-delete-btn")
+                    on_click=Callback::new(move |_| on_delete.run(item_id_delete.clone()))
+                />
             </div>
 
             {move || {
@@ -293,21 +294,21 @@ pub fn ItemRow(
                                 view! {
                                     <div class="flex flex-col gap-2 text-sm">
                                         <DateFieldInput
-                                            label="📅 Rozpoczęcie"
+                                            label=move_tr!("item-dates-start")
                                             value=start_input
                                             time_value=start_time_input
                                             show_clear=true
                                             show_quick=true
                                         />
                                         <DateFieldInput
-                                            label="⏰ Termin"
+                                            label=move_tr!("item-dates-deadline")
                                             value=deadline_input
                                             time_value=deadline_time_input
                                             show_clear=true
                                             show_quick=true
                                         />
                                         <DateFieldInput
-                                            label="🚨 Ostateczny"
+                                            label=move_tr!("item-dates-hard-deadline")
                                             value=hard_deadline_input
                                             show_clear=true
                                             show_quick=true

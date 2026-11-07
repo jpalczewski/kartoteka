@@ -1,6 +1,9 @@
 use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::TimeEntry;
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
+
+use crate::components::ui::Icon;
 
 use crate::server_fns::time_entries::{
     get_running_timer, get_time_summary, start_timer, stop_timer,
@@ -88,7 +91,10 @@ pub fn ItemTimerWidget(item_id: Signal<String>) -> impl IntoView {
 
                         if is_running_this_item() {
                             view! {
-                                <span class="text-sm font-mono text-success">{"● Trwa"}</span>
+                                <span class="text-sm font-mono text-success flex items-center gap-1">
+                                    <Icon name="circle" size=10 />
+                                    "Trwa"
+                                </span>
                             }
                             .into_any()
                         } else {
@@ -111,15 +117,16 @@ pub fn ItemTimerWidget(item_id: Signal<String>) -> impl IntoView {
                                     class="btn btn-sm btn-error"
                                     on:click=on_stop
                                 >
-                                    {"■ Stop"}
+                                    <Icon name="square" size=14 />
+                                    {move_tr!("item-timer-stop")}
                                 </button>
                             }
                             .into_any()
                         } else {
                             let label = if is_running_other() {
-                                "▶ Start (zatrzyma inny)"
+                                move_tr!("item-timer-start-stops-other")
                             } else {
-                                "▶ Start"
+                                move_tr!("item-timer-start")
                             };
                             view! {
                                 <button
@@ -127,6 +134,7 @@ pub fn ItemTimerWidget(item_id: Signal<String>) -> impl IntoView {
                                     class="btn btn-sm btn-outline"
                                     on:click=on_start
                                 >
+                                    <Icon name="play" size=14 />
                                     {label}
                                 </button>
                             }

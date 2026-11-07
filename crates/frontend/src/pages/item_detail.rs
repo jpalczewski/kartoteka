@@ -13,6 +13,7 @@ use crate::components::items::date_field::DateFieldInput;
 use crate::components::relations::RelatedEntities;
 use crate::components::tags::tag_list::TagList;
 use crate::components::time_entries::ItemTimerWidget;
+use crate::components::ui::Icon;
 use crate::server_fns::items::{
     get_item_detail, toggle_item, update_item, update_item_dates, update_item_quantity,
 };
@@ -397,7 +398,10 @@ pub fn ItemDetailPage() -> impl IntoView {
                                         });
 
                                         view! {
-                                            <div class="divider text-sm">"📍 " {move_tr!("lists-feature-location")}</div>
+                                            <div class="divider text-sm flex items-center gap-1">
+                                                <Icon name="map-pin" size=14 />
+                                                {move_tr!("lists-feature-location")}
+                                            </div>
                                             <TagList
                                                 all_tags=location_all_tags
                                                 selected_tag_ids=location_tag_ids

@@ -1,5 +1,7 @@
 use crate::app::{ToastContext, ToastKind};
+use crate::components::ui::{IconButton, IconButtonVariant};
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 #[component]
 pub fn ToastContainer() -> impl IntoView {
@@ -21,13 +23,13 @@ pub fn ToastContainer() -> impl IntoView {
                     view! {
                         <div class=class>
                             <span>{t.message.clone()}</span>
-                            <button
-                                class="btn btn-ghost btn-xs"
-                                on:click=move |_| toast.dismiss(id)
-                                aria-label="Dismiss"
-                            >
-                                "×"
-                            </button>
+                            <IconButton
+                                icon="x"
+                                label=move_tr!("common-dismiss")
+                                variant=IconButtonVariant::Ghost
+                                class="text-current"
+                                on_click=Callback::new(move |_| toast.dismiss(id))
+                            />
                         </div>
                     }
                 }

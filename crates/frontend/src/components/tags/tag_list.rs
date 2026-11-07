@@ -1,10 +1,12 @@
 use kartoteka_shared::types::Tag;
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::hooks::use_navigate;
 
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::tags::tag_badge::TagBadge;
 use crate::components::tags::tag_tree::build_breadcrumb;
+use crate::components::ui::Icon;
 
 /// Renders a row of tag badges for a list or item.
 /// If `on_toggle` is provided, each badge shows an X button on hover that removes the tag
@@ -86,8 +88,10 @@ pub fn TagList(
                                     ev.stop_propagation();
                                     pending_remove.set(Some(tid_remove.clone()));
                                 }
+                                aria-label=move_tr!("common-delete")
+                                title=move_tr!("common-delete")
                             >
-                                "×"
+                                <Icon name="x" size=10 />
                             </button>
                         </div>
                     }.into_any()

@@ -1,9 +1,10 @@
 use leptos::prelude::*;
-use leptos_fluent::{I18n, move_tr};
+use leptos_fluent::move_tr;
 use leptos_router::hooks::use_params_map;
 
 use kartoteka_shared::{
-    FEATURE_CHECKLIST, FEATURE_DEADLINES, FEATURE_LOCATION, FEATURE_QUANTITY, FEATURE_TIME_TRACKING,
+    FEATURE_CHECKLIST, FEATURE_DEADLINES, FEATURE_LOCATION, FEATURE_QUANTITY,
+    FEATURE_TIME_TRACKING, default_list_icon,
 };
 
 use crate::app::{ToastContext, ToastKind};
@@ -18,10 +19,13 @@ use crate::components::common::loading::LoadingSpinner;
 use crate::components::items::item_row::ItemRow;
 use crate::components::lists::{
     add_input::AddInput, add_item_input::AddItemInput, deadlines_config::DeadlinesConfig,
-    list_card::list_type_icon, sublist_section::SublistSection,
+    sublist_section::SublistSection,
 };
 use crate::components::tags::tag_filter_bar::TagFilterBar;
 use crate::components::tags::tag_list::TagList;
+use crate::components::ui::{
+    EntityIcon, Icon, IconButton, IconButtonSize, IconButtonVariant, SectionHeader,
+};
 use crate::server_fns::containers::get_containers_for_move;
 use crate::server_fns::items::{
     delete_item, get_list_data, move_item, reorder_items, set_item_placement, toggle_item,
@@ -53,7 +57,6 @@ pub fn ListPage() -> impl IntoView {
     let list_id = move || params.read().get("id").unwrap_or_default();
 
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let i18n = expect_context::<I18n>();
     let navigate = leptos_router::hooks::use_navigate();
     // Separate handle for the shared delete flow, so the archive/reset modal keeps `navigate`.
     let nav_delete = navigate.clone();
@@ -285,7 +288,8 @@ pub fn ListPage() -> impl IntoView {
                         <p class="text-error">"Błąd: " {e.to_string()}</p>
                     }.into_any(),
                     Ok(data) => {
-                        let icon = list_type_icon(&data.list.list_type);
+                        let icon_fallback = default_list_icon(&data.list.list_type);
+                        let list_icon = data.list.icon.clone();
                         let list_name = data.list.name.clone();
                         let list_name_for_desc = list_name.clone();
                         let list_name_for_reset = list_name.clone();
@@ -365,7 +369,7 @@ pub fn ListPage() -> impl IntoView {
 
                                 // Header
                                 <div class="mb-1 flex items-center gap-2">
-                                    <span class="text-2xl">{icon}</span>
+                                    <EntityIcon raw=list_icon fallback=icon_fallback size=24 />
                                     <EditableText
                                         value=list_name.clone()
                                         on_save=Callback::new(move |new_name: String| {
@@ -382,32 +386,31 @@ pub fn ListPage() -> impl IntoView {
                                             view! {
                                                 <div class="flex items-center gap-1 shrink-0">
                                                     <span class="text-xs text-base-content/60 flex items-center gap-1">
-                                                        "📦 "
+                                                        <Icon name="folder" size=12 />
                                                         <span class="max-w-28 truncate">{cname}</span>
                                                     </span>
-                                                    <button
-                                                        type="button"
-                                                        class="btn btn-ghost btn-xs btn-circle text-error"
-                                                        title=move_tr!("lists-detach-from-container")
-                                                        on:click=move |_| {
+                                                    <IconButton
+                                                        icon="x"
+                                                        label=move_tr!("lists-detach-from-container")
+                                                        variant=IconButtonVariant::Danger
+                                                        on_click=Callback::new(move |_| {
                                                             let lid = list_id();
                                                             mutate(
                                                                 move_list(lid, None, None),
                                                                 &[ChangeTopic::Lists, ChangeTopic::Containers],
                                                             );
-                                                        }
-                                                    >{"✕"}</button>
+                                                        })
+                                                    />
                                                 </div>
                                             }.into_any()
                                         } else {
                                             view! {
                                                 <div class="relative shrink-0">
-                                                    <button
-                                                        type="button"
-                                                        class="btn btn-ghost btn-xs btn-square"
-                                                        title=move_tr!("lists-move-to-container")
-                                                        on:click=move |_| container_dropdown_open.update(|v| *v = !*v)
-                                                    >{"📦"}</button>
+                                                    <IconButton
+                                                        icon="folder"
+                                                        label=move_tr!("lists-move-to-container")
+                                                        on_click=Callback::new(move |_| container_dropdown_open.update(|v| *v = !*v))
+                                                    />
                                                     <ContainerSelectorDropdown
                                                         open=container_dropdown_open
                                                         options=opts
@@ -419,9 +422,12 @@ pub fn ListPage() -> impl IntoView {
                                     }}
                                     // Dropdown at the end, pushed right via ml-auto
                                     <div class="dropdown dropdown-end ml-auto">
-                                        <div tabindex="0" role="button" class="btn btn-ghost btn-sm btn-circle" data-testid="list-actions-btn">
-                                            "⋮"
-                                        </div>
+                                        <IconButton
+                                            icon="more-vertical"
+                                            label=move_tr!("common-actions")
+                                            size=IconButtonSize::Sm
+                                            testid=Some("list-actions-btn")
+                                        />
                                         <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-50 w-52 p-2 shadow-lg border border-base-300">
                                             <li>
                                                 <button
@@ -432,7 +438,8 @@ pub fn ListPage() -> impl IntoView {
                                                         mutate(pin_list(lid), &[ChangeTopic::Lists]);
                                                     }
                                                 >
-                                                    {if list_pinned { "📌 Odepnij" } else { "📌 Przypnij" }}
+                                                    <Icon name=if list_pinned { "pin-off" } else { "pin" } size=16 />
+                                                    {if list_pinned { move_tr!("lists-unpin") } else { move_tr!("lists-pin") }}
                                                 </button>
                                             </li>
                                             <li>
@@ -444,7 +451,8 @@ pub fn ListPage() -> impl IntoView {
                                                         confirm_action.set(Some(ConfirmAction::Reset));
                                                     }
                                                 >
-                                                    "↺ Resetuj ukończone"
+                                                    <Icon name="timer" size=16 />
+                                                    {move_tr!("lists-reset-completed")}
                                                 </button>
                                             </li>
                                             <li class="menu-title">
@@ -512,7 +520,8 @@ pub fn ListPage() -> impl IntoView {
                                                                 prop:checked=has_location
                                                                 on:change=make_toggle(FEATURE_LOCATION)
                                                             />
-                                                            "📍 " {move_tr!("lists-feature-location")}
+                                                            <Icon name="pin" size=14 />
+                                                            {move_tr!("lists-feature-location")}
                                                         </label>
                                                     </li>
                                                     <li>
@@ -549,7 +558,8 @@ pub fn ListPage() -> impl IntoView {
                                                         confirm_action.set(Some(ConfirmAction::Archive));
                                                     }
                                                 >
-                                                    {if list_archived { "📂 Przywróć" } else { "🗄 Archiwizuj" }}
+                                                    <Icon name="archive" size=16 />
+                                                    {if list_archived { move_tr!("lists-restore-aria") } else { move_tr!("lists-header-archive-button") }}
                                                 </button>
                                             </li>
                                             <li>
@@ -564,7 +574,8 @@ pub fn ListPage() -> impl IntoView {
                                                         )));
                                                     }
                                                 >
-                                                    {format!("🗑 {}", i18n.tr("lists-header-delete-button"))}
+                                                    <Icon name="trash" size=16 />
+                                                    {move_tr!("lists-header-delete-button")}
                                                 </button>
                                             </li>
                                         </ul>
@@ -659,9 +670,12 @@ pub fn ListPage() -> impl IntoView {
                                                 let targets = targets_for_subs.clone();
                                                 let sub_ids = sub_ids_for_subs.clone();
                                                 view! {
-                                                    <h3 class="text-sm font-semibold text-base-content/60 mb-2 uppercase tracking-wide">
-                                                        "Podlisty"
-                                                    </h3>
+                                                    <SectionHeader
+                                                        title="Podlisty"
+                                                        count=sublists.len()
+                                                        icon="list"
+                                                        class="mb-2"
+                                                    />
                                                     <div class="flex flex-col gap-2 mb-2">
                                                         {sublists.into_iter().map(|sublist| {
                                                             let sid = sublist.id.clone();

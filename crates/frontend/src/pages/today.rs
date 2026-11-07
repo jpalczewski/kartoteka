@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 use leptos_router::components::A;
 
 use kartoteka_shared::ChangeTopic;
@@ -8,6 +9,7 @@ use kartoteka_shared::types::{DateItem, Tag};
 
 use crate::components::common::list_filter_chips::ListFilterChips;
 use crate::components::common::loading::LoadingSpinner;
+use crate::components::ui::{IconButton, IconButtonVariant};
 use crate::server_fns::items::{delete_item, get_today_data, toggle_item};
 use crate::server_fns::tags::{get_all_item_tag_links, get_all_tags};
 use crate::state::invalidation::{mutate, use_invalidation};
@@ -196,8 +198,8 @@ pub fn TodayPage() -> impl IntoView {
 
 fn render_groups(
     groups: Vec<(String, String, Vec<DateItem>)>,
-    on_toggle: impl Fn(String) + Copy + 'static,
-    on_delete: impl Fn(String) + Copy + 'static,
+    on_toggle: impl Fn(String) + Copy + Send + Sync + 'static,
+    on_delete: impl Fn(String) + Copy + Send + Sync + 'static,
 ) -> impl IntoView {
     groups
         .into_iter()
@@ -241,12 +243,13 @@ fn render_groups(
                                     {deadline.map(|d| view! {
                                         <span class="text-xs text-error/70">{d}</span>
                                     })}
-                                    <button
-                                        class="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100"
-                                        on:click=move |_| on_delete(item_id_del.clone())
-                                    >
-                                        "×"
-                                    </button>
+                                    <IconButton
+                                        icon="x"
+                                        label=move_tr!("common-delete")
+                                        variant=IconButtonVariant::Danger
+                                        class="opacity-0 group-hover:opacity-100"
+                                        on_click=Callback::new(move |_| on_delete(item_id_del.clone()))
+                                    />
                                 </div>
                             }
                         }).collect_view()}

@@ -1,7 +1,9 @@
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 use kartoteka_shared::ChangeTopic;
 
+use crate::components::ui::{IconButton, IconButtonVariant};
 use crate::server_fns::time_entries::{
     assign_time_entry, delete_time_entry, get_inbox, list_all_entries,
 };
@@ -136,16 +138,15 @@ pub fn TimePage() -> impl IntoView {
                                                                     </div>
                                                                 </td>
                                                                 <td>
-                                                                    <button
-                                                                        type="button"
-                                                                        class="btn btn-xs btn-ghost text-error"
-                                                                        on:click={
+                                                                    <IconButton
+                                                                        icon="x"
+                                                                        label=move_tr!("common-delete")
+                                                                        variant=IconButtonVariant::Danger
+                                                                        on_click={
                                                                             let id = e.id.clone();
-                                                                            move |_| on_delete(id.clone())
+                                                                            Callback::new(move |_| on_delete(id.clone()))
                                                                         }
-                                                                    >
-                                                                        "✕"
-                                                                    </button>
+                                                                    />
                                                                 </td>
                                                             </tr>
                                                         }
@@ -213,13 +214,12 @@ pub fn TimePage() -> impl IntoView {
                                                                 <td>{format_duration(e.duration)}</td>
                                                                 <td>{e.source.clone()}</td>
                                                                 <td>
-                                                                    <button
-                                                                        type="button"
-                                                                        class="btn btn-xs btn-ghost text-error"
-                                                                        on:click=move |_| on_delete(id.clone())
-                                                                    >
-                                                                        "✕"
-                                                                    </button>
+                                                                    <IconButton
+                                                                        icon="x"
+                                                                        label=move_tr!("common-delete")
+                                                                        variant=IconButtonVariant::Danger
+                                                                        on_click=Callback::new(move |_| on_delete(id.clone()))
+                                                                    />
                                                                 </td>
                                                             </tr>
                                                         }

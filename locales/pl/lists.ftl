@@ -131,3 +131,11 @@ lists-toast-container-deleted = Kontener usunięty
 lists-toast-list-deleted = Lista usunięta
 lists-toast-list-archived = Lista zarchiwizowana
 lists-toast-list-reset = Lista zresetowana
+
+# Akcje kart list i kontenerów
+lists-pin = Przypnij
+lists-unpin = Odepnij
+lists-archive-aria = Archiwizuj
+lists-restore-aria = Przywróć
+lists-archive-container-aria = Archiwizuj kontener
+lists-reset-completed = Resetuj ukończone

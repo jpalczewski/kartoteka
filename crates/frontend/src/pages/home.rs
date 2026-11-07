@@ -17,6 +17,7 @@ use crate::components::home::{
     tag_filter_bar::HomeTagFilterBar,
 };
 use crate::components::lists::create_entity_input::CreateEntityInput;
+use crate::components::ui::Icon;
 use crate::pages::landing::LandingPage;
 use crate::server_fns::auth::get_auth_status;
 use crate::server_fns::{
@@ -339,7 +340,10 @@ fn HomeContent() -> impl IntoView {
                                         let cid = c.id.clone();
                                         view! {
                                             <div class="flex items-center justify-between p-3 bg-base-100 rounded-lg">
-                                                <span class="text-base-content/70">{"📁 "}{c.name.clone()}</span>
+                                                <span class="text-base-content/70 flex items-center gap-1">
+                                                    <Icon name="folder" size=14 />
+                                                    {c.name.clone()}
+                                                </span>
                                                 <button
                                                     type="button"
                                                     class="btn btn-ghost btn-sm"

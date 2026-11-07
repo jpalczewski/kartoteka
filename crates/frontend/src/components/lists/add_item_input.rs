@@ -1,8 +1,10 @@
 use kartoteka_shared::types::Item;
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 use crate::app::{ToastContext, ToastKind};
 use crate::components::items::date_field::DateFieldInput;
+use crate::components::ui::Icon;
 use crate::server_fns::items::create_item;
 
 #[component]
@@ -124,14 +126,20 @@ pub fn AddItemInput(
                     class="btn btn-ghost btn-xs text-base-content/50"
                     on:click=move |_| set_show_dates.update(|v| *v = !*v)
                 >
-                    {move || if show_dates.get() { "▲ Ukryj daty" } else { "＋ Daty" }}
+                    <Icon
+                        name=Signal::derive(move || {
+                            if show_dates.get() { "chevron-up".to_string() } else { "plus".to_string() }
+                        })
+                        size=14
+                    />
+                    {if show_dates.get() { "Ukryj daty" } else { "Daty" }}
                 </button>
 
                 {move || show_dates.get().then(|| view! {
                     <div class="flex flex-col gap-1 mt-2">
-                        <DateFieldInput label="📅 Rozpoczęcie" value=start_date/>
-                        <DateFieldInput label="⏰ Termin" value=deadline/>
-                        <DateFieldInput label="🚨 Ostateczny" value=hard_deadline/>
+                        <DateFieldInput label=move_tr!("item-dates-start") value=start_date/>
+                        <DateFieldInput label=move_tr!("item-dates-deadline") value=deadline/>
+                        <DateFieldInput label=move_tr!("item-dates-hard-deadline") value=hard_deadline/>
                     </div>
                 })}
             </div>

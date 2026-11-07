@@ -19,9 +19,9 @@ item-save-quantity = Save quantity
 
 # Dates section
 item-dates-section = Dates
-item-dates-start = 📅 Start
-item-dates-deadline = ⏰ Deadline
-item-dates-hard-deadline = 🚨 Hard deadline
+item-dates-start = Start
+item-dates-deadline = Deadline
+item-dates-hard-deadline = Hard deadline
 item-save-dates = Save dates
 
 # Tags section
@@ -38,3 +38,9 @@ all-completed-count = { $progress } completed
 all-hide-completed = Hide completed
 all-all-completed = All items completed — uncheck the filter to see them.
 all-loading-error = Error: { $detail }
+
+# Item row actions
+item-move-to = Move to…
+item-timer-start = Start
+item-timer-start-stops-other = Start (stops the running one)
+item-timer-stop = Stop
