@@ -587,6 +587,7 @@ async fn create_lists_no_deadlock_single_conn() {
                 color: None,
                 description: None,
                 features: None,
+                inherit_from_parent: None,
                 container_id: None,
                 container_ref: None,
                 parent_list_id: None,
@@ -600,6 +601,7 @@ async fn create_lists_no_deadlock_single_conn() {
                 color: None,
                 description: None,
                 features: None,
+                inherit_from_parent: None,
                 container_id: None,
                 container_ref: None,
                 parent_list_id: None,
@@ -667,6 +669,86 @@ async fn create_lists_under_own_parent_list_ok() {
         .await
         .unwrap();
     assert_eq!(row.0.as_deref(), Some(parent.as_str()));
+}
+
+#[tokio::test]
+async fn create_lists_sublist_inherits_parent_type_and_features() {
+    let pool = multi_conn_pool().await;
+    let uid = create_test_user(&pool).await;
+    let parent = insert_test_list_with_features(&pool, &uid, &["checklist", "quantity"]).await;
+    sqlx::query("UPDATE lists SET list_type = 'shopping' WHERE id = ?")
+        .bind(&parent)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let server = test_server(pool);
+
+    // No list_type and no features: the default request shape must inherit.
+    let params = CreateListsParams {
+        lists: vec![CreateListsInput {
+            parent_list_id: Some(parent.clone()),
+            ..list_input("Child", None)
+        }],
+    };
+    let result = server
+        .create_lists(Extension(parts_for_user(&uid)), Parameters(params))
+        .await
+        .unwrap();
+
+    let lists: Vec<serde_json::Value> = serde_json::from_str(&result_text(&result)).unwrap();
+    let id = lists[0]["id"].as_str().unwrap();
+    let row: (String, String) =
+        sqlx::query_as("SELECT list_type, features FROM lists WHERE id = ?")
+            .bind(id)
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+
+    assert_eq!(row.0, "shopping", "the parent's list_type is inherited");
+    let features: serde_json::Value = serde_json::from_str(&row.1).unwrap();
+    assert_eq!(
+        features,
+        serde_json::json!({"checklist": {}, "quantity": {}}),
+        "the parent's features are inherited"
+    );
+}
+
+#[tokio::test]
+async fn create_lists_sublist_inheritance_can_be_opted_out() {
+    let pool = multi_conn_pool().await;
+    let uid = create_test_user(&pool).await;
+    let parent = insert_test_list_with_features(&pool, &uid, &["checklist", "quantity"]).await;
+    sqlx::query("UPDATE lists SET list_type = 'shopping' WHERE id = ?")
+        .bind(&parent)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let server = test_server(pool);
+
+    let params = CreateListsParams {
+        lists: vec![CreateListsInput {
+            parent_list_id: Some(parent.clone()),
+            inherit_from_parent: Some(false),
+            ..list_input("Plain Child", None)
+        }],
+    };
+    let result = server
+        .create_lists(Extension(parts_for_user(&uid)), Parameters(params))
+        .await
+        .unwrap();
+
+    let lists: Vec<serde_json::Value> = serde_json::from_str(&result_text(&result)).unwrap();
+    let id = lists[0]["id"].as_str().unwrap();
+    let row: (String, String) =
+        sqlx::query_as("SELECT list_type, features FROM lists WHERE id = ?")
+            .bind(id)
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+
+    assert_eq!(row.0, "checklist");
+    let features: serde_json::Value = serde_json::from_str(&row.1).unwrap();
+    assert_eq!(features, serde_json::json!({"checklist": {}}));
 }
 
 #[tokio::test]

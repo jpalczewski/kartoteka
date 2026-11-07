@@ -19,7 +19,8 @@ use crate::server::{KartotekaServer, batch::PositionAllocator};
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CreateListParams {
     pub name: String,
-    /// List type: "checklist" (default), "shopping", "schedule", "log", "notes"
+    /// List type: "checklist" (default), "shopping", "schedule", "log", "notes".
+    /// Inherited from the parent list when omitted and `parent_list_id` is set.
     pub list_type: Option<String>,
     pub icon: Option<String>,
     /// Accent colour as `#rrggbb` (null = neutral).
@@ -29,18 +30,27 @@ pub struct CreateListParams {
     pub parent_list_id: Option<String>,
     /// Feature names to enable, e.g. ["quantity", "deadline"]
     pub features: Option<Vec<String>>,
+    /// Sublists only, default true: take over the parent list's type and feature set
+    /// (explicit `list_type`/`features` still win, features are merged). Set false to
+    /// create a plain checklist sublist.
+    pub inherit_from_parent: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CreateListsInput {
     pub name: String,
-    /// List type: "checklist" (default), "shopping", "schedule", "log", "notes"
+    /// List type: "checklist" (default), "shopping", "schedule", "log", "notes".
+    /// Inherited from the parent list when omitted and a parent is set.
     pub list_type: Option<String>,
     pub icon: Option<String>,
     /// Accent colour as `#rrggbb` (null = neutral).
     pub color: Option<String>,
     pub description: Option<String>,
     pub features: Option<Vec<String>>,
+    /// Sublists only, default true: take over the parent list's type and feature set
+    /// (explicit `list_type`/`features` still win, features are merged). Set false to
+    /// create a plain checklist sublist.
+    pub inherit_from_parent: Option<bool>,
     /// Real UUID of an existing container. Use `container_ref` instead to
     /// reference a container created earlier in this batch.
     pub container_id: Option<String>,
@@ -215,7 +225,7 @@ impl KartotekaServer {
             container_id: p.container_id,
             parent_list_id: p.parent_list_id,
             features: p.features.unwrap_or_default(),
-            inherit_from_parent: true,
+            inherit_from_parent: p.inherit_from_parent.unwrap_or(true),
         };
         self.domain_or_existing(domain::lists::create(&self.pool, &uid, &req).await, &locale)
     }
@@ -274,16 +284,15 @@ impl KartotekaServer {
             positions.set_base(key.clone(), base);
         }
 
-        // Parse every entry's list type up front, with the same rules and
-        // defaults as `lists::create` (`checklist` when omitted, default
-        // features when the entry lists none). An invalid type rejects the
-        // whole batch before anything is written.
-        let mut resolved = Vec::with_capacity(p.lists.len());
+        // Validate explicit list types up front: an invalid type rejects the whole batch
+        // before anything is written. Features are resolved per entry further down, because
+        // a sublist may have to inherit them from its parent.
         for l in &p.lists {
-            resolved.push(
-                domain::lists::resolve_list_type(l.list_type.as_deref(), l.features.as_deref())
-                    .map_err(self.domain_err(&locale))?,
-            );
+            if let Some(list_type) = l.list_type.as_deref() {
+                list_type
+                    .parse::<domain::lists::ListType>()
+                    .map_err(self.domain_err(&locale))?;
+            }
         }
 
         let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
@@ -293,7 +302,7 @@ impl KartotekaServer {
         let mut seen: std::collections::HashMap<(Option<String>, Option<String>, String), String> =
             std::collections::HashMap::new();
 
-        for (list, (list_type, feature_names)) in p.lists.iter().zip(resolved) {
+        for list in p.lists.iter() {
             let container_id = resolver
                 .pick(
                     list.container_id.as_deref(),
@@ -347,7 +356,13 @@ impl KartotekaServer {
 
             let new_id = Uuid::new_v4().to_string();
 
-            domain::lists::insert_list_in(
+            // Same rules as `domain::lists::create`: a sublist inherits its parent's setup
+            // unless the entry opts out with `inherit_from_parent: false`.
+            let (list_type, features) = self
+                .batch_list_setup(&mut tx, &uid, list, parent_list_id, &locale)
+                .await?;
+
+            domain::lists::insert_list_with_features_in(
                 &mut tx,
                 &InsertListInput {
                     id: new_id.clone(),
@@ -361,7 +376,7 @@ impl KartotekaServer {
                     container_id: container_id.map(str::to_owned),
                     parent_list_id: parent_list_id.map(str::to_owned),
                 },
-                &feature_names,
+                &features,
             )
             .await
             .map_err(self.domain_err(&locale))?;
@@ -379,7 +394,6 @@ impl KartotekaServer {
     }
 
     // ── Read-only resource-compat tools ──────────────────────────────────────
-
     #[rmcp::tool(name = "list_lists", description = "mcp-tool-list_lists-desc")]
     pub(crate) async fn list_lists(
         &self,
@@ -1579,5 +1593,70 @@ mod lifecycle_tests {
             scope_ids(&server, &uid, Some(&container_id), None).await,
             vec![inside, other]
         );
+    }
+}
+
+impl KartotekaServer {
+    /// Resolve an entry's list type and features JSON for `create_lists`.
+    ///
+    /// Mirrors `domain::lists::create`: with `inherit_from_parent` (the default) a sublist
+    /// takes the parent's `list_type` when it omits one and merges the parent's feature set —
+    /// including its configs — into the explicitly requested features. The parent is read
+    /// inside `tx`, so a parent created by an earlier entry of the same batch is visible.
+    async fn batch_list_setup(
+        &self,
+        tx: &mut sqlx::SqliteConnection,
+        user_id: &str,
+        entry: &CreateListsInput,
+        parent_list_id: Option<&str>,
+        locale: &str,
+    ) -> Result<(domain::lists::ListType, serde_json::Value), ErrorData> {
+        let parent: Option<(String, String)> = match parent_list_id {
+            Some(parent_id) if entry.inherit_from_parent.unwrap_or(true) => Some(
+                sqlx::query_as::<_, (String, String)>(
+                    "SELECT list_type, features FROM lists WHERE id = ? AND user_id = ?",
+                )
+                .bind(parent_id)
+                .bind(user_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(self.sqlx_err(locale))?
+                .ok_or_else(|| {
+                    self.map_err(
+                        McpError::Domain(domain::DomainError::NotFound("list")),
+                        locale,
+                    )
+                })?,
+            ),
+            _ => None,
+        };
+
+        if let Some((parent_type, parent_features)) = parent {
+            let list_type = match entry.list_type.as_deref() {
+                Some(requested) => requested
+                    .parse::<domain::lists::ListType>()
+                    .map_err(self.domain_err(locale))?,
+                // A stored type this version no longer knows falls back to the checklist one.
+                None => parent_type
+                    .parse::<domain::lists::ListType>()
+                    .unwrap_or(domain::lists::ListType::Checklist),
+            };
+            let parent_features: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_str(&parent_features)
+                    .map_err(|e| self.map_err(McpError::Serde(e), locale))?;
+            let features = domain::lists::merge_inherited_features(
+                &parent_features,
+                entry.features.as_deref().unwrap_or_default(),
+            );
+            return Ok((list_type, features));
+        }
+
+        let (list_type, feature_names) =
+            domain::lists::resolve_list_type(entry.list_type.as_deref(), entry.features.as_deref())
+                .map_err(self.domain_err(locale))?;
+        Ok((
+            list_type,
+            domain::lists::features_from_names(&feature_names),
+        ))
     }
 }

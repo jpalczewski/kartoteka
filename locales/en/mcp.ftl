@@ -59,14 +59,14 @@ mcp-tool-assign_tag-desc = Assign a tag to an entity. entity_type: "item", "list
 mcp-tool-unassign_tag-desc = Remove a tag from an entity. entity_type: "item", "list", or "container".
 mcp-tool-get_today-desc = Get items due today.
 mcp-tool-get_time_summary-desc = Get tracked time. With entity_type ("item", "list" or "container") and entity_id, returns the total seconds plus a human h:mm value, rolled up over sublists and sub-containers and including the running timer; without arguments, lists recent time entries.
-mcp-tool-create_list-desc = Create a new list. list_type: checklist (default), shopping, schedule, log, or notes.
+mcp-tool-create_list-desc = Create a new list. list_type: checklist (default), shopping, schedule, log, or notes. With parent_list_id the sublist inherits the parent's list_type and features (including their configs); explicit list_type/features still win and features are merged. Pass inherit_from_parent: false to create a plain checklist sublist instead.
 mcp-tool-get_item-desc = Get details of a specific item by ID.
 mcp-tool-list_templates-desc = List all saved list templates.
 mcp-tool-list_overdue-desc = Get all items past their deadline that are not yet completed.
 mcp-tool-get_active_timer-desc = Get the currently running timer, if any.
 mcp-tool-create_container-desc = Create a single folder (omit status) or project (status: "active", "done", or "paused"). To build a workspace, call create_containers (batch) + create_lists + create_items in sequence.
 mcp-tool-create_items-desc = Append multiple items to one list atomically. Provide list_id once at the top level; all items go into that list in the given order.
-mcp-tool-create_lists-desc = Create multiple lists atomically. Use container_ref to reference a container created in a prior create_containers call (set client_ref on it first). Use parent_list_ref to nest under a list created earlier in this same batch. Forward-only references within a batch.
+mcp-tool-create_lists-desc = Create multiple lists atomically. Use container_ref to reference a container created in a prior create_containers call (set client_ref on it first). Use parent_list_ref to nest under a list created earlier in this same batch. A sublist with a parent inherits the parent's list_type and features by default (explicit values still win, features are merged); set inherit_from_parent: false to create a plain checklist sublist. Forward-only references within a batch.
 mcp-tool-create_containers-desc = Create multiple folders/projects atomically. Use parent_container_ref to nest under a container created earlier in this same batch (set client_ref on the parent first). Forward-only: cannot reference an item later in the array.
 
 mcp-tool-move_list_to_container-desc = Move a list into a container, or detach it from its current container (container_id: null).

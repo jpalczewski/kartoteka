@@ -59,14 +59,14 @@ mcp-tool-assign_tag-desc = Przypisz tag do encji. entity_type: "item", "list" lu
 mcp-tool-unassign_tag-desc = Usuń tag z encji. entity_type: "item", "list" lub "container".
 mcp-tool-get_today-desc = Pobierz elementy na dziś.
 mcp-tool-get_time_summary-desc = Pobierz śledzony czas. Z entity_type ("item", "list" lub "container") i entity_id zwraca sumę sekund oraz wartość h:mm, zsumowaną po podlistach i podkontenerach i z uwzględnieniem działającego timera; bez argumentów zwraca ostatnie wpisy czasu.
-mcp-tool-create_list-desc = Utwórz nową listę. list_type: checklist (domyślny), shopping, schedule, log lub notes.
+mcp-tool-create_list-desc = Utwórz nową listę. list_type: checklist (domyślny), shopping, schedule, log lub notes. Z parent_list_id podlista dziedziczy list_type i funkcje rodzica (wraz z ich konfiguracją); jawne list_type/features mają pierwszeństwo, a funkcje są łączone. Ustaw inherit_from_parent: false, aby utworzyć zwykłą podlistę checklist.
 mcp-tool-get_item-desc = Pobierz szczegóły konkretnego elementu po ID.
 mcp-tool-list_templates-desc = Pobierz wszystkie zapisane szablony list.
 mcp-tool-list_overdue-desc = Pobierz wszystkie elementy po terminie, które nie są jeszcze ukończone.
 mcp-tool-get_active_timer-desc = Pobierz aktualnie działający timer, jeśli istnieje.
 mcp-tool-create_container-desc = Utwórz pojedynczy folder (bez status) lub projekt (status: "active", "done" lub "paused"). Aby zbudować przestrzeń roboczą, wywołaj create_containers (batch) + create_lists + create_items sekwencyjnie.
 mcp-tool-create_items-desc = Dodaj wiele elementów do jednej listy atomowo. Podaj list_id raz na poziomie głównym; wszystkie elementy trafiają do tej listy w podanej kolejności.
-mcp-tool-create_lists-desc = Utwórz wiele list atomowo. Użyj container_ref aby odwołać się do kontenera z poprzedniego wywołania create_containers (ustaw na nim client_ref). Użyj parent_list_ref aby zagnieździć pod listą z tego samego batcha. Referencje tylko do wcześniejszych elementów.
+mcp-tool-create_lists-desc = Utwórz wiele list atomowo. Użyj container_ref aby odwołać się do kontenera z poprzedniego wywołania create_containers (ustaw na nim client_ref). Użyj parent_list_ref aby zagnieździć pod listą z tego samego batcha. Podlista z rodzicem domyślnie dziedziczy list_type i funkcje rodzica (jawne wartości mają pierwszeństwo, funkcje są łączone); ustaw inherit_from_parent: false, aby utworzyć zwykłą podlistę checklist. Referencje tylko do wcześniejszych elementów.
 mcp-tool-create_containers-desc = Utwórz wiele folderów/projektów atomowo. Użyj parent_container_ref aby zagnieździć pod kontenerem z wcześniej w tym samym batchu (ustaw client_ref na rodzicu). Tylko referencje do wcześniejszych elementów w tablicy.
 
 mcp-tool-move_list_to_container-desc = Przenieś listę do kontenera lub odepnij ją od bieżącego (container_id: null).
