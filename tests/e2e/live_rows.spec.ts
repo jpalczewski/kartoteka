@@ -157,3 +157,23 @@ test("Tag detail: a live update keeps untouched rows", async ({ page, context })
   await expect(row("Live A")).toHaveClass(/text-base-content\/40/);
   expect(await isMarked(row("Live B"))).toBe(true);
 });
+
+test("List page: a live update keeps the add-item draft (#426)", async ({ page, context }) => {
+  await registerAndLogin(page, context, "Live Draft");
+  const listId = await scheduleListWithItems(page, "Live Draft List");
+
+  await page.goto(`/lists/${listId}`);
+  await waitForHydration(page);
+  await page.locator('[data-testid="add-item-title"]').fill("Half typed");
+  await page.locator('[data-testid="add-item-dates-toggle"]').click();
+  await page.locator('[data-testid="add-item-deadline"]').fill(todayIso());
+
+  // A change from another tab refetches and re-renders this list page.
+  await completeFromOtherTab(context, listId, "Live A");
+  await expect(
+    page.locator('[data-testid="item-title-link"]').filter({ hasText: "Live A" }),
+  ).toHaveClass(/line-through/);
+
+  await expect(page.locator('[data-testid="add-item-title"]')).toHaveValue("Half typed");
+  await expect(page.locator('[data-testid="add-item-deadline"]')).toHaveValue(todayIso());
+});

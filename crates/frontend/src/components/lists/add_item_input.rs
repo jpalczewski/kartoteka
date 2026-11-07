@@ -7,22 +7,79 @@ use crate::components::items::date_field::DateFieldInput;
 use crate::components::ui::Icon;
 use crate::server_fns::items::create_item;
 
+/// What the user has typed into an [`AddItemInput`] but not submitted yet.
+///
+/// A page that re-creates its content on refetch (the list page renders everything from
+/// one resource closure) owns the draft, so a live update does not wipe the form (#426).
+#[derive(Clone, Copy)]
+pub struct AddItemDraft {
+    pub title: RwSignal<String>,
+    pub description: RwSignal<String>,
+    pub quantity: RwSignal<String>,
+    pub unit: RwSignal<String>,
+    pub start_date: RwSignal<String>,
+    pub deadline: RwSignal<String>,
+    pub hard_deadline: RwSignal<String>,
+    pub show_dates: RwSignal<bool>,
+}
+
+const DEFAULT_UNIT: &str = "szt.";
+
+impl AddItemDraft {
+    pub fn new() -> Self {
+        Self {
+            title: RwSignal::new(String::new()),
+            description: RwSignal::new(String::new()),
+            quantity: RwSignal::new(String::new()),
+            unit: RwSignal::new(DEFAULT_UNIT.to_string()),
+            start_date: RwSignal::new(String::new()),
+            deadline: RwSignal::new(String::new()),
+            hard_deadline: RwSignal::new(String::new()),
+            show_dates: RwSignal::new(false),
+        }
+    }
+
+    /// Reset every field to its empty state.
+    pub fn clear(self) {
+        self.title.set(String::new());
+        self.description.set(String::new());
+        self.quantity.set(String::new());
+        self.unit.set(DEFAULT_UNIT.to_string());
+        self.start_date.set(String::new());
+        self.deadline.set(String::new());
+        self.hard_deadline.set(String::new());
+        self.show_dates.set(false);
+    }
+}
+
+impl Default for AddItemDraft {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[component]
 pub fn AddItemInput(
     list_id: Signal<String>,
     #[prop(default = false)] has_quantity: bool,
     on_created: Callback<Item>,
+    /// Draft owned by the caller; without it the form keeps its own state.
+    #[prop(optional)]
+    draft: Option<AddItemDraft>,
 ) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
 
-    let (title, set_title) = signal(String::new());
-    let (description, set_description) = signal(String::new());
-    let (quantity_str, set_quantity_str) = signal(String::new());
-    let (unit, set_unit) = signal("szt.".to_string());
-    let start_date = RwSignal::new(String::new());
-    let deadline = RwSignal::new(String::new());
-    let hard_deadline = RwSignal::new(String::new());
-    let (show_dates, set_show_dates) = signal(false);
+    let draft = draft.unwrap_or_default();
+    let AddItemDraft {
+        title,
+        description,
+        quantity: quantity_str,
+        unit,
+        start_date,
+        deadline,
+        hard_deadline,
+        show_dates,
+    } = draft;
     let (pending, set_pending) = signal(false);
 
     let on_submit = move |ev: leptos::ev::SubmitEvent| {
@@ -63,19 +120,13 @@ pub fn AddItemInput(
         leptos::task::spawn_local(async move {
             match create_item(lid, t, desc, qty, u, sd, dl, hd).await {
                 Ok(item) => {
-                    set_title.set(String::new());
-                    set_description.set(String::new());
-                    set_quantity_str.set(String::new());
-                    set_unit.set("szt.".to_string());
-                    start_date.set(String::new());
-                    deadline.set(String::new());
-                    hard_deadline.set(String::new());
-                    set_show_dates.set(false);
+                    draft.clear();
                     on_created.run(item);
                 }
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
-            set_pending.set(false);
+            // The form may have been re-created meanwhile (the draft outlives it).
+            _ = set_pending.try_set(false);
         });
     };
 
@@ -88,7 +139,7 @@ pub fn AddItemInput(
                     data-testid="add-item-title"
                     placeholder="Nowy element..."
                     prop:value=move || title.get()
-                    on:input=move |ev| set_title.set(event_target_value(&ev))
+                    on:input=move |ev| title.set(event_target_value(&ev))
                 />
                 <button type="submit" class="btn btn-primary" prop:disabled=move || pending.get()>
                     "Dodaj"
@@ -98,7 +149,7 @@ pub fn AddItemInput(
                 class="textarea textarea-bordered text-sm"
                 placeholder="Opis (opcjonalnie)..."
                 prop:value=move || description.get()
-                on:input=move |ev| set_description.set(event_target_value(&ev))
+                on:input=move |ev| description.set(event_target_value(&ev))
             />
             {has_quantity.then(|| view! {
                 <div class="flex gap-2">
@@ -108,14 +159,14 @@ pub fn AddItemInput(
                         placeholder="Ilość"
                         min="1"
                         prop:value=move || quantity_str.get()
-                        on:input=move |ev| set_quantity_str.set(event_target_value(&ev))
+                        on:input=move |ev| quantity_str.set(event_target_value(&ev))
                     />
                     <input
                         type="text"
                         class="input input-bordered input-sm w-20"
                         placeholder="jedn."
                         prop:value=move || unit.get()
-                        on:input=move |ev| set_unit.set(event_target_value(&ev))
+                        on:input=move |ev| unit.set(event_target_value(&ev))
                     />
                 </div>
             })}
@@ -125,7 +176,7 @@ pub fn AddItemInput(
                     type="button"
                     class="btn btn-ghost btn-xs text-base-content/50"
                     data-testid="add-item-dates-toggle"
-                    on:click=move |_| set_show_dates.update(|v| *v = !*v)
+                    on:click=move |_| show_dates.update(|v| *v = !*v)
                 >
                     <Icon
                         name=Signal::derive(move || {
