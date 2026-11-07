@@ -52,10 +52,10 @@ pub async fn list_for_entity_with_titles(
                 COALESCE(i.title, l.name, c.name) AS other_title, \
                 i.completed AS other_completed \
          FROM rel \
-         LEFT JOIN items i ON i.id = rel.other_id \
+         LEFT JOIN items i ON rel.other_type = 'item' AND i.id = rel.other_id \
               AND EXISTS (SELECT 1 FROM lists li WHERE li.id = i.list_id AND li.user_id = rel.user_id) \
-         LEFT JOIN lists l ON l.id = rel.other_id AND l.user_id = rel.user_id \
-         LEFT JOIN containers c ON c.id = rel.other_id AND c.user_id = rel.user_id \
+         LEFT JOIN lists l ON rel.other_type = 'list' AND l.id = rel.other_id AND l.user_id = rel.user_id \
+         LEFT JOIN containers c ON rel.other_type = 'container' AND c.id = rel.other_id AND c.user_id = rel.user_id \
          ORDER BY rel.created_at ASC",
     )
     .bind(entity_type)
