@@ -2,7 +2,7 @@ use crate::{DomainError, rules};
 use kartoteka_db as db;
 use kartoteka_shared::types::FlexDate;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -277,6 +277,63 @@ pub async fn get_one(
     }))
 }
 
+// ── Create building blocks ────────────────────────────────────────────────────
+
+/// Rules every new item must satisfy, independent of how it is persisted.
+///
+/// `features` are the feature names enabled on the target list. Uniqueness is
+/// deliberately not checked here: [`create`] rejects duplicates while the MCP
+/// batch reports them as `existed` in its own dedup pass.
+pub fn validate_create_item(
+    features: &[String],
+    req: &CreateItemRequest,
+) -> Result<(), DomainError> {
+    rules::items::validate_title(&req.title)?;
+    rules::items::validate_item_dates(
+        req.start_date.as_deref(),
+        req.start_time.as_deref(),
+        req.deadline.as_deref(),
+        req.deadline_time.as_deref(),
+        req.hard_deadline.as_deref(),
+    )?;
+    let has_dates =
+        req.start_date.is_some() || req.deadline.is_some() || req.hard_deadline.is_some();
+    let has_quantity = req.quantity.is_some() || req.unit.is_some();
+    rules::items::validate_features(features, has_dates, has_quantity)
+}
+
+/// Map a validated create request onto the DB insert input.
+pub fn new_item_input(
+    list_id: &str,
+    position: i32,
+    req: &CreateItemRequest,
+) -> db::items::InsertItemInput {
+    db::items::InsertItemInput {
+        id: Uuid::new_v4().to_string(),
+        list_id: list_id.to_string(),
+        position,
+        title: req.title.clone(),
+        description: req.description.clone(),
+        quantity: req.quantity,
+        actual_quantity: req.actual_quantity,
+        unit: req.unit.clone(),
+        start_date: req.start_date.clone(),
+        start_time: req.start_time.clone(),
+        deadline: req.deadline.clone(),
+        deadline_time: req.deadline_time.clone(),
+        hard_deadline: req.hard_deadline.clone(),
+        estimated_duration: req.estimated_duration,
+    }
+}
+
+/// Insert an already-validated item inside a caller-owned transaction.
+pub async fn insert_item_in(
+    conn: &mut SqliteConnection,
+    input: &db::items::InsertItemInput,
+) -> Result<Item, DomainError> {
+    Ok(db::items::insert_in_tx(conn, input).await?.into())
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn create(
     pool: &SqlitePool,
@@ -290,46 +347,23 @@ pub async fn create(
         .ok_or(DomainError::NotFound("list"))?;
 
     // Phase 2: THINK
-    rules::items::validate_title(&req.title)?;
+    validate_create_item(&ctx.features, req)?;
     DomainError::ensure_unique(
         db::items::find_id_by_title_in_list(pool, list_id, &req.title, None).await?,
         "item",
     )?;
-    rules::items::validate_item_dates(
-        req.start_date.as_deref(),
-        req.start_time.as_deref(),
-        req.deadline.as_deref(),
-        req.deadline_time.as_deref(),
-        req.hard_deadline.as_deref(),
-    )?;
-    let has_dates =
-        req.start_date.is_some() || req.deadline.is_some() || req.hard_deadline.is_some();
-    let has_quantity = req.quantity.is_some() || req.unit.is_some();
-    rules::items::validate_features(&ctx.features, has_dates, has_quantity)?;
 
     // Phase 3: WRITE
-    let row = db::items::insert(
-        pool,
-        &db::items::InsertItemInput {
-            id: Uuid::new_v4().to_string(),
-            list_id: list_id.to_string(),
-            position: i32::try_from(ctx.next_position).unwrap_or(i32::MAX),
-            title: req.title.clone(),
-            description: req.description.clone(),
-            quantity: req.quantity,
-            actual_quantity: req.actual_quantity,
-            unit: req.unit.clone(),
-            start_date: req.start_date.clone(),
-            start_time: req.start_time.clone(),
-            deadline: req.deadline.clone(),
-            deadline_time: req.deadline_time.clone(),
-            hard_deadline: req.hard_deadline.clone(),
-            estimated_duration: req.estimated_duration,
-        },
-    )
-    .await?;
+    let input = new_item_input(
+        list_id,
+        i32::try_from(ctx.next_position).unwrap_or(i32::MAX),
+        req,
+    );
+    let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
+    let item = insert_item_in(&mut tx, &input).await?;
+    tx.commit().await.map_err(db::DbError::Sqlx)?;
 
-    Ok(row.into())
+    Ok(item)
 }
 
 #[tracing::instrument(skip(pool))]

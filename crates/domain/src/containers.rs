@@ -1,10 +1,12 @@
 use crate::{DomainError, rules};
 use kartoteka_db::types::ContainerRow;
-use kartoteka_db::{SqlitePool, containers as db_containers};
+use kartoteka_db::{DbError, SqlitePool, containers as db_containers};
 use kartoteka_shared::types::{
     Container, ContainerProgress, CreateContainerRequest, MoveContainerRequest,
     UpdateContainerRequest,
 };
+use sqlx::SqliteConnection;
+use uuid::Uuid;
 
 fn row_to_container(r: ContainerRow) -> Container {
     Container {
@@ -50,6 +52,43 @@ pub async fn get_one(pool: &SqlitePool, id: &str, user_id: &str) -> Result<Conta
         .ok_or(DomainError::NotFound("container"))
 }
 
+/// Validate a container create request: the status value, and — when a parent
+/// is given — that the parent exists, belongs to `user_id` and is a folder.
+///
+/// Takes an executor so the MCP batch can validate inside its own transaction,
+/// where parents created earlier in the same batch are already visible.
+pub async fn validate_create_container<'e, E>(
+    executor: E,
+    user_id: &str,
+    req: &CreateContainerRequest,
+) -> Result<(), DomainError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    rules::containers::validate_status(req.status.as_deref())?;
+
+    if let Some(parent_id) = req.parent_container_id.as_deref() {
+        let parent = db_containers::get_one(executor, parent_id, user_id)
+            .await?
+            .ok_or(DomainError::NotFound("container"))?;
+        rules::containers::validate_hierarchy(parent.status.as_deref())?;
+    }
+    Ok(())
+}
+
+/// Insert an already-validated container inside a caller-owned transaction.
+pub async fn insert_container_in(
+    conn: &mut SqliteConnection,
+    id: &str,
+    user_id: &str,
+    req: &CreateContainerRequest,
+    position: i32,
+) -> Result<Container, DomainError> {
+    Ok(row_to_container(
+        db_containers::insert_in_tx(conn, id, user_id, req, position).await?,
+    ))
+}
+
 /// Create a new container, validating hierarchy rules.
 #[tracing::instrument(skip(pool))]
 pub async fn create(
@@ -57,22 +96,16 @@ pub async fn create(
     user_id: &str,
     req: &CreateContainerRequest,
 ) -> Result<Container, DomainError> {
-    rules::containers::validate_status(req.status.as_deref())?;
-
-    // Phase 1: READ — if a parent is specified, fetch it
-    if let Some(parent_id) = req.parent_container_id.as_deref() {
-        let parent = db_containers::get_one(pool, parent_id, user_id)
-            .await?
-            .ok_or(DomainError::NotFound("container"))?;
-        // Phase 2: THINK — validate that parent is a folder
-        rules::containers::validate_hierarchy(parent.status.as_deref())?;
-    }
+    validate_create_container(pool, user_id, req).await?;
 
     // Phase 3: WRITE — compute position, then insert
     let position =
         db_containers::next_position(pool, user_id, req.parent_container_id.as_deref()).await?;
-    let row = db_containers::insert(pool, user_id, req, position).await?;
-    Ok(row_to_container(row))
+    let id = Uuid::new_v4().to_string();
+    let mut tx = pool.begin().await.map_err(DbError::Sqlx)?;
+    let container = insert_container_in(&mut tx, &id, user_id, req, position).await?;
+    tx.commit().await.map_err(DbError::Sqlx)?;
+    Ok(container)
 }
 
 /// Update a container's metadata.

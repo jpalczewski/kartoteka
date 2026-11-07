@@ -289,13 +289,35 @@ pub fn validate_tag_input(name: &str, color: Option<&str>) -> Result<(), DomainE
     Ok(())
 }
 
+/// Validates a tag create request: name/colour rules plus, when a parent is
+/// given, that the parent tag exists and belongs to `user_id`.
+///
+/// Takes an executor so the MCP batch can validate inside its own transaction,
+/// where parents created earlier in the same batch are already visible.
+pub async fn validate_create_tag<'e, E>(
+    executor: E,
+    user_id: &str,
+    req: &CreateTagRequest,
+) -> Result<(), DomainError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    validate_tag_input(&req.name, req.color.as_deref())?;
+    if let Some(parent_id) = req.parent_tag_id.as_deref() {
+        db::tags::get_one(executor, parent_id, user_id)
+            .await?
+            .ok_or(DomainError::NotFound("parent_tag"))?;
+    }
+    Ok(())
+}
+
 #[tracing::instrument(skip(pool))]
 pub async fn create(
     pool: &SqlitePool,
     user_id: &str,
     req: &CreateTagRequest,
 ) -> Result<Tag, DomainError> {
-    validate_tag_input(&req.name, req.color.as_deref())?;
+    validate_create_tag(pool, user_id, req).await?;
 
     // Phase 2: THINK
     let tag_type = req.tag_type.as_deref().unwrap_or("tag");

@@ -2,7 +2,7 @@ use crate::DomainError;
 use kartoteka_db as db;
 use kartoteka_shared::types::ListFeature;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
 // ── Public domain types ───────────────────────────────────────────────────────
@@ -134,6 +134,40 @@ pub fn features_from_names(names: &[String]) -> serde_json::Value {
     serde_json::Value::Object(obj)
 }
 
+/// Parse a caller-supplied list type and resolve the feature names to persist.
+///
+/// `list_type` defaults to `checklist`; the type's default features apply only
+/// when the caller supplied no explicit feature list (`None`). An explicit
+/// empty list means "no features" and is preserved.
+pub fn resolve_list_type(
+    list_type: Option<&str>,
+    features: Option<&[String]>,
+) -> Result<(ListType, Vec<String>), DomainError> {
+    let list_type: ListType = list_type.unwrap_or("checklist").parse()?;
+    let feature_names: Vec<String> = match features {
+        Some(names) => names.to_vec(),
+        None => list_type
+            .default_feature_names()
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect(),
+    };
+    Ok((list_type, feature_names))
+}
+
+/// Insert a list row plus its feature rows inside a caller-owned transaction.
+pub async fn insert_list_in(
+    conn: &mut SqliteConnection,
+    input: &db::lists::InsertListInput,
+    feature_names: &[String],
+) -> Result<(), DomainError> {
+    db::lists::insert(conn, input).await?;
+    if !feature_names.is_empty() {
+        db::lists::set_features(conn, &input.id, &features_from_names(feature_names)).await?;
+    }
+    Ok(())
+}
+
 pub(crate) fn row_to_list(row: db::lists::ListRow) -> Result<List, DomainError> {
     let features = parse_features(&row.features)?;
     Ok(List {
@@ -246,17 +280,14 @@ pub async fn create(
     )?;
 
     let list_type_str = req.list_type.as_deref().unwrap_or("checklist");
-    let list_type: ListType = list_type_str.parse()?;
-
-    let feature_names: Vec<String> = if req.features.is_empty() {
-        list_type
-            .default_feature_names()
-            .iter()
-            .map(|s| s.to_string())
-            .collect()
-    } else {
-        req.features.clone()
-    };
+    let (list_type, feature_names) = resolve_list_type(
+        Some(list_type_str),
+        if req.features.is_empty() {
+            None
+        } else {
+            Some(req.features.as_slice())
+        },
+    )?;
 
     let position = db::lists::next_position(
         pool,
@@ -268,7 +299,7 @@ pub async fn create(
 
     let list_id = Uuid::new_v4().to_string();
     let mut tx = pool.begin().await.map_err(db::DbError::Sqlx)?;
-    db::lists::insert(
+    insert_list_in(
         &mut tx,
         &db::lists::InsertListInput {
             id: list_id.clone(),
@@ -281,11 +312,9 @@ pub async fn create(
             container_id: req.container_id.clone(),
             parent_list_id: req.parent_list_id.clone(),
         },
+        &feature_names,
     )
     .await?;
-    if !feature_names.is_empty() {
-        db::lists::set_features(&mut tx, &list_id, &features_from_names(&feature_names)).await?;
-    }
     tx.commit().await.map_err(db::DbError::Sqlx)?;
 
     db::lists::get_one(pool, &list_id, user_id)

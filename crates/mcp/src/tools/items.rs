@@ -85,7 +85,7 @@ impl UpdateItemParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CreateListParams {
     pub name: String,
-    /// List type: "checklist" (default), "shopping", "habit", or "custom"
+    /// List type: "checklist" (default), "shopping", "schedule", "log", "notes"
     pub list_type: Option<String>,
     pub icon: Option<String>,
     pub description: Option<String>,
@@ -136,6 +136,7 @@ pub struct CreateItemsParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CreateListsInput {
     pub name: String,
+    /// List type: "checklist" (default), "shopping", "schedule", "log", "notes"
     pub list_type: Option<String>,
     pub icon: Option<String>,
     pub description: Option<String>,
