@@ -133,3 +133,6 @@ lists-archive-aria = Archive
 lists-restore-aria = Restore
 lists-archive-container-aria = Archive container
 lists-reset-completed = Reset completed
+
+# Create form
+lists-create-kind-aria = What to create
