@@ -27,13 +27,17 @@ pub struct InsertItemInput {
     pub recurrence_rule: Option<String>,
     /// `"fixed"` or `"floating"`; only meaningful together with `recurrence_rule`.
     pub recurrence_mode: Option<String>,
+    pub icon: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct UpdateItemInput {
     pub title: Option<String>,
     pub description: Option<Option<String>>,
+    /// When set, `status` follows it (`true` → done, `false` → todo unless the
+    /// item was in_progress). See the SQL in [`update`].
     pub completed: Option<bool>,
+    pub icon: Option<Option<String>>,
     pub quantity: Option<Option<i32>>,
     pub actual_quantity: Option<Option<i32>>,
     pub unit: Option<Option<String>>,
@@ -67,9 +71,9 @@ pub struct CalendarFeedItemRow {
 
 // ── Column list constant ──────────────────────────────────────────────────────
 
-const ITEM_COLUMNS: &str = "i.id, i.list_id, i.title, i.description, i.completed, i.position, \
-     i.quantity, i.actual_quantity, i.unit, i.start_date, i.start_time, \
-     i.deadline, i.deadline_time, i.hard_deadline, i.estimated_duration, \
+const ITEM_COLUMNS: &str = "i.id, i.list_id, i.title, i.description, i.completed, i.status, \
+     i.icon, i.position, i.quantity, i.actual_quantity, i.unit, i.start_date, \
+     i.start_time, i.deadline, i.deadline_time, i.hard_deadline, i.estimated_duration, \
      i.location_id, i.recurrence_rule, i.recurrence_mode, i.created_at, i.updated_at";
 
 // ── Read queries ──────────────────────────────────────────────────────────────
@@ -281,7 +285,7 @@ pub async fn find_id_by_title_in_list(
 /// here (plus the matching `InsertItemInput` field and bind in [`insert_row`]).
 const ITEM_INSERT_COLUMNS: &str = "id, list_id, position, title, description, quantity, \
      actual_quantity, unit, start_date, start_time, deadline, deadline_time, \
-     hard_deadline, estimated_duration, location_id, recurrence_rule, recurrence_mode";
+     hard_deadline, estimated_duration, location_id, recurrence_rule, recurrence_mode, icon";
 
 /// The single item INSERT used by every write path.
 ///
@@ -314,6 +318,7 @@ where
     .bind(&input.location_id)
     .bind(&input.recurrence_rule)
     .bind(&input.recurrence_mode)
+    .bind(&input.icon)
     .fetch_one(executor)
     .await
     .map_err(DbError::Sqlx)
@@ -371,6 +376,11 @@ where
             title = COALESCE(?, title), \
             description = CASE WHEN ? = 1 THEN ? ELSE description END, \
             completed = COALESCE(?, completed), \
+            status = CASE WHEN ? IS NULL THEN status \
+                          WHEN ? = 1 THEN 'done' \
+                          WHEN status = 'done' THEN 'todo' \
+                          ELSE status END, \
+            icon = CASE WHEN ? = 1 THEN ? ELSE icon END, \
             quantity = CASE WHEN ? = 1 THEN ? ELSE quantity END, \
             actual_quantity = CASE WHEN ? = 1 THEN ? ELSE actual_quantity END, \
             unit = CASE WHEN ? = 1 THEN ? ELSE unit END, \
@@ -390,6 +400,10 @@ where
     .bind(input.description.is_some() as i32)
     .bind(input.description.as_ref().and_then(|v| v.as_deref()))
     .bind(input.completed.map(|v| v as i32))
+    .bind(input.completed.map(|v| v as i32))
+    .bind(input.completed.map(|v| v as i32))
+    .bind(input.icon.is_some() as i32)
+    .bind(input.icon.as_ref().and_then(|v| v.as_deref()))
     .bind(input.quantity.is_some() as i32)
     .bind(input.quantity.and_then(|v| v))
     .bind(input.actual_quantity.is_some() as i32)
@@ -426,21 +440,62 @@ where
 /// **Ownership is NOT checked** — caller must verify the item belongs to user_id
 /// before calling this function. Only call after a successful `get_one` or `update`
 /// that already enforced ownership.
+///
+/// `status` is written in the same statement so the
+/// `completed == (status == 'done')` invariant always holds.
 #[tracing::instrument(skip(pool))]
 pub async fn set_completed(pool: &SqlitePool, id: &str, completed: bool) -> Result<(), DbError> {
-    sqlx::query("UPDATE items SET completed = ?, updated_at = datetime('now') WHERE id = ?")
-        .bind(completed as i32)
-        .bind(id)
-        .execute(pool)
-        .await
-        .map_err(DbError::Sqlx)?;
+    sqlx::query(
+        "UPDATE items SET completed = ?, \
+            status = CASE WHEN ? = 1 THEN 'done' \
+                          WHEN status = 'done' THEN 'todo' \
+                          ELSE status END, \
+            updated_at = datetime('now') \
+         WHERE id = ?",
+    )
+    .bind(completed as i32)
+    .bind(completed as i32)
+    .bind(id)
+    .execute(pool)
+    .await
+    .map_err(DbError::Sqlx)?;
     Ok(())
+}
+
+/// Set the three-state status of an item.
+/// **Ownership IS checked** here (the item must live in one of the user's lists).
+/// `completed` is derived in the same statement: only `done` completes an item.
+#[tracing::instrument(skip(pool))]
+pub async fn set_status(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    status: &str,
+) -> Result<bool, DbError> {
+    let rows = sqlx::query(
+        "UPDATE items SET status = ?, \
+            completed = CASE WHEN ? = 'done' THEN 1 ELSE 0 END, \
+            updated_at = datetime('now') \
+         WHERE id = ? AND list_id IN (SELECT id FROM lists WHERE user_id = ?)",
+    )
+    .bind(status)
+    .bind(status)
+    .bind(id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(rows.rows_affected() > 0)
 }
 
 #[tracing::instrument(skip(pool))]
 pub async fn toggle_complete(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, DbError> {
     let rows = sqlx::query(
-        "UPDATE items SET completed = 1 - completed, updated_at = datetime('now') \
+        "UPDATE items SET \
+            status = CASE WHEN completed = 0 THEN 'done' \
+                          WHEN status = 'done' THEN 'todo' \
+                          ELSE status END, \
+            completed = 1 - completed, updated_at = datetime('now') \
          WHERE id = ? AND list_id IN (SELECT id FROM lists WHERE user_id = ?)",
     )
     .bind(id)
@@ -916,6 +971,7 @@ mod tests {
                 location_id: None,
                 recurrence_rule: None,
                 recurrence_mode: None,
+                icon: None,
             },
         )
         .await
@@ -969,6 +1025,7 @@ mod tests {
                 location_id: None,
                 recurrence_rule: None,
                 recurrence_mode: None,
+                icon: None,
             },
         )
         .await
@@ -1233,6 +1290,295 @@ mod tests {
             .await
             .unwrap();
         assert!(found.is_none());
+    }
+
+    // ── status / completed invariant ──────────────────────────────────────────
+
+    /// `completed == (status == 'done')` must hold for every row.
+    fn assert_invariant(item: &ItemRow) {
+        assert_eq!(
+            item.completed,
+            item.status == "done",
+            "completed={} status={}",
+            item.completed,
+            item.status
+        );
+    }
+
+    #[tokio::test]
+    async fn new_item_is_todo_and_not_completed() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "Fresh", 0).await;
+        assert_eq!(item.status, "todo");
+        assert!(!item.completed);
+        assert!(item.icon.is_none());
+    }
+
+    #[tokio::test]
+    async fn insert_with_icon_returns_it() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item = insert(
+            &pool,
+            &InsertItemInput {
+                id: uuid::Uuid::new_v4().to_string(),
+                list_id,
+                position: 0,
+                title: "With icon".into(),
+                icon: Some("lucide:home".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(item.icon.as_deref(), Some("lucide:home"));
+    }
+
+    #[tokio::test]
+    async fn set_status_done_completes_and_back() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "Status", 0).await;
+
+        assert!(set_status(&pool, &item.id, &uid, "done").await.unwrap());
+        let done = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(done.status, "done");
+        assert!(done.completed);
+        assert_invariant(&done);
+
+        assert!(
+            set_status(&pool, &item.id, &uid, "in_progress")
+                .await
+                .unwrap()
+        );
+        let in_progress = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(in_progress.status, "in_progress");
+        assert!(!in_progress.completed);
+        assert_invariant(&in_progress);
+
+        assert!(set_status(&pool, &item.id, &uid, "todo").await.unwrap());
+        let todo = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(todo.status, "todo");
+        assert!(!todo.completed);
+        assert_invariant(&todo);
+    }
+
+    #[tokio::test]
+    async fn set_status_is_scoped_to_the_owner() {
+        let pool = test_pool().await;
+        let owner = create_test_user(&pool).await;
+        let other = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &owner).await;
+        let item = make_item(&pool, &list_id, "Mine", 0).await;
+
+        assert!(!set_status(&pool, &item.id, &other, "done").await.unwrap());
+        let unchanged = get_one(&pool, &item.id, &owner).await.unwrap().unwrap();
+        assert_eq!(unchanged.status, "todo");
+    }
+
+    #[tokio::test]
+    async fn set_status_rejects_unknown_value_via_check_constraint() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "Checked", 0).await;
+
+        let err = set_status(&pool, &item.id, &uid, "blocked").await;
+        assert!(err.is_err(), "CHECK constraint must reject unknown status");
+    }
+
+    #[tokio::test]
+    async fn toggle_complete_keeps_status_in_sync() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "Toggle", 0).await;
+
+        toggle_complete(&pool, &item.id, &uid).await.unwrap();
+        let done = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(done.status, "done");
+        assert_invariant(&done);
+
+        toggle_complete(&pool, &item.id, &uid).await.unwrap();
+        let todo = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(todo.status, "todo");
+        assert_invariant(&todo);
+    }
+
+    #[tokio::test]
+    async fn toggling_an_in_progress_item_never_leaves_it_completed() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "In progress", 0).await;
+        set_status(&pool, &item.id, &uid, "in_progress")
+            .await
+            .unwrap();
+
+        toggle_complete(&pool, &item.id, &uid).await.unwrap();
+        let done = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(done.status, "done");
+        assert_invariant(&done);
+    }
+
+    #[tokio::test]
+    async fn set_completed_keeps_status_in_sync() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "Direct", 0).await;
+
+        set_completed(&pool, &item.id, true).await.unwrap();
+        let done = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(done.status, "done");
+        assert_invariant(&done);
+
+        set_completed(&pool, &item.id, false).await.unwrap();
+        let todo = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(todo.status, "todo");
+        assert_invariant(&todo);
+    }
+
+    #[tokio::test]
+    async fn update_with_completed_keeps_status_in_sync() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "Updated", 0).await;
+
+        let complete = UpdateItemInput {
+            title: None,
+            description: None,
+            completed: Some(true),
+            icon: None,
+            quantity: None,
+            actual_quantity: None,
+            unit: None,
+            start_date: None,
+            start_time: None,
+            deadline: None,
+            deadline_time: None,
+            hard_deadline: None,
+            estimated_duration: None,
+            location_id: None,
+        };
+        update(&pool, &item.id, &uid, &complete).await.unwrap();
+        let done = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(done.status, "done");
+        assert_invariant(&done);
+
+        let reopen = UpdateItemInput {
+            completed: Some(false),
+            ..complete
+        };
+        update(&pool, &item.id, &uid, &reopen).await.unwrap();
+        let todo = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(todo.status, "todo");
+        assert_invariant(&todo);
+    }
+
+    #[tokio::test]
+    async fn update_sets_and_clears_icon() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "Icon", 0).await;
+
+        let base = UpdateItemInput {
+            title: None,
+            description: None,
+            completed: None,
+            icon: Some(Some("emoji:🌱".into())),
+            quantity: None,
+            actual_quantity: None,
+            unit: None,
+            start_date: None,
+            start_time: None,
+            deadline: None,
+            deadline_time: None,
+            hard_deadline: None,
+            estimated_duration: None,
+            location_id: None,
+        };
+        update(&pool, &item.id, &uid, &base).await.unwrap();
+        let with_icon = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(with_icon.icon.as_deref(), Some("emoji:🌱"));
+
+        let clear = UpdateItemInput {
+            icon: Some(None),
+            ..base
+        };
+        update(&pool, &item.id, &uid, &clear).await.unwrap();
+        let cleared = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert!(cleared.icon.is_none());
+    }
+
+    /// Any write path outside this module (relations, bulk uncheck, raw SQL) must
+    /// still leave `status` consistent: the migration trigger enforces it.
+    #[tokio::test]
+    async fn trigger_keeps_status_in_sync_for_external_writes() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "External", 0).await;
+
+        sqlx::query("UPDATE items SET completed = 1 WHERE id = ?")
+            .bind(&item.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let done = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(done.status, "done");
+        assert_invariant(&done);
+
+        sqlx::query("UPDATE items SET completed = 0 WHERE id = ?")
+            .bind(&item.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let todo = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert_eq!(todo.status, "todo");
+        assert_invariant(&todo);
+    }
+
+    /// A plain INSERT starts as `todo`: every insert path goes through
+    /// [`insert_row`], which never sets `completed`.
+    #[tokio::test]
+    async fn raw_insert_defaults_to_todo() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let id = uuid::Uuid::new_v4().to_string();
+
+        sqlx::query("INSERT INTO items (id, list_id, title) VALUES (?, ?, 'Raw')")
+            .bind(&id)
+            .bind(&list_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let item = get_one(&pool, &id, &uid).await.unwrap().unwrap();
+        assert_eq!(item.status, "todo");
+        assert_invariant(&item);
+    }
+
+    #[tokio::test]
+    async fn bulk_uncheck_resets_done_to_todo() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item = make_item(&pool, &list_id, "Bulk", 0).await;
+        set_status(&pool, &item.id, &uid, "done").await.unwrap();
+
+        crate::lists::uncheck_items(&pool, &list_id).await.unwrap();
+
+        let todo = get_one(&pool, &item.id, &uid).await.unwrap().unwrap();
+        assert!(!todo.completed);
+        assert_eq!(todo.status, "todo");
+        assert_invariant(&todo);
     }
 
     // ── for_calendar_feed ─────────────────────────────────────────────────────

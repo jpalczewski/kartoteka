@@ -11,6 +11,7 @@ pub struct ListRow {
     pub user_id: String,
     pub name: String,
     pub icon: Option<String>,
+    pub color: Option<String>,
     pub description: Option<String>,
     pub list_type: String,
     pub parent_list_id: Option<String>,
@@ -32,6 +33,7 @@ pub struct InsertListInput {
     pub position: i64,
     pub name: String,
     pub icon: Option<String>,
+    pub color: Option<String>,
     pub description: Option<String>,
     pub list_type: String,
     pub container_id: Option<String>,
@@ -281,14 +283,15 @@ pub async fn find_owned_ids(
 #[tracing::instrument(skip(tx, input), fields(id = %input.id))]
 pub async fn insert(tx: &mut SqliteConnection, input: &InsertListInput) -> Result<(), DbError> {
     sqlx::query(
-        "INSERT INTO lists (id, user_id, name, icon, description, list_type, \
+        "INSERT INTO lists (id, user_id, name, icon, color, description, list_type, \
                             container_id, parent_list_id, position) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&input.id)
     .bind(&input.user_id)
     .bind(&input.name)
     .bind(&input.icon)
+    .bind(&input.color)
     .bind(&input.description)
     .bind(&input.list_type)
     .bind(&input.container_id)
@@ -339,6 +342,7 @@ pub async fn set_features(
 pub struct UpdateListInput {
     pub name: Option<String>,
     pub icon: Option<Option<String>>,
+    pub color: Option<Option<String>>,
     pub description: Option<Option<String>>,
     pub list_type: Option<String>,
     pub location_id: Option<Option<String>>,
@@ -355,6 +359,7 @@ pub async fn update(
         "UPDATE lists \
          SET name = COALESCE(?, name), \
              icon = CASE WHEN ? = 1 THEN ? ELSE icon END, \
+             color = CASE WHEN ? = 1 THEN ? ELSE color END, \
              description = CASE WHEN ? = 1 THEN ? ELSE description END, \
              list_type = COALESCE(?, list_type), \
              location_id = CASE WHEN ? = 1 THEN ? ELSE location_id END, \
@@ -364,6 +369,8 @@ pub async fn update(
     .bind(input.name.as_deref())
     .bind(input.icon.is_some() as i32)
     .bind(input.icon.as_ref().and_then(|v| v.as_deref()))
+    .bind(input.color.is_some() as i32)
+    .bind(input.color.as_ref().and_then(|v| v.as_deref()))
     .bind(input.description.is_some() as i32)
     .bind(input.description.as_ref().and_then(|v| v.as_deref()))
     .bind(input.list_type.as_deref())
@@ -502,13 +509,21 @@ pub async fn toggle_pinned(pool: &SqlitePool, id: &str, user_id: &str) -> Result
 }
 
 /// Mark all items in a list as not completed.
+///
+/// `status` is reset in the same statement, so the
+/// `completed == (status == 'done')` invariant survives a bulk uncheck
+/// (`in_progress` is kept: it already means "not completed").
 #[tracing::instrument(skip(pool))]
 pub async fn uncheck_items(pool: &SqlitePool, list_id: &str) -> Result<u64, DbError> {
-    let result = sqlx::query("UPDATE items SET completed = 0 WHERE list_id = ?")
-        .bind(list_id)
-        .execute(pool)
-        .await
-        .map_err(DbError::Sqlx)?;
+    let result = sqlx::query(
+        "UPDATE items SET completed = 0, \
+            status = CASE WHEN status = 'done' THEN 'todo' ELSE status END \
+         WHERE list_id = ?",
+    )
+    .bind(list_id)
+    .execute(pool)
+    .await
+    .map_err(DbError::Sqlx)?;
     Ok(result.rows_affected())
 }
 
@@ -686,6 +701,51 @@ mod tests {
         assert_eq!(row.archived, 0);
         assert_eq!(row.pinned, 0);
         assert_eq!(row.features, "{}");
+    }
+
+    #[tokio::test]
+    async fn insert_and_update_color() {
+        let pool = test_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut tx = pool.begin().await.unwrap();
+        insert(
+            &mut tx,
+            &InsertListInput {
+                id: id.clone(),
+                user_id: user_id.clone(),
+                position: 0,
+                name: "Coloured".to_owned(),
+                list_type: "checklist".to_owned(),
+                color: Some("#1a2b3c".to_owned()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        let row = get_one(&pool, &id, &user_id).await.unwrap().unwrap();
+        assert_eq!(row.color.as_deref(), Some("#1a2b3c"));
+
+        // clearing works through the double-option patch
+        update(
+            &pool,
+            &id,
+            &user_id,
+            &UpdateListInput {
+                name: None,
+                icon: None,
+                color: Some(None),
+                description: None,
+                list_type: None,
+                location_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let cleared = get_one(&pool, &id, &user_id).await.unwrap().unwrap();
+        assert!(cleared.color.is_none());
     }
 
     #[tokio::test]
@@ -1113,6 +1173,7 @@ mod tests {
                 description: None,
                 status: None,
                 parent_container_id: None,
+                color: None,
             },
             0,
         )

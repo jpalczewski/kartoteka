@@ -217,6 +217,8 @@ fn date_item_to_item_conversion() {
         title: "Buy milk".into(),
         description: None,
         completed: false,
+        status: "todo".into(),
+        icon: None,
         position: 0,
         quantity: Some(2),
         actual_quantity: Some(0),
