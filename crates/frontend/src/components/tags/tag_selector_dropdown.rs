@@ -1,5 +1,7 @@
+use kartoteka_shared::DEFAULT_TAG_COLOR;
 use kartoteka_shared::types::Tag;
 use leptos::prelude::*;
+use leptos_fluent::move_tr;
 
 use crate::components::ui::Icon;
 
@@ -23,7 +25,7 @@ pub fn TagSelectorDropdown(
                 tabindex="0"
                 role="button"
                 class="btn btn-xs btn-ghost"
-                title="Zarządzaj tagami"
+                title=move_tr!("tags-manage")
             >
                 <Icon name="tag" size=14 />
                 {if assigned_count > 0 {
@@ -40,7 +42,7 @@ pub fn TagSelectorDropdown(
                     let tag_id = tag.id.clone();
                     let tag_id_check = tag.id.clone();
                     let is_assigned = item_tags.iter().any(|t| t.id == tag_id_check);
-                    let color = tag.color.clone().unwrap_or_else(|| "#6b7280".to_string());
+                    let color = tag.color.clone().unwrap_or_else(|| DEFAULT_TAG_COLOR.to_string());
                     let name = tag.name.clone();
                     view! {
                         <li>

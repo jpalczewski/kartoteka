@@ -64,7 +64,10 @@ pub fn ListFilterChips(
                         {tag_chips.into_iter().map(|tag| {
                             let tid_class = tag.id.clone();
                             let tid_click = tag.id.clone();
-                            let color = tag.color.unwrap_or_else(|| "#6b7280".to_string());
+                            let color = tag
+                                .color
+                                .unwrap_or_else(|| kartoteka_shared::DEFAULT_TAG_COLOR.to_string());
+                            let text_color = kartoteka_shared::readable_text_color(&color);
                             let name = tag.name;
                             view! {
                                 <button
@@ -76,7 +79,7 @@ pub fn ListFilterChips(
                                             "badge cursor-pointer"
                                         }
                                     }
-                                    style=format!("background: {color}; color: white;")
+                                    style=format!("background: {color}; color: {text_color};")
                                     on:click=move |_| {
                                         hidden.update(|ht| {
                                             if ht.contains(&tid_click) {

@@ -655,6 +655,48 @@ pub async fn remove_container_tag(
 
 // ── Inverse tag lookups ───────────────────────────────────────────────────────
 
+/// One row per tag that is attached to at least one item or list.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct TagUsageRow {
+    pub tag_id: String,
+    pub items: i64,
+    pub lists: i64,
+}
+
+/// Item and list counts for every tag of `user_id` that is used at least once.
+///
+/// Tags attached to nothing are absent from the result, so callers default to
+/// `0`. Items are counted through `item_tags` (joined to lists so only the
+/// user's own items count), lists through `list_tags`; `container_tags` is
+/// deliberately not included — the tag tree shows item/list usage only.
+#[tracing::instrument(skip(pool))]
+pub async fn get_usage_counts(
+    pool: &SqlitePool,
+    user_id: &str,
+) -> Result<Vec<TagUsageRow>, DbError> {
+    sqlx::query_as::<_, TagUsageRow>(
+        "SELECT tag_id, SUM(items) AS items, SUM(lists) AS lists FROM (\
+             SELECT it.tag_id AS tag_id, COUNT(*) AS items, 0 AS lists \
+             FROM item_tags it \
+             JOIN items i ON i.id = it.item_id \
+             JOIN lists l ON l.id = i.list_id \
+             WHERE l.user_id = ? \
+             GROUP BY it.tag_id \
+             UNION ALL \
+             SELECT lt.tag_id, 0, COUNT(*) \
+             FROM list_tags lt \
+             JOIN lists l ON l.id = lt.list_id \
+             WHERE l.user_id = ? \
+             GROUP BY lt.tag_id\
+         ) GROUP BY tag_id",
+    )
+    .bind(user_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(DbError::Sqlx)
+}
+
 #[derive(Debug, sqlx::FromRow, serde::Serialize)]
 pub struct TaggedItemRow {
     pub id: String,
@@ -1193,5 +1235,85 @@ mod tests {
             .await
             .unwrap();
         assert!(rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn usage_counts_aggregate_items_and_lists_per_tag() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let other = create_test_user(&pool).await;
+        let work = insert_tag(&pool, &uid, "Work", None, "tag").await;
+        let home = insert_tag(&pool, &uid, "Home", None, "tag").await;
+        let unused = insert_tag(&pool, &uid, "Unused", None, "tag").await;
+        let foreign = insert_tag(&pool, &other, "Foreign", None, "tag").await;
+
+        let list_id = new_id();
+        let other_list_id = new_id();
+        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES (?, ?, 'L')")
+            .bind(&list_id)
+            .bind(&uid)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO lists (id, user_id, name) VALUES (?, ?, 'L2')")
+            .bind(&other_list_id)
+            .bind(&other)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Two items in the user's list carry "Work"; one item also carries "Home".
+        let item_ids = [new_id(), new_id()];
+        for item_id in &item_ids {
+            sqlx::query("INSERT INTO items (id, list_id, title) VALUES (?, ?, 'I')")
+                .bind(item_id)
+                .bind(&list_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        add_item_tag(&pool, &item_ids[0], &work.id, &uid)
+            .await
+            .unwrap();
+        add_item_tag(&pool, &item_ids[1], &work.id, &uid)
+            .await
+            .unwrap();
+        add_item_tag(&pool, &item_ids[1], &home.id, &uid)
+            .await
+            .unwrap();
+        add_list_tag(&pool, &list_id, &home.id, &uid).await.unwrap();
+
+        // Another user's list using the user's tag must not leak into the counts.
+        let foreign_item = new_id();
+        sqlx::query("INSERT INTO items (id, list_id, title) VALUES (?, ?, 'I')")
+            .bind(&foreign_item)
+            .bind(&other_list_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        add_item_tag(&pool, &foreign_item, &foreign.id, &other)
+            .await
+            .unwrap();
+
+        let counts = get_usage_counts(&pool, &uid).await.unwrap();
+        let by_id: std::collections::HashMap<&str, &TagUsageRow> = counts
+            .iter()
+            .map(|row| (row.tag_id.as_str(), row))
+            .collect();
+
+        let work_row = by_id.get(work.id.as_str()).expect("Work has usage");
+        assert_eq!((work_row.items, work_row.lists), (2, 0));
+
+        let home_row = by_id.get(home.id.as_str()).expect("Home has usage");
+        assert_eq!((home_row.items, home_row.lists), (1, 1));
+
+        assert!(
+            !by_id.contains_key(unused.id.as_str()),
+            "unused tags are absent"
+        );
+        assert!(
+            !by_id.contains_key(foreign.id.as_str()),
+            "other users' tags are absent"
+        );
     }
 }
