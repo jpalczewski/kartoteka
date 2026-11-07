@@ -1,135 +1,135 @@
-use kartoteka_shared::{
-    FEATURE_DEADLINES,
-    types::{Item, Tag},
-};
+//! The `Row` variant of an item view: the full list row with expandable editor, quantity
+//! stepper, tags, action menu, move-to and drag handle.
+//!
+//! A row is created once per item id (keyed `<For>` in [`super::item_list::ItemRowList`]) and
+//! reads its item from the page's keyed store, so a refetch updates the changed fields in
+//! place and keeps the open editor, focus and typed text. What the row shows is decided by
+//! [`ItemCaps`], which the page derives from the list's features.
+
+use kartoteka_shared::types::{FlexDate, Item, ItemTagLink, Tag};
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
 use leptos_router::components::A;
+use reactive_stores::Store;
 use web_sys::DragEvent;
 
 use super::date_field::DateFieldInput;
-use super::parts::RecurrenceChip;
+use super::item_view::ItemCaps;
+use super::parts::{DateChips, ItemCheckbox, ItemIcon, ItemTitle, RecurrenceChip, StatusChip};
 use super::quantity_stepper::QuantityStepper;
 use crate::components::common::dnd::ItemDragHandleButton;
 use crate::components::tags::tag_badge::TagBadge;
 use crate::components::tags::tag_selector_dropdown::TagSelectorDropdown;
-use crate::components::ui::{Chip, ChipTone, IconButton, IconButtonVariant};
+use crate::components::ui::{IconButton, IconButtonVariant};
 use crate::state::dnd::{DraggedItem, ItemDndState, begin_item_drag, clear_item_dnd_state};
+use crate::state::item_actions::{toggle_item_tag, use_item_actions};
+use crate::state::item_store::{ItemRows, item_signal, row_item};
 
 pub use crate::state::item_actions::DateSavePayload;
 
-fn date_chips(item: &Item) -> Vec<(&'static str, String, bool)> {
-    // (lucide icon, date_string, is_danger) — hard_deadline first, then deadline, then start
-    let mut chips = Vec::new();
-    if let Some(ref d) = item.hard_deadline {
-        chips.push(("alarm-clock", d.to_string(), true));
-    }
-    if let Some(ref d) = item.deadline {
-        chips.push(("clock", d.to_string(), false));
-    }
-    if let Some(ref d) = item.start_date {
-        chips.push(("calendar", d.to_string(), false));
-    }
-    chips
+/// Where a row gets its tags from: the tag catalog and the item–tag links of the page.
+#[derive(Clone, Copy)]
+pub struct RowTags {
+    pub all_tags: Signal<Vec<Tag>>,
+    pub links: Signal<Vec<ItemTagLink>>,
 }
 
+fn date_input(date: Option<&FlexDate>) -> String {
+    date.map(ToString::to_string).unwrap_or_default()
+}
+
+/// One list row. `caps` decides which parts and actions show; `tags` feeds the tag chips and
+/// the tag selector (`caps.tags`); `move_targets` are the `(list id, name)` pairs of the move
+/// menu (`caps.move_to`); `dnd_state` makes the row draggable (`caps.drag`).
 #[component]
 pub fn ItemRow(
-    item: Item,
-    on_toggle: Callback<String>,
-    on_delete: Callback<String>,
-    #[prop(default = false)] has_quantity: bool,
-    #[prop(default = vec![])] list_features: Vec<String>,
-    #[prop(default = vec![])] item_tags: Vec<Tag>,
-    #[prop(default = vec![])] move_targets: Vec<(String, String)>,
-    #[prop(optional)] on_move: Option<Callback<(String, String)>>,
-    #[prop(optional)] on_quantity_change: Option<Callback<(String, i32)>>,
-    #[prop(optional)] on_description_save: Option<Callback<(String, String)>>,
-    #[prop(optional)] on_date_save: Option<Callback<DateSavePayload>>,
-    /// When provided, the row gains a drag handle and participates in DnD.
-    #[prop(optional)]
-    dnd_state: Option<RwSignal<ItemDndState>>,
-    /// When provided together with `all_tags_for_selector`, renders a tag assignment dropdown.
-    #[prop(optional)]
-    on_tag_toggle: Option<Callback<String>>,
-    /// Full tag catalog — used to populate the tag selector dropdown.
-    #[prop(optional)]
-    all_tags_for_selector: Option<Vec<Tag>>,
+    store: Store<ItemRows<Item>>,
+    id: String,
+    #[prop(into)] caps: Signal<ItemCaps>,
+    #[prop(into)] move_targets: Signal<Vec<(String, String)>>,
+    #[prop(optional_no_strip)] tags: Option<RowTags>,
+    #[prop(optional_no_strip)] dnd_state: Option<RwSignal<ItemDndState>>,
 ) -> impl IntoView {
-    let item_id_toggle = item.id.clone();
-    let item_id_delete = item.id.clone();
-    let item_id_qty = item.id.clone();
-    let item_id_desc = item.id.clone();
-    let item_id_dates = item.id.clone();
-    let item_id_move = item.id.clone();
-    let completed = item.completed;
-    let item_href = format!("/lists/{}/items/{}", item.list_id, item.id);
-    let link_class = if completed {
-        "flex-1 text-base-content/50 line-through hover:text-base-content/80"
-    } else {
-        "flex-1 text-base-content hover:text-primary"
-    };
+    let actions = use_item_actions();
+    let item = row_item(store, id.clone());
+    let item_sig = item_signal(item);
+
+    let checkbox = Memo::new(move |_| caps.with(|c| c.checkbox));
+    let dates = Memo::new(move |_| caps.with(|c| c.dates));
+    let quantity = Memo::new(move |_| caps.with(|c| c.quantity));
+    let show_tags = Memo::new(move |_| caps.with(|c| c.tags));
+    let delete = Memo::new(move |_| caps.with(|c| c.delete));
+    let drag = Memo::new(move |_| caps.with(|c| c.drag));
+    let move_to = Memo::new(move |_| caps.with(|c| c.move_to));
+
+    let completed = Memo::new(move |_| item.with(|i| i.as_ref().is_some_and(|i| i.completed)));
+    let description = Memo::new(move |_| {
+        item.with(|i| {
+            i.as_ref()
+                .and_then(|i| i.description.clone())
+                .filter(|d| !d.is_empty())
+        })
+    });
+    let stepper_quantity = Memo::new(move |_| item.with(|i| i.as_ref().and_then(|i| i.quantity)));
 
     let expanded = RwSignal::new(false);
     let expand_label = move_tr!("common-expand");
     let collapse_label = move_tr!("common-collapse");
-    let desc_text = RwSignal::new(item.description.clone().unwrap_or_default());
 
-    let start_input = RwSignal::new(
-        item.start_date
-            .as_ref()
-            .map(|d| d.to_string())
-            .unwrap_or_default(),
-    );
-    let start_time_input = RwSignal::new(item.start_time.clone().unwrap_or_default());
-    let deadline_input = RwSignal::new(
-        item.deadline
-            .as_ref()
-            .map(|d| d.to_string())
-            .unwrap_or_default(),
-    );
-    let deadline_time_input = RwSignal::new(item.deadline_time.clone().unwrap_or_default());
-    let hard_deadline_input = RwSignal::new(
-        item.hard_deadline
-            .as_ref()
-            .map(|d| d.to_string())
-            .unwrap_or_default(),
-    );
+    // ── Drag and drop ──
+    let dnd = move || dnd_state.filter(|_| drag.get());
+    let dragged_item = move || {
+        item.with_untracked(|i| {
+            i.as_ref().map(|i| DraggedItem {
+                item_id: i.id.clone(),
+                source_list_id: i.list_id.clone(),
+            })
+        })
+    };
 
-    let chips = date_chips(&item);
-    let has_date_save = on_date_save.is_some();
-
-    let recurrence_item = Signal::stored(Some(item.clone()));
-
-    let show_stepper = has_quantity && item.quantity.is_some();
-    let stepper = show_stepper.then(|| {
-        let qty_cb = Callback::new(move |new_actual: i32| {
-            if let Some(cb) = on_quantity_change {
-                cb.run((item_id_qty.clone(), new_actual));
-            }
-        });
-        view! {
-            <QuantityStepper
-                actual=item.actual_quantity.unwrap_or(0)
-                target=item.quantity
-                unit=item.unit.clone()
-                on_change=qty_cb
-            />
+    // ── Tags ──
+    let item_tags = Memo::new({
+        let id = id.clone();
+        move |_| {
+            let Some(tags) = tags.filter(|_| show_tags.get()) else {
+                return Vec::new();
+            };
+            let links = tags.links.get();
+            tags.all_tags.with(|all| {
+                links
+                    .iter()
+                    .filter(|l| l.item_id == id)
+                    .filter_map(|l| all.iter().find(|t| t.id == l.tag_id).cloned())
+                    .collect::<Vec<_>>()
+            })
+        }
+    });
+    let on_tag_toggle = Callback::new({
+        let id = id.clone();
+        move |tag_id: String| {
+            let Some(tags) = tags else { return };
+            let is_assigned = tags
+                .links
+                .with_untracked(|ls| ls.iter().any(|l| l.item_id == id && l.tag_id == tag_id));
+            toggle_item_tag(id.clone(), tag_id, is_assigned);
         }
     });
 
-    let dragged_item = dnd_state.map(|_| DraggedItem {
-        item_id: item.id.clone(),
-        source_list_id: item.list_id.clone(),
-    });
-    let dragged_item_for_start = dragged_item.clone();
+    // ── Move menu ──
+    let move_open = RwSignal::new(false);
+    let show_move = Memo::new(move |_| move_to.get() && move_targets.with(|t| !t.is_empty()));
+    let id_stepper = id.clone();
+    let id_move = id.clone();
+    let id_delete = id.clone();
+    let id_editor = id;
 
     view! {
         <div
             class="p-3 bg-base-200 rounded-lg"
-            draggable=if dnd_state.is_some() { "true" } else { "false" }
+            data-testid="item-row"
+            draggable=move || if dnd().is_some() { "true" } else { "false" }
             on:dragstart=move |ev: DragEvent| {
-                if let Some((state, di)) = dnd_state.zip(dragged_item_for_start.clone()) {
+                if let Some((state, di)) = dnd().zip(dragged_item()) {
                     if let Some(dt) = ev.data_transfer() {
                         let _ = dt.set_data("text/plain", &di.item_id);
                         dt.set_effect_allowed("move");
@@ -138,24 +138,22 @@ pub fn ItemRow(
                 }
             }
             on:dragend=move |_| {
-                if let Some(state) = dnd_state {
+                if let Some(state) = dnd() {
                     state.update(clear_item_dnd_state);
                 }
             }
         >
-                <div class="flex items-center gap-3">
-                {dnd_state.zip(dragged_item.clone()).map(|(state, di)| view! {
+            <div class="flex items-center gap-3">
+                {move || dnd().zip(dragged_item()).map(|(state, di)| view! {
                     <ItemDragHandleButton dnd_state=state dragged_item=di aria_label="Przeciągnij element" />
                 })}
-                {list_features.iter().any(|f| f == "checklist").then(|| view! {
-                    <input
-                        type="checkbox"
-                        class="checkbox checkbox-primary"
-                        data-testid="item-toggle"
-                        checked=completed
-                        on:change=move |_| on_toggle.run(item_id_toggle.clone())
+                <Show when=move || checkbox.get()>
+                    <ItemCheckbox
+                        item=item_sig
+                        on_toggle=actions.toggle
+                        testid=Some("item-toggle")
                     />
-                })}
+                </Show>
                 <IconButton
                     icon=Signal::derive(move || {
                         if expanded.get() { "chevron-up".to_string() } else { "chevron-down".to_string() }
@@ -166,180 +164,202 @@ pub fn ItemRow(
                     testid=Some("item-expand-btn")
                     on_click=Callback::new(move |_| expanded.update(|e| *e = !*e))
                 />
-                <A href=item_href attr:class=link_class attr:data-testid="item-title-link">
-                    {item.title.clone()}
-                </A>
-                {(!item_tags.is_empty()).then(|| view! {
+                <ItemIcon item=item_sig />
+                <ItemTitle item=item_sig testid=Some("item-title-link") flex=true />
+                <StatusChip item=item_sig />
+                <Show when=move || item_tags.with(|t| !t.is_empty())>
                     <div class="flex gap-1 shrink-0">
-                        {item_tags.clone().into_iter().map(|tag| {
+                        {move || item_tags.get().into_iter().map(|tag| {
                             let href = format!("/tags/{}", tag.id);
                             view! {
                                 <A href=href attr:class="no-underline">
                                     <TagBadge tag=tag />
                                 </A>
                             }
-                        }).collect::<Vec<_>>()}
+                        }).collect_view()}
                     </div>
-                })}
-                {(!chips.is_empty()).then(move || {
-                    let views: Vec<_> = chips.into_iter().map(|(icon, date_str, is_danger)| {
-                        let tone = if is_danger { ChipTone::Error } else { ChipTone::Neutral };
-                        let chip_class = if completed { "opacity-40" } else { "" };
-                        let chip = view! {
-                            <Chip icon=icon tone=tone class=chip_class>{date_str}</Chip>
-                        };
-                        if has_date_save && !completed {
-                            view! {
-                                <button
-                                    type="button"
-                                    class="cursor-pointer shrink-0"
-                                    on:click=move |_| expanded.set(true)
-                                >
-                                    {chip}
-                                </button>
-                            }.into_any()
-                        } else {
-                            chip.into_any()
+                </Show>
+                <Show when=move || dates.get()>
+                    // The chips open the date editor (until the item is completed).
+                    <div
+                        class="flex gap-1 flex-wrap shrink-0 empty:hidden"
+                        class:cursor-pointer=move || !completed.get()
+                        on:click=move |_| {
+                            if !completed.get_untracked() {
+                                expanded.set(true);
+                            }
                         }
-                    }).collect();
-                    view! { <div class="flex gap-1 flex-wrap shrink-0">{views}</div> }
-                })}
-                <RecurrenceChip item=recurrence_item />
-                {stepper}
-                {on_move
-                    .filter(|_| !move_targets.is_empty())
-                    .map(|cb| {
-                        let open = RwSignal::new(false);
-                        let targets = StoredValue::new(move_targets.clone());
-                        let iid = item_id_move.clone();
-                        view! {
-                            <div class="relative">
-                                <IconButton
-                                    icon="arrow-up-right"
-                                    label=move_tr!("item-move-to")
-                                    testid=Some("item-move-btn")
-                                    on_click=Callback::new(move |_| open.update(|v| *v = !*v))
-                                />
-                                <div
-                                    class="absolute right-0 top-full mt-1 bg-base-200 border border-base-300 rounded-box min-w-44 max-h-60 overflow-y-auto z-50 p-2 shadow-lg"
-                                    style:display=move || if open.get() { "block" } else { "none" }
-                                    data-testid="item-move-menu"
-                                >
-                                    {move || targets.get_value().into_iter().map(|(tid, tname)| {
-                                        let iid = iid.clone();
-                                        view! {
-                                            <button type="button"
-                                                class="flex items-center gap-2 px-2 py-1.5 text-sm rounded cursor-pointer hover:bg-base-300 w-full text-left"
-                                                on:click=move |_| {
-                                                    open.set(false);
-                                                    cb.run((iid.clone(), tid.clone()));
-                                                }
-                                            >{tname.clone()}</button>
-                                        }
-                                    }).collect::<Vec<_>>()}
-                                </div>
-                            </div>
-                        }
-                    })
-                }
-                {on_tag_toggle.zip(all_tags_for_selector).map(|(cb, all_tags)| {
-                    view! {
-                        <TagSelectorDropdown
-                            all_tags=all_tags
-                            item_tags=item_tags.clone()
-                            on_toggle=cb
+                    >
+                        <DateChips item=item_sig />
+                    </div>
+                </Show>
+                <RecurrenceChip item=item_sig />
+                <Show when=move || quantity.get() && stepper_quantity.get().is_some()>
+                    <QuantityStepper
+                        actual=Signal::derive(move || {
+                            item.with(|i| i.as_ref().and_then(|i| i.actual_quantity).unwrap_or(0))
+                        })
+                        target=stepper_quantity
+                        unit=Signal::derive(move || item.with(|i| i.as_ref().and_then(|i| i.unit.clone())))
+                        on_change=Callback::new({
+                            let id = id_stepper.clone();
+                            move |new_actual: i32| actions.set_actual_quantity.run((id.clone(), new_actual))
+                        })
+                    />
+                </Show>
+                <Show when=move || show_move.get()>
+                    <div class="relative">
+                        <IconButton
+                            icon="arrow-up-right"
+                            label=move_tr!("item-move-to")
+                            testid=Some("item-move-btn")
+                            on_click=Callback::new(move |_| move_open.update(|v| *v = !*v))
                         />
-                    }
+                        <div
+                            class="absolute right-0 top-full mt-1 bg-base-200 border border-base-300 rounded-box min-w-44 max-h-60 overflow-y-auto z-50 p-2 shadow-lg"
+                            style:display=move || if move_open.get() { "block" } else { "none" }
+                            data-testid="item-move-menu"
+                        >
+                            {
+                                let id = id_move.clone();
+                                move || move_targets.get().into_iter().map(|(tid, tname)| {
+                                    let id = id.clone();
+                                    view! {
+                                        <button type="button"
+                                            class="flex items-center gap-2 px-2 py-1.5 text-sm rounded cursor-pointer hover:bg-base-300 w-full text-left"
+                                            on:click=move |_| {
+                                                move_open.set(false);
+                                                actions.move_to_list.run((id.clone(), tid.clone()));
+                                            }
+                                        >{tname.clone()}</button>
+                                    }
+                                }).collect_view()
+                            }
+                        </div>
+                    </div>
+                </Show>
+                {move || tags.filter(|_| show_tags.get()).map(|tags| view! {
+                    <TagSelectorDropdown
+                        all_tags=tags.all_tags.get()
+                        item_tags=item_tags.get()
+                        on_toggle=on_tag_toggle
+                    />
                 })}
-                <IconButton
-                    icon="x"
-                    label=move_tr!("common-delete")
-                    variant=IconButtonVariant::Danger
-                    testid=Some("item-delete-btn")
-                    on_click=Callback::new(move |_| on_delete.run(item_id_delete.clone()))
-                />
+                <Show when=move || delete.get()>
+                    <IconButton
+                        icon="x"
+                        label=move_tr!("common-delete")
+                        variant=IconButtonVariant::Danger
+                        testid=Some("item-delete-btn")
+                        on_click=Callback::new({
+                            let id = id_delete.clone();
+                            move |_| actions.delete.run(id.clone())
+                        })
+                    />
+                </Show>
             </div>
 
-            {move || {
-                if expanded.get() {
-                    let id_desc = item_id_desc.clone();
-                    let id_dates = item_id_dates.clone();
-                    view! {
-                        <div class="pl-16 pt-2 flex flex-col gap-2">
-                            <textarea
-                                class="textarea textarea-bordered w-full text-sm h-20"
-                                placeholder="Opis..."
-                                prop:value=move || desc_text.get()
-                                on:input=move |ev| desc_text.set(event_target_value(&ev))
-                            />
-                            <button
-                                type="button"
-                                class="btn btn-xs btn-primary self-start"
-                                on:click=move |_| {
-                                    if let Some(cb) = on_description_save {
-                                        cb.run((id_desc.clone(), desc_text.get_untracked()));
-                                    }
-                                }
-                            >
-                                "Zapisz opis"
-                            </button>
+            <Show when=move || expanded.get()>
+                <ItemEditor item=item id=id_editor.clone() dates=dates />
+            </Show>
+            {move || (!expanded.get()).then(|| description.get()).flatten().map(|desc| view! {
+                <p class="pl-16 pt-1 text-sm text-base-content/60">{desc}</p>
+            })}
+        </div>
+    }
+}
 
-                            {on_date_save.filter(|_| list_features.iter().any(|f| f == FEATURE_DEADLINES)).map(|save_cb| {
-                                let id = id_dates.clone();
-                                view! {
-                                    <div class="flex flex-col gap-2 text-sm">
-                                        <DateFieldInput
-                                            label=move_tr!("item-dates-start")
-                                            value=start_input
-                                            time_value=start_time_input
-                                            show_clear=true
-                                            show_quick=true
-                                        />
-                                        <DateFieldInput
-                                            label=move_tr!("item-dates-deadline")
-                                            value=deadline_input
-                                            time_value=deadline_time_input
-                                            show_clear=true
-                                            show_quick=true
-                                        />
-                                        <DateFieldInput
-                                            label=move_tr!("item-dates-hard-deadline")
-                                            value=hard_deadline_input
-                                            show_clear=true
-                                            show_quick=true
-                                        />
-                                        <button
-                                            type="button"
-                                            class="btn btn-xs btn-primary self-start mt-1"
-                                            on:click=move |_| {
-                                                save_cb.run((
-                                                    id.clone(),
-                                                    Some(start_input.get_untracked()),
-                                                    Some(start_time_input.get_untracked()),
-                                                    Some(deadline_input.get_untracked()),
-                                                    Some(deadline_time_input.get_untracked()),
-                                                    Some(hard_deadline_input.get_untracked()),
-                                                ));
-                                            }
-                                        >
-                                            "Zapisz daty"
-                                        </button>
-                                    </div>
-                                }
-                            })}
-                        </div>
-                    }.into_any()
-                } else {
-                    let desc = desc_text.get();
-                    if desc.is_empty() {
-                        view! {}.into_any()
-                    } else {
-                        view! {
-                            <p class="pl-16 pt-1 text-sm text-base-content/60">{desc}</p>
-                        }.into_any()
-                    }
+/// The expanded part of a row: description and (with the deadlines feature) date fields.
+/// The drafts start from the item as it is when the editor opens; later updates of the item
+/// do not overwrite what is being typed.
+#[component]
+fn ItemEditor(item: Memo<Option<Item>>, id: String, dates: Memo<bool>) -> impl IntoView {
+    let actions = use_item_actions();
+    let current = item.get_untracked();
+    let current = current.as_ref();
+
+    let desc_text = RwSignal::new(
+        current
+            .and_then(|i| i.description.clone())
+            .unwrap_or_default(),
+    );
+    let start_input = RwSignal::new(date_input(current.and_then(|i| i.start_date.as_ref())));
+    let start_time_input = RwSignal::new(
+        current
+            .and_then(|i| i.start_time.clone())
+            .unwrap_or_default(),
+    );
+    let deadline_input = RwSignal::new(date_input(current.and_then(|i| i.deadline.as_ref())));
+    let deadline_time_input = RwSignal::new(
+        current
+            .and_then(|i| i.deadline_time.clone())
+            .unwrap_or_default(),
+    );
+    let hard_deadline_input =
+        RwSignal::new(date_input(current.and_then(|i| i.hard_deadline.as_ref())));
+
+    let id_desc = id.clone();
+    view! {
+        <div class="pl-16 pt-2 flex flex-col gap-2">
+            <textarea
+                class="textarea textarea-bordered w-full text-sm h-20"
+                placeholder="Opis..."
+                prop:value=move || desc_text.get()
+                on:input=move |ev| desc_text.set(event_target_value(&ev))
+            />
+            <button
+                type="button"
+                class="btn btn-xs btn-primary self-start"
+                on:click=move |_| {
+                    actions.save_description.run((id_desc.clone(), desc_text.get_untracked()));
                 }
-            }}
+            >
+                "Zapisz opis"
+            </button>
+
+            <Show when=move || dates.get()>
+                <div class="flex flex-col gap-2 text-sm">
+                    <DateFieldInput
+                        label=move_tr!("item-dates-start")
+                        value=start_input
+                        time_value=start_time_input
+                        show_clear=true
+                        show_quick=true
+                    />
+                    <DateFieldInput
+                        label=move_tr!("item-dates-deadline")
+                        value=deadline_input
+                        time_value=deadline_time_input
+                        show_clear=true
+                        show_quick=true
+                    />
+                    <DateFieldInput
+                        label=move_tr!("item-dates-hard-deadline")
+                        value=hard_deadline_input
+                        show_clear=true
+                        show_quick=true
+                    />
+                    <button
+                        type="button"
+                        class="btn btn-xs btn-primary self-start mt-1"
+                        on:click={
+                            let id = id.clone();
+                            move |_| {
+                                actions.save_dates.run((
+                                    id.clone(),
+                                    Some(start_input.get_untracked()),
+                                    Some(start_time_input.get_untracked()),
+                                    Some(deadline_input.get_untracked()),
+                                    Some(deadline_time_input.get_untracked()),
+                                    Some(hard_deadline_input.get_untracked()),
+                                ));
+                            }
+                        }
+                    >
+                        "Zapisz daty"
+                    </button>
+                </div>
+            </Show>
         </div>
     }
 }
