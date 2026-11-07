@@ -1,5 +1,18 @@
+use http::request::Parts;
+use kartoteka_db as db;
+use kartoteka_domain as domain;
+use kartoteka_shared::types::ItemChange;
+use rmcp::{
+    ErrorData,
+    handler::server::{tool::Extension, wrapper::Parameters},
+    model::CallToolResult,
+    tool_router,
+};
 use schemars::JsonSchema;
 use serde::Deserialize;
+
+use crate::McpError;
+use crate::server::{KartotekaServer, decode_cursor, encode_cursor, localize_item, today_in_tz};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CreateItemParams {
@@ -113,8 +126,6 @@ impl UpdateItemParams {
     }
 }
 
-// ── toggle_item ───────────────────────────────────────────────────────────────
-
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ToggleItemParams {
     /// Item ID.
@@ -122,35 +133,12 @@ pub struct ToggleItemParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct CreateListParams {
-    pub name: String,
-    /// List type: "checklist" (default), "shopping", "schedule", "log", "notes"
-    pub list_type: Option<String>,
-    pub icon: Option<String>,
-    /// Accent colour as `#rrggbb` (null = neutral).
-    pub color: Option<String>,
-    pub description: Option<String>,
-    pub container_id: Option<String>,
-    pub parent_list_id: Option<String>,
-    /// Feature names to enable, e.g. ["quantity", "deadline"]
-    pub features: Option<Vec<String>>,
+pub struct SetItemStatusParams {
+    pub item_id: String,
+    /// "todo" | "in_progress" | "done". `done` is the same as completing the
+    /// item: unresolved blockers reject it.
+    pub status: String,
 }
-
-// ── create_container ──────────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct CreateContainerParams {
-    pub name: String,
-    pub icon: Option<String>,
-    /// Accent colour as `#rrggbb` (null = neutral).
-    pub color: Option<String>,
-    pub description: Option<String>,
-    /// null/omit = folder; "active" | "done" | "paused" = project
-    pub status: Option<String>,
-    pub parent_container_id: Option<String>,
-}
-
-// ── create_items (batch) ──────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CreateItemsInput {
@@ -181,77 +169,291 @@ pub struct CreateItemsParams {
     pub items: Vec<CreateItemsInput>,
 }
 
-// ── create_lists (batch) ──────────────────────────────────────────────────────
-
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct CreateListsInput {
-    pub name: String,
-    /// List type: "checklist" (default), "shopping", "schedule", "log", "notes"
-    pub list_type: Option<String>,
-    pub icon: Option<String>,
-    /// Accent colour as `#rrggbb` (null = neutral).
-    pub color: Option<String>,
-    pub description: Option<String>,
-    pub features: Option<Vec<String>>,
-    /// Real UUID of an existing container. Use `container_ref` instead to
-    /// reference a container created earlier in this batch.
-    pub container_id: Option<String>,
-    /// `client_ref` of a container created earlier in this same batch.
-    pub container_ref: Option<String>,
-    /// Real UUID of an existing parent list.
-    pub parent_list_id: Option<String>,
-    /// `client_ref` of a list created earlier in this same batch.
-    pub parent_list_ref: Option<String>,
-    /// Label that other entries in this batch can reference via `*_ref` fields.
-    pub client_ref: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct CreateListsParams {
-    pub lists: Vec<CreateListsInput>,
-}
-
-// ── create_containers (batch) ─────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct CreateContainersInput {
-    pub name: String,
-    pub icon: Option<String>,
-    /// Accent colour as `#rrggbb` (null = neutral).
-    pub color: Option<String>,
-    pub description: Option<String>,
-    /// null/omit = folder; "active" | "done" | "paused" = project
-    pub status: Option<String>,
-    /// Real UUID of an existing parent container.
-    pub parent_container_id: Option<String>,
-    /// `client_ref` of a container created earlier in this same batch.
-    pub parent_container_ref: Option<String>,
-    /// Label that other entries in this batch can reference via `parent_container_ref`.
-    pub client_ref: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct CreateContainersParams {
-    pub containers: Vec<CreateContainersInput>,
-}
-
-// ── set_item_status ───────────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct SetItemStatusParams {
+pub struct GetItemParams {
     pub item_id: String,
-    /// "todo" | "in_progress" | "done". `done` is the same as completing the
-    /// item: unresolved blockers reject it.
-    pub status: String,
 }
 
-// ── set_container_status ──────────────────────────────────────────────────────
-
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct SetContainerStatusParams {
-    pub container_id: String,
-    /// null = folder; "active" | "done" | "paused" = project.
-    pub status: Option<String>,
+pub struct ListItemsParams {
+    pub list_id: String,
+    /// Opaque cursor from previous response; omit for first page
+    pub cursor: Option<String>,
+    /// Max items to return (1–500, default 100)
+    pub limit: Option<u32>,
+}
+
+#[tool_router(router = items_router, vis = "pub(crate)")]
+impl KartotekaServer {
+    #[rmcp::tool(name = "create_item", description = "mcp-tool-create_item-desc")]
+    pub(crate) async fn create_item(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<CreateItemParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let req = domain::items::CreateItemRequest {
+            title: p.title,
+            description: p.description,
+            icon: p.icon,
+            start_date: p.start_date,
+            deadline: p.deadline,
+            hard_deadline: p.hard_deadline,
+            start_time: p.start_time,
+            deadline_time: p.deadline_time,
+            quantity: p.quantity,
+            actual_quantity: p.actual_quantity,
+            unit: p.unit,
+            estimated_duration: p.estimated_duration,
+            recurrence_rule: p.recurrence_rule,
+            recurrence_mode: p.recurrence_mode,
+        };
+        self.domain_or_existing(
+            domain::items::create(&self.pool, &uid, &p.list_id, &req).await,
+            &locale,
+        )
+    }
+
+    #[rmcp::tool(name = "update_item", description = "mcp-tool-update_item-desc")]
+    pub(crate) async fn update_item(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<UpdateItemParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let req = domain::items::UpdateItemRequest {
+            title: p.title.clone(),
+            description: p.description_field(),
+            completed: p.completed,
+            icon: p.icon_field(),
+            quantity: p.quantity_field(),
+            actual_quantity: p.actual_quantity_field(),
+            unit: p.unit_field(),
+            start_date: p.start_date_field(),
+            start_time: p.start_time_field(),
+            deadline: p.deadline_field(),
+            deadline_time: p.deadline_time_field(),
+            hard_deadline: p.hard_deadline_field(),
+            estimated_duration: p.estimated_duration_field(),
+            location_id: None,
+            recurrence_rule: p.recurrence_rule_field(),
+            recurrence_mode: p.recurrence_mode_field(),
+        };
+        let item = domain::items::update(&self.pool, &uid, &p.item_id, &req)
+            .await
+            .map_err(self.domain_err(&locale))?;
+        self.json_result(item.map(ItemChange::from), &locale)
+    }
+
+    #[rmcp::tool(name = "toggle_item", description = "mcp-tool-toggle_item-desc")]
+    #[tracing::instrument(
+        skip(self, parts, p),
+        fields(action = "mcp_toggle_item", item_id = %p.item_id)
+    )]
+    pub(crate) async fn toggle_item(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<ToggleItemParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let change = domain::items::toggle_complete(&self.pool, &uid, &p.item_id)
+            .await
+            .map_err(self.domain_err(&locale))?;
+        self.json_result(change.map(ItemChange::from), &locale)
+    }
+
+    #[rmcp::tool(
+        name = "set_item_status",
+        description = "mcp-tool-set_item_status-desc"
+    )]
+    #[tracing::instrument(skip(self, parts), fields(action = "mcp_set_item_status"))]
+    pub(crate) async fn set_item_status(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<SetItemStatusParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let item = domain::items::set_status(&self.pool, &uid, &p.item_id, &p.status)
+            .await
+            .map_err(self.domain_err(&locale))?
+            .ok_or_else(|| {
+                self.map_err(
+                    McpError::Domain(domain::DomainError::NotFound("item")),
+                    &locale,
+                )
+            })?;
+        self.json_result(item, &locale)
+    }
+
+    #[rmcp::tool(name = "create_items", description = "mcp-tool-create_items-desc")]
+    #[tracing::instrument(skip(self, parts), fields(action = "mcp_create_items"))]
+    pub(crate) async fn create_items(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<CreateItemsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+
+        if p.items.is_empty() {
+            return self.json_result(Vec::<serde_json::Value>::new(), &locale);
+        }
+
+        // Validate list ownership + get starting position in one query
+        let ctx = db::lists::get_create_item_context(&self.pool, &p.list_id, &uid)
+            .await
+            .map_err(self.db_err(&locale))?
+            .ok_or_else(|| {
+                self.map_err(
+                    McpError::Domain(domain::DomainError::NotFound("list")),
+                    &locale,
+                )
+            })?;
+
+        // Same rules as the single `create_item` tool (domain::items::create).
+        // Everything that needs no DB access is checked up front, before the
+        // transaction is opened, and one invalid entry rejects the whole batch.
+        let requests: Vec<domain::items::CreateItemRequest> = p
+            .items
+            .iter()
+            .map(|item| domain::items::CreateItemRequest {
+                title: item.title.clone(),
+                icon: item.icon.clone(),
+                description: item.description.clone(),
+                quantity: item.quantity,
+                actual_quantity: item.actual_quantity,
+                unit: item.unit.clone(),
+                start_date: item.start_date.clone(),
+                start_time: item.start_time.clone(),
+                deadline: item.deadline.clone(),
+                deadline_time: item.deadline_time.clone(),
+                hard_deadline: item.hard_deadline.clone(),
+                estimated_duration: item.estimated_duration,
+                recurrence_rule: item.recurrence_rule.clone(),
+                recurrence_mode: item.recurrence_mode.clone(),
+            })
+            .collect();
+        for req in &requests {
+            domain::items::validate_create_item(&ctx.features, req)
+                .map_err(self.domain_err(&locale))?;
+        }
+
+        let mut tx = self.pool.begin().await.map_err(self.sqlx_err(&locale))?;
+        let mut result = Vec::with_capacity(p.items.len());
+        let mut next_pos = ctx.next_position as i32;
+        let mut seen: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+        for req in &requests {
+            let norm = req.title.trim().to_lowercase();
+            if let Some(eid) = seen.get(&norm) {
+                result.push(serde_json::json!({"id": eid, "title": req.title, "existed": true}));
+                continue;
+            }
+            if let Some(eid) =
+                db::items::find_id_by_title_in_list(&mut *tx, &p.list_id, &req.title, None)
+                    .await
+                    .map_err(self.db_err(&locale))?
+            {
+                seen.insert(norm, eid.clone());
+                result.push(serde_json::json!({"id": eid, "title": req.title, "existed": true}));
+                continue;
+            }
+            let input = domain::items::new_item_input(&p.list_id, next_pos, req);
+            let inserted = domain::items::insert_item_in(&mut tx, &input)
+                .await
+                .map_err(self.domain_err(&locale))?;
+            seen.insert(norm, inserted.id.clone());
+            result.push(serde_json::json!({"id": inserted.id, "title": inserted.title}));
+            next_pos += 1;
+        }
+
+        tx.commit().await.map_err(self.sqlx_err(&locale))?;
+        self.json_result(result, &locale)
+    }
+
+    #[rmcp::tool(name = "get_item", description = "mcp-tool-get_item-desc")]
+    pub(crate) async fn get_item(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<GetItemParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let tz = Self::timezone(&parts);
+        let data = domain::items::get_one(&self.pool, &p.item_id, &uid)
+            .await
+            .map_err(self.domain_err(&locale))?
+            .ok_or_else(|| {
+                self.map_err(
+                    McpError::Domain(domain::DomainError::NotFound("item")),
+                    &locale,
+                )
+            })?;
+        self.json_result(localize_item(data, &tz), &locale)
+    }
+
+    #[rmcp::tool(name = "list_items", description = "mcp-tool-list_items-desc")]
+    pub(crate) async fn list_items(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<ListItemsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let tz = Self::timezone(&parts);
+        let all = domain::items::list_for_list(&self.pool, &p.list_id, &uid)
+            .await
+            .map_err(self.domain_err(&locale))?;
+        let limit = domain::paging::clamp_limit(p.limit);
+        let offset = decode_cursor(p.cursor.as_deref());
+        let page: Vec<_> = all
+            .iter()
+            .skip(offset)
+            .take(limit as usize)
+            .cloned()
+            .map(|i| localize_item(i, &tz))
+            .collect();
+        let next_cursor = if offset + page.len() < all.len() {
+            Some(encode_cursor(offset + page.len()))
+        } else {
+            None
+        };
+        self.json_result(
+            domain::paging::Paged {
+                data: page,
+                next_cursor,
+                limit,
+            },
+            &locale,
+        )
+    }
+
+    #[rmcp::tool(name = "list_overdue", description = "mcp-tool-list_overdue-desc")]
+    pub(crate) async fn list_overdue(
+        &self,
+        Extension(parts): Extension<Parts>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let tz = Self::timezone(&parts);
+        let today = today_in_tz(&tz);
+        let data = domain::items::overdue_for(&self.pool, &uid, &today)
+            .await
+            .map_err(self.domain_err(&locale))?;
+        let data: Vec<_> = data.into_iter().map(|i| localize_item(i, &tz)).collect();
+        self.json_result(data, &locale)
+    }
+
+    #[rmcp::tool(name = "get_today", description = "mcp-tool-get_today-desc")]
+    pub(crate) async fn get_today(
+        &self,
+        Extension(parts): Extension<Parts>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let tz = Self::timezone(&parts);
+        let today = today_in_tz(&tz);
+        let data = domain::items::by_date(&self.pool, &uid, &today)
+            .await
+            .map_err(self.domain_err(&locale))?;
+        let data: Vec<_> = data.into_iter().map(|i| localize_item(i, &tz)).collect();
+        self.json_result(data, &locale)
+    }
 }
 
 #[cfg(test)]
