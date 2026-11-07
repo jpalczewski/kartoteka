@@ -182,3 +182,13 @@ pub async fn get_settings_page_data() -> Result<SettingsPageData, ServerFnError>
         reg_enabled,
     })
 }
+
+/// Today's date (`YYYY-MM-DD`) in the signed-in user's timezone.
+///
+/// Item views compare dates against this, not the browser clock, so the server render and
+/// the hydrated page label "today"/"overdue" the same way.
+#[server(prefix = "/leptos")]
+pub async fn get_user_today() -> Result<String, ServerFnError> {
+    let (pool, user) = require_user().await?;
+    domain::items::user_today(&pool, &user.id).await.sfn()
+}
