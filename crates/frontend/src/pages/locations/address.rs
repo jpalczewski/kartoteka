@@ -1,24 +1,18 @@
 use leptos::prelude::*;
 use leptos_fluent::{I18n, move_tr};
-use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 
-use crate::app::{ToastContext, ToastKind};
-use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
-use crate::components::common::inline_edit::InlineEdit;
+use crate::components::common::breadcrumbs::Breadcrumbs;
 use crate::components::common::loading::LoadingSpinner;
-use crate::server_fns::locations::{
-    delete_location_sf, get_location_detail_sf, update_location_sf,
-};
+use crate::server_fns::locations::get_location_detail_sf;
 
-use super::InlineAlias;
+use super::detail_header::LocationDetailHeader;
 
 #[component]
 pub fn AddressDetailPage() -> impl IntoView {
     let params = use_params_map();
     let city_id = Memo::new(move |_| params.read().get("city_id").unwrap_or_default());
     let addr_id = Memo::new(move |_| params.read().get("id").unwrap_or_default());
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let i18n = expect_context::<I18n>();
     let (refresh, set_refresh) = signal(0u32);
 
@@ -28,57 +22,24 @@ pub fn AddressDetailPage() -> impl IntoView {
     );
     let city_res = Resource::new(move || city_id.get(), get_location_detail_sf);
 
-    let (editing_name, set_editing_name) = signal(false);
-    let show_delete = RwSignal::new(false);
-
-    let on_save_name = Callback::new(move |name: String| {
-        let id = addr_id.get_untracked();
-        set_editing_name.set(false);
-        leptos::task::spawn_local(async move {
-            match update_location_sf(id, Some(name), None, false, None, None, false).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
-    });
-
-    let navigate = leptos_router::hooks::use_navigate();
-    let on_delete = Callback::new(move |_: ()| {
-        show_delete.set(false);
-        let id = addr_id.get_untracked();
-        let cid = city_id.get_untracked();
-        let toast2 = toast.clone();
-        let nav = navigate.clone();
-        leptos::task::spawn_local(async move {
-            match delete_location_sf(id).await {
-                Ok(_) => nav(&format!("/locations/{}", cid), Default::default()),
-                Err(e) => toast2.push(e.to_string(), ToastKind::Error),
-            }
-        });
-    });
-
     view! {
         <div class="container mx-auto max-w-2xl p-4">
-            // Breadcrumb
-            <div class="flex items-center gap-2 mb-4 text-sm text-base-content/50">
-                <A href="/locations" attr:class="hover:text-base-content">
-                    {move_tr!("locations-title")}
-                </A>
-                <span>"/"</span>
-                <Suspense>
-                    {move || city_res.get().map(|r| {
-                        let cid = city_id.get();
-                        match r.ok().flatten() {
-                            Some(city) => view! {
-                                <A href=format!("/locations/{}", cid) attr:class="hover:text-base-content">
-                                    {city.alias.unwrap_or(city.name)}
-                                </A>
-                            }.into_any(),
-                            None => view! { <span>{cid}</span> }.into_any(),
-                        }
-                    })}
-                </Suspense>
-            </div>
+            // Breadcrumbs need both the address and its city, so they render inside their
+            // own boundary rather than showing an incomplete trail while loading.
+            <Suspense fallback=|| view! {}>
+                {move || {
+                    let addr = addr_res.get()?.ok().flatten()?;
+                    let mut crumbs =
+                        vec![("/locations".to_string(), i18n.tr("locations-title"))];
+                    if let Some(city) = city_res.get().and_then(|r| r.ok()).flatten() {
+                        crumbs.push((
+                            format!("/locations/{}", city.id),
+                            city.alias.clone().unwrap_or(city.name.clone()),
+                        ));
+                    }
+                    Some(view! { <Breadcrumbs crumbs=crumbs current=addr.name.clone()/> })
+                }}
+            </Suspense>
 
             <Suspense fallback=|| view! { <LoadingSpinner/> }>
                 {move || addr_res.get().map(|result| {
@@ -86,57 +47,16 @@ pub fn AddressDetailPage() -> impl IntoView {
                         Err(e) => view! { <p class="text-error">{e.to_string()}</p> }.into_any(),
                         Ok(None) => view! { <p class="text-base-content/50">{move_tr!("locations-address-not-found")}</p> }.into_any(),
                         Ok(Some(addr)) => {
-                            let addr_name = StoredValue::new(addr.name.clone());
-                            let addr_id_str = addr.id.clone();
-                            let addr_alias = addr.alias.clone();
+                            let after_delete_href = format!("/locations/{}", city_id.get());
 
                             view! {
-                                <div>
-                                    <div class="flex items-start justify-between mb-6">
-                                        <div>
-                                            {move || if editing_name.get() {
-                                                view! {
-                                                    <InlineEdit
-                                                        value=addr_name.get_value()
-                                                        on_save=on_save_name
-                                                        on_cancel=Callback::new(move |_: ()| set_editing_name.set(false))
-                                                    />
-                                                }.into_any()
-                                            } else {
-                                                view! {
-                                                    <div class="flex items-center gap-2">
-                                                        <h2 class="text-2xl font-bold">{addr_name.get_value()}</h2>
-                                                        <button
-                                                            class="btn btn-xs btn-ghost"
-                                                            on:click=move |_| set_editing_name.set(true)
-                                                        >
-                                                            "✎"
-                                                        </button>
-                                                    </div>
-                                                }.into_any()
-                                            }}
-                                            <div class="mt-2">
-                                                <InlineAlias id=addr_id_str.clone() initial=addr_alias.clone() set_refresh />
-                                            </div>
-                                        </div>
-                                        <button
-                                            class="btn btn-sm btn-ghost text-error"
-                                            on:click=move |_| show_delete.set(true)
-                                        >
-                                            {i18n.tr("locations-delete-title")}
-                                        </button>
-                                    </div>
-
-                                    <ConfirmModal
-                                        open=Signal::from(show_delete)
-                                        title=i18n.tr("locations-delete-title")
-                                        message=i18n.tr("locations-delete-confirm")
-                                        confirm_label=i18n.tr("common-delete")
-                                        variant=ConfirmVariant::Danger
-                                        on_confirm=on_delete
-                                        on_close=Callback::new(move |_: ()| show_delete.set(false))
-                                    />
-                                </div>
+                                <LocationDetailHeader
+                                    id=addr.id
+                                    name=addr.name
+                                    alias=addr.alias
+                                    after_delete_href=after_delete_href
+                                    set_refresh=set_refresh
+                                />
                             }.into_any()
                         }
                     }

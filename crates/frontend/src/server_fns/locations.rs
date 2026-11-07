@@ -1,3 +1,4 @@
+use kartoteka_shared::UpdateLocationRequest;
 use kartoteka_shared::models::{Country, Location};
 use leptos::prelude::*;
 
@@ -95,15 +96,16 @@ pub async fn create_location_sf(
     .map_err(|e| ServerFnError::new(e.to_string()))
 }
 
-#[server(prefix = "/leptos")]
+/// Partial location update.
+///
+/// Takes a [`UpdateLocationRequest`] rather than positional flags so that "keep" (`None`),
+/// "clear" (`Some(None)`) and "set" (`Some(Some(_))`) survive the round trip: the JSON
+/// input encoding preserves serde's `Option<Option<T>>` shape, the default URL encoding
+/// would flatten it.
+#[server(prefix = "/leptos", input = ::leptos::server_fn::codec::Json)]
 pub async fn update_location_sf(
     id: String,
-    name: Option<String>,
-    alias: Option<String>,
-    clear_alias: bool,
-    region: Option<String>,
-    address: Option<String>,
-    clear_address: bool,
+    req: UpdateLocationRequest,
 ) -> Result<Option<Location>, ServerFnError> {
     let pool = expect_context::<SqlitePool>();
     let auth = leptos_axum::extract::<AuthSession<KartotekaBackend>>()
@@ -112,25 +114,15 @@ pub async fn update_location_sf(
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    let alias_field = if clear_alias {
-        Some(None)
-    } else {
-        alias.map(Some)
-    };
-    let address_field = if clear_address {
-        Some(None)
-    } else {
-        address.map(Some)
-    };
     domain::locations::update_location(
         &pool,
         &user.id,
         &id,
         &domain::locations::UpdateLocationInput {
-            name,
-            alias: alias_field,
-            region,
-            address: address_field,
+            name: req.name,
+            alias: req.alias,
+            region: req.region,
+            address: req.address,
         },
     )
     .await

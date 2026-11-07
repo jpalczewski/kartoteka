@@ -317,12 +317,63 @@ pub struct CreateLocationRequest {
     pub parent_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Partial location update.
+///
+/// Every field is optional and the two nullable ones use `Option<Option<T>>` so that
+/// "leave unchanged" and "clear" stay distinguishable over the wire:
+/// `None` = keep, `Some(None)` = clear, `Some(Some(v))` = set to `v`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UpdateLocationRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub alias: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub address: Option<Option<String>>,
+}
+
+impl UpdateLocationRequest {
+    /// Rename the location, leaving everything else untouched.
+    pub fn rename(name: impl Into<String>) -> Self {
+        Self {
+            name: Some(name.into()),
+            ..Self::default()
+        }
+    }
+
+    /// Set the alias, or clear it when `alias` is `None`.
+    pub fn set_alias(alias: Option<String>) -> Self {
+        Self {
+            alias: Some(alias),
+            ..Self::default()
+        }
+    }
+
+    /// Set the region, leaving everything else untouched.
+    pub fn set_region(region: impl Into<String>) -> Self {
+        Self {
+            region: Some(region.into()),
+            ..Self::default()
+        }
+    }
+
+    /// Set the formal address, or clear it when `address` is `None`.
+    pub fn set_address(address: Option<String>) -> Self {
+        Self {
+            address: Some(address),
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

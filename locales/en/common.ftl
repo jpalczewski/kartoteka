@@ -39,3 +39,4 @@ search-status-archived = Archived
 search-entity-item = Item
 search-entity-list = List
 search-entity-container = Container
+common-home = Home

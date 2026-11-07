@@ -3,16 +3,17 @@ use leptos_fluent::{I18n, move_tr};
 use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 
-use crate::app::{ToastContext, ToastKind};
-use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
+use crate::app::ToastContext;
 use crate::components::common::inline_edit::{InlineEdit, InlineEditSize};
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::locations::{
-    delete_location_sf, get_city_addresses_sf, get_countries, get_country_regions_sf,
-    get_location_detail_sf, update_location_sf,
+    get_city_addresses_sf, get_countries, get_country_regions_sf, get_location_detail_sf,
+    update_location_sf,
 };
+use kartoteka_shared::UpdateLocationRequest;
 
-use super::InlineAlias;
+use super::detail_header::LocationDetailHeader;
+use super::refresh_or_toast;
 
 #[component]
 pub fn CityDetailPage() -> impl IntoView {
@@ -49,24 +50,10 @@ pub fn CityDetailPage() -> impl IntoView {
         },
     );
 
-    let (editing_name, set_editing_name) = signal(false);
     let (editing_region, set_editing_region) = signal(false);
     let (edit_region, set_edit_region) = signal(String::new());
-    let show_delete = RwSignal::new(false);
-
-    let on_save_name = Callback::new(move |name: String| {
-        let id = city_id.get_untracked();
-        set_editing_name.set(false);
-        leptos::task::spawn_local(async move {
-            match update_location_sf(id, Some(name), None, false, None, None, false).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
-    });
 
     let on_save_region = Callback::new(move |region: String| {
-        let id = city_id.get_untracked();
         set_editing_region.set(false);
         if region.trim().is_empty() {
             // Clearing a region is not supported by `update_location_sf`: `region: None`
@@ -74,26 +61,14 @@ pub fn CityDetailPage() -> impl IntoView {
             // empty save is a no-op rather than storing an empty-string region.
             return;
         }
-        leptos::task::spawn_local(async move {
-            match update_location_sf(id, None, None, false, Some(region), None, false).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
-    });
-
-    let navigate = leptos_router::hooks::use_navigate();
-    let on_delete = Callback::new(move |_: ()| {
-        show_delete.set(false);
-        let id = city_id.get_untracked();
-        let toast2 = toast.clone();
-        let nav = navigate.clone();
-        leptos::task::spawn_local(async move {
-            match delete_location_sf(id).await {
-                Ok(_) => nav("/locations", Default::default()),
-                Err(e) => toast2.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        refresh_or_toast(
+            update_location_sf(
+                city_id.get_untracked(),
+                UpdateLocationRequest::set_region(region),
+            ),
+            set_refresh,
+            toast.clone(),
+        );
     });
 
     view! {
@@ -116,117 +91,89 @@ pub fn CityDetailPage() -> impl IntoView {
                                 .map(|c| i18n.tr(&format!("country-{}", c.iso_code)))
                                 .unwrap_or_default();
 
-                            let city_name = StoredValue::new(city.name.clone());
                             let city_id_str = city.id.clone();
-                            let city_alias = city.alias.clone();
                             let city_region_sv = StoredValue::new(city.region.clone());
                             let country_name_sv = StoredValue::new(country_name);
 
                             view! {
                                 <div>
-                                    // Header
-                                    <div class="flex items-start justify-between mb-6">
-                                        <div>
-                                            {move || if editing_name.get() {
+                                    <LocationDetailHeader
+                                        id=city.id
+                                        name=city.name
+                                        alias=city.alias
+                                        after_delete_href="/locations".to_string()
+                                        set_refresh=set_refresh
+                                    >
+                                        // Region / country line
+                                        <div class="flex items-center gap-2 mt-1 text-sm text-base-content/60">
+                                            {move || if editing_region.get() {
+                                                let regions = regions_res.get()
+                                                    .and_then(|r| r.ok())
+                                                    .unwrap_or_default();
+                                                let uses_select = !regions.is_empty();
                                                 view! {
-                                                    <InlineEdit
-                                                        value=city_name.get_value()
-                                                        on_save=on_save_name
-                                                        on_cancel=Callback::new(move |_: ()| set_editing_name.set(false))
-                                                    />
+                                                    <div class="flex gap-2 items-center">
+                                                        {if uses_select {
+                                                            let current = edit_region.get_untracked();
+                                                            view! {
+                                                                <select
+                                                                    class="select select-bordered select-xs"
+                                                                    on:change=move |ev| set_edit_region.set(event_target_value(&ev))
+                                                                >
+                                                                    <option value="" disabled selected=current.is_empty()>"—"</option>
+                                                                    {regions.into_iter().map(|name| {
+                                                                        let selected = name == current;
+                                                                        let name2 = name.clone();
+                                                                        view! {
+                                                                            <option value=name selected=selected>{name2}</option>
+                                                                        }
+                                                                    }).collect_view()}
+                                                                </select>
+                                                            }.into_any()
+                                                        } else {
+                                                            view! {
+                                                                <InlineEdit
+                                                                    value=city_region_sv.get_value().unwrap_or_default()
+                                                                    on_save=on_save_region
+                                                                    on_cancel=Callback::new(move |_: ()| set_editing_region.set(false))
+                                                                    size=InlineEditSize::Xs
+                                                                />
+                                                            }.into_any()
+                                                        }}
+                                                        {uses_select.then(|| view! {
+                                                            <button
+                                                                class="btn btn-xs btn-primary"
+                                                                on:click=move |_| on_save_region.run(edit_region.get_untracked())
+                                                            >
+                                                                {move_tr!("common-save")}
+                                                            </button>
+                                                            <button class="btn btn-xs btn-ghost" on:click=move |_| set_editing_region.set(false)>
+                                                                {move_tr!("common-cancel")}
+                                                            </button>
+                                                        })}
+                                                    </div>
                                                 }.into_any()
                                             } else {
                                                 view! {
                                                     <div class="flex items-center gap-2">
-                                                        <h2 class="text-2xl font-bold">{city_name.get_value()}</h2>
+                                                        {city_region_sv.get_value().map(|r| view! {
+                                                            <span>{r.clone()}</span>
+                                                        })}
                                                         <button
                                                             class="btn btn-xs btn-ghost"
-                                                            on:click=move |_| set_editing_name.set(true)
+                                                            on:click=move |_| {
+                                                                set_edit_region.set(city_region_sv.get_value().unwrap_or_default());
+                                                                set_editing_region.set(true);
+                                                            }
                                                         >
-                                                            "✎"
+                                                            {if city_region_sv.get_value().is_some() { "✎" } else { "+region" }}
                                                         </button>
+                                                        <span>{country_name_sv.get_value()}</span>
                                                     </div>
                                                 }.into_any()
                                             }}
-                                            <div class="flex items-center gap-2 mt-1 text-sm text-base-content/60">
-                                                {move || if editing_region.get() {
-                                                    let regions = regions_res.get()
-                                                        .and_then(|r| r.ok())
-                                                        .unwrap_or_default();
-                                                    let uses_select = !regions.is_empty();
-                                                    view! {
-                                                        <div class="flex gap-2 items-center">
-                                                            {if uses_select {
-                                                                let current = edit_region.get_untracked();
-                                                                view! {
-                                                                    <select
-                                                                        class="select select-bordered select-xs"
-                                                                        on:change=move |ev| set_edit_region.set(event_target_value(&ev))
-                                                                    >
-                                                                        <option value="" disabled selected=current.is_empty()>"—"</option>
-                                                                        {regions.into_iter().map(|name| {
-                                                                            let selected = name == current;
-                                                                            let name2 = name.clone();
-                                                                            view! {
-                                                                                <option value=name selected=selected>{name2}</option>
-                                                                            }
-                                                                        }).collect_view()}
-                                                                    </select>
-                                                                }.into_any()
-                                                            } else {
-                                                                view! {
-                                                                    <InlineEdit
-                                                                        value=city_region_sv.get_value().unwrap_or_default()
-                                                                        on_save=on_save_region
-                                                                        on_cancel=Callback::new(move |_: ()| set_editing_region.set(false))
-                                                                        size=InlineEditSize::Xs
-                                                                    />
-                                                                }.into_any()
-                                                            }}
-                                                            {uses_select.then(|| view! {
-                                                                <button
-                                                                    class="btn btn-xs btn-primary"
-                                                                    on:click=move |_| on_save_region.run(edit_region.get_untracked())
-                                                                >
-                                                                    {move_tr!("common-save")}
-                                                                </button>
-                                                                <button class="btn btn-xs btn-ghost" on:click=move |_| set_editing_region.set(false)>
-                                                                    {move_tr!("common-cancel")}
-                                                                </button>
-                                                            })}
-                                                        </div>
-                                                    }.into_any()
-                                                } else {
-                                                    view! {
-                                                        <div class="flex items-center gap-2">
-                                                            {city_region_sv.get_value().map(|r| view! {
-                                                                <span>{r.clone()}</span>
-                                                            })}
-                                                            <button
-                                                                class="btn btn-xs btn-ghost"
-                                                                on:click=move |_| {
-                                                                    set_edit_region.set(city_region_sv.get_value().unwrap_or_default());
-                                                                    set_editing_region.set(true);
-                                                                }
-                                                            >
-                                                                {if city_region_sv.get_value().is_some() { "✎" } else { "+region" }}
-                                                            </button>
-                                                            <span>{country_name_sv.get_value()}</span>
-                                                        </div>
-                                                    }.into_any()
-                                                }}
-                                            </div>
-                                            <div class="mt-2">
-                                                <InlineAlias id=city_id_str.clone() initial=city_alias.clone() set_refresh />
-                                            </div>
                                         </div>
-                                        <button
-                                            class="btn btn-sm btn-ghost text-error"
-                                            on:click=move |_| show_delete.set(true)
-                                        >
-                                            {i18n.tr("locations-delete-title")}
-                                        </button>
-                                    </div>
+                                    </LocationDetailHeader>
 
                                     // Addresses list
                                     <h3 class="font-semibold mb-3">{move_tr!("locations-addresses-title")}</h3>
@@ -259,16 +206,6 @@ pub fn CityDetailPage() -> impl IntoView {
                                             }.into_any(),
                                         })}
                                     </Suspense>
-
-                                    <ConfirmModal
-                                        open=Signal::from(show_delete)
-                                        title=i18n.tr("locations-delete-title")
-                                        message=i18n.tr("locations-delete-confirm")
-                                        confirm_label=i18n.tr("common-delete")
-                                        variant=ConfirmVariant::Danger
-                                        on_confirm=on_delete
-                                        on_close=Callback::new(move |_: ()| show_delete.set(false))
-                                    />
                                 </div>
                             }.into_any()
                         }
