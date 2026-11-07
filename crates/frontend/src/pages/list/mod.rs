@@ -21,7 +21,6 @@ use crate::components::lists::{
 };
 use crate::components::tags::tag_filter_bar::TagFilterBar;
 use crate::components::tags::tag_list::TagList;
-use crate::context::GlobalRefresh;
 use crate::server_fns::containers::get_containers_for_move;
 use crate::server_fns::items::{
     delete_item, get_list_data, move_item, reorder_items, set_item_placement, toggle_item,
@@ -37,6 +36,8 @@ use crate::server_fns::tags::{
 use crate::state::dnd::{
     DndState, EntityKind, ItemDndState, ItemDropPlan, ItemDropTarget, build_item_drop_plan,
 };
+use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
+use kartoteka_shared::ChangeTopic;
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -52,16 +53,25 @@ pub fn ListPage() -> impl IntoView {
     let list_id = move || params.read().get("id").unwrap_or_default();
 
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
     let navigate = leptos_router::hooks::use_navigate();
+    let invalidation = use_invalidation();
 
-    let (refresh, set_refresh) = signal(0u32);
     let (show_completed, set_show_completed) = signal(true);
     let active_tag: RwSignal<Option<String>> = RwSignal::new(None);
 
     let data_res = Resource::new(
-        move || (list_id(), refresh.get(), global_refresh.get()),
-        |(id, _, _)| get_list_data(id),
+        move || {
+            (
+                list_id(),
+                invalidation.track(&[
+                    ChangeTopic::Lists,
+                    ChangeTopic::Items,
+                    ChangeTopic::Tags,
+                    ChangeTopic::Comments,
+                ]),
+            )
+        },
+        |(id, _)| get_list_data(id),
     );
 
     // Derived reactive counts — read from data_res each render so they update
@@ -82,7 +92,7 @@ pub fn ListPage() -> impl IntoView {
     });
 
     let all_lists_res = Resource::new(
-        move || (refresh.get(), global_refresh.get()),
+        move || invalidation.track(&[ChangeTopic::Lists]),
         |_| get_all_lists(),
     );
 
@@ -99,16 +109,11 @@ pub fn ListPage() -> impl IntoView {
     );
     let on_move_to_container = Callback::new(move |cid: String| {
         let lid = list_id();
-        leptos::task::spawn_local(async move {
-            match move_list(lid, Some(cid), None).await {
-                Ok(_) => {
-                    set_refresh.update(|n| *n += 1);
-                    global_refresh.bump();
-                }
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-            container_dropdown_open.set(false);
-        });
+        container_dropdown_open.set(false);
+        mutate(
+            move_list(lid, Some(cid), None),
+            &[ChangeTopic::Lists, ChangeTopic::Containers],
+        );
     });
 
     let on_tag_toggle = Callback::new(move |tag_id: String| {
@@ -119,77 +124,54 @@ pub fn ListPage() -> impl IntoView {
             .map(|data| data.list_tag_ids)
             .unwrap_or_default();
         let has_tag = current_tag_ids.contains(&tag_id);
-        leptos::task::spawn_local(async move {
-            let result = if has_tag {
+        let result = async move {
+            if has_tag {
                 remove_tag_from_list(lid, tag_id).await
             } else {
                 assign_tag_to_list(lid, tag_id).await
-            };
-            if let Err(e) = result {
-                toast.push(e.to_string(), ToastKind::Error);
             }
-            set_refresh.update(|n| *n += 1);
-        });
+        };
+        mutate(result, &[ChangeTopic::Lists, ChangeTopic::Tags]);
     });
 
     // ── Mutation callbacks ─────────────────────────────────────────
 
     let on_toggle_item = Callback::new(move |item_id: String| {
-        leptos::task::spawn_local(async move {
-            match toggle_item(item_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(toggle_item(item_id), &[ChangeTopic::Items]);
     });
 
     let on_delete_item = Callback::new(move |item_id: String| {
-        leptos::task::spawn_local(async move {
-            match delete_item(item_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(
+            delete_item(item_id),
+            &[ChangeTopic::Items, ChangeTopic::Comments],
+        );
     });
 
     let on_description_save = Callback::new(move |(item_id, desc): (String, String)| {
-        leptos::task::spawn_local(async move {
-            match update_item_description(item_id, desc).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(
+            update_item_description(item_id, desc),
+            &[ChangeTopic::Items],
+        );
     });
 
     let on_quantity_change = Callback::new(move |(item_id, new_actual): (String, i32)| {
-        leptos::task::spawn_local(async move {
-            match update_actual_quantity(item_id, new_actual).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(
+            update_actual_quantity(item_id, new_actual),
+            &[ChangeTopic::Items],
+        );
     });
 
     let on_move_item = Callback::new(move |(item_id, target_list_id): (String, String)| {
-        leptos::task::spawn_local(async move {
-            match move_item(item_id, target_list_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(move_item(item_id, target_list_id), &[ChangeTopic::Items]);
     });
 
     let on_date_save = Callback::new(
         move |payload: crate::components::items::item_row::DateSavePayload| {
             let (item_id, start, start_time, deadline, deadline_time, hard) = payload;
-            leptos::task::spawn_local(async move {
-                match update_item_dates(item_id, start, start_time, deadline, deadline_time, hard)
-                    .await
-                {
-                    Ok(_) => set_refresh.update(|n| *n += 1),
-                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                }
-            });
+            mutate(
+                update_item_dates(item_id, start, start_time, deadline, deadline_time, hard),
+                &[ChangeTopic::Items],
+            );
         },
     );
 
@@ -202,37 +184,32 @@ pub fn ListPage() -> impl IntoView {
         let is_assigned = links
             .iter()
             .any(|l| l.item_id == item_id && l.tag_id == tag_id);
-        leptos::task::spawn_local(async move {
-            let result = if is_assigned {
+        let result = async move {
+            if is_assigned {
                 remove_tag_from_item(item_id, tag_id).await
             } else {
                 assign_tag_to_item(item_id, tag_id).await
-            };
-            match result {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
-        });
+        };
+        mutate(result, &[ChangeTopic::Items, ChangeTopic::Tags]);
     });
 
     let on_create_sublist = Callback::new(move |name: String| {
         use kartoteka_shared::types::CreateListRequest;
         let parent_id = list_id();
-        leptos::task::spawn_local(async move {
-            let req = CreateListRequest {
-                name,
-                list_type: None,
-                icon: None,
-                description: None,
-                container_id: None,
-                parent_list_id: Some(parent_id),
-                features: vec![],
-            };
-            match create_list(req).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        let req = CreateListRequest {
+            name,
+            list_type: None,
+            icon: None,
+            description: None,
+            container_id: None,
+            parent_list_id: Some(parent_id),
+            features: vec![],
+        };
+        mutate(
+            create_list(req),
+            &[ChangeTopic::Lists, ChangeTopic::Containers],
+        );
     });
 
     let (adding_sublist, set_adding_sublist) = signal(false);
@@ -289,10 +266,7 @@ pub fn ListPage() -> impl IntoView {
                 } => set_item_placement(item_id, target_list_id, before_item_id).await,
             };
             match result {
-                Ok(()) => {
-                    set_refresh.update(|n| *n += 1);
-                    global_refresh.bump();
-                }
+                Ok(()) => invalidation.invalidate_many(&[ChangeTopic::Items, ChangeTopic::Lists]),
                 Err(e) => toast.push(e.to_string(), ToastKind::Error),
             }
         });
@@ -390,12 +364,7 @@ pub fn ListPage() -> impl IntoView {
                                         value=list_name.clone()
                                         on_save=Callback::new(move |new_name: String| {
                                             let lid = list_id();
-                                            leptos::task::spawn_local(async move {
-                                                match rename_list(lid, new_name, None).await {
-                                                    Ok(_) => set_refresh.update(|n| *n += 1),
-                                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                }
-                                            });
+                                            mutate(rename_list(lid, new_name, None), &[ChangeTopic::Lists]);
                                         })
                                         class="text-2xl font-bold cursor-pointer hover:underline decoration-dotted"
                                         testid="list-name-heading"
@@ -416,12 +385,10 @@ pub fn ListPage() -> impl IntoView {
                                                         title=move_tr!("lists-detach-from-container")
                                                         on:click=move |_| {
                                                             let lid = list_id();
-                                                            leptos::task::spawn_local(async move {
-                                                                match move_list(lid, None, None).await {
-                                                                    Ok(_) => { set_refresh.update(|n| *n += 1); global_refresh.bump(); }
-                                                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                                }
-                                                            });
+                                                            mutate(
+                                                                move_list(lid, None, None),
+                                                                &[ChangeTopic::Lists, ChangeTopic::Containers],
+                                                            );
                                                         }
                                                     >{"✕"}</button>
                                                 </div>
@@ -456,12 +423,7 @@ pub fn ListPage() -> impl IntoView {
                                                     data-testid="action-pin"
                                                     on:click=move |_| {
                                                         let lid = list_id();
-                                                        leptos::task::spawn_local(async move {
-                                                            match pin_list(lid).await {
-                                                                Ok(_) => set_refresh.update(|n| *n += 1),
-                                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                            }
-                                                        });
+                                                        mutate(pin_list(lid), &[ChangeTopic::Lists]);
                                                     }
                                                 >
                                                     {if list_pinned { "📌 Odepnij" } else { "📌 Przypnij" }}
@@ -493,12 +455,10 @@ pub fn ListPage() -> impl IntoView {
                                                             if checked { f.push(feature.to_string()); }
                                                             else { f.retain(|x| x != feature); }
                                                             let lid = list_id();
-                                                            leptos::task::spawn_local(async move {
-                                                                match update_list_features(lid, f).await {
-                                                                    Ok(_) => set_refresh.update(|n| *n += 1),
-                                                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                                }
-                                                            });
+                                                            mutate(
+                                                                update_list_features(lid, f),
+                                                                &[ChangeTopic::Lists],
+                                                            );
                                                         }
                                                     }
                                                 };
@@ -532,7 +492,7 @@ pub fn ListPage() -> impl IntoView {
                                                             <DeadlinesConfig
                                                                 list_id=lid
                                                                 config=cfg
-                                                                on_changed=Callback::new(move |_| set_refresh.update(|n| *n += 1))
+                                                                on_changed=Callback::new(move |_| invalidation.invalidate(ChangeTopic::Lists))
                                                             />
                                                         }.into_any()
                                                     } else {
@@ -613,12 +573,10 @@ pub fn ListPage() -> impl IntoView {
                                             let lid = list_id();
                                             let current_name = list_name_for_desc.clone();
                                             let val = if new_desc.trim().is_empty() { None } else { Some(new_desc) };
-                                            leptos::task::spawn_local(async move {
-                                                match rename_list(lid, current_name, val).await {
-                                                    Ok(_) => set_refresh.update(|n| *n += 1),
-                                                    Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                                }
-                                            });
+                                            mutate(
+                                                rename_list(lid, current_name, val),
+                                                &[ChangeTopic::Lists],
+                                            );
                                         })
                                         multiline=true
                                         placeholder="Dodaj opis..."
@@ -647,7 +605,7 @@ pub fn ListPage() -> impl IntoView {
                                     <AddItemInput
                                         list_id=Signal::derive(list_id)
                                         has_quantity=has_quantity
-                                        on_created=Callback::new(move |_| set_refresh.update(|n| *n += 1))
+                                        on_created=Callback::new(move |_| invalidation.invalidate(ChangeTopic::Items))
                                     />
                                 </div>
 
@@ -664,15 +622,10 @@ pub fn ListPage() -> impl IntoView {
                                     let on_sublist_detach = Callback::new(move |_| {
                                         let Some(id) = dnd_state.with_untracked(|s| s.dragged.as_ref().map(|d| d.id.clone())) else { return };
                                         let ctr = parent_container_for_detach.clone();
-                                        leptos::task::spawn_local(async move {
-                                            match move_list(id, ctr, None).await {
-                                                Ok(_) => {
-                                                    set_refresh.update(|n| *n += 1);
-                                                    global_refresh.bump();
-                                                }
-                                                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                            }
-                                        });
+                                        mutate(
+                                            move_list(id, ctr, None),
+                                            &[ChangeTopic::Lists, ChangeTopic::Containers],
+                                        );
                                     });
                                     view! {
                                         <DetachDropZone
@@ -686,7 +639,10 @@ pub fn ListPage() -> impl IntoView {
 
                                 // Sublists section
                                 {
-                                    let notify = Callback::new(move |_| set_refresh.update(|n| *n += 1));
+                                    let notify = Callback::new(move |_| {
+                                        invalidation
+                                            .invalidate_many(&[ChangeTopic::Items, ChangeTopic::Lists]);
+                                    });
                                     let targets_for_subs = move_targets_all.clone();
                                     let sub_ids_for_subs = sublist_ids.clone();
                                     view! {
@@ -949,24 +905,23 @@ pub fn ListPage() -> impl IntoView {
                             let lid = list_id();
                             let nav2 = nav.clone();
                             match action {
-                                ConfirmAction::Delete => leptos::task::spawn_local(async move {
-                                    match delete_list(lid).await {
-                                        Ok(_) => nav2(&redirect_after_delete.get_value(), Default::default()),
-                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                    }
-                                }),
-                                ConfirmAction::Archive => leptos::task::spawn_local(async move {
-                                    match archive_list(lid).await {
-                                        Ok(_) => nav2(&redirect_after_delete.get_value(), Default::default()),
-                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                    }
-                                }),
-                                ConfirmAction::Reset => leptos::task::spawn_local(async move {
-                                    match reset_list(lid).await {
-                                        Ok(_) => set_refresh.update(|n| *n += 1),
-                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                    }
-                                }),
+                                ConfirmAction::Delete => mutate_with(
+                                    delete_list(lid),
+                                    &[
+                                        ChangeTopic::Lists,
+                                        ChangeTopic::Items,
+                                        ChangeTopic::Containers,
+                                    ],
+                                    move |()| nav2(&redirect_after_delete.get_value(), Default::default()),
+                                ),
+                                ConfirmAction::Archive => mutate_with(
+                                    archive_list(lid),
+                                    &[ChangeTopic::Lists, ChangeTopic::Items],
+                                    move |_| nav2(&redirect_after_delete.get_value(), Default::default()),
+                                ),
+                                ConfirmAction::Reset => {
+                                    mutate(reset_list(lid), &[ChangeTopic::Items])
+                                }
                             }
                         })
                     />

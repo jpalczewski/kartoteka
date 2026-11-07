@@ -4,9 +4,9 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
+use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::DateItem;
 
-use crate::app::{ToastContext, ToastKind};
 use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::tags::color_picker::TagColorPicker;
@@ -16,6 +16,7 @@ use crate::components::tags::tag_tree::{
 use crate::server_fns::tags::{
     delete_tag, get_all_tags, get_tag_items, merge_tags, update_tag, update_tag_color,
 };
+use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DetailAction {
@@ -27,16 +28,24 @@ enum DetailAction {
 pub fn TagDetailPage() -> impl IntoView {
     let params = use_params_map();
     let tag_id_fn = Memo::new(move |_| params.read().get("id").unwrap_or_default());
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let navigate = StoredValue::new(use_navigate());
 
-    let (refresh, set_refresh) = signal(0u32);
+    let invalidation = use_invalidation();
     let (recursive, set_recursive) = signal(true);
     let active_action = RwSignal::new(Option::<DetailAction>::None);
 
-    let all_tags_res = Resource::new(move || refresh.get(), |_| get_all_tags());
+    let all_tags_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::Tags]),
+        |_| get_all_tags(),
+    );
     let items_res = Resource::new(
-        move || (tag_id_fn.get(), recursive.get(), refresh.get()),
+        move || {
+            (
+                tag_id_fn.get(),
+                recursive.get(),
+                invalidation.track(&[ChangeTopic::Tags, ChangeTopic::Items, ChangeTopic::Lists]),
+            )
+        },
         |(id, rec, _)| get_tag_items(id, rec),
     );
 
@@ -47,32 +56,24 @@ pub fn TagDetailPage() -> impl IntoView {
             return;
         }
         let id = tag_id_fn.get_untracked();
-        leptos::task::spawn_local(async move {
-            match update_tag(id, Some(new_name), None, None, false).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(
+            update_tag(id, Some(new_name), None, None, false),
+            &[ChangeTopic::Tags],
+        );
     });
 
     let on_color_change = Callback::new(move |new_color: String| {
         let id = tag_id_fn.get_untracked();
-        leptos::task::spawn_local(async move {
-            match update_tag_color(id, new_color).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(update_tag_color(id, new_color), &[ChangeTopic::Tags]);
     });
 
     let on_delete_click = move |_: leptos::ev::MouseEvent| {
         let id = tag_id_fn.get_untracked();
-        leptos::task::spawn_local(async move {
-            match delete_tag(id).await {
-                Ok(_) => navigate.with_value(|nav| nav("/tags", Default::default())),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate_with(
+            delete_tag(id),
+            &[ChangeTopic::Tags, ChangeTopic::Items, ChangeTopic::Lists],
+            move |()| navigate.with_value(|nav| nav("/tags", Default::default())),
+        );
     };
 
     let on_move_change = move |ev: leptos::ev::Event| {
@@ -80,12 +81,10 @@ pub fn TagDetailPage() -> impl IntoView {
         let id = tag_id_fn.get_untracked();
         let clear = value.is_empty();
         let new_parent = if clear { None } else { Some(value) };
-        leptos::task::spawn_local(async move {
-            match update_tag(id, None, None, new_parent, clear).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(
+            update_tag(id, None, None, new_parent, clear),
+            &[ChangeTopic::Tags],
+        );
         active_action.set(None);
     };
 
@@ -97,13 +96,14 @@ pub fn TagDetailPage() -> impl IntoView {
         let source = tag_id_fn.get_untracked();
         let target = value;
         let target_for_nav = target.clone();
-        leptos::task::spawn_local(async move {
-            match merge_tags(source, target).await {
-                Ok(_) => navigate
-                    .with_value(|nav| nav(&format!("/tags/{target_for_nav}"), Default::default())),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate_with(
+            merge_tags(source, target),
+            &[ChangeTopic::Tags, ChangeTopic::Items, ChangeTopic::Lists],
+            move |_| {
+                navigate
+                    .with_value(|nav| nav(&format!("/tags/{target_for_nav}"), Default::default()));
+            },
+        );
     };
 
     view! {

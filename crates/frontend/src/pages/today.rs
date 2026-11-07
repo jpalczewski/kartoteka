@@ -3,44 +3,43 @@ use std::collections::HashSet;
 use leptos::prelude::*;
 use leptos_router::components::A;
 
+use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::{DateItem, Tag};
 
-use crate::app::{ToastContext, ToastKind};
 use crate::components::common::list_filter_chips::ListFilterChips;
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::items::{delete_item, get_today_data, toggle_item};
 use crate::server_fns::tags::{get_all_item_tag_links, get_all_tags};
+use crate::state::invalidation::{mutate, use_invalidation};
 use crate::utils::group_by_list;
 
 #[component]
 pub fn TodayPage() -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let (refresh, set_refresh) = signal(0u32);
+    let invalidation = use_invalidation();
     let show_completed = RwSignal::new(true);
     let hidden_lists: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
 
-    let today_res = Resource::new(move || refresh.get(), |_| get_today_data());
-    let all_tags_res = Resource::new(|| (), |_| get_all_tags());
-    let item_tag_links_res = Resource::new(|| (), |_| get_all_item_tag_links());
+    let today_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::Items, ChangeTopic::Lists]),
+        |_| get_today_data(),
+    );
+    let all_tags_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::Tags]),
+        |_| get_all_tags(),
+    );
+    let item_tag_links_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::Items, ChangeTopic::Tags]),
+        |_| get_all_item_tag_links(),
+    );
 
     let hidden_tags: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
 
     let on_toggle = move |item_id: String| {
-        leptos::task::spawn_local(async move {
-            match toggle_item(item_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(toggle_item(item_id), &[ChangeTopic::Items]);
     };
 
     let on_delete = move |item_id: String| {
-        leptos::task::spawn_local(async move {
-            match delete_item(item_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(delete_item(item_id), &[ChangeTopic::Items]);
     };
 
     view! {

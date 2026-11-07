@@ -4,6 +4,8 @@ use crate::components::items::item_row::ItemRow;
 use crate::components::lists::add_input::AddInput;
 use crate::server_fns::items::{create_item, delete_item, get_list_data, move_item, toggle_item};
 use crate::state::dnd::{DndState, EntityKind, ItemDndState, ItemDropTarget};
+use crate::state::invalidation::use_invalidation;
+use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::{Item, List};
 use leptos::prelude::*;
 
@@ -19,6 +21,7 @@ pub fn SublistSection(
     #[prop(optional)] on_item_drop: Option<Callback<ItemDropTarget>>,
 ) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
+    let invalidation = use_invalidation();
     let list_id = StoredValue::new(sublist.id.clone());
     let list_name = sublist.name.clone();
 
@@ -59,6 +62,7 @@ pub fn SublistSection(
         leptos::task::spawn_local(async move {
             match delete_item(item_id).await {
                 Ok(_) => {
+                    invalidation.invalidate(ChangeTopic::Items);
                     if let Ok(data) = get_list_data(lid).await {
                         items.set(data.items);
                     }

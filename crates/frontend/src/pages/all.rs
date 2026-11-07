@@ -2,28 +2,26 @@ use leptos::prelude::*;
 use leptos_fluent::move_tr;
 use leptos_router::components::A;
 
+use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::DateItem;
 
-use crate::app::{ToastContext, ToastKind};
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::items::{get_all_items, toggle_item};
+use crate::state::invalidation::{mutate, use_invalidation};
 use crate::utils::group_by_list;
 
 #[component]
 pub fn AllPage() -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let (refresh, set_refresh) = signal(0u32);
+    let invalidation = use_invalidation();
     let (show_completed, set_show_completed) = signal(true);
 
-    let all_res = Resource::new(move || refresh.get(), |_| get_all_items());
+    let all_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::Items, ChangeTopic::Lists]),
+        |_| get_all_items(),
+    );
 
     let on_toggle = move |item_id: String| {
-        leptos::task::spawn_local(async move {
-            match toggle_item(item_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(toggle_item(item_id), &[ChangeTopic::Items]);
     };
 
     view! {

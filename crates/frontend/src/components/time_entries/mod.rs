@@ -1,10 +1,11 @@
+use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::TimeEntry;
 use leptos::prelude::*;
 
-use crate::app::{ToastContext, ToastKind};
 use crate::server_fns::time_entries::{
     get_running_timer, get_time_summary, start_timer, stop_timer,
 };
+use crate::state::invalidation::{mutate, use_invalidation};
 
 fn format_seconds(secs: i64) -> String {
     if secs == 0 {
@@ -24,15 +25,22 @@ fn format_seconds(secs: i64) -> String {
 
 #[component]
 pub fn ItemTimerWidget(item_id: Signal<String>) -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let (refresh, set_refresh) = signal(0u32);
+    let invalidation = use_invalidation();
 
     let summary_res = Resource::new(
-        move || (item_id.get(), refresh.get()),
+        move || {
+            (
+                item_id.get(),
+                invalidation.track(&[ChangeTopic::TimeEntries]),
+            )
+        },
         move |(eid, _)| get_time_summary(eid),
     );
 
-    let running_res = Resource::new(move || refresh.get(), move |_| get_running_timer());
+    let running_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::TimeEntries]),
+        move |_| get_running_timer(),
+    );
 
     let is_running_this_item = move || {
         let eid = item_id.get();
@@ -56,21 +64,11 @@ pub fn ItemTimerWidget(item_id: Signal<String>) -> impl IntoView {
 
     let on_start = move |_: leptos::ev::MouseEvent| {
         let eid = item_id.get();
-        leptos::task::spawn_local(async move {
-            match start_timer(eid).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(start_timer(eid), &[ChangeTopic::TimeEntries]);
     };
 
     let on_stop = move |_: leptos::ev::MouseEvent| {
-        leptos::task::spawn_local(async move {
-            match stop_timer().await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(stop_timer(), &[ChangeTopic::TimeEntries]);
     };
 
     view! {

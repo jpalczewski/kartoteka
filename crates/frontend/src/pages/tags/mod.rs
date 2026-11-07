@@ -2,30 +2,32 @@ pub mod detail;
 
 use leptos::prelude::*;
 
-use crate::app::{ToastContext, ToastKind};
+use kartoteka_shared::ChangeTopic;
+
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::tags::color_picker::TagColorPicker;
 use crate::components::tags::tag_tree::{TagTreeRow, build_tag_tree};
 use crate::server_fns::tags::{create_tag, delete_tag, get_all_tags};
+use crate::state::invalidation::{mutate, use_invalidation};
 
 #[component]
 pub fn TagsPage() -> impl IntoView {
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let (refresh, set_refresh) = signal(0u32);
+    let invalidation = use_invalidation();
 
-    let tags_res = Resource::new(move || refresh.get(), |_| get_all_tags());
+    let tags_res = Resource::new(
+        move || invalidation.track(&[ChangeTopic::Tags]),
+        |_| get_all_tags(),
+    );
 
     let (new_name, set_new_name) = signal(String::new());
     let (new_color, set_new_color) = signal("#6366f1".to_string());
 
     let create_with_parent = move |name: String, parent_tag_id: Option<String>| {
         let color = new_color.get_untracked();
-        leptos::task::spawn_local(async move {
-            match create_tag(name, None, Some(color), parent_tag_id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(
+            create_tag(name, None, Some(color), parent_tag_id),
+            &[ChangeTopic::Tags],
+        );
     };
 
     let on_create_root = Callback::new(move |_: ()| {
@@ -42,12 +44,10 @@ pub fn TagsPage() -> impl IntoView {
     });
 
     let on_delete = Callback::new(move |id: String| {
-        leptos::task::spawn_local(async move {
-            match delete_tag(id).await {
-                Ok(_) => set_refresh.update(|n| *n += 1),
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
+        mutate(
+            delete_tag(id),
+            &[ChangeTopic::Tags, ChangeTopic::Items, ChangeTopic::Lists],
+        );
     });
 
     view! {
