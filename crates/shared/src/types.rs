@@ -122,6 +122,114 @@ impl<'de> Deserialize<'de> for FlexDate {
     }
 }
 
+/// Error from parsing a [`RecurrenceRule`] or [`RecurrenceMode`] string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecurrenceParseError(pub String);
+
+impl fmt::Display for RecurrenceParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for RecurrenceParseError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RecurrenceUnit {
+    Day,
+    Week,
+    Month,
+}
+
+/// Repeat interval of a recurring item: "7d", "2w", "1m" (interval 1–999).
+///
+/// SQLite storage: TEXT column in the same string form (migrateable to RRULE later).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RecurrenceRule {
+    pub interval: u16,
+    pub unit: RecurrenceUnit,
+}
+
+impl fmt::Display for RecurrenceRule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let unit = match self.unit {
+            RecurrenceUnit::Day => 'd',
+            RecurrenceUnit::Week => 'w',
+            RecurrenceUnit::Month => 'm',
+        };
+        write!(f, "{}{unit}", self.interval)
+    }
+}
+
+impl FromStr for RecurrenceRule {
+    type Err = RecurrenceParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let err = || RecurrenceParseError(format!("invalid recurrence rule: {s:?}"));
+        let unit = match s.as_bytes().last() {
+            Some(b'd') => RecurrenceUnit::Day,
+            Some(b'w') => RecurrenceUnit::Week,
+            Some(b'm') => RecurrenceUnit::Month,
+            _ => return Err(err()),
+        };
+        let digits = &s[..s.len() - 1];
+        if digits.is_empty() || digits.len() > 3 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(err());
+        }
+        let interval: u16 = digits.parse().map_err(|_| err())?;
+        if interval == 0 || digits.starts_with('0') {
+            return Err(err());
+        }
+        Ok(RecurrenceRule { interval, unit })
+    }
+}
+
+impl Serialize for RecurrenceRule {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for RecurrenceRule {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        RecurrenceRule::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+/// How the next occurrence is dated: `fixed` from the scheduled date, `floating` from the
+/// completion date.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RecurrenceMode {
+    #[default]
+    Fixed,
+    Floating,
+}
+
+impl fmt::Display for RecurrenceMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            RecurrenceMode::Fixed => "fixed",
+            RecurrenceMode::Floating => "floating",
+        })
+    }
+}
+
+impl FromStr for RecurrenceMode {
+    type Err = RecurrenceParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "fixed" => Ok(RecurrenceMode::Fixed),
+            "floating" => Ok(RecurrenceMode::Floating),
+            _ => Err(RecurrenceParseError(format!(
+                "invalid recurrence mode: {s:?}"
+            ))),
+        }
+    }
+}
+
 // =====================================================================
 // Rewrite domain types — new SQLite-based API
 // These live in shared::types (not shared:: root) to avoid conflict
@@ -305,6 +413,16 @@ pub struct Item {
     pub updated_at: String,
 }
 
+/// Result of an operation that may complete an item: the item itself plus the next occurrence
+/// spawned by its recurrence rule. `flatten` keeps the JSON shape of a bare `Item`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItemChange {
+    #[serde(flatten)]
+    pub item: Item,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spawned: Option<Item>,
+}
+
 /// Payload returned by `get_item_detail` — item plus its comments, pre-fetched so the
 /// comment section can render without a nested Resource (which breaks SSR hydration).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -404,40 +522,48 @@ pub struct CalendarWeekDay {
 
 #[cfg(feature = "sqlx")]
 mod sqlx_impl {
-    use super::FlexDate;
+    use super::{FlexDate, RecurrenceMode, RecurrenceRule};
     use sqlx::encode::IsNull;
     use sqlx::error::BoxDynError;
     use sqlx::sqlite::{SqliteArgumentValue, SqliteTypeInfo, SqliteValueRef};
     use sqlx::{Decode, Encode, Sqlite, Type};
     use std::str::FromStr;
 
-    impl Type<Sqlite> for FlexDate {
-        fn type_info() -> SqliteTypeInfo {
-            <String as Type<Sqlite>>::type_info()
-        }
+    /// Stores a `Display + FromStr` type as a SQLite TEXT column.
+    macro_rules! text_column {
+        ($ty:ty) => {
+            impl Type<Sqlite> for $ty {
+                fn type_info() -> SqliteTypeInfo {
+                    <String as Type<Sqlite>>::type_info()
+                }
 
-        fn compatible(ty: &SqliteTypeInfo) -> bool {
-            <String as Type<Sqlite>>::compatible(ty)
-        }
+                fn compatible(ty: &SqliteTypeInfo) -> bool {
+                    <String as Type<Sqlite>>::compatible(ty)
+                }
+            }
+
+            impl Encode<'_, Sqlite> for $ty {
+                fn encode_by_ref(
+                    &self,
+                    args: &mut Vec<SqliteArgumentValue<'_>>,
+                ) -> Result<IsNull, BoxDynError> {
+                    args.push(SqliteArgumentValue::Text(self.to_string().into()));
+                    Ok(IsNull::No)
+                }
+            }
+
+            impl Decode<'_, Sqlite> for $ty {
+                fn decode(value: SqliteValueRef<'_>) -> Result<Self, BoxDynError> {
+                    let s = <String as Decode<Sqlite>>::decode(value)?;
+                    <$ty>::from_str(&s).map_err(|e| e.to_string().into())
+                }
+            }
+        };
     }
 
-    impl Encode<'_, Sqlite> for FlexDate {
-        fn encode_by_ref(
-            &self,
-            args: &mut Vec<SqliteArgumentValue<'_>>,
-        ) -> Result<IsNull, BoxDynError> {
-            let s = self.to_string();
-            args.push(SqliteArgumentValue::Text(s.into()));
-            Ok(IsNull::No)
-        }
-    }
-
-    impl Decode<'_, Sqlite> for FlexDate {
-        fn decode(value: SqliteValueRef<'_>) -> Result<Self, BoxDynError> {
-            let s = <String as Decode<Sqlite>>::decode(value)?;
-            FlexDate::from_str(&s).map_err(|e| e.into())
-        }
-    }
+    text_column!(FlexDate);
+    text_column!(RecurrenceRule);
+    text_column!(RecurrenceMode);
 }
 
 // --- Comments ---
