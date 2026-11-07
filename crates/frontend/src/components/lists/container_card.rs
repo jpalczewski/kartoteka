@@ -91,6 +91,7 @@ pub fn ContainerCard(
                                 <button
                                     type="button"
                                     class="btn btn-ghost btn-xs text-error"
+                                    data-testid="container-card-delete"
                                     on:click=move |_| cb.run(cid.clone())
                                 >
                                     {"✕"}

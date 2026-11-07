@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use leptos_fluent::move_tr;
+use leptos_fluent::{I18n, move_tr};
 use leptos_router::hooks::use_params_map;
 
 use kartoteka_shared::{
@@ -11,6 +11,7 @@ use crate::components::comments::CommentSection;
 use crate::components::common::breadcrumbs::Breadcrumbs;
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::container_selector_dropdown::ContainerSelectorDropdown;
+use crate::components::common::delete_entity_modal::{DeleteEntityModal, DeleteTarget};
 use crate::components::common::dnd::{DetachDropZone, ItemDropTargetMarker};
 use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
@@ -28,8 +29,8 @@ use crate::server_fns::items::{
     update_actual_quantity, update_item_dates, update_item_description,
 };
 use crate::server_fns::lists::{
-    archive_list, create_list, delete_list, get_all_lists, move_list, pin_list, rename_list,
-    reset_list, update_list_features,
+    archive_list, create_list, get_all_lists, move_list, pin_list, rename_list, reset_list,
+    update_list_features,
 };
 use crate::server_fns::tags::{
     assign_tag_to_item, assign_tag_to_list, remove_tag_from_item, remove_tag_from_list,
@@ -41,7 +42,6 @@ use std::collections::HashMap;
 
 #[derive(Clone, Copy, PartialEq)]
 enum ConfirmAction {
-    Delete,
     Archive,
     Reset,
 }
@@ -53,7 +53,10 @@ pub fn ListPage() -> impl IntoView {
 
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let global_refresh = use_context::<GlobalRefresh>().expect("GlobalRefresh missing");
+    let i18n = expect_context::<I18n>();
     let navigate = leptos_router::hooks::use_navigate();
+    // Separate handle for the shared delete flow, so the archive/reset modal keeps `navigate`.
+    let nav_delete = navigate.clone();
 
     let (refresh, set_refresh) = signal(0u32);
     let (show_completed, set_show_completed) = signal(true);
@@ -239,6 +242,8 @@ pub fn ListPage() -> impl IntoView {
 
     let confirm_action: RwSignal<Option<ConfirmAction>> = RwSignal::new(None);
     let confirm_list_name: RwSignal<String> = RwSignal::new(String::new());
+    // Delete goes through the shared preview + confirmation flow.
+    let delete_target: RwSignal<Option<DeleteTarget>> = RwSignal::new(None);
     let redirect_after_delete = StoredValue::new(String::from("/"));
 
     // ── DnD state + callbacks ─────────────────────────────────────
@@ -312,6 +317,7 @@ pub fn ListPage() -> impl IntoView {
                         let list_name_for_reset = list_name.clone();
                         let list_name_for_archive = list_name.clone();
                         let list_name_for_delete = list_name.clone();
+                        let list_id_for_delete = data.list.id.clone();
                         let list_description = data.list.description.clone();
                         let list_pinned = data.list.pinned;
                         let list_archived = data.list.archived;
@@ -592,11 +598,13 @@ pub fn ListPage() -> impl IntoView {
                                                     class="text-error"
                                                     data-testid="action-delete"
                                                     on:click=move |_| {
-                                                        confirm_list_name.set(list_name_for_delete.clone());
-                                                        confirm_action.set(Some(ConfirmAction::Delete));
+                                                        delete_target.set(Some(DeleteTarget::list(
+                                                            list_id_for_delete.clone(),
+                                                            list_name_for_delete.clone(),
+                                                        )));
                                                     }
                                                 >
-                                                    "🗑 Usuń listę"
+                                                    {format!("🗑 {}", i18n.tr("lists-header-delete-button"))}
                                                 </button>
                                             </li>
                                         </ul>
@@ -911,16 +919,17 @@ pub fn ListPage() -> impl IntoView {
                 })}
             </Suspense>
 
+            <DeleteEntityModal
+                target=delete_target
+                on_deleted=Callback::new(move |_| {
+                    nav_delete(&redirect_after_delete.get_value(), Default::default());
+                })
+            />
+
             {move || {
                 let action = confirm_action.get()?;
                 let name = confirm_list_name.get();
                 let (title, message, label, variant) = match action {
-                    ConfirmAction::Delete => (
-                        "Usuń listę",
-                        format!("Czy na pewno chcesz usunąć listę \"{}\"? Tej operacji nie można cofnąć.", name),
-                        "Usuń",
-                        ConfirmVariant::Danger,
-                    ),
                     ConfirmAction::Archive => (
                         "Archiwizuj listę",
                         format!("Czy archiwizować listę \"{}\"?", name),
@@ -949,12 +958,6 @@ pub fn ListPage() -> impl IntoView {
                             let lid = list_id();
                             let nav2 = nav.clone();
                             match action {
-                                ConfirmAction::Delete => leptos::task::spawn_local(async move {
-                                    match delete_list(lid).await {
-                                        Ok(_) => nav2(&redirect_after_delete.get_value(), Default::default()),
-                                        Err(e) => toast.push(e.to_string(), ToastKind::Error),
-                                    }
-                                }),
                                 ConfirmAction::Archive => leptos::task::spawn_local(async move {
                                     match archive_list(lid).await {
                                         Ok(_) => nav2(&redirect_after_delete.get_value(), Default::default()),

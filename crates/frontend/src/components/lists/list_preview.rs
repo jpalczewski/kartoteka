@@ -131,6 +131,7 @@ pub fn ListPreview(
                                 type="button"
                                 class="btn btn-ghost btn-xs btn-circle text-error"
                                 title=move_tr!("common-delete")
+                                data-testid="list-preview-delete"
                                 on:click=move |_| cb.run(lid.clone())
                             >{"✕"}</button>
                         }

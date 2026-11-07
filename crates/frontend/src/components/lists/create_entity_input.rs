@@ -120,6 +120,7 @@ pub fn CreateEntityInput(
                 })
                 button_label=Signal::derive(move || i18n.tr("common-create"))
                 on_submit=on_submit
+                testid="create-entity-input"
             />
         </div>
     }

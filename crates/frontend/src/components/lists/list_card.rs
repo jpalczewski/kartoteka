@@ -64,6 +64,7 @@ pub fn ListCard(
                         <button
                             type="button"
                             class="btn btn-ghost btn-xs btn-circle text-error"
+                            data-testid="list-card-delete"
                             on:click=move |ev| {
                                 ev.stop_propagation();
                                 cb.run(lid.clone());
