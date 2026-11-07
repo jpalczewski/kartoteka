@@ -1,9 +1,10 @@
 use crate::components::lists::add_input::AddInput;
-use crate::components::lists::list_card::list_type_icon;
+use crate::components::ui::{ActionMenu, ActionMenuItem, EntityIcon, Icon};
 use crate::server_fns::items::{create_item, toggle_item};
 use crate::server_fns::lists::get_list_preview_items;
 use crate::state::invalidation::{mutate, use_invalidation};
 use kartoteka_shared::ChangeTopic;
+use kartoteka_shared::default_list_icon;
 use kartoteka_shared::types::List;
 use kartoteka_shared::{FEATURE_CHECKLIST, FEATURE_QUANTITY, PreviewItem};
 use leptos::prelude::*;
@@ -21,8 +22,42 @@ pub fn ListPreview(
     let has_quantity = list.has_feature(FEATURE_QUANTITY);
     let list_id = list.id.clone();
     let list_name = list.name.clone();
-    let icon = list_type_icon(&list.list_type);
+    let icon = list.icon.clone();
+    let icon_fallback = default_list_icon(&list.list_type);
     let href = format!("/lists/{}", list.id);
+
+    let list_id_del = list.id.clone();
+    let list_id_archive = list.id.clone();
+    let list_archived = list.archived;
+    let menu_open = RwSignal::new(false);
+    let mut menu_items = Vec::new();
+    if let Some(cb) = on_archive {
+        let lid = list_id_archive.clone();
+        menu_items.push(
+            ActionMenuItem::new(
+                "archive",
+                if list_archived {
+                    move_tr!("lists-restore-aria")
+                } else {
+                    move_tr!("lists-archive-aria")
+                },
+                Callback::new(move |_: ()| cb.run(lid.clone())),
+            )
+            .testid("list-preview-action-archive"),
+        );
+    }
+    if let Some(cb) = on_delete {
+        let lid = list_id_del.clone();
+        menu_items.push(
+            ActionMenuItem::new(
+                "trash",
+                move_tr!("lists-header-delete-button"),
+                Callback::new(move |_: ()| cb.run(lid.clone())),
+            )
+            .danger()
+            .testid("list-preview-delete"),
+        );
+    }
 
     let (is_open, set_is_open) = signal(false);
     // `opened` gates the first fetch: a collapsed preview never queries.
@@ -75,9 +110,6 @@ pub fn ListPreview(
         );
     });
 
-    let list_id_del = list_id.clone();
-    let list_id_archive = list_id.clone();
-
     view! {
         <div class="collapse collapse-arrow bg-base-200 border border-base-300">
             <input
@@ -92,39 +124,26 @@ pub fn ListPreview(
                 }
             />
             <div class="collapse-title font-semibold flex items-center gap-2 pr-10">
-                <span>{icon}</span>
+                <EntityIcon raw=icon fallback=icon_fallback />
                 <span data-testid="list-preview-title">{list_name}</span>
-                <a
-                    href=href
-                    class="btn btn-ghost btn-xs ml-1 relative z-10"
-                    title=move_tr!("lists-preview-open-full")
-                    on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()
-                >
-                    "↗"
-                </a>
-                <div class="ml-auto flex gap-1 mr-2 relative z-10" on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()>
-                    {on_archive.map(|cb| {
-                        let lid = list_id_archive.clone();
-                        view! {
-                            <button
-                                type="button"
-                                class="btn btn-ghost btn-xs btn-circle"
-                                title=move_tr!("lists-header-archive-button")
-                                on:click=move |_| cb.run(lid.clone())
-                            >{"🗄"}</button>
-                        }
-                    })}
-                    {on_delete.map(|cb| {
-                        let lid = list_id_del.clone();
-                        view! {
-                            <button
-                                type="button"
-                                class="btn btn-ghost btn-xs btn-circle text-error"
-                                title=move_tr!("common-delete")
-                                data-testid="list-preview-delete"
-                                on:click=move |_| cb.run(lid.clone())
-                            >{"✕"}</button>
-                        }
+                <div class="ml-auto flex items-center gap-1 mr-2 relative z-10" on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()>
+                    <a
+                        href=href
+                        class="btn btn-ghost btn-square btn-xs"
+                        title=move_tr!("lists-preview-open-full")
+                        aria-label=move_tr!("lists-preview-open-full")
+                        data-testid="list-preview-open-link"
+                        on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()
+                    >
+                        <Icon name="external-link" size=14 />
+                    </a>
+                    {(!menu_items.is_empty()).then(move || view! {
+                        <ActionMenu
+                            items=menu_items
+                            open=menu_open
+                            label=move_tr!("common-actions")
+                            testid=Some("list-preview-menu")
+                        />
                     })}
                 </div>
             </div>
