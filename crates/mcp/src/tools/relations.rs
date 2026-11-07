@@ -87,3 +87,104 @@ impl KartotekaServer {
         self.json_result(rels, &locale)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::test_support::*;
+    use kartoteka_db::test_helpers::{create_test_item, create_test_user};
+
+    /// Two items in the owner's list, related with `blocks`.
+    async fn related_items(pool: &sqlx::SqlitePool, uid: &str) -> (String, String) {
+        let list_id = insert_test_list(pool, uid).await;
+        let item_a = create_test_item(pool, &list_id).await;
+        let item_b = create_test_item(pool, &list_id).await;
+        let server = test_server(pool.clone());
+        server
+            .add_relation(
+                Extension(parts_for_user(uid)),
+                Parameters(AddRelationParams {
+                    from_type: "item".to_owned(),
+                    from_id: item_a.clone(),
+                    to_type: "item".to_owned(),
+                    to_id: item_b,
+                    relation_type: "blocks".to_owned(),
+                }),
+            )
+            .await
+            .unwrap();
+        (list_id, item_a)
+    }
+
+    #[tokio::test]
+    async fn get_relations_returns_relations_of_an_owned_item() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let (_list_id, item_a) = related_items(&pool, &uid).await;
+        let server = test_server(pool);
+
+        let result = server
+            .get_relations(
+                Extension(parts_for_user(&uid)),
+                Parameters(GetRelationsParams {
+                    entity_type: "item".to_owned(),
+                    entity_id: item_a,
+                }),
+            )
+            .await
+            .unwrap();
+
+        let data = item_json(&result).await;
+        let relations = data.as_array().expect("a list of relations");
+        assert_eq!(relations.len(), 1);
+        assert_eq!(relations[0]["relation_type"], "blocks");
+        assert_eq!(relations[0]["other_type"], "item");
+        assert_eq!(relations[0]["other_title"], "Test Item");
+    }
+
+    #[tokio::test]
+    async fn get_relations_for_a_foreign_entity_is_forbidden() {
+        let pool = multi_conn_pool().await;
+        let owner = create_test_user(&pool).await;
+        let attacker = create_test_user(&pool).await;
+        let (list_id, _item_a) = related_items(&pool, &owner).await;
+        let server = test_server(pool);
+
+        let err = server
+            .get_relations(
+                Extension(parts_for_user(&attacker)),
+                Parameters(GetRelationsParams {
+                    entity_type: "list".to_owned(),
+                    entity_id: list_id,
+                }),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code.0, -32600);
+        assert_eq!(err.data.as_ref().unwrap()["error"], "forbidden");
+    }
+
+    #[tokio::test]
+    async fn get_relations_with_unknown_entity_type_is_a_validation_error() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let server = test_server(pool);
+
+        let err = server
+            .get_relations(
+                Extension(parts_for_user(&uid)),
+                Parameters(GetRelationsParams {
+                    entity_type: "spaceship".to_owned(),
+                    entity_id: "any".to_owned(),
+                }),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code.0, -32602);
+        let data = err.data.as_ref().unwrap();
+        assert_eq!(data["error"], "validation");
+        assert_eq!(data["reason"], "invalid_entity_type");
+    }
+}

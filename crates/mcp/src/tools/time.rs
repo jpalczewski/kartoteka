@@ -31,6 +31,14 @@ pub struct LogTimeParams {
 }
 
 #[derive(Deserialize, JsonSchema)]
+pub struct AssignTimeEntryParams {
+    /// id of the inbox entry to assign
+    pub entry_id: String,
+    /// id of the item the entry should belong to
+    pub item_id: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
 pub struct GetTimeSummaryParams {
     /// "item", "list" or "container". With `entity_id`, returns the recursive
     /// tracked-time total for that entity; omit both to list recent entries.
@@ -141,6 +149,37 @@ impl KartotekaServer {
         self.json_result(data, &locale)
     }
 
+    #[rmcp::tool(
+        name = "list_time_inbox",
+        description = "mcp-tool-list_time_inbox-desc"
+    )]
+    pub(crate) async fn list_time_inbox(
+        &self,
+        Extension(parts): Extension<Parts>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let data = domain::time_entries::list_inbox(&self.pool, &uid)
+            .await
+            .map_err(self.domain_err(&locale))?;
+        self.json_result(data, &locale)
+    }
+
+    #[rmcp::tool(
+        name = "assign_time_entry",
+        description = "mcp-tool-assign_time_entry-desc"
+    )]
+    pub(crate) async fn assign_time_entry(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<AssignTimeEntryParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let entry = domain::time_entries::assign(&self.pool, &uid, &p.entry_id, &p.item_id)
+            .await
+            .map_err(self.domain_err(&locale))?;
+        self.json_result(entry, &locale)
+    }
+
     /// Recursive tracked-time total for one entity (`item`, `list` or
     /// `container`). Kept as a helper so the tool body stays small and the
     /// entity-type dispatch lives in one place.
@@ -158,5 +197,194 @@ impl KartotekaServer {
             }
             _ => Err(domain::DomainError::Validation("invalid_entity_type")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::test_support::*;
+    use kartoteka_db::test_helpers::create_test_user;
+
+    /// Start an inbox timer through the tool (no `item_id`), the way an agent
+    /// records work it has not attached to an item yet.
+    async fn start_inbox_entry(server: &KartotekaServer, uid: &str) {
+        server
+            .start_timer(
+                Extension(parts_for_user(uid)),
+                Parameters(StartTimerParams {
+                    item_id: None,
+                    mode: None,
+                }),
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn list_time_inbox_returns_only_own_unassigned_entries() {
+        let pool = multi_conn_pool().await;
+        let owner = create_test_user(&pool).await;
+        let other = create_test_user(&pool).await;
+        let list_id = insert_test_list_with_features(&pool, &owner, &["time_tracking"]).await;
+        let item_id = kartoteka_db::test_helpers::create_test_item(&pool, &list_id).await;
+        let server = test_server(pool);
+
+        // One entry attached to an item, one left in the inbox.
+        server
+            .log_time(
+                Extension(parts_for_user(&owner)),
+                Parameters(LogTimeParams {
+                    item_id: Some(item_id),
+                    started_at: "2026-01-01 10:00:00".to_owned(),
+                    ended_at: "2026-01-01 11:00:00".to_owned(),
+                    description: None,
+                }),
+            )
+            .await
+            .unwrap();
+        start_inbox_entry(&server, &owner).await;
+        start_inbox_entry(&server, &other).await;
+
+        let result = server
+            .list_time_inbox(Extension(parts_for_user(&owner)))
+            .await
+            .unwrap();
+
+        let data = item_json(&result).await;
+        let entries = data.as_array().expect("a list of time entries");
+        assert_eq!(entries.len(), 1, "only the owner's unassigned entry");
+        assert!(entries[0]["item_id"].is_null());
+        assert_eq!(entries[0]["user_id"], owner);
+    }
+
+    #[tokio::test]
+    async fn assign_time_entry_attaches_entry_and_empties_the_inbox() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list_with_features(&pool, &uid, &["time_tracking"]).await;
+        let item_id = kartoteka_db::test_helpers::create_test_item(&pool, &list_id).await;
+        let server = test_server(pool);
+        start_inbox_entry(&server, &uid).await;
+
+        let inbox = item_json(
+            &server
+                .list_time_inbox(Extension(parts_for_user(&uid)))
+                .await
+                .unwrap(),
+        )
+        .await;
+        let entry_id = inbox[0]["id"].as_str().unwrap().to_owned();
+
+        let result = server
+            .assign_time_entry(
+                Extension(parts_for_user(&uid)),
+                Parameters(AssignTimeEntryParams {
+                    entry_id,
+                    item_id: item_id.clone(),
+                }),
+            )
+            .await
+            .unwrap();
+
+        let assigned = item_json(&result).await;
+        assert_eq!(assigned["item_id"], item_id);
+
+        let inbox_after = item_json(
+            &server
+                .list_time_inbox(Extension(parts_for_user(&uid)))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(inbox_after.as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn assign_time_entry_requires_time_tracking_on_the_target_list() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list(&pool, &uid).await;
+        let item_id = kartoteka_db::test_helpers::create_test_item(&pool, &list_id).await;
+        let server = test_server(pool);
+        start_inbox_entry(&server, &uid).await;
+
+        let inbox = item_json(
+            &server
+                .list_time_inbox(Extension(parts_for_user(&uid)))
+                .await
+                .unwrap(),
+        )
+        .await;
+        let entry_id = inbox[0]["id"].as_str().unwrap().to_owned();
+
+        let err = server
+            .assign_time_entry(
+                Extension(parts_for_user(&uid)),
+                Parameters(AssignTimeEntryParams { entry_id, item_id }),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code.0, -32602);
+        let data = err.data.as_ref().unwrap();
+        assert_eq!(data["error"], "feature_required");
+        assert_eq!(data["feature"], "time_tracking");
+    }
+
+    #[tokio::test]
+    async fn assign_time_entry_to_a_foreign_item_is_forbidden() {
+        let pool = multi_conn_pool().await;
+        let owner = create_test_user(&pool).await;
+        let attacker = create_test_user(&pool).await;
+        let list_id = insert_test_list_with_features(&pool, &owner, &["time_tracking"]).await;
+        let item_id = kartoteka_db::test_helpers::create_test_item(&pool, &list_id).await;
+        let server = test_server(pool);
+        start_inbox_entry(&server, &attacker).await;
+
+        let inbox = item_json(
+            &server
+                .list_time_inbox(Extension(parts_for_user(&attacker)))
+                .await
+                .unwrap(),
+        )
+        .await;
+        let entry_id = inbox[0]["id"].as_str().unwrap().to_owned();
+
+        let err = server
+            .assign_time_entry(
+                Extension(parts_for_user(&attacker)),
+                Parameters(AssignTimeEntryParams { entry_id, item_id }),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code.0, -32600);
+        assert_eq!(err.data.as_ref().unwrap()["error"], "forbidden");
+    }
+
+    #[tokio::test]
+    async fn assign_time_entry_with_unknown_entry_is_not_found() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list_with_features(&pool, &uid, &["time_tracking"]).await;
+        let item_id = kartoteka_db::test_helpers::create_test_item(&pool, &list_id).await;
+        let server = test_server(pool);
+
+        let err = server
+            .assign_time_entry(
+                Extension(parts_for_user(&uid)),
+                Parameters(AssignTimeEntryParams {
+                    entry_id: "missing-entry".to_owned(),
+                    item_id,
+                }),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code.0, -32602);
+        let data = err.data.as_ref().unwrap();
+        assert_eq!(data["error"], "not_found");
+        assert_eq!(data["entity"], "time_entry");
     }
 }

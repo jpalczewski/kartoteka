@@ -24,6 +24,8 @@ const READ_ONLY: &[&str] = &[
     "list_overdue",
     "get_active_timer",
     "list_marked_for_delete",
+    "list_comments",
+    "list_time_inbox",
 ];
 
 const ADDITIVE_WRITE: &[&str] = &[
@@ -55,6 +57,7 @@ const DESTRUCTIVE: &[&str] = &[
     "move_list_to_container",
     "move_container_to_parent",
     "unassign_tag",
+    "assign_time_entry",
 ];
 
 pub fn for_tool(name: &str) -> ToolAnnotations {
