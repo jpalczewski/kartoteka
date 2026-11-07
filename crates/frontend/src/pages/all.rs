@@ -168,7 +168,7 @@ fn AllRow(store: Store<ItemRows<DateItem>>, id: String) -> impl IntoView {
     view! {
         {move || if has_description.get() {
             view! {
-                <div class="flex items-start gap-3 p-2 bg-base-200 rounded-lg">
+                <div class="flex items-start gap-3 p-2 bg-base-200 rounded-lg" data-testid="all-row">
                     <div class="flex-1 min-w-0">
                         <A
                             href=href
@@ -194,7 +194,7 @@ fn AllRow(store: Store<ItemRows<DateItem>>, id: String) -> impl IntoView {
             }.into_any()
         } else {
             view! {
-                <div class="flex items-center gap-3 p-2 bg-base-200 rounded-lg">
+                <div class="flex items-center gap-3 p-2 bg-base-200 rounded-lg" data-testid="all-row">
                     {move || checkbox.get().then(|| view! {
                         <input
                             type="checkbox"
