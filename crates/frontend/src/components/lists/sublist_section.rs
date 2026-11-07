@@ -1,20 +1,17 @@
 use crate::app::{ToastContext, ToastKind};
 use crate::components::common::dnd::{DragHandleButton, ItemDropTargetMarker};
-use crate::components::items::item_row::{DateSavePayload, ItemRow};
+use crate::components::items::item_row::ItemRow;
+use crate::components::items::item_view::ItemCaps;
 use crate::components::lists::add_input::AddInput;
 use crate::components::ui::{ActionMenu, ActionMenuItem, CompletionBar, Icon};
-use crate::server_fns::items::{
-    create_item, delete_item, get_list_data, move_item, toggle_item, update_actual_quantity,
-    update_item_dates, update_item_description,
-};
+use crate::server_fns::items::{create_item, get_list_data};
 use crate::state::dnd::{DndState, EntityKind, ItemDndState, ItemDropTarget};
-use crate::state::invalidation::{mutate_with, use_invalidation};
-use kartoteka_shared::ChangeTopic;
-use kartoteka_shared::FEATURE_QUANTITY;
+use crate::state::item_store::{ItemRows, patch_rows};
 use kartoteka_shared::types::{Item, List};
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
 use leptos_router::hooks::use_navigate;
+use reactive_stores::Store;
 
 #[component]
 pub fn SublistSection(
@@ -28,7 +25,6 @@ pub fn SublistSection(
     #[prop(optional)] on_item_drop: Option<Callback<ItemDropTarget>>,
 ) -> impl IntoView {
     let toast = use_context::<ToastContext>().expect("ToastContext missing");
-    let invalidation = use_invalidation();
     let list_id = StoredValue::new(sublist.id.clone());
     let list_name = sublist.name.clone();
     let navigate = use_navigate();
@@ -42,93 +38,13 @@ pub fn SublistSection(
         .iter()
         .map(|f| f.feature_name.clone())
         .collect();
-    let has_quantity = list_features.iter().any(|f| f == FEATURE_QUANTITY);
 
     let items = RwSignal::new(initial_items);
-
-    // Refetch this sublist's rows after a mutation so the progress bar and the row state follow.
-    let refresh_items = move || {
-        let lid = list_id.get_value();
-        leptos::task::spawn_local(async move {
-            if let Ok(data) = get_list_data(lid).await {
-                items.set(data.items);
-            }
-        });
-    };
 
     let on_add = Callback::new(move |title: String| {
         let lid = list_id.get_value();
         leptos::task::spawn_local(async move {
             match create_item(lid.clone(), title, None, None, None, None, None, None).await {
-                Ok(_) => {
-                    if let Ok(data) = get_list_data(lid).await {
-                        items.set(data.items);
-                    }
-                    on_any_change.run(());
-                }
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
-    });
-
-    let on_toggle = Callback::new(move |item_id: String| {
-        mutate_with(toggle_item(item_id), &[ChangeTopic::Items], move |_| {
-            refresh_items();
-            on_any_change.run(());
-        });
-    });
-
-    let on_quantity_change = Callback::new(move |(item_id, new_actual): (String, i32)| {
-        mutate_with(
-            update_actual_quantity(item_id, new_actual),
-            &[ChangeTopic::Items],
-            move |_| refresh_items(),
-        );
-    });
-
-    let on_description_save = Callback::new(move |(item_id, description): (String, String)| {
-        mutate_with(
-            update_item_description(item_id, description),
-            &[ChangeTopic::Items],
-            move |_| refresh_items(),
-        );
-    });
-
-    let on_date_save = Callback::new(move |payload: DateSavePayload| {
-        let (item_id, start, start_time, deadline, deadline_time, hard_deadline) = payload;
-        mutate_with(
-            update_item_dates(
-                item_id,
-                start,
-                start_time,
-                deadline,
-                deadline_time,
-                hard_deadline,
-            ),
-            &[ChangeTopic::Items],
-            move |_| refresh_items(),
-        );
-    });
-
-    let on_delete = Callback::new(move |item_id: String| {
-        let lid = list_id.get_value();
-        leptos::task::spawn_local(async move {
-            match delete_item(item_id).await {
-                Ok(_) => {
-                    invalidation.invalidate(ChangeTopic::Items);
-                    if let Ok(data) = get_list_data(lid).await {
-                        items.set(data.items);
-                    }
-                }
-                Err(e) => toast.push(e.to_string(), ToastKind::Error),
-            }
-        });
-    });
-
-    let on_move_item = Callback::new(move |(item_id, target_list_id): (String, String)| {
-        let lid = list_id.get_value();
-        leptos::task::spawn_local(async move {
-            match move_item(item_id, target_list_id).await {
                 Ok(_) => {
                     if let Ok(data) = get_list_data(lid).await {
                         items.set(data.items);
@@ -202,21 +118,27 @@ pub fn SublistSection(
                             .cmp(&b.completed)
                             .then(a.position.cmp(&b.position))
                     });
-                    let targets = move_targets_stored.get_value();
-                    let features = list_features.clone();
+                    // Rows read their item from a store; this section still rebuilds it per refetch.
+                    let row_store = Store::new(ItemRows::<Item>::default());
+                    let ids: Vec<String> = sorted.iter().map(|i| i.id.clone()).collect();
+                    patch_rows(row_store, sorted);
+                    let caps = Signal::stored(ItemCaps {
+                        drag: item_dnd_state.is_some(),
+                        delete: true,
+                        move_to: true,
+                        ..ItemCaps::from_features(&list_features)
+                    });
+                    let targets = Signal::stored(move_targets_stored.get_value());
                     view! {
                         <div class="flex flex-col gap-1">
-                            {sorted
+                            {ids
                                 .into_iter()
-                                .map(|item| {
-                                    let mt = targets.clone();
-                                    let features = features.clone();
-                                    let iid = item.id.clone();
+                                .map(|iid| {
                                     match item_dnd_state.zip(on_item_drop) {
                                         Some((state, cb)) => {
                                             let before_tgt = ItemDropTarget::before(
                                                 sublist.id.clone(),
-                                                iid,
+                                                iid.clone(),
                                             );
                                             view! {
                                                 <ItemDropTargetMarker
@@ -225,33 +147,21 @@ pub fn SublistSection(
                                                     on_drop=cb
                                                 />
                                                 <ItemRow
-                                                    item=item
-                                                    on_toggle=on_toggle
-                                                    on_delete=on_delete
-                                                    list_features=features
-                                                    has_quantity=has_quantity
-                                                    on_quantity_change=on_quantity_change
-                                                    on_description_save=on_description_save
-                                                    on_date_save=on_date_save
-                                                    move_targets=mt
-                                                    on_move=on_move_item
-                                                    dnd_state=state
+                                                    store=row_store
+                                                    id=iid
+                                                    caps=caps
+                                                    move_targets=targets
+                                                    dnd_state=Some(state)
                                                 />
                                             }
                                             .into_any()
                                         }
                                         None => view! {
                                             <ItemRow
-                                                item=item
-                                                on_toggle=on_toggle
-                                                on_delete=on_delete
-                                                list_features=features
-                                                has_quantity=has_quantity
-                                                on_quantity_change=on_quantity_change
-                                                on_description_save=on_description_save
-                                                on_date_save=on_date_save
-                                                move_targets=mt
-                                                on_move=on_move_item
+                                                store=row_store
+                                                id=iid
+                                                caps=caps
+                                                move_targets=targets
                                             />
                                         }
                                         .into_any(),

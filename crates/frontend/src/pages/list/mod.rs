@@ -15,7 +15,8 @@ use crate::components::common::delete_entity_modal::{DeleteEntityModal, DeleteTa
 use crate::components::common::dnd::{DetachDropZone, ItemDropTargetMarker};
 use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
-use crate::components::items::item_row::ItemRow;
+use crate::components::items::item_row::{ItemRow, RowTags};
+use crate::components::items::item_view::ItemCaps;
 use crate::components::lists::{
     add_input::AddInput,
     add_item_input::{AddItemDraft, AddItemInput},
@@ -38,8 +39,9 @@ use crate::state::dnd::{
     DndState, EntityKind, ItemDndState, ItemDropPlan, ItemDropTarget, build_item_drop_plan,
 };
 use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
-use crate::state::item_actions::{ItemActions, toggle_item_tag, use_item_actions};
+use crate::state::item_store::{ItemRows, patch_rows};
 use kartoteka_shared::ChangeTopic;
+use reactive_stores::Store;
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -137,27 +139,6 @@ pub fn ListPage() -> impl IntoView {
     });
 
     // ── Mutation callbacks ─────────────────────────────────────────
-
-    let ItemActions {
-        toggle: on_toggle_item,
-        delete: on_delete_item,
-        save_description: on_description_save,
-        set_actual_quantity: on_quantity_change,
-        move_to_list: on_move_item,
-        save_dates: on_date_save,
-    } = use_item_actions();
-
-    let on_item_tag_toggle = Callback::new(move |(item_id, tag_id): (String, String)| {
-        let links = data_res
-            .get()
-            .and_then(|r| r.ok())
-            .map(|d| d.item_tag_links)
-            .unwrap_or_default();
-        let is_assigned = links
-            .iter()
-            .any(|l| l.item_id == item_id && l.tag_id == tag_id);
-        toggle_item_tag(item_id, tag_id, is_assigned);
-    });
 
     let on_create_sublist = Callback::new(move |name: String| {
         use kartoteka_shared::types::CreateListRequest;
@@ -290,7 +271,6 @@ pub fn ListPage() -> impl IntoView {
                         let item_tag_links = data.item_tag_links.clone();
                         let item_tag_links_filter = data.item_tag_links.clone();
                         let all_tags_for_filter = data.all_tags.clone();
-                        let all_tags_for_rows = data.all_tags.clone();
                         let all_tags_for_list_tags = data.all_tags.clone();
                         let all_tags_for_selector = data.all_tags.clone();
                         let list_tag_ids = data.list_tag_ids.clone();
@@ -335,6 +315,28 @@ pub fn ListPage() -> impl IntoView {
                             .find(|f| f.feature_name == FEATURE_DEADLINES)
                             .map(|f| f.config.clone())
                             .unwrap_or_else(|| serde_json::json!({}));
+
+                        // Rows read their item from a store; this page still rebuilds it per refetch.
+                        let row_store = Store::new(ItemRows::<kartoteka_shared::types::Item>::default());
+                        patch_rows(row_store, data.items.clone());
+                        let plain_caps = Signal::stored(ItemCaps {
+                            tags: true,
+                            delete: true,
+                            move_to: true,
+                            ..ItemCaps::from_features(&current_features)
+                        });
+                        let drag_caps = Signal::stored(ItemCaps {
+                            drag: true,
+                            tags: true,
+                            delete: true,
+                            move_to: true,
+                            ..ItemCaps::from_features(&current_features)
+                        });
+                        let row_tags = RowTags {
+                            all_tags: Signal::stored(all_tags_for_selector.clone()),
+                            links: Signal::stored(item_tag_links_filter.clone()),
+                        };
+                        let row_targets = Signal::stored(targets_for_items.clone());
 
                         view! {
                             <div>
@@ -755,32 +757,13 @@ pub fn ListPage() -> impl IntoView {
                                                     let render_section = |items: Vec<kartoteka_shared::types::Item>, label: &'static str, label_class: &'static str| {
                                                         if items.is_empty() { return view! {}.into_any(); }
                                                         let rows = items.into_iter().map(|item| {
-                                                            let item_tags: Vec<kartoteka_shared::types::Tag> = item_tag_links_filter
-                                                                .iter()
-                                                                .filter(|l| l.item_id == item.id)
-                                                                .filter_map(|l| all_tags_for_rows.iter().find(|t| t.id == l.tag_id).cloned())
-                                                                .collect();
-                                                            let mt = targets_for_items.clone();
-                                                            let iid_tag = item.id.clone();
-                                                            let selector_tags = all_tags_for_selector.clone();
-                                                            let tag_cb = Callback::new(move |tag_id: String| {
-                                                                on_item_tag_toggle.run((iid_tag.clone(), tag_id));
-                                                            });
                                                             view! {
                                                                 <ItemRow
-                                                                    item=item
-                                                                    item_tags=item_tags
-                                                                    on_toggle=on_toggle_item
-                                                                    on_delete=on_delete_item
-                                                                    has_quantity=has_quantity
-                                                                    list_features=current_features.clone()
-                                                                    on_quantity_change=on_quantity_change
-                                                                    on_description_save=on_description_save
-                                                                    on_date_save=on_date_save
-                                                                    move_targets=mt
-                                                                    on_move=on_move_item
-                                                                    on_tag_toggle=tag_cb
-                                                                    all_tags_for_selector=selector_tags
+                                                                    store=row_store
+                                                                    id=item.id
+                                                                    caps=plain_caps
+                                                                    move_targets=row_targets
+                                                                    tags=Some(row_tags)
                                                                 />
                                                             }
                                                         }).collect::<Vec<_>>();
@@ -802,19 +785,7 @@ pub fn ListPage() -> impl IntoView {
                                                     view! {
                                                         <div class="flex flex-col">
                                                             {visible.into_iter().map(|item| {
-                                                                let item_tags: Vec<kartoteka_shared::types::Tag> = item_tag_links_filter
-                                                                    .iter()
-                                                                    .filter(|l| l.item_id == item.id)
-                                                                    .filter_map(|l| all_tags_for_rows.iter().find(|t| t.id == l.tag_id).cloned())
-                                                                    .collect();
-                                                                let mt = targets_for_items.clone();
-                                                                let iid = item.id.clone();
-                                                                let iid_tag = item.id.clone();
-                                                                let before_tgt = ItemDropTarget::before(current_list_id.clone(), iid);
-                                                                let selector_tags = all_tags_for_selector.clone();
-                                                                let tag_cb = Callback::new(move |tag_id: String| {
-                                                                    on_item_tag_toggle.run((iid_tag.clone(), tag_id));
-                                                                });
+                                                                let before_tgt = ItemDropTarget::before(current_list_id.clone(), item.id.clone());
                                                                 view! {
                                                                     <ItemDropTargetMarker
                                                                         dnd_state=item_dnd_state
@@ -822,20 +793,12 @@ pub fn ListPage() -> impl IntoView {
                                                                         on_drop=on_item_drop
                                                                     />
                                                                     <ItemRow
-                                                                        item=item
-                                                                        item_tags=item_tags
-                                                                        on_toggle=on_toggle_item
-                                                                        on_delete=on_delete_item
-                                                                        has_quantity=has_quantity
-                                                                        list_features=current_features.clone()
-                                                                        on_quantity_change=on_quantity_change
-                                                                        on_description_save=on_description_save
-                                                                        on_date_save=on_date_save
-                                                                        move_targets=mt
-                                                                        on_move=on_move_item
-                                                                        dnd_state=item_dnd_state
-                                                                        on_tag_toggle=tag_cb
-                                                                        all_tags_for_selector=selector_tags
+                                                                        store=row_store
+                                                                        id=item.id
+                                                                        caps=drag_caps
+                                                                        move_targets=row_targets
+                                                                        tags=Some(row_tags)
+                                                                        dnd_state=Some(item_dnd_state)
                                                                     />
                                                                 }
                                                             }).collect::<Vec<_>>()}

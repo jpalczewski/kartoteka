@@ -350,7 +350,7 @@ impl List {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tag {
     pub id: String,
     pub user_id: String,
@@ -369,7 +369,7 @@ pub struct ListTagLink {
     pub tag_id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ItemTagLink {
     pub item_id: String,
     pub tag_id: String,
@@ -605,7 +605,7 @@ mod sqlx_impl {
 
 // --- Comments ---
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Comment {
     pub id: String,
     pub entity_type: String,
@@ -618,7 +618,7 @@ pub struct Comment {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommentsPayload {
     pub comments: Vec<Comment>,
     pub current_user_id: String,
