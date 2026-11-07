@@ -16,6 +16,11 @@ pub struct CreateItemParams {
     pub actual_quantity: Option<i32>,
     pub unit: Option<String>,
     pub estimated_duration: Option<i32>,
+    /// Repeat interval: Nd, Nw or Nm, e.g. 7d, 2w, 1m.
+    /// The next occurrence is created when the item is completed.
+    pub recurrence_rule: Option<String>,
+    /// fixed (from the scheduled date, default) or floating (from completion date).
+    pub recurrence_mode: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -33,9 +38,15 @@ pub struct UpdateItemParams {
     pub actual_quantity: Option<i32>,
     pub unit: Option<String>,
     pub estimated_duration: Option<i32>,
+    /// Repeat interval: Nd, Nw or Nm, e.g. 7d, 2w, 1m.
+    /// The next occurrence is created when the item is completed.
+    pub recurrence_rule: Option<String>,
+    /// fixed (from the scheduled date, default) or floating (from completion date).
+    pub recurrence_mode: Option<String>,
     /// Field names to explicitly clear (set to null).
     /// Valid values: description, start_date, deadline, hard_deadline,
-    /// start_time, deadline_time, quantity, actual_quantity, unit, estimated_duration
+    /// start_time, deadline_time, quantity, actual_quantity, unit, estimated_duration,
+    /// recurrence_rule (also clears recurrence_mode), recurrence_mode
     pub clear: Option<Vec<String>>,
 }
 
@@ -80,6 +91,26 @@ impl UpdateItemParams {
     pub fn estimated_duration_field(&self) -> Option<Option<i32>> {
         Self::nullable(self.estimated_duration, self.cleared("estimated_duration"))
     }
+    pub fn recurrence_rule_field(&self) -> Option<Option<String>> {
+        Self::nullable(
+            self.recurrence_rule.clone(),
+            self.cleared("recurrence_rule"),
+        )
+    }
+    /// Clearing the rule clears the mode with it, so a cleared rule wins over an
+    /// explicit mode: the domain rejects a mode without a rule.
+    pub fn recurrence_mode_field(&self) -> Option<Option<String>> {
+        let cleared = self.cleared("recurrence_mode") || self.cleared("recurrence_rule");
+        Self::nullable(self.recurrence_mode.clone(), cleared)
+    }
+}
+
+// ── toggle_item ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ToggleItemParams {
+    /// Item ID.
+    pub item_id: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -122,6 +153,11 @@ pub struct CreateItemsInput {
     pub actual_quantity: Option<i32>,
     pub unit: Option<String>,
     pub estimated_duration: Option<i32>,
+    /// Repeat interval: Nd, Nw or Nm, e.g. 7d, 2w, 1m.
+    /// The next occurrence is created when the item is completed.
+    pub recurrence_rule: Option<String>,
+    /// fixed (from the scheduled date, default) or floating (from completion date).
+    pub recurrence_mode: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -179,4 +215,147 @@ pub struct CreateContainersInput {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CreateContainersParams {
     pub containers: Vec<CreateContainersInput>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Mirrors what `update_item` hands to `domain::items::update`.
+    fn update_request(p: &UpdateItemParams) -> kartoteka_domain::items::UpdateItemRequest {
+        kartoteka_domain::items::UpdateItemRequest {
+            title: p.title.clone(),
+            description: p.description_field(),
+            completed: p.completed,
+            quantity: p.quantity_field(),
+            actual_quantity: p.actual_quantity_field(),
+            unit: p.unit_field(),
+            start_date: p.start_date_field(),
+            start_time: p.start_time_field(),
+            deadline: p.deadline_field(),
+            deadline_time: p.deadline_time_field(),
+            hard_deadline: p.hard_deadline_field(),
+            estimated_duration: p.estimated_duration_field(),
+            location_id: None,
+            recurrence_rule: p.recurrence_rule_field(),
+            recurrence_mode: p.recurrence_mode_field(),
+        }
+    }
+
+    #[test]
+    fn create_item_params_map_recurrence_fields_to_request() {
+        let p: CreateItemParams = serde_json::from_value(json!({
+            "list_id": "list-1",
+            "title": "Water plants",
+            "recurrence_rule": "7d",
+            "recurrence_mode": "floating",
+        }))
+        .unwrap();
+        let req = kartoteka_domain::items::CreateItemRequest {
+            title: p.title,
+            description: p.description,
+            start_date: p.start_date,
+            deadline: p.deadline,
+            hard_deadline: p.hard_deadline,
+            start_time: p.start_time,
+            deadline_time: p.deadline_time,
+            quantity: p.quantity,
+            actual_quantity: p.actual_quantity,
+            unit: p.unit,
+            estimated_duration: p.estimated_duration,
+            recurrence_rule: p.recurrence_rule,
+            recurrence_mode: p.recurrence_mode,
+        };
+        assert_eq!(req.recurrence_rule.as_deref(), Some("7d"));
+        assert_eq!(req.recurrence_mode.as_deref(), Some("floating"));
+    }
+
+    #[test]
+    fn create_items_input_maps_recurrence_fields_to_request() {
+        let input: CreateItemsInput = serde_json::from_value(json!({
+            "title": "Pay rent",
+            "recurrence_rule": "1m",
+            "recurrence_mode": "fixed",
+        }))
+        .unwrap();
+        let req = kartoteka_domain::items::CreateItemRequest {
+            title: input.title,
+            description: input.description,
+            start_date: input.start_date,
+            deadline: input.deadline,
+            hard_deadline: input.hard_deadline,
+            start_time: input.start_time,
+            deadline_time: input.deadline_time,
+            quantity: input.quantity,
+            actual_quantity: input.actual_quantity,
+            unit: input.unit,
+            estimated_duration: input.estimated_duration,
+            recurrence_rule: input.recurrence_rule,
+            recurrence_mode: input.recurrence_mode,
+        };
+        assert_eq!(req.recurrence_rule.as_deref(), Some("1m"));
+        assert_eq!(req.recurrence_mode.as_deref(), Some("fixed"));
+    }
+
+    #[test]
+    fn update_item_params_map_recurrence_fields_to_request() {
+        let p: UpdateItemParams = serde_json::from_value(json!({
+            "item_id": "item-1",
+            "recurrence_rule": "2w",
+            "recurrence_mode": "floating",
+        }))
+        .unwrap();
+        let req = update_request(&p);
+        assert_eq!(req.recurrence_rule, Some(Some("2w".to_owned())));
+        assert_eq!(req.recurrence_mode, Some(Some("floating".to_owned())));
+    }
+
+    #[test]
+    fn update_item_params_without_recurrence_leave_fields_unset() {
+        let p: UpdateItemParams =
+            serde_json::from_value(json!({"item_id": "item-1", "title": "Renamed"})).unwrap();
+        let req = update_request(&p);
+        assert_eq!(req.recurrence_rule, None);
+        assert_eq!(req.recurrence_mode, None);
+    }
+
+    #[test]
+    fn clearing_recurrence_rule_clears_the_mode_too() {
+        let p: UpdateItemParams = serde_json::from_value(json!({
+            "item_id": "item-1",
+            "clear": ["recurrence_rule"],
+        }))
+        .unwrap();
+        let req = update_request(&p);
+        assert_eq!(req.recurrence_rule, Some(None));
+        assert_eq!(req.recurrence_mode, Some(None));
+    }
+
+    #[test]
+    fn explicit_recurrence_mode_is_kept_when_given() {
+        let p: UpdateItemParams = serde_json::from_value(json!({
+            "item_id": "item-1",
+            "recurrence_rule": "3d",
+            "recurrence_mode": "floating",
+            "clear": ["deadline"],
+        }))
+        .unwrap();
+        let req = update_request(&p);
+        assert_eq!(req.recurrence_rule, Some(Some("3d".to_owned())));
+        assert_eq!(req.recurrence_mode, Some(Some("floating".to_owned())));
+    }
+
+    #[test]
+    fn clearing_recurrence_mode_keeps_the_rule() {
+        let p: UpdateItemParams = serde_json::from_value(json!({
+            "item_id": "item-1",
+            "recurrence_rule": "3d",
+            "clear": ["recurrence_mode"],
+        }))
+        .unwrap();
+        let req = update_request(&p);
+        assert_eq!(req.recurrence_rule, Some(Some("3d".to_owned())));
+        assert_eq!(req.recurrence_mode, Some(None));
+    }
 }

@@ -3,7 +3,7 @@ use kartoteka_db::{self as db, lists::InsertListInput};
 use kartoteka_domain as domain;
 use kartoteka_shared::{
     auth_ctx::{UserId, UserLocale, UserTimezone},
-    types::{CreateContainerRequest, MoveContainerRequest},
+    types::{CreateContainerRequest, ItemChange, MoveContainerRequest},
 };
 use rmcp::{
     ErrorData, RoleServer, ServerHandler,
@@ -34,7 +34,7 @@ use crate::tools::{
     comments::AddCommentParams,
     items::{
         CreateContainerParams, CreateContainersParams, CreateItemParams, CreateItemsParams,
-        CreateListParams, CreateListsParams, UpdateItemParams,
+        CreateListParams, CreateListsParams, ToggleItemParams, UpdateItemParams,
     },
     movement::{MoveContainerToParentParams, MoveListToContainerParams},
     read::{
@@ -337,8 +337,8 @@ impl KartotekaServer {
             actual_quantity: p.actual_quantity,
             unit: p.unit,
             estimated_duration: p.estimated_duration,
-            recurrence_rule: None,
-            recurrence_mode: None,
+            recurrence_rule: p.recurrence_rule,
+            recurrence_mode: p.recurrence_mode,
         };
         self.domain_or_existing(
             domain::items::create(&self.pool, &uid, &p.list_id, &req).await,
@@ -367,14 +367,30 @@ impl KartotekaServer {
             hard_deadline: p.hard_deadline_field(),
             estimated_duration: p.estimated_duration_field(),
             location_id: None,
-            recurrence_rule: None,
-            recurrence_mode: None,
+            recurrence_rule: p.recurrence_rule_field(),
+            recurrence_mode: p.recurrence_mode_field(),
         };
         let item = domain::items::update(&self.pool, &uid, &p.item_id, &req)
             .await
             .map_err(self.domain_err(&locale))?;
-        // The MCP contract stays a bare item until the recurrence tool changes land.
-        self.json_result(item.map(|change| change.item), &locale)
+        self.json_result(item.map(ItemChange::from), &locale)
+    }
+
+    #[rmcp::tool(name = "toggle_item", description = "mcp-tool-toggle_item-desc")]
+    #[tracing::instrument(
+        skip(self, parts, p),
+        fields(action = "mcp_toggle_item", item_id = %p.item_id)
+    )]
+    async fn toggle_item(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<ToggleItemParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let change = domain::items::toggle_complete(&self.pool, &uid, &p.item_id)
+            .await
+            .map_err(self.domain_err(&locale))?;
+        self.json_result(change.map(ItemChange::from), &locale)
     }
 
     #[rmcp::tool(name = "create_list", description = "mcp-tool-create_list-desc")]
@@ -1137,8 +1153,8 @@ impl KartotekaServer {
                 deadline_time: item.deadline_time.clone(),
                 hard_deadline: item.hard_deadline.clone(),
                 estimated_duration: item.estimated_duration,
-                recurrence_rule: None,
-                recurrence_mode: None,
+                recurrence_rule: item.recurrence_rule.clone(),
+                recurrence_mode: item.recurrence_mode.clone(),
             })
             .collect();
         for req in &requests {
@@ -1885,6 +1901,8 @@ mod tests {
             actual_quantity: None,
             unit: None,
             estimated_duration: None,
+            recurrence_rule: None,
+            recurrence_mode: None,
         }
     }
 
@@ -2230,6 +2248,8 @@ mod tests {
                     actual_quantity: None,
                     unit: None,
                     estimated_duration: None,
+                    recurrence_rule: None,
+                    recurrence_mode: None,
                 },
                 CreateItemsInput {
                     title: "BUY MILK".to_owned(), // same title, different case
@@ -2243,6 +2263,8 @@ mod tests {
                     actual_quantity: None,
                     unit: None,
                     estimated_duration: None,
+                    recurrence_rule: None,
+                    recurrence_mode: None,
                 },
             ],
         };
@@ -2311,6 +2333,8 @@ mod tests {
                     actual_quantity: None,
                     unit: None,
                     estimated_duration: None,
+                    recurrence_rule: None,
+                    recurrence_mode: None,
                 },
                 CreateItemsInput {
                     title: "Beta".to_owned(),
@@ -2324,6 +2348,8 @@ mod tests {
                     actual_quantity: None,
                     unit: None,
                     estimated_duration: None,
+                    recurrence_rule: None,
+                    recurrence_mode: None,
                 },
             ],
         };
