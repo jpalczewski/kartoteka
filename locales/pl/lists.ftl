@@ -139,3 +139,6 @@ lists-archive-aria = Archiwizuj
 lists-restore-aria = Przywróć
 lists-archive-container-aria = Archiwizuj kontener
 lists-reset-completed = Resetuj ukończone
+
+# Formularz tworzenia
+lists-create-kind-aria = Co utworzyć

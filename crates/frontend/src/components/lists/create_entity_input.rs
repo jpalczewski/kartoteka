@@ -1,15 +1,38 @@
 use kartoteka_shared::types::{CreateContainerRequest, CreateListRequest};
+use leptos::ev::KeyboardEvent;
 use leptos::prelude::*;
 use leptos_fluent::{I18n, move_tr};
 
 use super::add_input::AddInput;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 enum EntityMode {
     List,
     Folder,
     Project,
 }
+
+/// Tabs in display order with their `data-testid`.
+const MODES: &[(EntityMode, &str)] = &[
+    (EntityMode::List, "create-entity-tab-list"),
+    (EntityMode::Folder, "create-entity-tab-folder"),
+    (EntityMode::Project, "create-entity-tab-project"),
+];
+
+/// Moves keyboard focus to the tab with the given test id (client only).
+#[cfg(target_arch = "wasm32")]
+fn focus_tab(testid: &str) {
+    use web_sys::wasm_bindgen::JsCast;
+    let selector = format!("[data-testid=\"{testid}\"]");
+    if let Some(el) = document().query_selector(&selector).ok().flatten()
+        && let Ok(el) = el.dyn_into::<web_sys::HtmlElement>()
+    {
+        let _ = el.focus();
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn focus_tab(_testid: &str) {}
 
 #[component]
 pub fn CreateEntityInput(
@@ -67,30 +90,47 @@ pub fn CreateEntityInput(
 
     view! {
         <div class="mb-4">
-            <div class="tabs tabs-boxed mb-2">
-                <a
-                    class=move || if mode.get() == EntityMode::List { "tab tab-active" } else { "tab" }
-                    on:click=move |_| set_mode.set(EntityMode::List)
-                >
-                    {move_tr!("lists-mode-list")}
-                </a>
-                {show_container_options.then(|| view! {
-                    <div class="contents">
-                        <a
-                            class=move || if mode.get() == EntityMode::Folder { "tab tab-active" } else { "tab" }
-                            data-testid="create-entity-tab-folder"
-                            on:click=move |_| set_mode.set(EntityMode::Folder)
+            <div
+                role="tablist"
+                class="tabs tabs-box mb-2"
+                aria-label=move_tr!("lists-create-kind-aria")
+                data-testid="create-entity-tabs"
+                on:keydown=move |ev: KeyboardEvent| {
+                    // Arrow keys move between tabs (roving tabindex), like a native tablist.
+                    let step: isize = match ev.key().as_str() {
+                        "ArrowRight" => 1,
+                        "ArrowLeft" => -1,
+                        _ => return,
+                    };
+                    let available = if show_container_options { MODES } else { &MODES[..1] };
+                    let current = available.iter().position(|(m, _)| *m == mode.get_untracked()).unwrap_or(0);
+                    let next = (current as isize + step).rem_euclid(available.len() as isize) as usize;
+                    let (next_mode, testid) = available[next];
+                    set_mode.set(next_mode);
+                    ev.prevent_default();
+                    focus_tab(testid);
+                }
+            >
+                {MODES.iter().filter(|(m, _)| show_container_options || *m == EntityMode::List).map(|(kind, testid)| {
+                    let kind = *kind;
+                    view! {
+                        <button
+                            type="button"
+                            role="tab"
+                            class=move || if mode.get() == kind { "tab tab-active" } else { "tab" }
+                            aria-selected=move || (mode.get() == kind).to_string()
+                            tabindex=move || if mode.get() == kind { "0" } else { "-1" }
+                            data-testid=*testid
+                            on:click=move |_| set_mode.set(kind)
                         >
-                            {move_tr!("lists-mode-folder")}
-                        </a>
-                        <a
-                            class=move || if mode.get() == EntityMode::Project { "tab tab-active" } else { "tab" }
-                            on:click=move |_| set_mode.set(EntityMode::Project)
-                        >
-                            {move_tr!("lists-mode-project")}
-                        </a>
-                    </div>
-                })}
+                            {match kind {
+                                EntityMode::List => move_tr!("lists-mode-list"),
+                                EntityMode::Folder => move_tr!("lists-mode-folder"),
+                                EntityMode::Project => move_tr!("lists-mode-project"),
+                            }}
+                        </button>
+                    }
+                }).collect_view()}
             </div>
 
             {move || (mode.get() == EntityMode::List).then(|| view! {
