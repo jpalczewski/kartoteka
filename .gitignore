@@ -35,6 +35,9 @@ gateway/locales/
 # Worktrees
 .worktrees/
 
+# Scratch (agent temp files)
+.scratch/
+
 # Env / secrets
 .env
 .env.local
