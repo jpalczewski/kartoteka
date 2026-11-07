@@ -275,10 +275,114 @@ pub async fn is_totp_enabled(pool: &SqlitePool, user_id: &str) -> Result<bool, D
     Ok(db::totp::is_enabled(pool, user_id).await?)
 }
 
-/// Create a personal access token. Generates a UUID jti, signs it as JWT HS256,
-/// and stores metadata in personal_tokens. The JWT is returned once — never stored.
+/// Scopes a personal access token may be issued with.
+pub const ALLOWED_TOKEN_SCOPES: &[&str] = &["full", "readonly"];
+/// Expiry applied when the caller does not request one explicitly.
+pub const DEFAULT_TOKEN_TTL_DAYS: i64 = 90;
+/// Hard upper bound for a requested token expiry.
+pub const MAX_TOKEN_TTL_DAYS: i64 = 365;
+
+/// Input for issuing a personal access token.
+///
+/// `scope` defaults to `"full"` when omitted. `expires_at` is an RFC3339
+/// timestamp; when omitted the token gets [`DEFAULT_TOKEN_TTL_DAYS`] days.
+#[derive(Debug, Clone, Default)]
+pub struct CreateTokenParams {
+    pub name: String,
+    pub scope: Option<String>,
+    pub expires_at: Option<String>,
+}
+
+/// Token parameters after validation, with a concrete expiry.
+#[derive(Debug, Clone)]
+pub struct ValidatedTokenParams {
+    pub name: String,
+    pub scope: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Errors from validating or creating a personal access token.
+#[derive(Debug, thiserror::Error)]
+pub enum CreateTokenError {
+    #[error("invalid scope '{0}': must be one of: full, readonly")]
+    InvalidScope(String),
+    #[error("invalid expires_at: expected RFC3339")]
+    InvalidExpiryFormat,
+    #[error("expires_at must be in the future")]
+    ExpiryInPast,
+    #[error("expires_at exceeds maximum of 365 days")]
+    ExpiryTooLong,
+    #[error(transparent)]
+    Domain(#[from] DomainError),
+}
+
+/// Validate scope and expiry for a new personal token and normalise the expiry.
+///
+/// This is the single source of truth for both the REST API and the Leptos
+/// server functions, so no caller can mint a token with an off-allowlist scope
+/// or an unbounded lifetime. `now` is a parameter to keep the function pure and
+/// deterministic in tests.
+pub fn validate_create_token(
+    params: CreateTokenParams,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<ValidatedTokenParams, CreateTokenError> {
+    let scope = params.scope.unwrap_or_else(|| "full".to_string());
+    if !ALLOWED_TOKEN_SCOPES.contains(&scope.as_str()) {
+        return Err(CreateTokenError::InvalidScope(scope));
+    }
+
+    let expires_at = match params.expires_at.as_deref() {
+        Some(raw) => {
+            let dt = chrono::DateTime::parse_from_rfc3339(raw)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .map_err(|_| CreateTokenError::InvalidExpiryFormat)?;
+            if dt <= now {
+                return Err(CreateTokenError::ExpiryInPast);
+            }
+            if dt > now + chrono::Duration::days(MAX_TOKEN_TTL_DAYS) {
+                return Err(CreateTokenError::ExpiryTooLong);
+            }
+            dt
+        }
+        None => now + chrono::Duration::days(DEFAULT_TOKEN_TTL_DAYS),
+    };
+
+    Ok(ValidatedTokenParams {
+        name: params.name,
+        scope,
+        expires_at,
+    })
+}
+
+/// Create a validated personal access token.
+///
+/// The scope must be one of [`ALLOWED_TOKEN_SCOPES`] and the expiry defaults to
+/// [`DEFAULT_TOKEN_TTL_DAYS`] days, capped at [`MAX_TOKEN_TTL_DAYS`]. Use this
+/// (or [`validate_create_token`]) instead of signing a token directly.
+#[tracing::instrument(skip(pool, signing_secret, params))]
+pub async fn create_personal_token(
+    pool: &SqlitePool,
+    signing_secret: &str,
+    user_id: &str,
+    params: CreateTokenParams,
+) -> Result<TokenCreated, CreateTokenError> {
+    let validated = validate_create_token(params, chrono::Utc::now())?;
+    Ok(create_token(
+        pool,
+        signing_secret,
+        user_id,
+        &validated.name,
+        &validated.scope,
+        Some(validated.expires_at),
+    )
+    .await?)
+}
+
+/// Low-level token signing. Does NOT validate scope or expiry — call via
+/// [`create_personal_token`]. Generates a UUID jti, signs the claims as JWT
+/// HS256, and stores metadata in personal_tokens. The JWT is returned once.
 #[tracing::instrument(skip(pool, signing_secret))]
-pub async fn create_token(
+async fn create_token(
     pool: &SqlitePool,
     signing_secret: &str,
     user_id: &str,
@@ -623,15 +727,148 @@ mod tests {
 
     const TEST_SECRET: &str = "test-signing-secret-32-bytes-min!!";
 
+    fn params(name: &str, scope: &str) -> CreateTokenParams {
+        CreateTokenParams {
+            name: name.to_string(),
+            scope: Some(scope.to_string()),
+            expires_at: None,
+        }
+    }
+
+    #[test]
+    fn validate_create_token_rejects_unknown_scope() {
+        let now = chrono::Utc::now();
+        let err = validate_create_token(params("T", "api"), now).unwrap_err();
+        assert!(matches!(err, CreateTokenError::InvalidScope(ref s) if s == "api"));
+    }
+
+    #[test]
+    fn validate_create_token_accepts_full_and_readonly() {
+        let now = chrono::Utc::now();
+        for scope in ["full", "readonly"] {
+            let validated = validate_create_token(params("T", scope), now).unwrap();
+            assert_eq!(validated.scope, scope);
+        }
+    }
+
+    #[test]
+    fn validate_create_token_defaults_to_full_scope() {
+        let now = chrono::Utc::now();
+        let validated = validate_create_token(
+            CreateTokenParams {
+                name: "T".to_string(),
+                scope: None,
+                expires_at: None,
+            },
+            now,
+        )
+        .unwrap();
+        assert_eq!(validated.scope, "full");
+    }
+
+    #[test]
+    fn validate_create_token_defaults_expiry_to_90_days() {
+        let now = chrono::Utc::now();
+        let validated = validate_create_token(params("T", "full"), now).unwrap();
+        assert_eq!(validated.expires_at, now + chrono::Duration::days(90));
+    }
+
+    #[test]
+    fn validate_create_token_rejects_expiry_over_max() {
+        let now = chrono::Utc::now();
+        let too_far = (now + chrono::Duration::days(366)).to_rfc3339();
+        let err = validate_create_token(
+            CreateTokenParams {
+                name: "T".to_string(),
+                scope: Some("full".to_string()),
+                expires_at: Some(too_far),
+            },
+            now,
+        )
+        .unwrap_err();
+        assert!(matches!(err, CreateTokenError::ExpiryTooLong));
+    }
+
+    #[test]
+    fn validate_create_token_rejects_past_expiry() {
+        let now = chrono::Utc::now();
+        let past = (now - chrono::Duration::days(1)).to_rfc3339();
+        let err = validate_create_token(
+            CreateTokenParams {
+                name: "T".to_string(),
+                scope: Some("readonly".to_string()),
+                expires_at: Some(past),
+            },
+            now,
+        )
+        .unwrap_err();
+        assert!(matches!(err, CreateTokenError::ExpiryInPast));
+    }
+
+    #[test]
+    fn validate_create_token_rejects_malformed_expiry() {
+        let now = chrono::Utc::now();
+        let err = validate_create_token(
+            CreateTokenParams {
+                name: "T".to_string(),
+                scope: Some("full".to_string()),
+                expires_at: Some("tomorrow".to_string()),
+            },
+            now,
+        )
+        .unwrap_err();
+        assert!(matches!(err, CreateTokenError::InvalidExpiryFormat));
+    }
+
+    #[tokio::test]
+    async fn create_personal_token_rejects_bad_scope() {
+        let pool = test_pool().await;
+        let user = register(&pool, "user@example.com", TEST_PW, None)
+            .await
+            .unwrap();
+        let err = create_personal_token(&pool, TEST_SECRET, &user.id, params("T", "api"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CreateTokenError::InvalidScope(_)));
+        // Nothing must have been persisted.
+        assert!(list_tokens(&pool, &user.id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn create_personal_token_stores_default_expiry() {
+        let pool = test_pool().await;
+        let user = register(&pool, "user@example.com", TEST_PW, None)
+            .await
+            .unwrap();
+        let before = chrono::Utc::now();
+        create_personal_token(&pool, TEST_SECRET, &user.id, params("T", "full"))
+            .await
+            .unwrap();
+        let tokens = list_tokens(&pool, &user.id).await.unwrap();
+        assert_eq!(tokens.len(), 1);
+        let expires_at = tokens[0]
+            .expires_at
+            .as_deref()
+            .expect("token must have an expiry");
+        let expires_at = chrono::DateTime::parse_from_rfc3339(expires_at).unwrap();
+        let lower =
+            before + chrono::Duration::days(DEFAULT_TOKEN_TTL_DAYS) - chrono::Duration::seconds(5);
+        let upper = chrono::Utc::now()
+            + chrono::Duration::days(DEFAULT_TOKEN_TTL_DAYS)
+            + chrono::Duration::seconds(5);
+        assert!(expires_at >= lower && expires_at <= upper);
+    }
+
     #[tokio::test]
     async fn create_token_returns_jwt_and_row() {
         let pool = test_pool().await;
         let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
-        let created = create_token(&pool, TEST_SECRET, &user.id, "My Token", "full", None)
-            .await
-            .unwrap();
+        let created =
+            create_personal_token(&pool, TEST_SECRET, &user.id, params("My Token", "full"))
+                .await
+                .unwrap();
         assert!(!created.token.is_empty());
         assert_eq!(created.name, "My Token");
         assert_eq!(created.scope, "full");
@@ -650,7 +887,7 @@ mod tests {
         let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
-        let created = create_token(&pool, TEST_SECRET, &user.id, "Token", "full", None)
+        let created = create_personal_token(&pool, TEST_SECRET, &user.id, params("Token", "full"))
             .await
             .unwrap();
         let result = validate_jwt(&pool, &created.token, "wrong-secret-32-bytes-min!!!!!!").await;
@@ -663,7 +900,7 @@ mod tests {
         let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
-        let created = create_token(&pool, TEST_SECRET, &user.id, "Token", "full", None)
+        let created = create_personal_token(&pool, TEST_SECRET, &user.id, params("Token", "full"))
             .await
             .unwrap();
         revoke_token(&pool, &created.id, &user.id).await.unwrap();
@@ -677,10 +914,10 @@ mod tests {
         let user = register(&pool, "user@example.com", TEST_PW, None)
             .await
             .unwrap();
-        create_token(&pool, TEST_SECRET, &user.id, "Token A", "full", None)
+        create_personal_token(&pool, TEST_SECRET, &user.id, params("Token A", "full"))
             .await
             .unwrap();
-        create_token(&pool, TEST_SECRET, &user.id, "Token B", "calendar", None)
+        create_personal_token(&pool, TEST_SECRET, &user.id, params("Token B", "readonly"))
             .await
             .unwrap();
         let tokens = list_tokens(&pool, &user.id).await.unwrap();
@@ -696,7 +933,7 @@ mod tests {
         let user2 = register(&pool, "u2@example.com", TEST_PW, None)
             .await
             .unwrap();
-        let created = create_token(&pool, TEST_SECRET, &user1.id, "Token", "full", None)
+        let created = create_personal_token(&pool, TEST_SECRET, &user1.id, params("Token", "full"))
             .await
             .unwrap();
         let err = revoke_token(&pool, &created.id, &user2.id)
@@ -759,9 +996,10 @@ mod tests {
         let user_a = register(&pool, "a@example.com", TEST_PW, None)
             .await
             .unwrap();
-        let created = create_token(&pool, TEST_SECRET, &user_a.id, "Token", "full", None)
-            .await
-            .unwrap();
+        let created =
+            create_personal_token(&pool, TEST_SECRET, &user_a.id, params("Token", "full"))
+                .await
+                .unwrap();
 
         // Forge a JWT with user_a's jti but a different sub.
         use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};

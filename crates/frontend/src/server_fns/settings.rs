@@ -98,6 +98,7 @@ pub async fn list_tokens() -> Result<Vec<TokenInfo>, ServerFnError> {
 }
 
 /// Create a new personal API token. Returns the JWT string ONCE — store it now or lose it.
+/// Scope and expiry are validated in `domain::auth` (default: full scope, 90-day expiry).
 #[server(prefix = "/leptos")]
 pub async fn create_token_sf(name: String, scope: String) -> Result<TokenCreated, ServerFnError> {
     let pool = expect_context::<SqlitePool>();
@@ -108,7 +109,12 @@ pub async fn create_token_sf(name: String, scope: String) -> Result<TokenCreated
     let user = auth
         .user
         .ok_or_else(|| ServerFnError::new("unauthorized".to_string()))?;
-    let created = domain::auth::create_token(&pool, &signing_secret, &user.id, &name, &scope, None)
+    let params = domain::auth::CreateTokenParams {
+        name,
+        scope: Some(scope),
+        expires_at: None,
+    };
+    let created = domain::auth::create_personal_token(&pool, &signing_secret, &user.id, params)
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
     Ok(TokenCreated {
