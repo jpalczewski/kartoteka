@@ -364,7 +364,12 @@ pub async fn update(
         None => return Ok(None),
     };
 
-    // Phase 2: THINK — validate parent change
+    // Phase 2: THINK — normalise appearance, validate parent change
+    let icon = req
+        .icon
+        .as_ref()
+        .map(|value| rules::appearance::normalize_icon(value.as_deref()))
+        .transpose()?;
     if let Some(Some(new_parent_id)) = &req.parent_tag_id {
         // Cycle detection
         let ancestors = db::tags::get_ancestors(pool, new_parent_id, user_id).await?;
@@ -391,7 +396,7 @@ pub async fn update(
         user_id,
         &UpdateTagInput {
             name: req.name.clone(),
-            icon: req.icon.clone(),
+            icon,
             color: req.color.clone(),
             parent_tag_id: req.parent_tag_id.clone(),
             tag_type: req.tag_type.clone(),
@@ -568,6 +573,24 @@ pub async fn get_for_container(
     )
 }
 
+// ── Usage counts ─────────────────────────────────────────────────────────────
+
+/// How often each of `user_id`'s tags is attached to an item or a list.
+///
+/// Tags without any attachment are missing from the map, so the UI reads `0`
+/// as the default.
+#[tracing::instrument(skip(pool))]
+pub async fn usage_counts(
+    pool: &SqlitePool,
+    user_id: &str,
+) -> Result<std::collections::HashMap<String, (i64, i64)>, DomainError> {
+    Ok(db::tags::get_usage_counts(pool, user_id)
+        .await?
+        .into_iter()
+        .map(|row| (row.tag_id, (row.items, row.lists)))
+        .collect())
+}
+
 // ── Inverse tag lookup ────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -666,6 +689,17 @@ mod tests {
         .unwrap()
     }
 
+    fn empty_update() -> UpdateTagRequest {
+        UpdateTagRequest {
+            name: None,
+            icon: None,
+            color: None,
+            parent_tag_id: None,
+            tag_type: None,
+            metadata: None,
+        }
+    }
+
     async fn make_item(pool: &SqlitePool, uid: &str) -> String {
         let lid = create_test_list(pool, uid).await;
         create_test_item(pool, &lid).await
@@ -706,6 +740,76 @@ mod tests {
         .unwrap();
 
         assert_eq!(updated.unwrap().name, "Job");
+    }
+
+    #[tokio::test]
+    async fn update_sets_and_clears_icon() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let tag = make_tag(&pool, &uid, "Work").await;
+
+        let with_icon = update(
+            &pool,
+            &uid,
+            &tag.id,
+            &UpdateTagRequest {
+                icon: Some(Some("lucide:star".to_string())),
+                ..empty_update()
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(with_icon.icon.as_deref(), Some("lucide:star"));
+
+        let cleared = update(
+            &pool,
+            &uid,
+            &tag.id,
+            &UpdateTagRequest {
+                icon: Some(None),
+                ..empty_update()
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(cleared.icon.is_none());
+    }
+
+    #[tokio::test]
+    async fn update_rejects_overlong_icon() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let tag = make_tag(&pool, &uid, "Work").await;
+
+        let result = update(
+            &pool,
+            &uid,
+            &tag.id,
+            &UpdateTagRequest {
+                icon: Some(Some(format!("emoji:{}", "x".repeat(80)))),
+                ..empty_update()
+            },
+        )
+        .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn usage_counts_report_items_and_lists() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let tag = make_tag(&pool, &uid, "Work").await;
+        let unused = make_tag(&pool, &uid, "Unused").await;
+        let item_id = make_item(&pool, &uid).await;
+        assign_to_item(&pool, &uid, &item_id, &tag.id)
+            .await
+            .unwrap();
+
+        let counts = usage_counts(&pool, &uid).await.unwrap();
+        assert_eq!(counts.get(&tag.id), Some(&(1, 0)));
+        assert!(!counts.contains_key(&unused.id));
     }
 
     #[tokio::test]
