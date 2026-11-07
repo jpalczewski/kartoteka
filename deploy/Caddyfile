@@ -1,6 +1,17 @@
 # Replace domain vars by setting KARTOTEKA_DOMAIN in /srv/kartoteka/.env
 # (Caddy reads environment vars from the container's env, not a .env file —
 # set them via the caddy service's `env_file:` or `environment:` in compose.yml)
+#
+# Client IPs: Caddy's reverse_proxy OVERWRITES the incoming X-Forwarded-For with
+# the real peer address (it ignores whatever the client sent), but it passes
+# X-Real-IP and Forwarded through UNTOUCHED. So only X-Forwarded-For can be
+# believed — and only when it comes from this proxy. The app therefore trusts
+# X-Forwarded-For solely from the peers listed in the app's own TRUSTED_PROXIES
+# env var (see .env.app.example); set that to this Docker network's subnet.
+# A CDN or load balancer in front of Caddy must be configured in Caddy's own
+# `trusted_proxies` directive, and its ranges must ALSO be added to the app's
+# TRUSTED_PROXIES: otherwise Caddy appends the CDN edge address to
+# X-Forwarded-For and every client behind one edge IP shares one bucket.
 
 {$KARTOTEKA_DOMAIN} {
     reverse_proxy prod:3000

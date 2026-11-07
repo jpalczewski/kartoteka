@@ -66,6 +66,7 @@ PUBLIC_BASE_URL=https://kartoteka.example.com
 APP_ENV=production
 BIND_ADDR=0.0.0.0:3000
 RUST_LOG=info
+TRUSTED_PROXIES=<docker-network-subnet>
 ```
 
 **`.env.dev`**:
@@ -76,6 +77,7 @@ PUBLIC_BASE_URL=https://dev.kartoteka.example.com
 APP_ENV=production
 BIND_ADDR=0.0.0.0:3000
 RUST_LOG=debug
+TRUSTED_PROXIES=<docker-network-subnet>
 ```
 
 **`.env.preview`**:
@@ -86,9 +88,29 @@ PUBLIC_BASE_URL=https://pr.kartoteka.example.com
 APP_ENV=production
 BIND_ADDR=0.0.0.0:3000
 RUST_LOG=info
+TRUSTED_PROXIES=<docker-network-subnet>
 ```
 
 > `APP_ENV=production` on all envs — the server uses this to enable structured JSON logs. Use `RUST_LOG=debug` on dev/preview for verbose output instead.
+
+Get the value for `TRUSTED_PROXIES` from the Docker network the Caddy container and
+the app share (`app` in `compose.yml`; the compose project name prefixes it):
+
+```bash
+docker network inspect kartoteka_app \
+  --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'   # e.g. 172.18.0.0/16
+```
+
+That is the proxy's CIDR from the app's point of view, so it covers the Caddy
+container's address if Docker ever reassigns it. Leaving it empty or unset is
+safe but blunt: the app then trusts no proxy, so *every* client reaching `/cal`
+through Caddy shares one rate-limit bucket (burst 20, then one request per 3 s).
+
+> A CDN or load balancer placed in front of Caddy belongs in Caddy's own
+> `trusted_proxies` directive, and its ranges also belong in the app's
+> `TRUSTED_PROXIES`: the app only ever sees Caddy as its peer, and a Caddy that
+> trusts the CDN *appends* the edge address to `X-Forwarded-For` instead of the
+> real client's, so per-client buckets would degrade to per-edge-IP buckets.
 
 Set restrictive permissions:
 
@@ -231,6 +253,7 @@ See `.env.app.example` for a ready-to-copy template.
 | `APP_ENV` | no | _(unset)_ | Set to `production` on all deployed environments. Controls: (1) structured JSON log output; (2) `Secure` flag on session cookies so they are only sent over HTTPS. |
 | `BIND_ADDR` | no | from Leptos config (`0.0.0.0:3000`) | TCP address the server listens on inside the container. Caddy forwards external traffic to this. |
 | `RUST_LOG` | no | `kartoteka_server=debug,...` | Log filter in `tracing-subscriber` `EnvFilter` format. Use `info` for prod, `debug` for dev/preview. |
+| `TRUSTED_PROXIES` | no | _(empty: trust no proxy)_ | Comma-separated CIDRs (or bare IPs) of reverse proxies whose `X-Forwarded-For` may be believed by the `/cal` rate limiter, e.g. `172.18.0.0/16` (see `.env.app.example`). Only X-Forwarded-For is read — Caddy overwrites it, while `X-Real-IP` and `Forwarded` pass through untouched — and only when the request's peer is in this list. Empty/unset keys every request on its peer address, so all proxied clients share one bucket (burst 20, +1 per 3 s). A CDN in front of Caddy goes in Caddy's own `trusted_proxies`, not here. |
 
 ### Security: `OAUTH_SIGNING_SECRET`
 
