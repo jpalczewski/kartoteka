@@ -8,9 +8,8 @@ on:
       - "docs/**"
   pull_request:
     branches: [develop]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
+    paths:
+      - ".github/**"
   schedule:
     - cron: "0 6 * * 1" # weekly Monday 6am
 
@@ -18,6 +17,7 @@ jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    if: ${{ matrix.language != 'rust' || github.event_name != 'pull_request' }}
     permissions:
       security-events: write
       packages: read
