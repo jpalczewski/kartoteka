@@ -1,0 +1,16 @@
+name: Advisories
+
+on:
+  schedule:
+    - cron: "0 8 * * 1" # weekly check for new RustSec advisories; ignores live in deny.toml
+  workflow_dispatch:
+
+jobs:
+  advisories:
+    name: RustSec Advisory Check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories
