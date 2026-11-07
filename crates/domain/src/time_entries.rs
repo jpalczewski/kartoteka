@@ -2,6 +2,7 @@ use crate::DomainError;
 use kartoteka_db as db;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 // ── Domain types ──────────────────────────────────────────────────────────────
@@ -24,6 +25,60 @@ pub struct TimeEntry {
 pub struct ItemTimeSummary {
     pub total_seconds: i64,
     pub entry_count: i64,
+}
+
+/// Tracked time for one entity (item, list subtree or container subtree).
+///
+/// `seconds` includes the live elapsed time of a running entry, so a project
+/// total is already correct before the timer is stopped; `running_since` is the
+/// `started_at` of that entry when there is one.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TimeTotal {
+    pub seconds: i64,
+    /// `started_at` of the running entry counted into `seconds`, if any.
+    pub running_since: Option<String>,
+}
+
+/// How a running timer was started. Breaks/pomodoro cycles are frontend-only:
+/// the backend just records which mode a work session belongs to.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TimerMode {
+    #[default]
+    Stopwatch,
+    Pomodoro,
+}
+
+impl TimerMode {
+    /// Value stored in `time_entries.mode`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stopwatch => "stopwatch",
+            Self::Pomodoro => "pomodoro",
+        }
+    }
+
+    /// Parse a caller-supplied mode (case-insensitive).
+    pub fn parse(value: &str) -> Result<Self, DomainError> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "stopwatch" => Ok(Self::Stopwatch),
+            "pomodoro" => Ok(Self::Pomodoro),
+            _ => Err(DomainError::Validation("invalid_timer_mode")),
+        }
+    }
+}
+
+/// Format a duration as `h:mm` (e.g. `125` seconds -> `0:02`, `7500` -> `2:05`).
+pub fn format_h_mm(seconds: i64) -> String {
+    let secs = seconds.max(0);
+    format!("{}:{:02}", secs / 3600, (secs % 3600) / 60)
+}
+
+fn total_to_domain(row: db::time_entries::TimeTotalRow) -> TimeTotal {
+    TimeTotal {
+        seconds: row.seconds,
+        running_since: row.running_since,
+    }
 }
 
 fn row_to_entry(row: db::types::TimeEntryRow) -> TimeEntry {
@@ -53,6 +108,18 @@ pub async fn start(
     pool: &SqlitePool,
     user_id: &str,
     item_id: Option<&str>,
+) -> Result<TimeEntry, DomainError> {
+    start_with_mode(pool, user_id, item_id, TimerMode::default()).await
+}
+
+/// Start a timer in the given mode (`stopwatch` or `pomodoro`).
+/// Auto-stops any currently running timer for this user.
+#[tracing::instrument(skip(pool))]
+pub async fn start_with_mode(
+    pool: &SqlitePool,
+    user_id: &str,
+    item_id: Option<&str>,
+    mode: TimerMode,
 ) -> Result<TimeEntry, DomainError> {
     if let Some(iid) = item_id {
         let row = db::items::get_one(pool, iid, user_id)
@@ -84,7 +151,7 @@ pub async fn start(
             description: None,
             started_at: &started_at,
             source: "timer",
-            mode: Some("stopwatch"),
+            mode: Some(mode.as_str()),
             ended_at: None,
             duration: None,
         },
@@ -245,6 +312,104 @@ pub async fn get_active(
 ) -> Result<Option<TimeEntry>, DomainError> {
     let row = db::time_entries::get_running(pool, user_id).await?;
     Ok(row.map(row_to_entry))
+}
+
+// ── Aggregation (recursive roll-up) ───────────────────────────────────────────
+//
+// Semantics: a total is every completed entry in scope plus the live elapsed time
+// of a running entry in scope. Inbox entries (`item_id IS NULL`) never belong to
+// an item, list or container, so they count nowhere here.
+
+/// Total tracked time for one item.
+#[tracing::instrument(skip(pool))]
+pub async fn total_for_item(
+    pool: &SqlitePool,
+    user_id: &str,
+    item_id: &str,
+) -> Result<TimeTotal, DomainError> {
+    if db::items::get_one(pool, item_id, user_id).await?.is_none() {
+        return Err(DomainError::Forbidden);
+    }
+    Ok(total_to_domain(
+        db::time_entries::item_total(pool, user_id, item_id).await?,
+    ))
+}
+
+/// Total tracked time for a list, **including every sublist at any depth**.
+#[tracing::instrument(skip(pool))]
+pub async fn total_for_list(
+    pool: &SqlitePool,
+    user_id: &str,
+    list_id: &str,
+) -> Result<TimeTotal, DomainError> {
+    if db::lists::get_one(pool, list_id, user_id).await?.is_none() {
+        return Err(DomainError::Forbidden);
+    }
+    Ok(total_to_domain(
+        db::time_entries::list_total(pool, user_id, list_id).await?,
+    ))
+}
+
+/// Total tracked time for a container, **including all sub-containers at any
+/// depth, their lists and those lists' sublists**.
+#[tracing::instrument(skip(pool))]
+pub async fn total_for_container(
+    pool: &SqlitePool,
+    user_id: &str,
+    container_id: &str,
+) -> Result<TimeTotal, DomainError> {
+    if db::containers::get_one(pool, container_id, user_id)
+        .await?
+        .is_none()
+    {
+        return Err(DomainError::Forbidden);
+    }
+    Ok(total_to_domain(
+        db::time_entries::container_total(pool, user_id, container_id).await?,
+    ))
+}
+
+/// Per-item totals in one query, for list pages (no N+1).
+/// Every requested id is present in the map; unknown or foreign ids map to zero.
+#[tracing::instrument(skip(pool))]
+pub async fn totals_for_items(
+    pool: &SqlitePool,
+    user_id: &str,
+    item_ids: &[String],
+) -> Result<HashMap<String, TimeTotal>, DomainError> {
+    let rows = db::time_entries::item_totals(pool, user_id, item_ids).await?;
+    Ok(complete_map(item_ids, rows))
+}
+
+/// Per-list totals (each including its own sublists) in one query.
+/// Every requested id is present in the map; unknown or foreign ids map to zero.
+#[tracing::instrument(skip(pool))]
+pub async fn totals_for_lists(
+    pool: &SqlitePool,
+    user_id: &str,
+    list_ids: &[String],
+) -> Result<HashMap<String, TimeTotal>, DomainError> {
+    let rows = db::time_entries::list_totals(pool, user_id, list_ids).await?;
+    Ok(complete_map(list_ids, rows))
+}
+
+/// Fill in a zero total for every requested id that has no entries.
+fn complete_map(
+    requested: &[String],
+    found: HashMap<String, db::time_entries::TimeTotalRow>,
+) -> HashMap<String, TimeTotal> {
+    requested
+        .iter()
+        .map(|id| {
+            let total = found
+                .get(id)
+                .map_or_else(TimeTotal::default, |r| TimeTotal {
+                    seconds: r.seconds,
+                    running_since: r.running_since.clone(),
+                });
+            (id.clone(), total)
+        })
+        .collect()
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -514,5 +679,205 @@ mod tests {
 
         let entry = start(&pool, &uid, Some(&item_id)).await.unwrap();
         assert_eq!(entry.item_id.as_deref(), Some(item_id.as_str()));
+    }
+
+    // ── Timer modes ──────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn start_with_pomodoro_mode_stores_mode() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+
+        let entry = start_with_mode(&pool, &uid, None, TimerMode::Pomodoro)
+            .await
+            .unwrap();
+        assert_eq!(entry.mode.as_deref(), Some("pomodoro"));
+
+        let stopped = stop(&pool, &uid).await.unwrap().unwrap();
+        assert_eq!(stopped.mode.as_deref(), Some("pomodoro"));
+    }
+
+    #[tokio::test]
+    async fn start_defaults_to_stopwatch() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+
+        let entry = start(&pool, &uid, None).await.unwrap();
+        assert_eq!(entry.mode.as_deref(), Some("stopwatch"));
+    }
+
+    #[test]
+    fn timer_mode_parse_accepts_known_values() {
+        assert_eq!(TimerMode::parse("stopwatch").unwrap(), TimerMode::Stopwatch);
+        assert_eq!(TimerMode::parse("Pomodoro").unwrap(), TimerMode::Pomodoro);
+        assert_eq!(TimerMode::default().as_str(), "stopwatch");
+        assert!(matches!(
+            TimerMode::parse("egg_timer"),
+            Err(DomainError::Validation("invalid_timer_mode"))
+        ));
+    }
+
+    #[test]
+    fn format_h_mm_formats_durations() {
+        assert_eq!(format_h_mm(0), "0:00");
+        assert_eq!(format_h_mm(125), "0:02");
+        assert_eq!(format_h_mm(7500), "2:05");
+        assert_eq!(format_h_mm(-5), "0:00");
+    }
+
+    // ── Aggregation ───────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn total_for_item_includes_running_entry() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_id = create_test_item(&pool, &list_id).await;
+        let features = serde_json::json!({"time_tracking": {}});
+        let mut tx = pool.begin().await.unwrap();
+        kartoteka_db::lists::set_features(&mut tx, &list_id, &features)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        log_manual(
+            &pool,
+            &uid,
+            Some(&item_id),
+            "2026-01-01 10:00:00",
+            "2026-01-01 11:00:00",
+            None,
+        )
+        .await
+        .unwrap();
+
+        let total = total_for_item(&pool, &uid, &item_id).await.unwrap();
+        assert_eq!(total.seconds, 3600);
+        assert!(total.running_since.is_none());
+
+        start(&pool, &uid, Some(&item_id)).await.unwrap();
+        let total = total_for_item(&pool, &uid, &item_id).await.unwrap();
+        assert!(total.seconds >= 3600);
+        assert!(total.running_since.is_some());
+    }
+
+    #[tokio::test]
+    async fn total_for_item_forbidden_for_other_users_item() {
+        let pool = test_pool().await;
+        let owner = create_test_user(&pool).await;
+        let attacker = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &owner).await;
+        let item_id = create_test_item(&pool, &list_id).await;
+
+        let result = total_for_item(&pool, &attacker, &item_id).await;
+        assert!(matches!(result, Err(DomainError::Forbidden)));
+    }
+
+    #[tokio::test]
+    async fn totals_roll_up_lists_and_containers() {
+        use kartoteka_db::test_helpers::{
+            create_test_container, create_test_list_in_container, create_test_sublist,
+        };
+
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+
+        let root = create_test_container(&pool, &uid, None).await;
+        let child = create_test_container(&pool, &uid, Some(&root)).await;
+        let list = create_test_list_in_container(&pool, &uid, &child).await;
+        let sublist = create_test_sublist(&pool, &uid, &list).await;
+        let item_in_list = create_test_item(&pool, &list).await;
+        let item_in_sublist = create_test_item(&pool, &sublist).await;
+
+        for (item, secs, end_str) in [
+            (&item_in_list, 60, "2026-01-01 10:01:00"),
+            (&item_in_sublist, 120, "2026-01-01 10:02:00"),
+        ] {
+            // log_manual checks the list's time_tracking feature; insert directly
+            // so the test only exercises aggregation.
+            kartoteka_db::time_entries::insert(
+                &pool,
+                kartoteka_db::time_entries::InsertTimeEntryInput {
+                    id: &Uuid::new_v4().to_string(),
+                    item_id: Some(item),
+                    user_id: &uid,
+                    description: None,
+                    started_at: "2026-01-01 10:00:00",
+                    source: "manual",
+                    mode: None,
+                    ended_at: Some(end_str),
+                    duration: Some(secs),
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        assert_eq!(
+            total_for_list(&pool, &uid, &list).await.unwrap().seconds,
+            180
+        );
+        assert_eq!(
+            total_for_container(&pool, &uid, &root)
+                .await
+                .unwrap()
+                .seconds,
+            180
+        );
+
+        // Batch variants agree and fill in zeros.
+        let items = totals_for_items(
+            &pool,
+            &uid,
+            &[item_in_list.clone(), item_in_sublist.clone()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(items.get(&item_in_list).unwrap().seconds, 60);
+        assert_eq!(items.get(&item_in_sublist).unwrap().seconds, 120);
+
+        let lists = totals_for_lists(&pool, &uid, std::slice::from_ref(&list))
+            .await
+            .unwrap();
+        assert_eq!(lists.get(&list).unwrap().seconds, 180);
+
+        let empty = totals_for_items(&pool, &uid, &[]).await.unwrap();
+        assert!(empty.is_empty());
+    }
+
+    #[tokio::test]
+    async fn inbox_entries_do_not_count_towards_any_total() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = create_test_list(&pool, &uid).await;
+        let item_id = create_test_item(&pool, &list_id).await;
+
+        // Inbox entry (item_id NULL) plus a running one.
+        kartoteka_db::time_entries::insert(
+            &pool,
+            kartoteka_db::time_entries::InsertTimeEntryInput {
+                id: &Uuid::new_v4().to_string(),
+                item_id: None,
+                user_id: &uid,
+                description: None,
+                started_at: "2026-01-01 10:00:00",
+                source: "manual",
+                mode: None,
+                ended_at: Some("2026-01-01 11:00:00"),
+                duration: Some(3600),
+            },
+        )
+        .await
+        .unwrap();
+        start(&pool, &uid, None).await.unwrap();
+
+        assert_eq!(
+            total_for_list(&pool, &uid, &list_id).await.unwrap().seconds,
+            0
+        );
+        assert_eq!(
+            total_for_item(&pool, &uid, &item_id).await.unwrap().seconds,
+            0
+        );
     }
 }
