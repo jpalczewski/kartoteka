@@ -13,12 +13,14 @@ tool-search-entities = Search items, lists, and containers globally by name/titl
 tool-next-cursor-page = Fetch the next page for a previously returned paginated cursor
 tool-add-item = Add one or more items to a list
 tool-update-item = Update an existing item
+tool-set-item-status = Set an item's status (todo, in_progress, done)
 tool-toggle-item = Set the completed state for one or more items
 tool-move-item = Move one or more items to a different list
 
 # Containers
 tool-list-containers = List all containers for the current user
 tool-create-container = Create a new container (folder or project)
+tool-set-container-status = Switch a container between folder and project (active, done, paused)
 tool-get-container = Get a container with progress metrics
 tool-get-container-children = Get sub-containers and lists inside a container
 tool-get-home = Get home dashboard: pinned, recent, root containers and lists
@@ -51,8 +53,10 @@ oauth-consent-scope-mcp = Read and modify your lists, items, tags, comments, and
 
 # New MCP tool descriptions
 mcp-tool-create_item-desc = Create a new item in a list. recurrence_rule repeats the item: Nd, Nw or Nm (e.g. 7d, 2w, 1m) and the next occurrence is created when the item is completed. recurrence_mode is fixed (from the scheduled date, default) or floating (from the completion date). A rule needs a deadline or start_date.
-mcp-tool-update_item-desc = Update fields of an existing item. Use the "clear" array to explicitly set fields to null (e.g. clear: ["deadline", "description"]); clearing recurrence_rule also clears recurrence_mode. recurrence_rule repeats the item: Nd, Nw or Nm (e.g. 7d, 2w, 1m), recurrence_mode is fixed (from the scheduled date, default) or floating (from the completion date). Completing a recurring item returns its next occurrence as "spawned".
+mcp-tool-update_item-desc = Update fields of an existing item. Use the "clear" array to explicitly set fields to null (e.g. clear: ["deadline", "icon"]); clearing recurrence_rule also clears recurrence_mode. recurrence_rule repeats the item: Nd, Nw or Nm (e.g. 7d, 2w, 1m), recurrence_mode is fixed (from the scheduled date, default) or floating (from the completion date). Completing a recurring item returns its next occurrence as "spawned".
 mcp-tool-toggle_item-desc = Toggle an item's completion state. Completing a recurring item creates its next occurrence, returned as "spawned". The list needs the checklist feature, and completing fails while the item has unresolved blockers.
+mcp-tool-set_item_status-desc = Set an item's status: "todo", "in_progress" or "done". "done" is the same as completing the item (blocked by unresolved blockers), the other two reopen it.
+mcp-tool-set_container_status-desc = Switch a container between folder (null) and project ("active", "done", "paused"). A folder with sub-containers cannot become a project.
 mcp-tool-search_items-desc = Full-text search across items and their comments.
 mcp-tool-add_comment-desc = Add a comment to an item, list, or container. Omit author_name when writing on the user's behalf (their voice). Set it to your name (e.g. "Claude") when the comment is your own observation, suggestion, or analysis.
 mcp-tool-add_relation-desc = Create a blocks or relates_to relation between two items.

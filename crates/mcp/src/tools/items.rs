@@ -7,6 +7,8 @@ pub struct CreateItemParams {
     pub list_id: String,
     pub title: String,
     pub description: Option<String>,
+    /// Icon: `lucide:<name>`, `emoji:<e>` or a bare emoji.
+    pub icon: Option<String>,
     pub start_date: Option<String>,
     pub deadline: Option<String>,
     pub hard_deadline: Option<String>,
@@ -28,7 +30,10 @@ pub struct UpdateItemParams {
     pub item_id: String,
     pub title: Option<String>,
     pub description: Option<String>,
+    /// Completing/reopening also moves `status` (done / todo).
     pub completed: Option<bool>,
+    /// Icon: `lucide:<name>`, `emoji:<e>` or a bare emoji.
+    pub icon: Option<String>,
     pub start_date: Option<String>,
     pub deadline: Option<String>,
     pub hard_deadline: Option<String>,
@@ -44,7 +49,7 @@ pub struct UpdateItemParams {
     /// fixed (from the scheduled date, default) or floating (from completion date).
     pub recurrence_mode: Option<String>,
     /// Field names to explicitly clear (set to null).
-    /// Valid values: description, start_date, deadline, hard_deadline,
+    /// Valid values: description, icon, start_date, deadline, hard_deadline,
     /// start_time, deadline_time, quantity, actual_quantity, unit, estimated_duration,
     /// recurrence_rule (also clears recurrence_mode), recurrence_mode
     pub clear: Option<Vec<String>>,
@@ -63,6 +68,9 @@ impl UpdateItemParams {
 
     pub fn description_field(&self) -> Option<Option<String>> {
         Self::nullable(self.description.clone(), self.cleared("description"))
+    }
+    pub fn icon_field(&self) -> Option<Option<String>> {
+        Self::nullable(self.icon.clone(), self.cleared("icon"))
     }
     pub fn start_date_field(&self) -> Option<Option<String>> {
         Self::nullable(self.start_date.clone(), self.cleared("start_date"))
@@ -119,6 +127,8 @@ pub struct CreateListParams {
     /// List type: "checklist" (default), "shopping", "schedule", "log", "notes"
     pub list_type: Option<String>,
     pub icon: Option<String>,
+    /// Accent colour as `#rrggbb` (null = neutral).
+    pub color: Option<String>,
     pub description: Option<String>,
     pub container_id: Option<String>,
     pub parent_list_id: Option<String>,
@@ -132,6 +142,8 @@ pub struct CreateListParams {
 pub struct CreateContainerParams {
     pub name: String,
     pub icon: Option<String>,
+    /// Accent colour as `#rrggbb` (null = neutral).
+    pub color: Option<String>,
     pub description: Option<String>,
     /// null/omit = folder; "active" | "done" | "paused" = project
     pub status: Option<String>,
@@ -144,6 +156,8 @@ pub struct CreateContainerParams {
 pub struct CreateItemsInput {
     pub title: String,
     pub description: Option<String>,
+    /// Icon: `lucide:<name>`, `emoji:<e>` or a bare emoji.
+    pub icon: Option<String>,
     pub start_date: Option<String>,
     pub deadline: Option<String>,
     pub hard_deadline: Option<String>,
@@ -175,6 +189,8 @@ pub struct CreateListsInput {
     /// List type: "checklist" (default), "shopping", "schedule", "log", "notes"
     pub list_type: Option<String>,
     pub icon: Option<String>,
+    /// Accent colour as `#rrggbb` (null = neutral).
+    pub color: Option<String>,
     pub description: Option<String>,
     pub features: Option<Vec<String>>,
     /// Real UUID of an existing container. Use `container_ref` instead to
@@ -201,6 +217,8 @@ pub struct CreateListsParams {
 pub struct CreateContainersInput {
     pub name: String,
     pub icon: Option<String>,
+    /// Accent colour as `#rrggbb` (null = neutral).
+    pub color: Option<String>,
     pub description: Option<String>,
     /// null/omit = folder; "active" | "done" | "paused" = project
     pub status: Option<String>,
@@ -217,6 +235,25 @@ pub struct CreateContainersParams {
     pub containers: Vec<CreateContainersInput>,
 }
 
+// ── set_item_status ───────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SetItemStatusParams {
+    pub item_id: String,
+    /// "todo" | "in_progress" | "done". `done` is the same as completing the
+    /// item: unresolved blockers reject it.
+    pub status: String,
+}
+
+// ── set_container_status ──────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SetContainerStatusParams {
+    pub container_id: String,
+    /// null = folder; "active" | "done" | "paused" = project.
+    pub status: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,6 +265,7 @@ mod tests {
             title: p.title.clone(),
             description: p.description_field(),
             completed: p.completed,
+            icon: p.icon_field(),
             quantity: p.quantity_field(),
             actual_quantity: p.actual_quantity_field(),
             unit: p.unit_field(),
@@ -266,6 +304,7 @@ mod tests {
             estimated_duration: p.estimated_duration,
             recurrence_rule: p.recurrence_rule,
             recurrence_mode: p.recurrence_mode,
+            icon: p.icon,
         };
         assert_eq!(req.recurrence_rule.as_deref(), Some("7d"));
         assert_eq!(req.recurrence_mode.as_deref(), Some("floating"));
@@ -293,6 +332,7 @@ mod tests {
             estimated_duration: input.estimated_duration,
             recurrence_rule: input.recurrence_rule,
             recurrence_mode: input.recurrence_mode,
+            icon: input.icon,
         };
         assert_eq!(req.recurrence_rule.as_deref(), Some("1m"));
         assert_eq!(req.recurrence_mode.as_deref(), Some("fixed"));

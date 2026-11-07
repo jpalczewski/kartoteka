@@ -34,7 +34,8 @@ use crate::tools::{
     comments::AddCommentParams,
     items::{
         CreateContainerParams, CreateContainersParams, CreateItemParams, CreateItemsParams,
-        CreateListParams, CreateListsParams, ToggleItemParams, UpdateItemParams,
+        CreateListParams, CreateListsParams, SetContainerStatusParams, SetItemStatusParams,
+        ToggleItemParams, UpdateItemParams,
     },
     movement::{MoveContainerToParentParams, MoveListToContainerParams},
     read::{
@@ -328,6 +329,7 @@ impl KartotekaServer {
         let req = domain::items::CreateItemRequest {
             title: p.title,
             description: p.description,
+            icon: p.icon,
             start_date: p.start_date,
             deadline: p.deadline,
             hard_deadline: p.hard_deadline,
@@ -357,6 +359,7 @@ impl KartotekaServer {
             title: p.title.clone(),
             description: p.description_field(),
             completed: p.completed,
+            icon: p.icon_field(),
             quantity: p.quantity_field(),
             actual_quantity: p.actual_quantity_field(),
             unit: p.unit_field(),
@@ -393,6 +396,29 @@ impl KartotekaServer {
         self.json_result(change.map(ItemChange::from), &locale)
     }
 
+    #[rmcp::tool(
+        name = "set_item_status",
+        description = "mcp-tool-set_item_status-desc"
+    )]
+    #[tracing::instrument(skip(self, parts), fields(action = "mcp_set_item_status"))]
+    async fn set_item_status(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<SetItemStatusParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let item = domain::items::set_status(&self.pool, &uid, &p.item_id, &p.status)
+            .await
+            .map_err(self.domain_err(&locale))?
+            .ok_or_else(|| {
+                self.map_err(
+                    McpError::Domain(domain::DomainError::NotFound("item")),
+                    &locale,
+                )
+            })?;
+        self.json_result(item, &locale)
+    }
+
     #[rmcp::tool(name = "create_list", description = "mcp-tool-create_list-desc")]
     async fn create_list(
         &self,
@@ -404,6 +430,7 @@ impl KartotekaServer {
             name: p.name,
             list_type: p.list_type,
             icon: p.icon,
+            color: p.color,
             description: p.description,
             container_id: p.container_id,
             parent_list_id: p.parent_list_id,
@@ -438,7 +465,10 @@ impl KartotekaServer {
             &p.entity_type,
             &p.entity_id,
             &p.content,
-            "user",
+            // Comments written through MCP come from an AI assistant, not from
+            // the user typing: the UI renders `assistant` with an "AI" badge and
+            // falls back to the author name. `author_name` is kept as given.
+            "assistant",
             p.author_name.as_deref(),
         )
         .await
@@ -715,6 +745,24 @@ impl KartotekaServer {
         self.json_result(data, &locale)
     }
 
+    #[rmcp::tool(
+        name = "set_container_status",
+        description = "mcp-tool-set_container_status-desc"
+    )]
+    #[tracing::instrument(skip(self, parts), fields(action = "mcp_set_container_status"))]
+    async fn set_container_status(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(p): Parameters<SetContainerStatusParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (uid, locale) = self.auth(&parts)?;
+        let container =
+            domain::containers::set_status(&self.pool, &p.container_id, &uid, p.status.as_deref())
+                .await
+                .map_err(self.domain_err(&locale))?;
+        self.json_result(container, &locale)
+    }
+
     #[rmcp::tool(name = "get_container", description = "mcp-tool-get_container-desc")]
     async fn get_container(
         &self,
@@ -752,7 +800,7 @@ impl KartotekaServer {
             color: p.color,
             parent_tag_id: p.parent_tag_id,
             tag_type: None,
-            icon: None,
+            icon: p.icon,
             metadata: None,
         };
         self.domain_or_existing(domain::tags::create(&self.pool, &uid, &req).await, &locale)
@@ -854,7 +902,7 @@ impl KartotekaServer {
             // earlier in this batch is visible inside the transaction.
             let req = domain::tags::CreateTagRequest {
                 name: tag.name.clone(),
-                icon: None,
+                icon: tag.icon.clone(),
                 color: tag.color.clone(),
                 parent_tag_id: parent_id.clone(),
                 tag_type: None,
@@ -897,7 +945,7 @@ impl KartotekaServer {
                     id: new_id.clone(),
                     user_id: uid.clone(),
                     name: tag.name.clone(),
-                    icon: None,
+                    icon: tag.icon.clone(),
                     color: tag.color.clone(),
                     parent_tag_id: parent_id.clone(),
                     tag_type: "tag".to_string(),
@@ -915,6 +963,7 @@ impl KartotekaServer {
             result.push(serde_json::json!({
                 "id": new_id,
                 "name": tag.name,
+                "icon": tag.icon,
                 "color": tag.color,
                 "parent_tag_id": parent_id,
                 "tag_type": "tag",
@@ -1104,6 +1153,7 @@ impl KartotekaServer {
             description: p.description,
             status: p.status,
             parent_container_id: p.parent_container_id,
+            color: p.color,
         };
         let container = domain::containers::create(&self.pool, &uid, &req)
             .await
@@ -1143,6 +1193,7 @@ impl KartotekaServer {
             .iter()
             .map(|item| domain::items::CreateItemRequest {
                 title: item.title.clone(),
+                icon: item.icon.clone(),
                 description: item.description.clone(),
                 quantity: item.quantity,
                 actual_quantity: item.actual_quantity,
@@ -1330,6 +1381,7 @@ impl KartotekaServer {
                     position,
                     name: list.name.clone(),
                     icon: list.icon.clone(),
+                    color: list.color.clone(),
                     description: list.description.clone(),
                     list_type: list_type.as_str().to_owned(),
                     container_id: container_id.map(str::to_owned),
@@ -1413,6 +1465,7 @@ impl KartotekaServer {
                 description: container.description.clone(),
                 status: container.status.clone(),
                 parent_container_id: parent_id.map(str::to_owned),
+                color: container.color.clone(),
             };
 
             // Same rules as the single `create_container` tool
@@ -1819,6 +1872,26 @@ mod tests {
         id
     }
 
+    /// Like [`insert_test_list`], but with the given feature names enabled.
+    async fn insert_test_list_with_features(
+        pool: &SqlitePool,
+        user_id: &str,
+        features: &[&str],
+    ) -> String {
+        let id = insert_test_list(pool, user_id).await;
+        let obj: serde_json::Map<String, serde_json::Value> = features
+            .iter()
+            .map(|n| ((*n).to_string(), serde_json::json!({})))
+            .collect();
+        sqlx::query("UPDATE lists SET features = ? WHERE id = ?")
+            .bind(serde_json::to_string(&obj).unwrap())
+            .bind(&id)
+            .execute(pool)
+            .await
+            .unwrap();
+        id
+    }
+
     #[test]
     fn cursor_round_trips_offsets() {
         for offset in [0, 3, 100] {
@@ -1892,6 +1965,7 @@ mod tests {
         CreateItemsInput {
             title: title.to_owned(),
             description: None,
+            icon: None,
             start_date: None,
             deadline: None,
             hard_deadline: None,
@@ -1911,6 +1985,7 @@ mod tests {
             name: name.to_owned(),
             list_type: list_type.map(str::to_owned),
             icon: None,
+            color: None,
             description: None,
             features: None,
             container_id: None,
@@ -1925,6 +2000,7 @@ mod tests {
         CreateContainersInput {
             name: name.to_owned(),
             icon: None,
+            color: None,
             description: None,
             status: None,
             parent_container_id,
@@ -1944,6 +2020,7 @@ mod tests {
         CreateContainerRequest {
             name: name.to_owned(),
             icon: None,
+            color: None,
             description: None,
             status: None,
             parent_container_id: None,
@@ -1958,6 +2035,7 @@ mod tests {
             name: name.to_owned(),
             list_type: None,
             icon: None,
+            color: None,
             description: None,
             container_id,
             parent_list_id: None,
@@ -2107,6 +2185,7 @@ mod tests {
                 description: None,
                 status: Some("active".to_owned()),
                 parent_container_id: None,
+                color: None,
             },
         )
         .await
@@ -2199,6 +2278,7 @@ mod tests {
             tags: vec![CreateTagsInput {
                 name: "Child".to_owned(),
                 color: None,
+                icon: None,
                 parent_tag_id: Some(parent.id.clone()),
                 parent_tag_ref: None,
                 client_ref: None,
@@ -2239,6 +2319,7 @@ mod tests {
                 CreateItemsInput {
                     title: "Buy milk".to_owned(),
                     description: None,
+                    icon: None,
                     start_date: None,
                     deadline: None,
                     hard_deadline: None,
@@ -2254,6 +2335,7 @@ mod tests {
                 CreateItemsInput {
                     title: "BUY MILK".to_owned(), // same title, different case
                     description: None,
+                    icon: None,
                     start_date: None,
                     deadline: None,
                     hard_deadline: None,
@@ -2324,6 +2406,7 @@ mod tests {
                 CreateItemsInput {
                     title: "Alpha".to_owned(),
                     description: None,
+                    icon: None,
                     start_date: None,
                     deadline: None,
                     hard_deadline: None,
@@ -2339,6 +2422,7 @@ mod tests {
                 CreateItemsInput {
                     title: "Beta".to_owned(),
                     description: None,
+                    icon: None,
                     start_date: None,
                     deadline: None,
                     hard_deadline: None,
@@ -2393,6 +2477,7 @@ mod tests {
                     name: "List One".to_owned(),
                     list_type: None,
                     icon: None,
+                    color: None,
                     description: None,
                     features: None,
                     container_id: None,
@@ -2405,6 +2490,7 @@ mod tests {
                     name: "List Two".to_owned(),
                     list_type: None,
                     icon: None,
+                    color: None,
                     description: None,
                     features: None,
                     container_id: None,
@@ -2449,6 +2535,7 @@ mod tests {
                 name: name.to_owned(),
                 list_type: None,
                 icon: None,
+                color: None,
                 description: None,
                 features: None,
                 container_id: None,
@@ -2736,5 +2823,245 @@ mod tests {
         assert_eq!(err.code.0, -32603, "unexpected code: {err:?}");
         assert_eq!(err.message, "Internal error.", "locale en");
         assert!(err.data.is_none(), "internal errors carry no data");
+    }
+
+    // ── status / icons / colours ──────────────────────────────────────────────
+
+    async fn item_json(result: &CallToolResult) -> serde_json::Value {
+        serde_json::from_str(&result_text(result)).unwrap()
+    }
+
+    #[tokio::test]
+    async fn create_item_passes_icon_through() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list(&pool, &uid).await;
+        let server = test_server(pool);
+
+        let mut input = item_input("Buy milk");
+        input.icon = Some("lucide:milk".to_owned());
+        let params = CreateItemsParams {
+            list_id,
+            items: vec![input],
+        };
+        let result = server
+            .create_items(Extension(parts_for_user(&uid)), Parameters(params))
+            .await
+            .unwrap();
+        let created: Vec<serde_json::Value> = serde_json::from_str(&result_text(&result)).unwrap();
+        let id = created[0]["id"].as_str().unwrap().to_owned();
+
+        let row: (Option<String>, String) =
+            sqlx::query_as("SELECT icon, status FROM items WHERE id = ?")
+                .bind(&id)
+                .fetch_one(&server.pool)
+                .await
+                .unwrap();
+        assert_eq!(row.0.as_deref(), Some("lucide:milk"));
+        assert_eq!(row.1, "todo");
+    }
+
+    #[tokio::test]
+    async fn set_item_status_tool_completes_and_reopens() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list_with_features(&pool, &uid, &["checklist"]).await;
+        let item_id = uuid::Uuid::new_v4().to_string();
+        sqlx::query("INSERT INTO items (id, list_id, title) VALUES (?, ?, 'Task')")
+            .bind(&item_id)
+            .bind(&list_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let server = test_server(pool);
+
+        let done = server
+            .set_item_status(
+                Extension(parts_for_user(&uid)),
+                Parameters(SetItemStatusParams {
+                    item_id: item_id.clone(),
+                    status: "done".to_owned(),
+                }),
+            )
+            .await
+            .unwrap();
+        let json = item_json(&done).await;
+        assert_eq!(json["status"], "done");
+        assert_eq!(json["completed"], true);
+
+        let in_progress = server
+            .set_item_status(
+                Extension(parts_for_user(&uid)),
+                Parameters(SetItemStatusParams {
+                    item_id: item_id.clone(),
+                    status: "in_progress".to_owned(),
+                }),
+            )
+            .await
+            .unwrap();
+        let json = item_json(&in_progress).await;
+        assert_eq!(json["status"], "in_progress");
+        assert_eq!(json["completed"], false);
+    }
+
+    #[tokio::test]
+    async fn set_item_status_tool_rejects_unknown_status() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list(&pool, &uid).await;
+        let item_id = uuid::Uuid::new_v4().to_string();
+        sqlx::query("INSERT INTO items (id, list_id, title) VALUES (?, ?, 'Task')")
+            .bind(&item_id)
+            .bind(&list_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let server = test_server(pool);
+
+        let err = match server
+            .set_item_status(
+                Extension(parts_for_user(&uid)),
+                Parameters(SetItemStatusParams {
+                    item_id,
+                    status: "blocked".to_owned(),
+                }),
+            )
+            .await
+        {
+            Ok(_) => panic!("unknown status must be rejected"),
+            Err(e) => e,
+        };
+        assert!(
+            err.message.contains("invalid_item_status"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[tokio::test]
+    async fn set_container_status_tool_toggles_folder_and_project() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let server = test_server(pool);
+
+        let created = server
+            .create_container(
+                Extension(parts_for_user(&uid)),
+                Parameters(CreateContainerParams {
+                    name: "Maybe".to_owned(),
+                    icon: None,
+                    color: Some("#00ff88".to_owned()),
+                    description: None,
+                    status: None,
+                    parent_container_id: None,
+                }),
+            )
+            .await
+            .unwrap();
+        let json = item_json(&created).await;
+        assert_eq!(json["color"], "#00ff88");
+        let container_id = json["id"].as_str().unwrap().to_owned();
+
+        let project = server
+            .set_container_status(
+                Extension(parts_for_user(&uid)),
+                Parameters(SetContainerStatusParams {
+                    container_id: container_id.clone(),
+                    status: Some("active".to_owned()),
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(item_json(&project).await["status"], "active");
+
+        let folder = server
+            .set_container_status(
+                Extension(parts_for_user(&uid)),
+                Parameters(SetContainerStatusParams {
+                    container_id,
+                    status: None,
+                }),
+            )
+            .await
+            .unwrap();
+        assert!(item_json(&folder).await["status"].is_null());
+    }
+
+    #[tokio::test]
+    async fn create_tag_passes_icon_through() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let server = test_server(pool);
+
+        let created = server
+            .create_tag(
+                Extension(parts_for_user(&uid)),
+                Parameters(CreateTagParams {
+                    name: "urgent".to_owned(),
+                    color: Some("#ff0000".to_owned()),
+                    icon: Some("lucide:flame".to_owned()),
+                    parent_tag_id: None,
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(item_json(&created).await["icon"], "lucide:flame");
+    }
+
+    #[tokio::test]
+    async fn create_tags_passes_icon_through() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let server = test_server(pool);
+
+        let params = CreateTagsParams {
+            tags: vec![CreateTagsInput {
+                name: "later".to_owned(),
+                color: None,
+                icon: Some("emoji:⏳".to_owned()),
+                parent_tag_id: None,
+                parent_tag_ref: None,
+                client_ref: None,
+            }],
+        };
+        server
+            .create_tags(Extension(parts_for_user(&uid)), Parameters(params))
+            .await
+            .unwrap();
+
+        let row: (Option<String>,) = sqlx::query_as("SELECT icon FROM tags WHERE name = 'later'")
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+        assert_eq!(row.0.as_deref(), Some("emoji:⏳"));
+    }
+
+    #[tokio::test]
+    async fn add_comment_records_assistant_author() {
+        let pool = multi_conn_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = insert_test_list(&pool, &uid).await;
+        let server = test_server(pool);
+
+        server
+            .add_comment(
+                Extension(parts_for_user(&uid)),
+                Parameters(AddCommentParams {
+                    entity_type: "list".to_owned(),
+                    entity_id: list_id,
+                    content: "Looks good".to_owned(),
+                    author_name: Some("Claude".to_owned()),
+                }),
+            )
+            .await
+            .unwrap();
+
+        let row: (String, Option<String>) =
+            sqlx::query_as("SELECT author_type, author_name FROM comments")
+                .fetch_one(&server.pool)
+                .await
+                .unwrap();
+        assert_eq!(row.0, "assistant");
+        assert_eq!(row.1.as_deref(), Some("Claude"));
     }
 }
