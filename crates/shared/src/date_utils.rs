@@ -85,39 +85,6 @@ pub fn next_month(year: i32, month: u32) -> (i32, u32) {
     }
 }
 
-/// Check if an item's deadline is overdue
-pub fn is_overdue(item: &crate::Item, today: &str, now_time: &str) -> bool {
-    if item.completed {
-        return false;
-    }
-    match flex_date_string(&item.deadline) {
-        None => false,
-        Some(d) if d.as_str() < today => true,
-        Some(d) if d.as_str() == today => match item.deadline_time.as_deref() {
-            Some(t) if !t.is_empty() => t < now_time,
-            _ => false,
-        },
-        _ => false,
-    }
-}
-
-/// Check overdue for a specific date field (date-only, no time)
-pub fn is_overdue_for_date_type(date_val: Option<&str>, completed: bool, today: &str) -> bool {
-    if completed {
-        return false;
-    }
-    match date_val {
-        None => false,
-        Some(d) if d < today => true,
-        _ => false,
-    }
-}
-
-/// Check if item is upcoming (not completed, not overdue)
-pub fn is_upcoming(item: &crate::Item, today: &str, now_time: &str) -> bool {
-    !item.completed && !is_overdue(item, today, now_time)
-}
-
 /// Render a flex date as it is stored ("YYYY-MM-DD", "YYYY-Www", "YYYY-MM")
 fn flex_date_string(date: &Option<crate::types::FlexDate>) -> Option<String> {
     date.as_ref().map(ToString::to_string)
@@ -292,51 +259,6 @@ mod tests {
             created_at: "2026-03-01".into(),
             updated_at: "2026-03-01".into(),
         }
-    }
-
-    #[test]
-    fn test_is_overdue_past_deadline() {
-        let item = test_item("t", Some("2026-03-28"), None, false);
-        assert!(is_overdue(&item, "2026-03-29", "12:00"));
-    }
-
-    #[test]
-    fn test_is_overdue_same_day_with_time() {
-        let item = test_item("t", Some("2026-03-29"), Some("10:00"), false);
-        assert!(is_overdue(&item, "2026-03-29", "12:00"));
-        assert!(!is_overdue(&item, "2026-03-29", "09:00"));
-    }
-
-    #[test]
-    fn test_is_overdue_completed_not_overdue() {
-        let item = test_item("t", Some("2026-03-28"), None, true);
-        assert!(!is_overdue(&item, "2026-03-29", "12:00"));
-    }
-
-    #[test]
-    fn test_is_overdue_for_date_type() {
-        assert!(is_overdue_for_date_type(
-            Some("2026-03-28"),
-            false,
-            "2026-03-29"
-        ));
-        assert!(!is_overdue_for_date_type(
-            Some("2026-03-28"),
-            true,
-            "2026-03-29"
-        )); // completed
-        assert!(!is_overdue_for_date_type(
-            Some("2026-03-30"),
-            false,
-            "2026-03-29"
-        )); // future
-        assert!(!is_overdue_for_date_type(None, false, "2026-03-29")); // no date
-    }
-
-    #[test]
-    fn test_is_upcoming() {
-        let item = test_item("t", Some("2026-03-30"), None, false);
-        assert!(is_upcoming(&item, "2026-03-29", "12:00"));
     }
 
     #[test]

@@ -33,7 +33,7 @@ Szczegółowe reguły w `crates/frontend/AGENTS.md`. Skrót:
 - `models/`, `dto/` (requests/responses), `deserializers.rs` (pub(crate)), `constants.rs`, `date_utils.rs`
 - `lib.rs` reeksportuje flat (`pub use models::*; pub use dto::*; pub use date_utils::*`)
 - `chrono` bez `default-features` (`features = ["alloc", "serde"]`) — WASM-safe
-- Daty: zobacz `date_utils.rs` (`parse_date`, `week_range`, `month_grid_range`, `is_overdue`, `sort_by_deadline`, …)
+- Daty: zobacz `date_utils.rs` (`parse_date`, `week_range`, `month_grid_range`, `sort_by_deadline`, …)
 
 ### Tracing / Logging
 Każdy handler w `crates/server/src/` **musi** mieć `#[tracing::instrument]`.
