@@ -240,12 +240,14 @@ pub async fn set_item_icon(item_id: String, icon: Option<String>) -> Result<Item
         hard_deadline: None,
         estimated_duration: None,
         location_id: None,
+        recurrence_rule: None,
+        recurrence_mode: None,
     };
-    let item = domain::items::update(&pool, &user.id, &item_id, &req)
+    let change = domain::items::update(&pool, &user.id, &item_id, &req)
         .await
         .sfn()?
         .ok_or_else(|| ServerFnError::new("item not found".to_string()))?;
-    Ok(item.into())
+    Ok(change.item.into())
 }
 
 /// Rewrite item positions in `list_id` according to `item_ids`. Every id must
