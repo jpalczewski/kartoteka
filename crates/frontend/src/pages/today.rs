@@ -11,9 +11,10 @@ use kartoteka_shared::types::{DateItem, ItemTagLink, Tag};
 use crate::components::common::list_filter_chips::ListFilterChips;
 use crate::components::common::loading::LoadingSpinner;
 use crate::components::ui::{IconButton, IconButtonVariant};
-use crate::server_fns::items::{delete_item, get_today_data, toggle_item};
+use crate::server_fns::items::{delete_item, get_today_data};
 use crate::server_fns::tags::{get_all_item_tag_links, get_all_tags};
 use crate::state::invalidation::{mutate, use_invalidation};
+use crate::state::item_actions::use_item_actions;
 use crate::state::item_store::{ItemRows, patch_rows, row_item, tracked_items};
 
 /// The items of one list inside a section, in display order.
@@ -276,6 +277,7 @@ fn TodayRow(store: Store<ItemRows<DateItem>>, id: String) -> impl IntoView {
                 .unwrap_or_default()
         })
     };
+    let actions = use_item_actions();
     let id_toggle = id.clone();
     let id_delete = id;
 
@@ -285,7 +287,7 @@ fn TodayRow(store: Store<ItemRows<DateItem>>, id: String) -> impl IntoView {
                 type="checkbox"
                 class="checkbox checkbox-sm checkbox-primary"
                 prop:checked=completed
-                on:change=move |_| mutate(toggle_item(id_toggle.clone()), &[ChangeTopic::Items])
+                on:change=move |_| actions.toggle.run(id_toggle.clone())
             />
             <A
                 href=href

@@ -1,3 +1,4 @@
+use crate::app::{ToastContext, ToastKind};
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
 use leptos_router::hooks::use_params_map;
@@ -7,7 +8,6 @@ use kartoteka_shared::{
     FEATURE_TIME_TRACKING, default_list_icon,
 };
 
-use crate::app::{ToastContext, ToastKind};
 use crate::components::comments::CommentSection;
 use crate::components::common::breadcrumbs::Breadcrumbs;
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
@@ -27,21 +27,17 @@ use crate::components::ui::{
     EntityIcon, Icon, IconButton, IconButtonSize, IconButtonVariant, SectionHeader,
 };
 use crate::server_fns::containers::get_containers_for_move;
-use crate::server_fns::items::{
-    delete_item, get_list_data, move_item, reorder_items, set_item_placement, toggle_item,
-    update_actual_quantity, update_item_dates, update_item_description,
-};
+use crate::server_fns::items::{get_list_data, reorder_items, set_item_placement};
 use crate::server_fns::lists::{
     archive_list, create_list, get_all_lists, move_list, pin_list, rename_list, reset_list,
     update_list_features,
 };
-use crate::server_fns::tags::{
-    assign_tag_to_item, assign_tag_to_list, remove_tag_from_item, remove_tag_from_list,
-};
+use crate::server_fns::tags::{assign_tag_to_list, remove_tag_from_list};
 use crate::state::dnd::{
     DndState, EntityKind, ItemDndState, ItemDropPlan, ItemDropTarget, build_item_drop_plan,
 };
 use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
+use crate::state::item_actions::{ItemActions, toggle_item_tag, use_item_actions};
 use kartoteka_shared::ChangeTopic;
 use std::collections::HashMap;
 
@@ -56,10 +52,10 @@ pub fn ListPage() -> impl IntoView {
     let params = use_params_map();
     let list_id = move || params.read().get("id").unwrap_or_default();
 
-    let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let navigate = leptos_router::hooks::use_navigate();
     // Separate handle for the shared delete flow, so the archive/reset modal keeps `navigate`.
     let nav_delete = navigate.clone();
+    let toast = use_context::<ToastContext>().expect("ToastContext missing");
     let invalidation = use_invalidation();
 
     let (show_completed, set_show_completed) = signal(true);
@@ -142,44 +138,14 @@ pub fn ListPage() -> impl IntoView {
 
     // ── Mutation callbacks ─────────────────────────────────────────
 
-    let on_toggle_item = Callback::new(move |item_id: String| {
-        mutate(toggle_item(item_id), &[ChangeTopic::Items]);
-    });
-
-    let on_delete_item = Callback::new(move |item_id: String| {
-        mutate(
-            delete_item(item_id),
-            &[ChangeTopic::Items, ChangeTopic::Comments],
-        );
-    });
-
-    let on_description_save = Callback::new(move |(item_id, desc): (String, String)| {
-        mutate(
-            update_item_description(item_id, desc),
-            &[ChangeTopic::Items],
-        );
-    });
-
-    let on_quantity_change = Callback::new(move |(item_id, new_actual): (String, i32)| {
-        mutate(
-            update_actual_quantity(item_id, new_actual),
-            &[ChangeTopic::Items],
-        );
-    });
-
-    let on_move_item = Callback::new(move |(item_id, target_list_id): (String, String)| {
-        mutate(move_item(item_id, target_list_id), &[ChangeTopic::Items]);
-    });
-
-    let on_date_save = Callback::new(
-        move |payload: crate::components::items::item_row::DateSavePayload| {
-            let (item_id, start, start_time, deadline, deadline_time, hard) = payload;
-            mutate(
-                update_item_dates(item_id, start, start_time, deadline, deadline_time, hard),
-                &[ChangeTopic::Items],
-            );
-        },
-    );
+    let ItemActions {
+        toggle: on_toggle_item,
+        delete: on_delete_item,
+        save_description: on_description_save,
+        set_actual_quantity: on_quantity_change,
+        move_to_list: on_move_item,
+        save_dates: on_date_save,
+    } = use_item_actions();
 
     let on_item_tag_toggle = Callback::new(move |(item_id, tag_id): (String, String)| {
         let links = data_res
@@ -190,14 +156,7 @@ pub fn ListPage() -> impl IntoView {
         let is_assigned = links
             .iter()
             .any(|l| l.item_id == item_id && l.tag_id == tag_id);
-        let result = async move {
-            if is_assigned {
-                remove_tag_from_item(item_id, tag_id).await
-            } else {
-                assign_tag_to_item(item_id, tag_id).await
-            }
-        };
-        mutate(result, &[ChangeTopic::Items, ChangeTopic::Tags]);
+        toggle_item_tag(item_id, tag_id, is_assigned);
     });
 
     let on_create_sublist = Callback::new(move |name: String| {

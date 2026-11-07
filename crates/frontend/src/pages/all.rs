@@ -6,8 +6,9 @@ use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::DateItem;
 
 use crate::components::common::loading::LoadingSpinner;
-use crate::server_fns::items::{get_all_items, toggle_item};
-use crate::state::invalidation::{mutate, use_invalidation};
+use crate::server_fns::items::get_all_items;
+use crate::state::invalidation::use_invalidation;
+use crate::state::item_actions::use_item_actions;
 use crate::utils::group_by_list;
 
 #[component]
@@ -20,9 +21,8 @@ pub fn AllPage() -> impl IntoView {
         |_| get_all_items(),
     );
 
-    let on_toggle = move |item_id: String| {
-        mutate(toggle_item(item_id), &[ChangeTopic::Items]);
-    };
+    let item_actions = use_item_actions();
+    let on_toggle = move |item_id: String| item_actions.toggle.run(item_id);
 
     view! {
         <div class="container mx-auto max-w-2xl p-4">

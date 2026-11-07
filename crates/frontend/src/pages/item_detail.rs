@@ -15,25 +15,11 @@ use crate::components::relations::RelatedEntities;
 use crate::components::tags::tag_list::TagList;
 use crate::components::time_entries::ItemTimerWidget;
 use crate::components::ui::{Chip, Icon};
-use crate::server_fns::items::{
-    get_item_detail, toggle_item, update_item, update_item_dates, update_item_quantity,
-};
+use crate::server_fns::items::{get_item_detail, update_item, update_item_quantity};
 use crate::server_fns::lists::get_list_feature_names;
-use crate::server_fns::tags::{
-    assign_tag_to_item, get_all_tags, get_item_tags, remove_tag_from_item,
-};
+use crate::server_fns::tags::{get_all_tags, get_item_tags};
 use crate::state::invalidation::{mutate, use_invalidation};
-
-fn toggle_item_tag(item_id: String, tag_id: String, is_assigned: bool) {
-    let result = async move {
-        if is_assigned {
-            remove_tag_from_item(item_id, tag_id).await
-        } else {
-            assign_tag_to_item(item_id, tag_id).await
-        }
-    };
-    mutate(result, &[ChangeTopic::Items, ChangeTopic::Tags]);
-}
+use crate::state::item_actions::{toggle_item_tag, use_item_actions};
 
 #[component]
 pub fn ItemDetailPage() -> impl IntoView {
@@ -42,6 +28,7 @@ pub fn ItemDetailPage() -> impl IntoView {
     let item_id = move || params.read().get("id").unwrap_or_default();
 
     let invalidation = use_invalidation();
+    let item_actions = use_item_actions();
     let i18n = expect_context::<I18n>();
 
     let item_res = Resource::new(
@@ -105,10 +92,7 @@ pub fn ItemDetailPage() -> impl IntoView {
         let dl = Some(deadline_input.get());
         let dt = Some(deadline_time_input.get());
         let hd = Some(hard_deadline_input.get());
-        mutate(
-            update_item_dates(id, sd, st, dl, dt, hd),
-            &[ChangeTopic::Items],
-        );
+        item_actions.save_dates.run((id, sd, st, dl, dt, hd));
     };
 
     let on_save_quantity = move |_: leptos::ev::MouseEvent| {
@@ -122,10 +106,7 @@ pub fn ItemDetailPage() -> impl IntoView {
         );
     };
 
-    let on_toggle = move |_: leptos::ev::Event| {
-        let id = item_id();
-        mutate(toggle_item(id), &[ChangeTopic::Items]);
-    };
+    let on_toggle = move |_: leptos::ev::Event| item_actions.toggle.run(item_id());
 
     let back_href = move || format!("/lists/{}", list_id());
 

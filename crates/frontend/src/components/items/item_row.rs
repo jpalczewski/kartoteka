@@ -15,16 +15,7 @@ use crate::components::tags::tag_selector_dropdown::TagSelectorDropdown;
 use crate::components::ui::{Chip, ChipTone, IconButton, IconButtonVariant};
 use crate::state::dnd::{DraggedItem, ItemDndState, begin_item_drag, clear_item_dnd_state};
 
-/// `(item_id, start_date, start_time, deadline, deadline_time, hard_deadline)` — times are
-/// independent of their dates so the caller can clear/update either half separately.
-pub type DateSavePayload = (
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
+pub use crate::state::item_actions::DateSavePayload;
 
 fn date_chips(item: &Item) -> Vec<(&'static str, String, bool)> {
     // (lucide icon, date_string, is_danger) — hard_deadline first, then deadline, then start
