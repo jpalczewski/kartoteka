@@ -14,6 +14,7 @@ fn row_to_container(r: ContainerRow) -> Container {
         user_id: r.user_id,
         name: r.name,
         icon: r.icon,
+        color: r.color,
         description: r.description,
         status: r.status,
         parent_container_id: r.parent_container_id,
@@ -66,6 +67,8 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
 {
     rules::containers::validate_status(req.status.as_deref())?;
+    rules::appearance::normalize_icon(req.icon.as_deref())?;
+    rules::appearance::normalize_color(req.color.as_deref())?;
 
     if let Some(parent_id) = req.parent_container_id.as_deref() {
         let parent = db_containers::get_one(executor, parent_id, user_id)
@@ -77,6 +80,9 @@ where
 }
 
 /// Insert an already-validated container inside a caller-owned transaction.
+///
+/// The request's icon/colour are normalized here (trim + "empty means none");
+/// the format/length rules are enforced by [`validate_create_container`].
 pub async fn insert_container_in(
     conn: &mut SqliteConnection,
     id: &str,
@@ -84,9 +90,26 @@ pub async fn insert_container_in(
     req: &CreateContainerRequest,
     position: i32,
 ) -> Result<Container, DomainError> {
+    let normalized = CreateContainerRequest {
+        name: req.name.clone(),
+        icon: trim_optional(&req.icon),
+        color: trim_optional(&req.color),
+        description: req.description.clone(),
+        status: req.status.clone(),
+        parent_container_id: req.parent_container_id.clone(),
+    };
     Ok(row_to_container(
-        db_containers::insert_in_tx(conn, id, user_id, req, position).await?,
+        db_containers::insert_in_tx(conn, id, user_id, &normalized, position).await?,
     ))
+}
+
+/// Trim an optional string and turn an empty result into `None`.
+fn trim_optional(value: &Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 /// Create a new container, validating hierarchy rules.
@@ -116,11 +139,89 @@ pub async fn update(
     user_id: &str,
     req: &UpdateContainerRequest,
 ) -> Result<Container, DomainError> {
+    rules::containers::validate_status(req.status.as_ref().and_then(|v| v.as_deref()))?;
+    let icon = req
+        .icon
+        .as_ref()
+        .map(|v| rules::appearance::normalize_icon(v.as_deref()))
+        .transpose()?;
+    let color = req
+        .color
+        .as_ref()
+        .map(|v| rules::appearance::normalize_color(v.as_deref()))
+        .transpose()?;
+    let normalized = UpdateContainerRequest {
+        name: req.name.clone(),
+        icon,
+        color,
+        description: req.description.clone(),
+        status: req.status.clone(),
+        location_id: req.location_id.clone(),
+    };
     crate::locations::ensure_owned(pool, &req.location_id, user_id).await?;
-    db_containers::update(pool, id, user_id, req)
+    db_containers::update(pool, id, user_id, &normalized)
         .await?
         .map(row_to_container)
         .ok_or(DomainError::NotFound("container"))
+}
+
+/// Change a container between folder (`None`) and project (`active` / `done` /
+/// `paused`) states.
+///
+/// Turning a folder with sub-containers into a project is rejected: children may
+/// only live under folders (same rule [`move_container`] applies to a target
+/// parent), so that change would leave the hierarchy invalid.
+#[tracing::instrument(skip(pool), fields(container_id = %id, status = ?status))]
+pub async fn set_status(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    status: Option<&str>,
+) -> Result<Container, DomainError> {
+    rules::containers::validate_status(status)?;
+    let current = get_one(pool, id, user_id).await?;
+    if status.is_some() && current.status.is_none() {
+        let children = db_containers::child_ids(pool, user_id, Some(id)).await?;
+        if !children.is_empty() {
+            return Err(DomainError::Validation("container_has_children"));
+        }
+    }
+    if current.status.as_deref() == status {
+        return Ok(current);
+    }
+    let req = UpdateContainerRequest {
+        name: None,
+        icon: None,
+        color: None,
+        description: None,
+        status: Some(status.map(str::to_string)),
+        location_id: None,
+    };
+    update(pool, id, user_id, &req).await
+}
+
+/// Set the icon and/or accent colour of a container (same patch convention as
+/// [`crate::lists::set_appearance`]).
+#[tracing::instrument(skip(pool, icon, color), fields(container_id = %id))]
+pub async fn set_appearance(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    icon: Option<Option<String>>,
+    color: Option<Option<String>>,
+) -> Result<Container, DomainError> {
+    if icon.is_none() && color.is_none() {
+        return get_one(pool, id, user_id).await;
+    }
+    let req = UpdateContainerRequest {
+        name: None,
+        icon,
+        color,
+        description: None,
+        status: None,
+        location_id: None,
+    };
+    update(pool, id, user_id, &req).await
 }
 
 /// Preview what deleting this container would remove.
@@ -369,6 +470,7 @@ mod tests {
                 description: None,
                 status: None,
                 parent_container_id: None,
+                color: None,
             },
         )
         .await
@@ -387,6 +489,7 @@ mod tests {
             &CreateContainerRequest {
                 name: name.into(),
                 icon: None,
+                color: None,
                 description: None,
                 status: None,
                 parent_container_id: Some(parent_container_id.to_string()),
@@ -410,6 +513,7 @@ mod tests {
                 name: name.into(),
                 list_type: Some("checklist".into()),
                 icon: None,
+                color: None,
                 description: None,
                 container_id: Some(container_id.to_string()),
                 parent_list_id: parent_list_id.map(str::to_string),
@@ -471,6 +575,7 @@ mod tests {
                 description: None,
                 status: None,
                 parent_container_id: Some(folder.id.clone()),
+                color: None,
             },
         )
         .await;
@@ -497,6 +602,7 @@ mod tests {
                 description: None,
                 status: Some("active".into()),
                 parent_container_id: None,
+                color: None,
             },
         )
         .await
@@ -511,6 +617,7 @@ mod tests {
                 description: None,
                 status: None,
                 parent_container_id: Some(project.id.clone()),
+                color: None,
             },
         )
         .await;
@@ -552,6 +659,7 @@ mod tests {
                 description: None,
                 status: None,
                 location_id: None,
+                color: None,
             },
         )
         .await
@@ -612,6 +720,7 @@ mod tests {
                 description: None,
                 status: None,
                 parent_container_id: Some(parent.id.clone()),
+                color: None,
             },
         )
         .await
@@ -719,6 +828,7 @@ mod tests {
                 description: None,
                 status: None,
                 parent_container_id: Some(parent.into()),
+                color: None,
             },
         )
         .await
@@ -826,6 +936,7 @@ mod tests {
                 description: None,
                 status: Some("active".into()),
                 parent_container_id: None,
+                color: None,
             },
         )
         .await
@@ -996,6 +1107,87 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn set_status_switches_folder_to_project_and_back() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let container = make_container(&pool, &uid, "Maybe project").await;
+        assert!(container.status.is_none());
+
+        let project = set_status(&pool, &container.id, &uid, Some("active"))
+            .await
+            .unwrap();
+        assert_eq!(project.status.as_deref(), Some("active"));
+
+        let folder = set_status(&pool, &container.id, &uid, None).await.unwrap();
+        assert!(folder.status.is_none());
+    }
+
+    #[tokio::test]
+    async fn set_status_rejects_unknown_value() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let container = make_container(&pool, &uid, "Box").await;
+
+        let err = set_status(&pool, &container.id, &uid, Some("archived"))
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            DomainError::Validation("invalid_container_status")
+        ));
+    }
+
+    #[tokio::test]
+    async fn set_status_rejects_project_for_folder_with_children() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let parent = make_container(&pool, &uid, "Parent").await;
+        let child_req = CreateContainerRequest {
+            name: "Child".into(),
+            icon: None,
+            color: None,
+            description: None,
+            status: None,
+            parent_container_id: Some(parent.id.clone()),
+        };
+        create(&pool, &uid, &child_req).await.unwrap();
+
+        let err = set_status(&pool, &parent.id, &uid, Some("active"))
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            DomainError::Validation("container_has_children")
+        ));
+        let unchanged = get_one(&pool, &parent.id, &uid).await.unwrap();
+        assert!(unchanged.status.is_none());
+    }
+
+    #[tokio::test]
+    async fn set_appearance_sets_and_clears_color() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let container = make_container(&pool, &uid, "Styled").await;
+
+        let styled = set_appearance(
+            &pool,
+            &container.id,
+            &uid,
+            Some(Some("emoji:📦".into())),
+            Some(Some("#00ff00".into())),
+        )
+        .await
+        .unwrap();
+        assert_eq!(styled.icon.as_deref(), Some("emoji:📦"));
+        assert_eq!(styled.color.as_deref(), Some("#00ff00"));
+
+        let cleared = set_appearance(&pool, &container.id, &uid, Some(None), Some(None))
+            .await
+            .unwrap();
+        assert!(cleared.icon.is_none());
+        assert!(cleared.color.is_none());
+    }
     // ── delete matrix ───────────────────────────────────────────────────────
 
     #[tokio::test]

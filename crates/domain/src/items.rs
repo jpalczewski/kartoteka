@@ -24,6 +24,10 @@ pub struct Item {
     pub title: String,
     pub description: Option<String>,
     pub completed: bool,
+    /// "todo" | "in_progress" | "done"; `done` exactly when `completed`.
+    pub status: String,
+    /// `lucide:<name>`, `emoji:<e>` or a legacy bare emoji.
+    pub icon: Option<String>,
     pub position: i32,
     pub quantity: Option<i32>,
     pub actual_quantity: Option<i32>,
@@ -69,6 +73,8 @@ impl From<ItemChange> for kartoteka_shared::types::ItemChange {
 pub struct CreateItemRequest {
     pub title: String,
     pub description: Option<String>,
+    /// `lucide:<name>`, `emoji:<e>` or a legacy bare emoji.
+    pub icon: Option<String>,
     pub quantity: Option<i32>,
     pub actual_quantity: Option<i32>,
     pub unit: Option<String>,
@@ -89,7 +95,10 @@ pub struct CreateItemRequest {
 pub struct UpdateItemRequest {
     pub title: Option<String>,
     pub description: Option<Option<String>>,
+    /// Drives `status` too (`true` → done, `false` → todo unless in_progress).
     pub completed: Option<bool>,
+    /// None = keep, Some(None) = clear.
+    pub icon: Option<Option<String>>,
     pub quantity: Option<Option<i32>>,
     pub actual_quantity: Option<Option<i32>>,
     pub unit: Option<Option<String>>,
@@ -130,6 +139,8 @@ impl From<db::types::ItemRow> for Item {
             title: row.title,
             description: row.description,
             completed: row.completed,
+            status: row.status,
+            icon: row.icon,
             position: row.position,
             quantity: row.quantity,
             actual_quantity: row.actual_quantity,
@@ -160,6 +171,8 @@ impl From<Item> for kartoteka_shared::types::Item {
             title: item.title,
             description: item.description,
             completed: item.completed,
+            status: item.status,
+            icon: item.icon,
             position: item.position,
             quantity: item.quantity,
             actual_quantity: item.actual_quantity,
@@ -401,6 +414,7 @@ pub fn validate_create_item(
     req: &CreateItemRequest,
 ) -> Result<(), DomainError> {
     rules::items::validate_title(&req.title)?;
+    rules::appearance::normalize_icon(req.icon.as_deref())?;
     rules::items::validate_item_dates(
         req.start_date.as_deref(),
         req.start_time.as_deref(),
@@ -461,6 +475,14 @@ pub fn new_item_input(
         location_id: None,
         recurrence_rule,
         recurrence_mode,
+        // The length rule lives in `validate_create_item`; only trimming and
+        // "empty means no icon" are applied here.
+        icon: req
+            .icon
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
     }
 }
 
@@ -552,6 +574,10 @@ pub async fn update(
         ),
     )?;
     crate::locations::ensure_owned(pool, &req.location_id, user_id).await?;
+    let icon = rules::appearance::normalize_icon(req.icon.as_ref().and_then(|v| v.as_deref()))?;
+    // A caller-provided icon only replaces the stored one when `icon` was given
+    // (`Some`); `None` means "leave it alone".
+    let icon = req.icon.as_ref().map(|_| icon);
 
     // The false → true transition (explicit or auto-complete) drives the spawn.
     // It is decided from the pre-write state, before the transaction opens.
@@ -578,6 +604,7 @@ pub async fn update(
         } else {
             req.completed
         },
+        icon,
         quantity: req.quantity,
         actual_quantity: req.actual_quantity,
         unit: req.unit.clone(),
@@ -710,6 +737,7 @@ async fn spawn_next_in(
         location_id: completed.location_id.clone(),
         recurrence_rule: Some(rule.to_string()),
         recurrence_mode: Some(mode.to_string()),
+        icon: completed.icon.clone(),
     };
     let spawned = db::items::insert_in_tx(&mut *conn, &input).await?;
     db::tags::copy_item_tags_in_tx(&mut *conn, &completed.id, &spawned.id).await?;
@@ -732,6 +760,7 @@ async fn spawn_next_in(
         location_id: None,
         recurrence_rule: Some(None),
         recurrence_mode: Some(None),
+        icon: None,
     };
     db::items::update_in_tx(&mut *conn, &completed.id, user_id, &clear_rule).await?;
 
@@ -758,6 +787,40 @@ async fn item_change(
         None => None,
     };
     Ok(ItemChange { item, spawned })
+}
+
+/// Set the three-state status of an item.
+///
+/// `done` goes through the same gate as completing an item: the list must be a
+/// checklist and no unresolved blocker may remain (see
+/// [`rules::items::validate_can_complete`]). `todo` / `in_progress` always clear
+/// `completed`, so `completed == (status == 'done')` keeps holding. Unknown
+/// status values are rejected before anything is written.
+#[tracing::instrument(skip(pool), fields(item_id = %id, status = %status))]
+pub async fn set_status(
+    pool: &SqlitePool,
+    user_id: &str,
+    id: &str,
+    status: &str,
+) -> Result<Option<Item>, DomainError> {
+    // Phase 1 READ: current state + feature gate
+    rules::items::validate_status(status)?;
+    let item = match db::items::get_one(pool, id, user_id).await? {
+        Some(row) => Item::from(row),
+        None => return Ok(None),
+    };
+
+    // Phase 2 THINK: becoming done is completing the item — reuse the toggle
+    // path so the checklist gate, blocker check and recurrence spawn all apply.
+    if status == "done" && !item.completed {
+        return Ok(toggle_complete(pool, user_id, id).await?.map(|c| c.item));
+    }
+
+    // Phase 3 WRITE: `completed` is derived in the same statement
+    if !db::items::set_status(pool, id, user_id, status).await? {
+        return Ok(None);
+    }
+    Ok(db::items::get_one(pool, id, user_id).await?.map(Item::from))
 }
 
 #[tracing::instrument(skip(pool))]

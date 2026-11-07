@@ -1,3 +1,4 @@
+pub mod appearance;
 pub mod containers;
 pub mod items;
 pub mod lists;

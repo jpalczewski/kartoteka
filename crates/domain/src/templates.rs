@@ -244,6 +244,7 @@ mod tests {
                 container_id: None,
                 parent_list_id: None,
                 features: vec![],
+                color: None,
             },
         )
         .await
@@ -269,6 +270,7 @@ mod tests {
                 estimated_duration: None,
                 recurrence_rule: None,
                 recurrence_mode: None,
+                icon: None,
             },
         )
         .await

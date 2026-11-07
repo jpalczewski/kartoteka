@@ -70,6 +70,18 @@ pub fn should_auto_complete(actual_quantity: i32, target_quantity: i32) -> bool 
     actual_quantity >= target_quantity
 }
 
+/// The three item states. `done` is the only one that implies `completed`.
+pub const ITEM_STATUSES: &[&str] = &["todo", "in_progress", "done"];
+
+/// Validate a caller-supplied item status (unknown values are rejected).
+pub fn validate_status(status: &str) -> Result<(), DomainError> {
+    if ITEM_STATUSES.contains(&status) {
+        Ok(())
+    } else {
+        Err(DomainError::Validation("invalid_item_status"))
+    }
+}
+
 pub fn validate_can_complete(unresolved_blocker_count: usize) -> Result<(), DomainError> {
     if unresolved_blocker_count > 0 {
         return Err(DomainError::Validation("has_unresolved_blockers"));
@@ -131,6 +143,26 @@ mod tests {
     fn no_auto_complete_below_target() {
         assert!(!should_auto_complete(4, 5));
         assert!(!should_auto_complete(0, 5));
+    }
+
+    #[test]
+    fn known_statuses_accepted() {
+        for status in ["todo", "in_progress", "done"] {
+            assert!(validate_status(status).is_ok(), "{status} must be accepted");
+        }
+    }
+
+    #[test]
+    fn unknown_status_rejected() {
+        for bad in ["", "TODO", "done ", "in-progress", "blocked"] {
+            assert!(
+                matches!(
+                    validate_status(bad),
+                    Err(DomainError::Validation("invalid_item_status"))
+                ),
+                "{bad} must be rejected"
+            );
+        }
     }
 
     #[test]
