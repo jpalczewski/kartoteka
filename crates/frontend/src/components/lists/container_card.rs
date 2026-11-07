@@ -4,6 +4,8 @@ use leptos_fluent::move_tr;
 use leptos_router::hooks::use_navigate;
 
 use crate::components::common::dnd::{DragHandleButton, DragShell, DragSurface};
+use crate::components::lists::appearance::{AppearanceTarget, appearance_menu_item};
+use crate::components::lists::container_status_chip::ContainerStatusChip;
 use crate::components::ui::{ActionMenu, ActionMenuItem, EntityIcon};
 use crate::state::dnd::{DndState, DropTarget, EntityKind};
 
@@ -18,6 +20,8 @@ pub fn ContainerCard(
 ) -> impl IntoView {
     let href = format!("/containers/{}", container.id);
     let icon = container.icon.clone();
+    let color = container.color.clone();
+    let status = container.status.clone();
     let is_project = container.status.is_some();
     let is_pinned = container.pinned;
     let navigate = use_navigate();
@@ -39,6 +43,10 @@ pub fn ContainerCard(
 
     let menu_open = RwSignal::new(false);
     let mut menu_items = Vec::new();
+    menu_items.extend(appearance_menu_item(
+        AppearanceTarget::container(&container),
+        "container-action-appearance",
+    ));
     if let Some(cb) = on_pin {
         let cid = cid_pin.clone();
         menu_items.push(
@@ -87,9 +95,14 @@ pub fn ContainerCard(
             <div class="card-body p-4">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2 min-w-0">
-                        <EntityIcon raw=icon fallback=default_container_icon(is_project) />
+                        <EntityIcon raw=icon fallback=default_container_icon(is_project) color=color />
                         <div class="min-w-0">
-                            <span class="card-title text-base">{name}</span>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="card-title text-base">{name}</span>
+                                {status.map(|status| view! {
+                                    <ContainerStatusChip status=status testid=Some("container-status-chip") />
+                                })}
+                            </div>
                             {ancestor_path.map(|path| view! { <p class="text-xs text-base-content/50 truncate">{path}</p> })}
                         </div>
                     </div>

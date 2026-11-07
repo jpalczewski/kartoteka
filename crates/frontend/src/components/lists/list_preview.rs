@@ -1,4 +1,5 @@
 use crate::components::lists::add_input::AddInput;
+use crate::components::lists::appearance::{AppearanceTarget, appearance_menu_item};
 use crate::components::ui::{ActionMenu, ActionMenuItem, EntityIcon, Icon};
 use crate::server_fns::items::{create_item, toggle_item};
 use crate::server_fns::lists::get_list_preview_items;
@@ -23,6 +24,7 @@ pub fn ListPreview(
     let list_id = list.id.clone();
     let list_name = list.name.clone();
     let icon = list.icon.clone();
+    let color = list.color.clone();
     let icon_fallback = default_list_icon(&list.list_type);
     let href = format!("/lists/{}", list.id);
 
@@ -31,6 +33,10 @@ pub fn ListPreview(
     let list_archived = list.archived;
     let menu_open = RwSignal::new(false);
     let mut menu_items = Vec::new();
+    menu_items.extend(appearance_menu_item(
+        AppearanceTarget::list(&list),
+        "list-preview-action-appearance",
+    ));
     if let Some(cb) = on_archive {
         let lid = list_id_archive.clone();
         menu_items.push(
@@ -124,7 +130,7 @@ pub fn ListPreview(
                 }
             />
             <div class="collapse-title font-semibold flex items-center gap-2 pr-10">
-                <EntityIcon raw=icon fallback=icon_fallback />
+                <EntityIcon raw=icon fallback=icon_fallback color=color />
                 <span data-testid="list-preview-title">{list_name}</span>
                 <div class="ml-auto flex items-center gap-1 mr-2 relative z-10" on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()>
                     <a
