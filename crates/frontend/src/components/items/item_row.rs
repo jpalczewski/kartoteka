@@ -19,7 +19,7 @@ use super::parts::{
     DateChips, EstimateChip, ItemCheckbox, ItemIcon, ItemTitle, RecurrenceChip, StatusChip,
 };
 use super::quantity_stepper::QuantityStepper;
-use super::row_editors::{EstimateEditor, RecurrenceEditor, StatusEditor};
+use super::row_editors::{EstimateEditor, IconEditor, RecurrenceEditor, StatusEditor};
 use crate::components::common::dnd::ItemDragHandleButton;
 use crate::components::tags::tag_badge::TagBadge;
 use crate::components::tags::tag_selector_dropdown::TagSelectorDropdown;
@@ -311,6 +311,7 @@ fn ItemEditor(item: Memo<Option<Item>>, id: String, caps: Signal<ItemCaps>) -> i
 
     let id_desc = id.clone();
     let id_status = id.clone();
+    let id_icon = id.clone();
     let id_recurrence = id.clone();
     let id_estimate = id.clone();
     view! {
@@ -333,6 +334,7 @@ fn ItemEditor(item: Memo<Option<Item>>, id: String, caps: Signal<ItemCaps>) -> i
 
             <div class="flex flex-col gap-2 text-sm">
                 <StatusEditor item=item id=id_status can_complete=checkbox />
+                <IconEditor item=item id=id_icon />
                 <Show when=move || time.get()>
                     <EstimateEditor item=item id=id_estimate.clone() />
                 </Show>

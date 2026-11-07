@@ -12,7 +12,8 @@ use leptos_fluent::{I18n, move_tr};
 
 use super::date_field::DateFieldInput;
 use super::fields::{
-    EstimateField, RecurrenceFields, estimate_is_valid, recurrence_issue, recurrence_request,
+    EstimateField, IconField, RecurrenceFields, estimate_is_valid, recurrence_issue,
+    recurrence_request,
 };
 use super::item_view::ItemCaps;
 use crate::app::{ToastKind, use_toast};
@@ -37,6 +38,7 @@ pub struct AddItemDraft {
     pub estimate: RwSignal<String>,
     pub recurrence: RwSignal<String>,
     pub recurrence_mode: RwSignal<String>,
+    pub icon: RwSignal<Option<String>>,
     pub show_more: RwSignal<bool>,
 }
 
@@ -55,6 +57,7 @@ impl AddItemDraft {
             estimate: RwSignal::new(String::new()),
             recurrence: RwSignal::new(String::new()),
             recurrence_mode: RwSignal::new(DEFAULT_MODE.to_string()),
+            icon: RwSignal::new(None),
             show_more: RwSignal::new(false),
         }
     }
@@ -71,6 +74,7 @@ impl AddItemDraft {
         self.estimate.set(String::new());
         self.recurrence.set(String::new());
         self.recurrence_mode.set(DEFAULT_MODE.to_string());
+        self.icon.set(None);
         self.show_more.set(false);
     }
 
@@ -86,6 +90,7 @@ impl AddItemDraft {
             estimate: self.estimate.get_untracked(),
             recurrence: self.recurrence.get_untracked(),
             recurrence_mode: self.recurrence_mode.get_untracked(),
+            icon: self.icon.get_untracked(),
         }
     }
 }
@@ -109,6 +114,7 @@ struct ComposerInput {
     estimate: String,
     recurrence: String,
     recurrence_mode: String,
+    icon: Option<String>,
 }
 
 /// Why the typed input cannot be sent.
@@ -136,6 +142,7 @@ fn build_request(input: &ComposerInput, caps: ItemCaps) -> Result<CreateItemRequ
     let mut request = CreateItemRequest {
         title: title.to_string(),
         description: non_blank(&input.description),
+        icon: input.icon.clone(),
         ..Default::default()
     };
 
@@ -269,6 +276,11 @@ pub fn ItemComposer(
                         prop:value=move || draft.description.get()
                         on:input=move |ev| draft.description.set(event_target_value(&ev))
                     />
+                    <IconField
+                        value=draft.icon
+                        on_change=Callback::new(move |icon| draft.icon.set(icon))
+                        testid="composer-icon-button"
+                    />
                     <Show when=move || quantity.get()>
                         <div class="flex gap-2">
                             <input
@@ -361,6 +373,7 @@ mod tests {
         typed.unit = "l".into();
         typed.deadline = "2030-01-02".into();
         typed.estimate = "1h30m".into();
+        typed.icon = Some("lucide:star".into());
         typed.recurrence = "2w".into();
         typed.recurrence_mode = "floating".into();
 
@@ -372,6 +385,7 @@ mod tests {
         );
         assert_eq!(request.deadline.as_deref(), Some("2030-01-02"));
         assert_eq!(request.estimated_duration, Some(90));
+        assert_eq!(request.icon.as_deref(), Some("lucide:star"));
         assert_eq!(request.recurrence_rule.as_deref(), Some("2w"));
         assert_eq!(request.recurrence_mode.as_deref(), Some("floating"));
 
