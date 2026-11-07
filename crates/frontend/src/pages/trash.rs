@@ -16,8 +16,7 @@ use leptos_fluent::{I18n, move_tr};
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::loading::LoadingSpinner;
 use crate::server_fns::pending_deletions::{
-    delete_all_pending_deletions, delete_pending_deletions, get_pending_deletions,
-    unmark_pending_deletions,
+    delete_pending_deletions, get_pending_deletions, unmark_pending_deletions,
 };
 use crate::state::invalidation::{mutate_with, use_invalidation};
 use crate::utils::{AgeBucket, age_bucket, now_millis};
@@ -93,10 +92,8 @@ fn cascade_details(i18n: &I18n, lists: i64, containers: i64, items: i64) -> Opti
 /// A delete waiting for confirmation, with the numbers the dialog has to show.
 #[derive(Clone, PartialEq, Eq)]
 struct DeleteRequest {
-    /// Queue keys to delete; empty when `all` is set.
+    /// Queue keys to delete: exactly the rows the user saw.
     keys: Vec<PendingDeletionKey>,
-    /// Delete the whole queue instead of `keys`.
-    all: bool,
     /// How many queue rows go away.
     count: usize,
     /// Summed `contains` of the selected rows, i.e. what the cascade takes along.
@@ -106,7 +103,7 @@ struct DeleteRequest {
 }
 
 /// Build the confirmation payload for the given rows.
-fn request_for(rows: &[PendingDeletionItem], all: bool) -> DeleteRequest {
+fn request_for(rows: &[PendingDeletionItem]) -> DeleteRequest {
     let (lists, containers, items) = rows.iter().fold((0, 0, 0), |acc, row| match &row.contains {
         Some(preview) => (
             acc.0 + preview.lists,
@@ -117,7 +114,6 @@ fn request_for(rows: &[PendingDeletionItem], all: bool) -> DeleteRequest {
     });
     DeleteRequest {
         keys: rows.iter().map(key_of).collect(),
-        all,
         count: rows.len(),
         lists,
         containers,
@@ -293,7 +289,7 @@ pub fn TrashPage() -> impl IntoView {
     });
 
     let on_delete_one = Callback::new(move |item: PendingDeletionItem| {
-        request.set(Some(request_for(std::slice::from_ref(&item), false)));
+        request.set(Some(request_for(std::slice::from_ref(&item))));
     });
 
     let on_confirm = Callback::new(move |_: ()| {
@@ -301,16 +297,11 @@ pub fn TrashPage() -> impl IntoView {
             return;
         };
         request.set(None);
+        // Always the exact keys shown in the confirmation, also for "empty trash": rows
+        // marked after the page loaded (e.g. by an agent) must not go along unseen.
         let keys = pending.keys.clone();
-        let all = pending.all;
         mutate_with(
-            async move {
-                if all {
-                    delete_all_pending_deletions().await
-                } else {
-                    delete_pending_deletions(keys).await
-                }
-            },
+            async move { delete_pending_deletions(keys).await },
             &QUEUE_TOPICS,
             move |_deleted| selection.set(HashSet::new()),
         );
@@ -386,12 +377,12 @@ pub fn TrashPage() -> impl IntoView {
                             if rows.is_empty() {
                                 return;
                             }
-                            request.set(Some(request_for(&rows, false)));
+                            request.set(Some(request_for(&rows)));
                         };
 
                         let on_delete_all = move |_| {
                             let rows = items_for_all.get_value();
-                            request.set(Some(request_for(&rows, true)));
+                            request.set(Some(request_for(&rows)));
                         };
 
                         view! {
