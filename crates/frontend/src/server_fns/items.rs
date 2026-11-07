@@ -572,7 +572,8 @@ pub async fn get_all_items() -> Result<Vec<DateItem>, ServerFnError> {
 }
 
 /// Fetch items for each day of the week containing `start_date` (Mon–Sun).
-/// Pass "YYYY-MM-DD" — the server computes the Monday of that week.
+/// Pass "YYYY-MM-DD" — the server computes the Monday of that week; an empty string means
+/// the current week in the user's timezone.
 #[server(prefix = "/leptos")]
 pub async fn get_calendar_week(start_date: String) -> Result<Vec<CalendarWeekDay>, ServerFnError> {
     use chrono::{Datelike, Duration, NaiveDate};
@@ -580,8 +581,16 @@ pub async fn get_calendar_week(start_date: String) -> Result<Vec<CalendarWeekDay
 
     let (pool, user) = require_user().await?;
 
-    let date = NaiveDate::from_str(&start_date)
-        .map_err(|_| ServerFnError::new("invalid date".to_string()))?;
+    // Empty string → the current week in the user's timezone (the page starts with no
+    // week selected, like `get_calendar_month`).
+    let date = if start_date.is_empty() {
+        let prefs = domain::preferences::get(&pool, &user.id).await.sfn()?;
+        let tz: chrono_tz::Tz = prefs.timezone.parse().unwrap_or(chrono_tz::UTC);
+        chrono::Utc::now().with_timezone(&tz).date_naive()
+    } else {
+        NaiveDate::from_str(&start_date)
+            .map_err(|_| ServerFnError::new("invalid date".to_string()))?
+    };
     let monday = date - Duration::days(date.weekday().num_days_from_monday() as i64);
 
     let week_dates: Vec<NaiveDate> = (0..7).map(|i| monday + Duration::days(i)).collect();
