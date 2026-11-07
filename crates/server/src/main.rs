@@ -79,6 +79,7 @@ async fn main() {
         public_base_url,
         leptos_options,
         mcp_i18n,
+        kartoteka_server::TrustedProxies::from_env(),
     );
 
     tracing::info!("listening on {bind_addr}");

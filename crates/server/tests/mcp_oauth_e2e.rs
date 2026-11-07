@@ -39,6 +39,7 @@ fn build_app(pool: kartoteka_db::SqlitePool, mcp_i18n: Arc<McpI18n>) -> axum::Ro
             .output_name("kartoteka")
             .build(),
         mcp_i18n,
+        kartoteka_server::TrustedProxies::none(),
     )
 }
 
