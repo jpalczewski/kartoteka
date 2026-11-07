@@ -163,6 +163,7 @@ async fn create_list(pool: &SqlitePool, user_id: &str, name: &str) -> String {
         name: name.to_string(),
         list_type: None,
         icon: None,
+        color: None,
         description: None,
         container_id: None,
         parent_list_id: None,
