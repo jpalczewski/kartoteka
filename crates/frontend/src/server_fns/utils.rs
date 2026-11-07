@@ -93,6 +93,7 @@ mod tests {
             user_id: "u1".to_string(),
             name: format!("Name {id}"),
             icon: None,
+            color: None,
             description: None,
             status: None,
             parent_container_id: parent_id.map(str::to_string),
