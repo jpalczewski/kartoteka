@@ -42,6 +42,11 @@ impl<T: PartialEq> PatchField for Row<T> {
 /// An entry of an item list view: anything that carries an [`Item`].
 pub trait ItemEntry: Clone + PartialEq + Send + Sync + 'static {
     fn item(&self) -> &Item;
+
+    /// Type of the list the item belongs to, when the entry knows it (cross-list views).
+    fn list_type(&self) -> Option<&str> {
+        None
+    }
 }
 
 impl ItemEntry for Item {
@@ -53,6 +58,10 @@ impl ItemEntry for Item {
 impl ItemEntry for DateItem {
     fn item(&self) -> &Item {
         &self.item
+    }
+
+    fn list_type(&self) -> Option<&str> {
+        Some(&self.list_type)
     }
 }
 

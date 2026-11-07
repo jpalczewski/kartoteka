@@ -12,7 +12,9 @@ use kartoteka_shared::{ChangeTopic, TagUsage};
 use crate::components::common::confirm_modal::{ConfirmModal, ConfirmVariant};
 use crate::components::common::editable_text::EditableText;
 use crate::components::common::loading::LoadingSpinner;
+use crate::components::items::item_compact::{CompactLayout, CompactTestIds, ItemCompact};
 use crate::components::items::item_groups::{ListGroup, group_ids};
+use crate::components::items::item_view::ItemCaps;
 use crate::components::tags::color_picker::TagColorPicker;
 use crate::components::tags::tag_tree::{
     TagTreeRow, build_breadcrumb, build_subtree, get_descendant_ids, tag_type_key,
@@ -23,7 +25,14 @@ use crate::server_fns::tags::{
     set_tag_icon, update_tag, update_tag_color,
 };
 use crate::state::invalidation::{mutate, mutate_with, use_invalidation};
-use crate::state::item_store::{ItemRows, patch_rows, row_item, tracked_items};
+use crate::state::item_store::{ItemRows, patch_rows, tracked_items};
+
+const ITEM_TESTIDS: CompactTestIds = CompactTestIds {
+    row: None,
+    toggle: None,
+    title: Some("tag-item-link"),
+    description: None,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DetailAction {
@@ -615,57 +624,20 @@ fn TagItemGroups(store: Store<ItemRows<DateItem>>, groups: Memo<Vec<ListGroup>>)
                         </h4>
                         <ul class="flex flex-col">
                             <For each=item_ids key=|id| id.clone() let:id>
-                                <TagItemRow store=store id=id/>
+                                <li>
+                                    <ItemCompact
+                                        store=store
+                                        id=id
+                                        caps=ItemCaps::NONE
+                                        layout=CompactLayout::Plain
+                                        testids=ITEM_TESTIDS
+                                    />
+                                </li>
                             </For>
                         </ul>
                     </div>
                 }
             }
         </For>
-    }
-}
-
-/// One item link. Created once per item id and kept across refetches; every displayed
-/// field reads the keyed store, so only what changed re-renders.
-#[component]
-fn TagItemRow(store: Store<ItemRows<DateItem>>, id: String) -> impl IntoView {
-    let item = row_item(store, id);
-    let completed = move || item.with(|di| di.as_ref().is_some_and(|di| di.item.completed));
-    let href = move || {
-        item.with(|di| {
-            di.as_ref()
-                .map(|di| format!("/lists/{}/items/{}", di.item.list_id, di.item.id))
-                .unwrap_or_default()
-        })
-    };
-    let title = move || {
-        item.with(|di| {
-            di.as_ref()
-                .map(|di| di.item.title.clone())
-                .unwrap_or_default()
-        })
-    };
-
-    view! {
-        <li>
-            <A
-                href=href
-                attr:class=move || if completed() {
-                    "flex items-center gap-2 rounded-md px-1 py-1 text-sm text-base-content/40 hover:bg-base-200/50"
-                } else {
-                    "flex items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-base-200/50"
-                }
-                attr:data-testid="tag-item-link"
-            >
-                <Icon
-                    name=Signal::derive(move || String::from(if completed() { "circle-check" } else { "circle" }))
-                    size=14
-                    class="text-base-content/40"
-                />
-                <span class=move || if completed() { "truncate line-through" } else { "truncate" }>
-                    {title}
-                </span>
-            </A>
-        </li>
     }
 }

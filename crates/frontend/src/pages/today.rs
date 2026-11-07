@@ -1,8 +1,6 @@
 use std::collections::HashSet;
 
 use leptos::prelude::*;
-use leptos_fluent::move_tr;
-use leptos_router::components::A;
 use reactive_stores::Store;
 
 use kartoteka_shared::ChangeTopic;
@@ -10,13 +8,28 @@ use kartoteka_shared::types::{DateItem, ItemTagLink, Tag};
 
 use crate::components::common::list_filter_chips::ListFilterChips;
 use crate::components::common::loading::LoadingSpinner;
+use crate::components::items::item_compact::{CompactTestIds, ItemCompact};
 use crate::components::items::item_groups::{ItemGroups, group_ids};
-use crate::components::ui::{IconButton, IconButtonVariant};
-use crate::server_fns::items::{delete_item, get_today_data};
+use crate::components::items::item_view::ItemCaps;
+use crate::server_fns::items::get_today_data;
 use crate::server_fns::tags::{get_all_item_tag_links, get_all_tags};
-use crate::state::invalidation::{mutate, use_invalidation};
-use crate::state::item_actions::use_item_actions;
-use crate::state::item_store::{ItemRows, patch_rows, row_item, tracked_items};
+use crate::state::invalidation::use_invalidation;
+use crate::state::item_store::{ItemRows, patch_rows, tracked_items};
+
+const ROW_CAPS: ItemCaps = ItemCaps {
+    checkbox: true,
+    dates: true,
+    quantity: true,
+    delete: true,
+    ..ItemCaps::NONE
+};
+
+const ROW_TESTIDS: CompactTestIds = CompactTestIds {
+    row: Some("today-row"),
+    toggle: None,
+    title: None,
+    description: None,
+};
 
 #[component]
 pub fn TodayPage() -> impl IntoView {
@@ -177,7 +190,9 @@ pub fn TodayPage() -> impl IntoView {
                                     </h3>
                                     <ItemGroups
                                         groups=overdue_groups
-                                        row=move |id: String| view! { <TodayRow store=overdue_rows id=id/> }.into_any()
+                                        row=move |id: String| view! {
+                                            <ItemCompact store=overdue_rows id=id caps=ROW_CAPS testids=ROW_TESTIDS/>
+                                        }.into_any()
                                     />
                                 </div>
                             </Show>
@@ -190,7 +205,9 @@ pub fn TodayPage() -> impl IntoView {
                                     </Show>
                                     <ItemGroups
                                         groups=today_groups
-                                        row=move |id: String| view! { <TodayRow store=today_rows id=id/> }.into_any()
+                                        row=move |id: String| view! {
+                                            <ItemCompact store=today_rows id=id caps=ROW_CAPS testids=ROW_TESTIDS/>
+                                        }.into_any()
                                     />
                                 </div>
                             </Show>
@@ -198,62 +215,6 @@ pub fn TodayPage() -> impl IntoView {
                     </Show>
                 </Show>
             </Transition>
-        </div>
-    }
-}
-
-/// One row. Created once per item id and kept across refetches; every displayed
-/// field reads the keyed store, so only what changed re-renders.
-#[component]
-fn TodayRow(store: Store<ItemRows<DateItem>>, id: String) -> impl IntoView {
-    let item = row_item(store, id.clone());
-    let completed = move || item.with(|di| di.as_ref().is_some_and(|di| di.item.completed));
-    let title = move || item.with(|di| di.as_ref().map(|di| di.item.title.clone()));
-    let deadline = move || {
-        item.with(|di| {
-            di.as_ref()
-                .and_then(|di| di.item.deadline.as_ref().map(ToString::to_string))
-        })
-    };
-    let href = move || {
-        item.with(|di| {
-            di.as_ref()
-                .map(|di| format!("/lists/{}/items/{}", di.item.list_id, di.item.id))
-                .unwrap_or_default()
-        })
-    };
-    let actions = use_item_actions();
-    let id_toggle = id.clone();
-    let id_delete = id;
-
-    view! {
-        <div class="flex items-center gap-3 p-2 bg-base-200 rounded-lg group" data-testid="today-row">
-            <input
-                type="checkbox"
-                class="checkbox checkbox-sm checkbox-primary"
-                prop:checked=completed
-                on:change=move |_| actions.toggle.run(id_toggle.clone())
-            />
-            <A
-                href=href
-                attr:class=move || if completed() {
-                    "flex-1 text-sm text-base-content/50 line-through"
-                } else {
-                    "flex-1 text-sm text-base-content hover:text-primary"
-                }
-            >
-                {title}
-            </A>
-            {move || deadline().map(|d| view! { <span class="text-xs text-error/70">{d}</span> })}
-            <IconButton
-                icon="x"
-                label=move_tr!("common-delete")
-                variant=IconButtonVariant::Danger
-                class="opacity-0 group-hover:opacity-100"
-                on_click=Callback::new(move |_| {
-                    mutate(delete_item(id_delete.clone()), &[ChangeTopic::Items]);
-                })
-            />
         </div>
     }
 }

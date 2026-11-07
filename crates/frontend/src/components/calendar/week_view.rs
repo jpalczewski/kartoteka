@@ -4,7 +4,8 @@ use chrono::{Datelike, NaiveDate};
 use leptos::prelude::*;
 use reactive_stores::Store;
 
-use super::item_row::CalendarItemRow;
+use super::{ROW_CAPS, ROW_TESTIDS};
+use crate::components::items::item_compact::{CompactLayout, ItemCompact};
 use crate::state::item_store::ItemRows;
 use kartoteka_shared::types::DateItem;
 
@@ -70,7 +71,13 @@ pub fn WeekView(store: Store<ItemRows<DateItem>>, days: Memo<Vec<WeekDay>>) -> i
                                         key=|id| id.clone()
                                         let:id
                                     >
-                                        <CalendarItemRow store=store id=id compact=true/>
+                                        <ItemCompact
+                                            store=store
+                                            id=id
+                                            caps=ROW_CAPS
+                                            layout=CompactLayout::Dense
+                                            testids=ROW_TESTIDS
+                                        />
                                     </For>
                                 </div>
                             </Show>

@@ -1,17 +1,31 @@
 use leptos::prelude::*;
 use leptos_fluent::move_tr;
-use leptos_router::components::A;
 use reactive_stores::Store;
 
 use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::DateItem;
 
 use crate::components::common::loading::LoadingSpinner;
+use crate::components::items::item_compact::{CompactTestIds, ItemCompact};
 use crate::components::items::item_groups::{ItemGroups, group_ids};
+use crate::components::items::item_view::ItemCaps;
 use crate::server_fns::items::get_all_items;
 use crate::state::invalidation::use_invalidation;
-use crate::state::item_actions::use_item_actions;
-use crate::state::item_store::{ItemRows, patch_rows, row_item, tracked_items};
+use crate::state::item_store::{ItemRows, patch_rows, tracked_items};
+
+const ROW_CAPS: ItemCaps = ItemCaps {
+    checkbox: true,
+    dates: true,
+    quantity: true,
+    ..ItemCaps::NONE
+};
+
+const ROW_TESTIDS: CompactTestIds = CompactTestIds {
+    row: Some("all-row"),
+    toggle: Some("all-item-toggle"),
+    title: None,
+    description: Some("all-item-description"),
+};
 
 #[component]
 pub fn AllPage() -> impl IntoView {
@@ -111,7 +125,9 @@ pub fn AllPage() -> impl IntoView {
                                 >
                                     <ItemGroups
                                         groups=groups
-                                        row=move |id: String| view! { <AllRow store=rows id=id/> }.into_any()
+                                        row=move |id: String| view! {
+                                            <ItemCompact store=rows id=id caps=ROW_CAPS testids=ROW_TESTIDS/>
+                                        }.into_any()
                                     />
                                 </Show>
                             </div>
@@ -120,119 +136,5 @@ pub fn AllPage() -> impl IntoView {
                 </Show>
             </Transition>
         </div>
-    }
-}
-
-/// Notes and log lists have no completion concept, so their items must not render a checkbox.
-fn shows_checkbox(list_type: &str) -> bool {
-    !matches!(list_type, "notes" | "log")
-}
-
-/// One item row. Created once per item id and kept across refetches; every displayed
-/// field reads the keyed store, so only what changed re-renders.
-#[component]
-fn AllRow(store: Store<ItemRows<DateItem>>, id: String) -> impl IntoView {
-    let item = row_item(store, id.clone());
-    let id = StoredValue::new(id);
-    let actions = use_item_actions();
-
-    let completed = move || item.with(|di| di.as_ref().is_some_and(|di| di.item.completed));
-    let title = move || item.with(|di| di.as_ref().map(|di| di.item.title.clone()));
-    let href = move || {
-        item.with(|di| {
-            di.as_ref()
-                .map(|di| format!("/lists/{}/items/{}", di.item.list_id, di.item.id))
-                .unwrap_or_default()
-        })
-    };
-    let deadline = move || {
-        item.with(|di| {
-            di.as_ref()
-                .and_then(|di| di.item.deadline.as_ref().map(ToString::to_string))
-        })
-    };
-    let checkbox = Memo::new(move |_| {
-        item.with(|di| di.as_ref().is_some_and(|di| shows_checkbox(&di.list_type)))
-    });
-    // Shown instead of the checkbox for notes and log items, when they have text.
-    let description = Memo::new(move |_| {
-        item.with(|di| {
-            di.as_ref()
-                .filter(|di| !shows_checkbox(&di.list_type))
-                .and_then(|di| di.item.description.clone())
-                .filter(|d| !d.trim().is_empty())
-        })
-    });
-    let has_description = Memo::new(move |_| description.with(Option::is_some));
-
-    view! {
-        {move || if has_description.get() {
-            view! {
-                <div class="flex items-start gap-3 p-2 bg-base-200 rounded-lg" data-testid="all-row">
-                    <div class="flex-1 min-w-0">
-                        <A
-                            href=href
-                            attr:class=move || if completed() {
-                                "text-sm text-base-content/50 line-through"
-                            } else {
-                                "text-sm text-base-content hover:text-primary"
-                            }
-                        >
-                            {title}
-                        </A>
-                        <p
-                            class="text-xs text-base-content/60 line-clamp-2"
-                            data-testid="all-item-description"
-                        >
-                            {move || description.get().unwrap_or_default()}
-                        </p>
-                    </div>
-                    {move || deadline().map(|d| view! {
-                        <span class="text-xs text-error/70">{d}</span>
-                    })}
-                </div>
-            }.into_any()
-        } else {
-            view! {
-                <div class="flex items-center gap-3 p-2 bg-base-200 rounded-lg" data-testid="all-row">
-                    {move || checkbox.get().then(|| view! {
-                        <input
-                            type="checkbox"
-                            class="checkbox checkbox-sm checkbox-primary"
-                            data-testid="all-item-toggle"
-                            prop:checked=completed
-                            on:change=move |_| actions.toggle.run(id.get_value())
-                        />
-                    })}
-                    <A
-                        href=href
-                        attr:class=move || if completed() {
-                            "flex-1 text-sm text-base-content/50 line-through"
-                        } else {
-                            "flex-1 text-sm text-base-content hover:text-primary"
-                        }
-                    >
-                        {title}
-                    </A>
-                    {move || deadline().map(|d| view! {
-                        <span class="text-xs text-error/70">{d}</span>
-                    })}
-                </div>
-            }.into_any()
-        }}
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::shows_checkbox;
-
-    #[test]
-    fn checkbox_only_for_completable_list_types() {
-        assert!(shows_checkbox("checklist"));
-        assert!(shows_checkbox("shopping"));
-        assert!(shows_checkbox("schedule"));
-        assert!(!shows_checkbox("log"));
-        assert!(!shows_checkbox("notes"));
     }
 }

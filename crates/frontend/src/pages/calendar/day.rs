@@ -6,8 +6,9 @@ use kartoteka_shared::ChangeTopic;
 use kartoteka_shared::types::DateItem;
 
 use super::add_days;
-use crate::components::calendar::item_row::CalendarItemRow;
+use crate::components::calendar::{ROW_CAPS, ROW_TESTIDS};
 use crate::components::common::loading::LoadingSpinner;
+use crate::components::items::item_compact::ItemCompact;
 use crate::server_fns::items::get_items_by_date;
 use crate::state::invalidation::use_invalidation;
 use crate::state::item_store::{ItemRows, patch_rows, tracked_items};
@@ -180,7 +181,7 @@ fn DayGroups(store: Store<ItemRows<DateItem>>, groups: Memo<Vec<ListGroup>>) -> 
                             </h4>
                             <div class="flex flex-col gap-1">
                                 <For each=item_ids key=|id| id.clone() let:id>
-                                    <CalendarItemRow store=store id=id/>
+                                    <ItemCompact store=store id=id caps=ROW_CAPS testids=ROW_TESTIDS/>
                                 </For>
                             </div>
                         </div>
