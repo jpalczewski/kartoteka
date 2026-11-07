@@ -522,6 +522,28 @@ pub async fn remove_list_tag(
     Ok(rows.rows_affected() > 0)
 }
 
+/// Copy every tag link of `from_item_id` onto `to_item_id`, keeping links that
+/// already exist. Used when a recurring item spawns its next occurrence inside
+/// the same transaction; ownership is the caller's responsibility (both items
+/// are written by that transaction).
+#[tracing::instrument(skip(conn))]
+pub async fn copy_item_tags_in_tx(
+    conn: &mut SqliteConnection,
+    from_item_id: &str,
+    to_item_id: &str,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT OR IGNORE INTO item_tags (item_id, tag_id) \
+         SELECT ?, tag_id FROM item_tags WHERE item_id = ?",
+    )
+    .bind(to_item_id)
+    .bind(from_item_id)
+    .execute(&mut *conn)
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(())
+}
+
 /// Returns all (item_id, tag_id) pairs for items belonging to a given list.
 #[tracing::instrument(skip(pool))]
 pub async fn get_item_tags_for_list(
@@ -1109,5 +1131,67 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(found, Some(child.id));
+    }
+
+    // ── copy_item_tags_in_tx ──────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn copy_item_tags_in_tx_copies_all_links_once() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = crate::test_helpers::create_test_list(&pool, &uid).await;
+        let from_id = crate::test_helpers::create_test_item(&pool, &list_id).await;
+        let to_id = crate::test_helpers::create_test_item(&pool, &list_id).await;
+        let work = crate::test_helpers::create_test_tag(&pool, &uid, "work").await;
+        let home = crate::test_helpers::create_test_tag(&pool, &uid, "home").await;
+
+        add_item_tag(&pool, &from_id, &work, &uid).await.unwrap();
+        add_item_tag(&pool, &from_id, &home, &uid).await.unwrap();
+
+        let mut tx = pool.begin().await.unwrap();
+        copy_item_tags_in_tx(&mut tx, &from_id, &to_id)
+            .await
+            .unwrap();
+        // Repeated copies are a no-op thanks to INSERT OR IGNORE.
+        copy_item_tags_in_tx(&mut tx, &from_id, &to_id)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let mut copied: Vec<String> =
+            sqlx::query_as("SELECT tag_id FROM item_tags WHERE item_id = ?")
+                .bind(&to_id)
+                .fetch_all(&pool)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|(tag_id,)| tag_id)
+                .collect();
+        copied.sort();
+        let mut expected = vec![work, home];
+        expected.sort();
+        assert_eq!(copied, expected);
+    }
+
+    #[tokio::test]
+    async fn copy_item_tags_in_tx_with_no_tags_copies_nothing() {
+        let pool = test_pool().await;
+        let uid = create_test_user(&pool).await;
+        let list_id = crate::test_helpers::create_test_list(&pool, &uid).await;
+        let from_id = crate::test_helpers::create_test_item(&pool, &list_id).await;
+        let to_id = crate::test_helpers::create_test_item(&pool, &list_id).await;
+
+        let mut tx = pool.begin().await.unwrap();
+        copy_item_tags_in_tx(&mut tx, &from_id, &to_id)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT tag_id FROM item_tags WHERE item_id = ?")
+            .bind(&to_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert!(rows.is_empty());
     }
 }
