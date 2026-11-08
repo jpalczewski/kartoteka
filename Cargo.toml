@@ -32,7 +32,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 axum-login = "0.18"
 tower-sessions = "0.14"
 tower-sessions-sqlx-store = { version = "0.15", features = ["sqlite"] }
-argon2 = "0.5"
+argon2 = "0.6"
 time = "0.3"
 tower-http = { version = "0.7", features = ["trace", "cors"] }
 async-trait = "0.1"
