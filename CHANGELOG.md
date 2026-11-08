@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0](https://github.com/jpalczewski/kartoteka/compare/v1.10.0...v1.11.0) (2026-11-08)
+
+
+### Features
+
+* **db:** migration 022 backfills sublists with their parent's type and features ([8c4794d](https://github.com/jpalczewski/kartoteka/commit/8c4794dbffa5f3fa88a2ed4f01799db04848cdc2))
+* **db:** per-tag usage counts ([be873b9](https://github.com/jpalczewski/kartoteka/commit/be873b98f3423375926e65a6849343b2894f7021))
+* **domain:** idempotent archive/pin setters, keep feature configs ([df7b3f8](https://github.com/jpalczewski/kartoteka/commit/df7b3f8ae63b22e96ac08f183a63c6d11694eccc))
+* **domain:** new sublists inherit the parent list's type and features ([22a3b7a](https://github.com/jpalczewski/kartoteka/commit/22a3b7ada33599e51f21b74052469ad645c3a458))
+* **domain:** per-tag usage counts and tag icon validation ([35ba410](https://github.com/jpalczewski/kartoteka/commit/35ba4101c59d4db12210079337ed5261702d02fb))
+* **domain:** require list features when update sets dates or quantities ([28daea0](https://github.com/jpalczewski/kartoteka/commit/28daea000fd8d49eaaf69b7a238a236747eaf35a))
+* **domain:** require time_tracking when assigning a time entry ([2fc3a5c](https://github.com/jpalczewski/kartoteka/commit/2fc3a5c65c5090b0a292e0b87610bcc26850d92a))
+* **frontend:** /trash review page for pending deletions ([df4b078](https://github.com/jpalczewski/kartoteka/commit/df4b078d403ca7601fe36155800043215bfbe56b))
+* **frontend:** icon and colour picker for lists and containers ([a045318](https://github.com/jpalczewski/kartoteka/commit/a045318f8390072d9c6e2778223b17608e97a9b6))
+* **frontend:** icon editor for items in the row and the composer ([ddafad5](https://github.com/jpalczewski/kartoteka/commit/ddafad55257b94852558dd2353dda1542e43f5fc))
+* **frontend:** item view parts (checkbox, title, date chips, quantity, recurrence, status, icon) ([4861b3e](https://github.com/jpalczewski/kartoteka/commit/4861b3e5cefae95a46a533ce14d3f8e747c74b10))
+* **frontend:** ItemComposer replaces AddItemInput ([095bee7](https://github.com/jpalczewski/kartoteka/commit/095bee7dfaa39d67ff11905b2a777ebe75ae9b5b))
+* **frontend:** live updates client over SSE ([#358](https://github.com/jpalczewski/kartoteka/issues/358)) ([52ab555](https://github.com/jpalczewski/kartoteka/commit/52ab555ea7f537234172977940acd96a32043ff7))
+* **frontend:** row editors for status, recurrence and estimate ([c2143d5](https://github.com/jpalczewski/kartoteka/commit/c2143d52edb910e4ccc89208de8a170b7c9e0c57))
+* **frontend:** tags page redesign and tag detail page ([d64fb17](https://github.com/jpalczewski/kartoteka/commit/d64fb17b3d8c0b7eb84fba359a447daab44dce93))
+* **frontend:** user's today from the server for item views ([ab0f728](https://github.com/jpalczewski/kartoteka/commit/ab0f728f4375d59955e7a86998f32dec3a6cdfe2))
+* **mcp:** add reorder_items, move_item and reorder_lists ([18ee6a3](https://github.com/jpalczewski/kartoteka/commit/18ee6a37886c8237dfeca0c8d2b1e094fea1bc0a))
+* **mcp:** expose inherit_from_parent on the list creation tools ([44658aa](https://github.com/jpalczewski/kartoteka/commit/44658aa1a12aa36d2f164bdeaef575070bcb41d7))
+* **mcp:** list and container lifecycle tools ([c69484f](https://github.com/jpalczewski/kartoteka/commit/c69484f536b1526885a900b5ebc750a26eaa7a92))
+* **mcp:** read comments and relations, time inbox and assign ([3df4446](https://github.com/jpalczewski/kartoteka/commit/3df4446f4205c21231ca08d82e8fc45e9d87f5f9))
+* **mcp:** toggle_mark_for_delete and list_marked_for_delete ([e99e239](https://github.com/jpalczewski/kartoteka/commit/e99e2397fa4427febdc73c4f6916601711693981))
+* **server:** stream live updates over GET /api/events ([a86deb0](https://github.com/jpalczewski/kartoteka/commit/a86deb0f8ff6106a561be3af1358b09faedba61a))
+* **shared:** item display helpers (href, overdue, date chips, quantity label) ([ed0abc6](https://github.com/jpalczewski/kartoteka/commit/ed0abc6dbc217312602db4456780c225cda4fbf5))
+* **shared:** readable tag text colour and tag palette ([8faa1cc](https://github.com/jpalczewski/kartoteka/commit/8faa1cc46dea9d389c99127cad50b90ea8b888ee))
+
+
+### Bug Fixes
+
+* **deps:** bump leptos to 0.8.23 to fix hanging SSR responses ([0cabaec](https://github.com/jpalczewski/kartoteka/commit/0cabaeceb768cf1584be4e70c85ffc9f7d2e603d))
+* **domain:** only validate newly enabled feature names ([a292ccb](https://github.com/jpalczewski/kartoteka/commit/a292ccb1b0911d71aedf338d3c593e5d86393d24))
+* **frontend:** keep the add-item draft when the list page refetches ([b87ac4b](https://github.com/jpalczewski/kartoteka/commit/b87ac4baf049b044e4f20e90f397c89ab7436c21)), closes [#426](https://github.com/jpalczewski/kartoteka/issues/426)
+* **frontend:** keep trash badge in the nav Suspense, delete only shown rows ([27f4570](https://github.com/jpalczewski/kartoteka/commit/27f457043a95805111dd3ccdea634d7ff429adc3))
+* **frontend:** open the calendar week view on the current week ([8e1e275](https://github.com/jpalczewski/kartoteka/commit/8e1e275ba6d080065097b82bcf6e8793b4f6191f))
+* **frontend:** render the list/folder/project create tabs under DaisyUI 5 ([ebc75dc](https://github.com/jpalczewski/kartoteka/commit/ebc75dc50d2bbf3a4336f16509ee2b3168292878))
+* **frontend:** sublist item rows honour the sublist's features ([#341](https://github.com/jpalczewski/kartoteka/issues/341)) ([d4c0628](https://github.com/jpalczewski/kartoteka/commit/d4c0628f955755fd3fd85cc413a3711dca0858e6))
+* **frontend:** type-erase the item editor view ([94ea3fd](https://github.com/jpalczewski/kartoteka/commit/94ea3fd132eac494bf9406994354ef83c11137f8))
+* **i18n:** drop leftover glyphs from tag move/merge button labels ([52ba490](https://github.com/jpalczewski/kartoteka/commit/52ba490b4007644bc286b2d2859dcd4f9cd0b700))
+
+
+### Performance Improvements
+
+* **frontend:** replace lucide-leptos with local SVG icon table ([9cd02ae](https://github.com/jpalczewski/kartoteka/commit/9cd02ae42796abe69c4a594885fc495062f339ec))
+
 ## [1.10.0](https://github.com/jpalczewski/kartoteka/compare/v1.9.0...v1.10.0) (2026-11-07)
 
 
