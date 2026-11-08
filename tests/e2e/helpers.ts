@@ -14,21 +14,9 @@ export async function waitForHydration(page: Page): Promise<void> {
   await page.waitForSelector("[data-hydrated]");
 }
 
-/**
- * `page.goto` that retries a navigation which stalled or was aborted (#422).
- *
- * On the shared dev VM a document navigation sometimes never reaches the server (no response
- * for 15 s, or `net::ERR_ABORTED` right after the previous page hydrated). The request is
- * cancelled by the next attempt, so retrying once keeps the test on its real assertion. The
- * root cause is not identified yet; this only stops the flake from failing the run.
- */
+/** `page.goto` with a generous timeout: on the shared dev VM a cold page can take a while. */
 export async function gotoPage(page: Page, path: string): Promise<void> {
-  try {
-    await page.goto(path, { timeout: 15_000 });
-  } catch (err) {
-    if (!/ERR_ABORTED|Timeout/.test(String(err))) throw err;
-    await page.goto(path);
-  }
+  await page.goto(path, { timeout: 30_000 });
 }
 
 /**
